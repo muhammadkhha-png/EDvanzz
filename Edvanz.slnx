@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Edvanz.API/Edvanz.API.csproj" />
+  <Project Path="Edvanz.Application/Edvanz.Application.csproj" />
+  <Project Path="Edvanz.Domain/Edvanz.Domain.csproj" />
+  <Project Path="Edvanz.Infrastructure/Edvanz.Infrastructure.csproj" />
+</Solution>
