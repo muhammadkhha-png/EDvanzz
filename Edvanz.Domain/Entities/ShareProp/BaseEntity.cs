@@ -13,8 +13,6 @@ namespace Edvanz.Domain.Entities.ShareProp
         [Key]
         public long Id { get; set; }
         public DateTime CreateAt { get; set; }
-        [ForeignKey(nameof(CreateByUser))]
-        public long? CreateByUserId { get; set; }
-        public User? CreateByUser { get; set; }
+       
     }
 }

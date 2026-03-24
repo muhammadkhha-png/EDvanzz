@@ -3,7 +3,7 @@ using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 

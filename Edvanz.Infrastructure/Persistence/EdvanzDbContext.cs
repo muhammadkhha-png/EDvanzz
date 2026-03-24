@@ -1,5 +1,7 @@
-﻿using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Constants;
+using Edvanz.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Edvanz.Infrastructure.Persistence;
 
@@ -11,6 +13,15 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
+        optionsBuilder.ConfigureWarnings(warnings =>
+               warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
 
+    }
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<AssisstantPemisions>()
+            .HasKey(ur => new { ur.UserId, ur.PermissionId });
     }
 }
