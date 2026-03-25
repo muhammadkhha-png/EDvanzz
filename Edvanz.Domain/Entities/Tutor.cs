@@ -1,8 +1,9 @@
-﻿using Edvanz.Domain.Enums;
+﻿using Edvanz.Domain.Entities.ShareProp;
+using Edvanz.Domain.Enums;
 
 namespace Edvanz.Domain.Entities;
 
-public class Tutor
+public class Tutor: BaseEntity
 {
     public long UserId { get; set; }
     public User User { get; set; }
@@ -10,6 +11,5 @@ public class Tutor
     public string? LanguagePreference { get; set; }
     public AccountStatus AccountStatus { get; set; } = AccountStatus.Active;
     public DateTime? DeactivatedAt { get; set; }
-    public long? CreatedBySuperAdminId { get; set; }
-    public User? CreatedBySuperAdmin { get; set; }
+  
 }
