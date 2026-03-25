@@ -1,14 +1,16 @@
 ﻿using Edvanz.Application.Dtos.exceptions;
-using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.Localization;
 
 public class ExceptionMiddleware
 {
     private readonly RequestDelegate _next;
+    private readonly IStringLocalizer<Edvanz.Domain.Resources.Messages> _localizer;
 
-    public ExceptionMiddleware(RequestDelegate next)
+    public ExceptionMiddleware(RequestDelegate next, IStringLocalizer<Edvanz.Domain.Resources.Messages> localizer)
     {
         _next = next;
+        _localizer = localizer;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -23,21 +25,12 @@ public class ExceptionMiddleware
         }
     }
 
-    private static Task HandleExceptionAsync(HttpContext context, Exception ex)
+    private async Task HandleExceptionAsync(HttpContext context, Exception ex)
     {
         var response = context.Response;
-
         response.ContentType = "application/json";
 
-        var result = new
-        {
-            success = false,
-            message = ex.Message,
-            //  في production شيل السطر ده           TODO
-            details = ex.StackTrace
-        };
-
-        response.StatusCode = ex switch
+        var statusCode = ex switch
         {
             NotFoundException => 404,
             UnauthorizedAccessException => 401,
@@ -45,6 +38,25 @@ public class ExceptionMiddleware
             _ => 500
         };
 
-        return response.WriteAsync(JsonSerializer.Serialize(result));
+        string messageKey = ex switch
+        {
+            NotFoundException => "NotFound",
+            UnauthorizedAccessException => "Unauthorized",
+            ArgumentException => "BadRequest",
+            _ => "ServerError"
+        };
+
+        var result = new
+        {
+            success = false,
+            message = _localizer[messageKey], 
+            #if DEBUG
+            details = ex.StackTrace 
+            #endif
+        };
+
+        response.StatusCode = statusCode;
+
+        await response.WriteAsync(JsonSerializer.Serialize(result));
     }
 }
