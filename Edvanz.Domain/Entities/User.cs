@@ -17,7 +17,7 @@ public class User: BaseEntity
     public string  SecurityStamp { get; set; }
 
     public string PhoneNumber { get; set; }
-
+    public byte[] IdImage { get; set; }
     public bool IsActive { get; set; } = true;
     [ForeignKey(nameof(CreateByUser))]
     public long? CreateByUserId { get; set; }
