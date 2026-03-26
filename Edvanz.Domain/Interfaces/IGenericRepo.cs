@@ -7,6 +7,10 @@ using System.Threading.Tasks;
 
 namespace Edvanz.Domain.Interfaces
 {
+    /// <summary>
+    /// Generic repository interface providing CRUD and query operations.
+    /// All data access in the Application layer goes through this interface via IUnitOfWork.
+    /// </summary>
     public interface IGenericRepo<T, Tkey> where T : class where Tkey : IEquatable<Tkey>
     {
         Task<IReadOnlyList<T>> GetAllAsync();
@@ -20,5 +24,20 @@ namespace Edvanz.Domain.Interfaces
         Task<T?> FindAsync(Expression<Func<T, bool>> predicate);
         Task<bool> AnyAsync(Expression<Func<T, bool>> predicate);
         Task DeleteRangeAsync(IEnumerable<T> entities);
+
+        /// <summary>
+        /// Returns the count of entities matching the predicate.
+        /// Used for pagination total count calculations.
+        /// </summary>
+        Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null);
+
+        /// <summary>
+        /// Returns a paginated list of entities from an IQueryable source.
+        /// Executes the query with Skip/Take applied asynchronously.
+        /// </summary>
+        /// <param name="query">The IQueryable with filters and sorting already applied.</param>
+        /// <param name="page">1-based page number.</param>
+        /// <param name="pageSize">Number of records per page.</param>
+        Task<IReadOnlyList<T>> GetPagedAsync(IQueryable<T> query, int page, int pageSize);
     }
 }

@@ -9,6 +9,7 @@
   <ItemGroup>
     <Folder Include="Exceptions\" />
     <Folder Include="Repositories\" />
+    <Folder Include="ServiceContract\" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,149 @@
+﻿using Edvanz.Domain.Entities.ShareProp;
+using Edvanz.Domain.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Edvanz.Domain.Entities;
+
+/// <summary>
+/// Stores all configurable settings for a Teacher's account.
+/// AAM-FR-04: Created with system defaults when the teacher account is created.
+/// AAM-NFR-05: Configuration flow is skippable; defaults apply automatically.
+/// AAM-BR-04: Defaults are documented in the system configuration reference.
+/// One-to-one relationship with Teacher.
+/// </summary>
+public class TeacherConfiguration : BaseEntity
+{
+    /// <summary>
+    /// Foreign key to the owning Teacher.
+    /// </summary>
+    [ForeignKey(nameof(Teacher))]
+    public long TeacherId { get; set; }
+    public Teacher Teacher { get; set; } = null!;
+
+    // ─── AAM-FR-04.2: Student Code Generation ───
+
+    /// <summary>
+    /// Whether student codes are auto-generated or manually entered by the teacher.
+    /// Default: Auto.
+    /// </summary>
+    public GenerationMode StudentCodeGenerationMode { get; set; } = GenerationMode.Auto;
+
+    /// <summary>
+    /// Language for auto-generated student codes (Arabic or English).
+    /// Only applicable when StudentCodeGenerationMode is Auto.
+    /// Default: English.
+    /// </summary>
+    public GenerationLanguage StudentCodeLanguage { get; set; } = GenerationLanguage.English;
+
+    // ─── AAM-FR-04.3: Session Name Configuration ───
+
+    /// <summary>
+    /// Whether session names are auto-generated or manually entered by the teacher.
+    /// Default: Auto.
+    /// </summary>
+    public GenerationMode SessionNameMode { get; set; } = GenerationMode.Auto;
+
+    /// <summary>
+    /// Language for auto-generated session names (Arabic or English).
+    /// Only applicable when SessionNameMode is Auto.
+    /// Default: English.
+    /// </summary>
+    public GenerationLanguage SessionNameLanguage { get; set; } = GenerationLanguage.English;
+
+    // ─── AAM-FR-04.4: Prorated Payment Configuration ───
+
+    /// <summary>
+    /// Master toggle for the prorated payment feature.
+    /// When disabled, all students are charged the full amount regardless of join date.
+    /// Default: false (disabled).
+    /// </summary>
+    public bool IsProratedPaymentEnabled { get; set; } = false;
+
+    // ─── AAM-FR-04.5: Consecutive Absence Alert ───
+
+    /// <summary>
+    /// Number of consecutive absences before an alert is triggered.
+    /// Default: 3 sessions.
+    /// </summary>
+    public int ConsecutiveAbsenceThreshold { get; set; } = 3;
+
+    // ─── AAM-FR-04.6: Consecutive Unpaid Sessions Alert ───
+
+    /// <summary>
+    /// Number of consecutive unpaid sessions before a payment alert is triggered.
+    /// Default: 3 sessions.
+    /// </summary>
+    public int ConsecutiveUnpaidThreshold { get; set; } = 3;
+
+    // ─── AAM-FR-04.7: Barcode Configuration ───
+
+    /// <summary>
+    /// Whether student barcodes are displayed in-app or restricted to hard-copy only.
+    /// Default: InApp.
+    /// </summary>
+    public BarcodeDisplayMode BarcodeDisplayMode { get; set; } = BarcodeDisplayMode.InApp;
+
+    // ─── AAM-FR-04.8: Student Account Visibility ───
+
+    /// <summary>
+    /// Whether students can see the Attendance Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool StudentVisibilityAttendance { get; set; } = true;
+
+    /// <summary>
+    /// Whether students can see the Payment Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool StudentVisibilityPayment { get; set; } = true;
+
+    /// <summary>
+    /// Whether students can see the Homework Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool StudentVisibilityHomework { get; set; } = true;
+
+    /// <summary>
+    /// Default visibility for newly created exams in student accounts.
+    /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
+    /// Per-exam overrides are stored in a separate ExamVisibility table (future module).
+    /// Default: false (hidden per AAM-BR-10).
+    /// </summary>
+    public bool StudentVisibilityExamDefault { get; set; } = false;
+
+    // ─── AAM-FR-04.9: Parent Account Visibility ───
+
+    /// <summary>
+    /// Whether parents can see the Attendance Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool ParentVisibilityAttendance { get; set; } = true;
+
+    /// <summary>
+    /// Whether parents can see the Payment Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool ParentVisibilityPayment { get; set; } = true;
+
+    /// <summary>
+    /// Whether parents can see the Homework Track module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool ParentVisibilityHomework { get; set; } = true;
+
+    /// <summary>
+    /// Default visibility for newly created exams in parent accounts.
+    /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
+    /// Per-exam overrides are stored in a separate ExamVisibility table (future module).
+    /// Default: false (hidden per AAM-BR-10).
+    /// </summary>
+    public bool ParentVisibilityExamDefault { get; set; } = false;
+
+    /// <summary>
+    /// Timestamp of the last configuration update. Null if never modified after initial creation.
+    /// </summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    // Navigation
+    public ICollection<TeacherProratedTier> ProratedTiers { get; set; } = new List<TeacherProratedTier>();
+}

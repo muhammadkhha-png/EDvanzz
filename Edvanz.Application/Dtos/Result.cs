@@ -2,12 +2,10 @@
 using System.Collections.Generic;
 using System.Net;
 using System.Text;
+using Microsoft.Extensions.Localization;
 
 namespace Edvanz.Application.Dtos
 {
-    using Microsoft.Extensions.Localization;
-    using System.Net;
-
     public class Result<T>
     {
         public bool IsSuccess { get; set; }
