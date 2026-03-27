@@ -432,10 +432,12 @@ public class TeacherService : ITeacherService
         var query = teacherRepo.GetQueryable();
 
         // Filter by account status
+        AccountStatus? parsedAccountStatus = null;
         if (!string.IsNullOrWhiteSpace(accountStatus) &&
-            Enum.TryParse<AccountStatus>(accountStatus, true, out var parsedAccountStatus))
+            Enum.TryParse<AccountStatus>(accountStatus, true, out var parsed))
         {
-            query = query.Where(t => t.AccountStatus == parsedAccountStatus);
+            parsedAccountStatus = parsed;
+            query = query.Where(t => t.AccountStatus == parsedAccountStatus.Value);
         }
 
         // Search by teacher code (name/username search done post-query via User table)
@@ -462,9 +464,9 @@ public class TeacherService : ITeacherService
 
         // Get total count and paginated data through repository
         var totalCount = await teacherRepo.CountAsync(
-            string.IsNullOrWhiteSpace(accountStatus)
-                ? null
-                : t => t.AccountStatus == parsedAccountStatus);
+            parsedAccountStatus.HasValue
+                ? t => t.AccountStatus == parsedAccountStatus.Value
+                : null);
 
         var teachers = await teacherRepo.GetPagedAsync(query, request.Page, request.PageSize);
 

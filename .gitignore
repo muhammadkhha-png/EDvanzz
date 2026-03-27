@@ -286,7 +286,7 @@ FakesAssemblies/
 node_modules/
 
 # Database Migrations
-Edvanz.Infrastructure/migrations/
+/Edvanz.Infrastructure/migrations/*.cs
 
 # Visual Studio 6 build log
 *.plg
