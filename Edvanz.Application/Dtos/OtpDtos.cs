@@ -6,7 +6,7 @@ using System.Text;
 namespace Edvanz.Application.Dtos
 {
  
-   public class OtpVerification
+   public class OtpVerificationDto
     {
         [Required]
         public string phoneNumber { get; set; }
