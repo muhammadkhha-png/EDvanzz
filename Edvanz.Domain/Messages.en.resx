@@ -146,4 +146,58 @@
     <value>Please select a valid language (English or Arabic)</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- STUDENT USER MODULE - REGISTRATION     -->
+  <!-- AAM-FR-05                              -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="StudentUserInitializedSuccess" xml:space="preserve">
+    <value>Your student account has been created successfully. Your unique Student Code is ready</value>
+  </data>
+  <data name="StudentUserAlreadyInitialized" xml:space="preserve">
+    <value>This account has already been set up as a student</value>
+  </data>
+  <data name="StudentUserNotFound" xml:space="preserve">
+    <value>We couldn't find this student account. Please check and try again</value>
+  </data>
+  <data name="StudentAccountCodeRequired" xml:space="preserve">
+    <value>Please provide a Student Account Code</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- STUDENT USER MODULE - PROFILE          -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="StudentUserProfileUpdated" xml:space="preserve">
+    <value>Your profile has been updated successfully</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- STUDENT USER MODULE - TEACHER LINKING  -->
+  <!-- AAM-FR-05.5 through 05.7              -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="TeacherLinkSuccess" xml:space="preserve">
+    <value>Teacher added to your dashboard successfully</value>
+  </data>
+  <data name="TeacherAlreadyLinked" xml:space="preserve">
+    <value>This teacher is already on your dashboard</value>
+  </data>
+  <data name="InvalidLinkCredentials" xml:space="preserve">
+    <value>The student code or token does not match any student under this teacher. Please check all three fields and try again</value>
+  </data>
+  <data name="StudentCodeRequired" xml:space="preserve">
+    <value>Please provide the student code assigned by the teacher</value>
+  </data>
+  <data name="HashedTokenRequired" xml:space="preserve">
+    <value>Please provide the student token/hash assigned by the teacher</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- STUDENT USER MODULE - TEACHER UNLINK   -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="TeacherUnlinkSuccess" xml:space="preserve">
+    <value>Teacher removed from your dashboard</value>
+  </data>
+  <data name="LinkNotFound" xml:space="preserve">
+    <value>No active link found between your account and this teacher</value>
+  </data>
+
 </root>

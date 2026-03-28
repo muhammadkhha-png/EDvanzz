@@ -146,4 +146,58 @@
     <value>من فضلك اختار لغة صحيحة (إنجليزي أو عربي)</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- الطالب - التسجيل                        -->
+  <!-- AAM-FR-05                              -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="StudentUserInitializedSuccess" xml:space="preserve">
+    <value>تم إنشاء حساب الطالب بنجاح. كود الطالب الخاص بيك جاهز</value>
+  </data>
+  <data name="StudentUserAlreadyInitialized" xml:space="preserve">
+    <value>الحساب ده متسجل كطالب بالفعل</value>
+  </data>
+  <data name="StudentUserNotFound" xml:space="preserve">
+    <value>مش لاقيين حساب الطالب ده. من فضلك راجع البيانات وحاول تاني</value>
+  </data>
+  <data name="StudentAccountCodeRequired" xml:space="preserve">
+    <value>من فضلك دخّل كود حساب الطالب</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- الطالب - الملف الشخصي                   -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="StudentUserProfileUpdated" xml:space="preserve">
+    <value>تم تحديث بياناتك بنجاح</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- الطالب - ربط المعلم                     -->
+  <!-- AAM-FR-05.5 إلى 05.7                  -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="TeacherLinkSuccess" xml:space="preserve">
+    <value>تم إضافة المعلم على لوحة التحكم بنجاح</value>
+  </data>
+  <data name="TeacherAlreadyLinked" xml:space="preserve">
+    <value>المعلم ده موجود على لوحة التحكم بالفعل</value>
+  </data>
+  <data name="InvalidLinkCredentials" xml:space="preserve">
+    <value>كود الطالب أو التوكن مش بيطابق أي طالب عند المعلم ده. من فضلك راجع التلات خانات وحاول تاني</value>
+  </data>
+  <data name="StudentCodeRequired" xml:space="preserve">
+    <value>من فضلك دخّل كود الطالب اللي المعلم اداهولك</value>
+  </data>
+  <data name="HashedTokenRequired" xml:space="preserve">
+    <value>من فضلك دخّل التوكن/الهاش اللي المعلم اداهولك</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- الطالب - إلغاء ربط المعلم               -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="TeacherUnlinkSuccess" xml:space="preserve">
+    <value>تم إزالة المعلم من لوحة التحكم</value>
+  </data>
+  <data name="LinkNotFound" xml:space="preserve">
+    <value>مفيش ربط نشط بين حسابك والمعلم ده</value>
+  </data>
+
 </root>

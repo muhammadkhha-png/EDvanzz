@@ -14,5 +14,6 @@ public static class InfrastructureServiceExtensions
     {
         // Teacher code generator (AAM-FR-03.3 / AAM-NFR-03)
         services.AddScoped<ITeacherCodeGenerator, TeacherCodeGenerator>();
+        services.AddScoped<IStudentAccountCodeGenerator, StudentAccountCodeGenerator>();
     }
 }

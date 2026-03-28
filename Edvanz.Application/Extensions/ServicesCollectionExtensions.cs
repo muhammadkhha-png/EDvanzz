@@ -23,11 +23,11 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IPasswordService, PasswordService>();
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<IuserService, UserService>();
+        services.AddScoped<IStudentUserService, StudentUserService>();
 
         #endregion
-       
-        // Add Localization
-       
+
+
 
         services.AddScoped<ITeacherService, TeacherService>();
 

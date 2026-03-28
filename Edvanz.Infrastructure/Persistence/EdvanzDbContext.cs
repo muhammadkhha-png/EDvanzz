@@ -31,6 +31,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<TeacherProratedTier> TeacherProratedTiers { get; set; }
     public DbSet<TeacherSubscription> TeacherSubscriptions { get; set; }
 
+    // ─── Student User module tables (AAM-FR-05) ───
+    public DbSet<TeacherStudent> TeacherStudents { get; set; }
+    public DbSet<StudentUser> StudentUsers { get; set; }
+    public DbSet<StudentTeacherLink> StudentTeacherLinks { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
@@ -50,13 +55,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<AssistantPermission>()
             .HasKey(ap => new { ap.UserId, ap.PermissionId });
 
-        modelBuilder.Entity<UsersTutor>()	
-			.HasKey(ut => new { ut.userId, ut.TutorId });
+        modelBuilder.Entity<UsersTutor>()
+            .HasKey(ut => new { ut.userId, ut.TutorId });
         modelBuilder.Entity<TemplateAssistant>()
            .HasKey(ur => new { ur.AssistantId, ur.TemplateId });
         modelBuilder.Entity<TemplatePermisions>()
            .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
-            
+
         #endregion
 
         #region Existing unique constraints
@@ -68,7 +73,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             .HasIndex(u => u.PhoneNumber)
             .IsUnique();
 
-        
+
         #endregion
 
         // ════════════════════════════════════════════════
@@ -261,6 +266,146 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // STUDENT USER MODULE CONFIGURATION (AAM-FR-05)
+        // ════════════════════════════════════════════════
+
+        #region TeacherStudent (teacher-scoped student record, Module 1)
+        modelBuilder.Entity<TeacherStudent>(entity =>
+        {
+            entity.ToTable("TeacherStudents");
+
+            // StudentName: mandatory, supports Arabic and English (REQ-STU-005 / REQ-STU-NFR-002)
+            entity.Property(ts => ts.StudentName)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            // StudentCode: mandatory, unique per teacher (REQ-STU-010)
+            entity.Property(ts => ts.StudentCode)
+                .HasMaxLength(10)
+                .IsRequired();
+
+            // Composite unique: StudentCode is unique within each teacher's account
+            entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode })
+                .IsUnique()
+                .HasDatabaseName("IX_TeacherStudents_TeacherId_StudentCode");
+
+            // HashedToken: mandatory, auto-generated (AAM-NFR-03)
+            entity.Property(ts => ts.HashedToken)
+                .HasMaxLength(128)
+                .IsRequired();
+
+            // Phone numbers: optional, variable length
+            entity.Property(ts => ts.StudentPhoneNumber)
+                .HasMaxLength(20);
+
+            entity.Property(ts => ts.ParentPhoneNumber)
+                .HasMaxLength(20);
+
+            // Barcode: optional, auto-generated (REQ-STU-047)
+            entity.Property(ts => ts.Barcode)
+                .HasMaxLength(50);
+
+            // Teacher FK: cascade delete when teacher account is removed
+            entity.HasOne(ts => ts.Teacher)
+                .WithMany()
+                .HasForeignKey(ts => ts.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Soft-delete filter: queries exclude deleted records by default
+            entity.HasQueryFilter(ts => !ts.IsDeleted);
+
+            // Performance index: active students per teacher (most common query path)
+            entity.HasIndex(ts => new { ts.TeacherId, ts.IsDeleted })
+                .HasDatabaseName("IX_TeacherStudents_TeacherId_IsDeleted");
+
+            // Performance index: linking flow lookup — TeacherId + StudentCode + HashedToken
+            entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode, ts.HashedToken })
+                .HasDatabaseName("IX_TeacherStudents_LinkingLookup");
+        });
+        #endregion
+
+        #region StudentUser (student user account, AAM-FR-05)
+        modelBuilder.Entity<StudentUser>(entity =>
+        {
+            entity.ToTable("StudentUsers");
+
+            // UserId: one-to-one with User (same pattern as Teachers.UserId)
+            entity.HasIndex(su => su.UserId)
+                .IsUnique()
+                .HasDatabaseName("IX_StudentUsers_UserId");
+
+            entity.HasOne(su => su.User)
+                .WithOne()
+                .HasForeignKey<StudentUser>(su => su.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // StudentAccountCode: unique, immutable (AAM-FR-05.3)
+            entity.Property(su => su.StudentAccountCode)
+                .HasMaxLength(10)
+                .IsRequired();
+
+            entity.HasIndex(su => su.StudentAccountCode)
+                .IsUnique()
+                .HasDatabaseName("IX_StudentUsers_StudentAccountCode");
+
+            // LanguagePreference: short code
+            entity.Property(su => su.LanguagePreference)
+                .HasMaxLength(5);
+
+            // Soft-delete filter: queries exclude deleted records by default
+            entity.HasQueryFilter(su => su.DeletedAt == null);
+
+            // Performance index for active, non-deleted student users
+            entity.HasIndex(su => new { su.AccountStatus, su.DeletedAt })
+                .HasDatabaseName("IX_StudentUsers_AccountStatus_DeletedAt");
+        });
+        #endregion
+
+        #region StudentTeacherLink (junction: StudentUser ↔ Teacher, AAM-FR-05.5)
+        modelBuilder.Entity<StudentTeacherLink>(entity =>
+        {
+            entity.ToTable("StudentTeacherLinks");
+
+            // Composite unique: a student can only link to the same teacher once
+            // (prevents duplicate dashboard entries per AAM-FR-05.7)
+            entity.HasIndex(stl => new { stl.StudentUserId, stl.TeacherId })
+                .IsUnique()
+                .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_TeacherId");
+
+            // StudentUser FK: cascade delete when student user account is removed
+            entity.HasOne(stl => stl.StudentUser)
+                .WithMany(su => su.StudentTeacherLinks)
+                .HasForeignKey(stl => stl.StudentUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Teacher FK: restrict — don't cascade teacher deletion to student links
+            entity.HasOne(stl => stl.Teacher)
+                .WithMany()
+                .HasForeignKey(stl => stl.TeacherId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // TeacherStudent FK: set null if teacher deletes the student record
+            // The link survives but TeacherStudentId becomes null (degraded state)
+            entity.HasOne(stl => stl.TeacherStudent)
+                .WithMany(ts => ts.StudentTeacherLinks)
+                .HasForeignKey(stl => stl.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Performance index: reverse lookup — which student users are linked to a teacher
+            entity.HasIndex(stl => stl.TeacherId)
+                .HasDatabaseName("IX_StudentTeacherLinks_TeacherId");
+
+            // Performance index: fast join to teacher's student record for data access
+            entity.HasIndex(stl => stl.TeacherStudentId)
+                .HasDatabaseName("IX_StudentTeacherLinks_TeacherStudentId");
+
+            // Performance index: active links filter (most common query path for dashboard)
+            entity.HasIndex(stl => new { stl.StudentUserId, stl.LinkStatus })
+                .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_LinkStatus");
         });
         #endregion
 
