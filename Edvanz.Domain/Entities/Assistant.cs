@@ -11,7 +11,6 @@ public class Assistant: BaseEntity
     public long TutorAccountId { get; set; }
     public Tutor Tutor { get; set; } 
 
-    //public long PermissionProfileId { get; set; }
-    //public PermissionProfile PermissionProfile { get; set; } = null!;
+
     public bool IsActive { get; set; } = true;
 }

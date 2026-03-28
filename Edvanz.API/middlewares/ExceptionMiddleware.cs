@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos.exceptions;
 using System.Text.Json;
 using Microsoft.Extensions.Localization;
+using Microsoft.EntityFrameworkCore;
 
 public class ExceptionMiddleware
 {
@@ -35,6 +36,8 @@ public class ExceptionMiddleware
             NotFoundException => 404,
             UnauthorizedAccessException => 401,
             ArgumentException => 400,
+           DbUpdateException => 409, // Conflict
+       
             _ => 500
         };
 
@@ -43,6 +46,7 @@ public class ExceptionMiddleware
             NotFoundException => "NotFound",
             UnauthorizedAccessException => "Unauthorized",
             ArgumentException => "BadRequest",
+            Microsoft.EntityFrameworkCore.DbUpdateException => "DatabaseConflict",
             _ => "ServerError"
         };
 

@@ -14,7 +14,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<AssisstantPemisions> AssistantPermissions { get; set; }
     public DbSet<Permission> Permissions { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
-
+    public DbSet<Module> Models { get; set; }
+    public DbSet<Template> Templates { get; set; }
+    public DbSet<TemplateAssistant> TemplatesOfAssistants { get; set; }
+    public DbSet<TemplatePermisions> TemplatesPermisions { get; set; }
 
 
 
@@ -33,6 +36,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             .HasKey(ur => new { ur.UserId, ur.PermissionId });
         modelBuilder.Entity<UsersTutor>()
             .HasKey(ur => new { ur.userId, ur.TutorId });
+        modelBuilder.Entity<TemplateAssistant>()
+           .HasKey(ur => new { ur.AssistantId, ur.TemplateId });
+        modelBuilder.Entity<TemplatePermisions>()
+           .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
         #endregion
         #region constrains
         modelBuilder.Entity<User>()
@@ -41,9 +48,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             modelBuilder.Entity<User>()
         .HasIndex(u => u.PhoneNumber)
         .IsUnique();
-        modelBuilder.Entity<User>()
-       .HasIndex(u => u.Email)
-       .IsUnique();
+
         #endregion
     }
 }

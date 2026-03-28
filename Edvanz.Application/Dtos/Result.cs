@@ -25,7 +25,7 @@ namespace Edvanz.Application.Dtos
             {
                 IsSuccess = true,
                 Data = data,
-                Message = messageKey != null ? localizer[messageKey] : null,
+                Message = localizer[messageKey],
                 StatusCode = statusCode
             };
         }

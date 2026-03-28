@@ -2,6 +2,7 @@ using Edvanz.Application.Extensions;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
 using Edvanz.Infrastructure.Persistence;
+using Edvanz.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -19,17 +20,12 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
+builder.Services.AddScoped<IUserRepo, UserRepo>();
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
-builder.Services.AddApplication();
-builder.Services.AddLocalization(options => options.ResourcesPath = "Resources");
 
-builder.Services.Configure<RequestLocalizationOptions>(options =>
-{
-    var supportedCultures = new[] { "en", "ar" };
-    options.DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("en");
-    options.SupportedCultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
-    options.SupportedUICultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
-});
+
+builder.Services.AddApplication();
+
 
 builder.Services.AddCors(options =>
 {

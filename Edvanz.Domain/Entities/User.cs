@@ -12,15 +12,19 @@ public class User: BaseEntity
     public string FullName { get; set; }
     public string Username { get; set; }
     [EmailAddress]
-    public string Email { get; set; }
+    public string? Email { get; set; }
     public string PasswordHashed { get; set; }
-    public string  SecurityStamp { get; set; }
+    public string  SecurityStamp { get; set; }= Guid.NewGuid().ToString();
 
     public string PhoneNumber { get; set; }
-    public byte[] IdImage { get; set; }
-    public bool IsActive { get; set; } = true;
+    public byte[]? IdImage { get; set; }
+    public bool? IsActive { get; set; } = true;
     [ForeignKey(nameof(CreateByUser))]
     public long? CreateByUserId { get; set; }
     public User? CreateByUser { get; set; }
+    public DateTime CreateAt { get; set; }
+    public bool? IsVerified { get; set; } = false;
+    public string? OtpCode { get; set; }
+    public DateTime? OtpExpiry { get; set; }
 
 }

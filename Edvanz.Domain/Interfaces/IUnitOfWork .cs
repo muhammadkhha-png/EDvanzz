@@ -15,5 +15,7 @@ namespace Edvanz.Domain.Interfaces
         Task RollbackAsync();
         Task CommitAsync();
         //Task LogError(Exception ex);
+        IUserRepo Users { get; }
+
     }
 }
