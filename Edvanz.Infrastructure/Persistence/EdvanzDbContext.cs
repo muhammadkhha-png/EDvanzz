@@ -21,7 +21,6 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<TemplatePermisions> TemplatesPermisions { get; set; }
 
 
-=======
 
     // ─── Teacher module tables ───
     public DbSet<Teacher> Teachers { get; set; }

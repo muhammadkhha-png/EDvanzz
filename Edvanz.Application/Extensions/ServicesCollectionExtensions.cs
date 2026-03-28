@@ -4,6 +4,8 @@ using Edvanz.Application.ServiceContract;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Builder;
 using System.Globalization;
+using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.ServiceContract;
 
 namespace Edvanz.Application.Extensions;
 
@@ -16,7 +18,6 @@ public static class ServicesCollectionExtensions
     {
 
         #region Services
-        services.AddScoped<ITutorService, TutorService>();
         services.AddScoped<ISmsService, SmsService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPasswordService, PasswordService>();
@@ -24,9 +25,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IuserService, UserService>();
 
         #endregion
-        #region Localization
+       
         // Add Localization
-        services.AddLocalization(options => options.ResourcesPath = "Resources");
+       
 
         services.AddScoped<ITeacherService, TeacherService>();
 
