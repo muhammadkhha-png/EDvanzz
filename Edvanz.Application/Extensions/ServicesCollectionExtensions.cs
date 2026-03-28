@@ -14,11 +14,7 @@ public static class ServicesCollectionExtensions
 {
     public static void AddApplication(this IServiceCollection services)
     {
-        // Teacher module
         services.AddScoped<ITeacherService, TeacherService>();
-
-        // Localization
-        services.AddLocalization(options => options.ResourcesPath = "Resources");
 
         services.Configure<RequestLocalizationOptions>(options =>
         {
@@ -26,6 +22,11 @@ public static class ServicesCollectionExtensions
             options.DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("en");
             options.SupportedCultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
             options.SupportedUICultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
+
+            options.RequestCultureProviders = new List<Microsoft.AspNetCore.Localization.IRequestCultureProvider>
+        {
+            new Microsoft.AspNetCore.Localization.AcceptLanguageHeaderRequestCultureProvider()
+        };
         });
     }
 }

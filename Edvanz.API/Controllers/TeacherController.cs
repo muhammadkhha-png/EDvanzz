@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
@@ -640,11 +641,14 @@ public class TeacherController : ApiBaseController
     [HttpGet("list")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTeachers(
-        [FromQuery] PaginatedRequest request,
-        [FromQuery] string? accountStatus = null,
-        [FromQuery] string? subscriptionStatus = null)
+    [FromQuery] PaginatedRequest request,
+    [FromQuery] AccountStatus? accountStatus = null,
+    [FromQuery] SubscriptionStatus? subscriptionStatus = null)
     {
-        var result = await _teacherService.GetTeachersAsync(request, accountStatus, subscriptionStatus);
+        var result = await _teacherService.GetTeachersAsync(
+            request,
+            accountStatus?.ToString(),
+            subscriptionStatus?.ToString());
         return ToResponse(result);
     }
 }

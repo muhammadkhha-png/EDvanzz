@@ -530,99 +530,137 @@ public class TeacherService : ITeacherService
         var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
         var userRepo = _unitOfWork.GetRepository<User, long>();
         var subscriptionRepo = _unitOfWork.GetRepository<TeacherSubscription, long>();
+        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
+        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
 
-        // Build filtered query using IQueryable (no EF Core dependency needed)
-        var query = teacherRepo.GetQueryable();
+        // ── 1. Load all base data ──────────────────────────────────────────────
+        var allTeachers = await teacherRepo.GetAsync(t => true);
+        var allUsers = await userRepo.GetAsync(u => true);
+        var allSubscriptions = await subscriptionRepo.GetAsync(s => true);
+        var allTeacherSubjects = await teacherSubjectRepo.GetAsync(ts => true);
+        var allSubjects = await subjectRepo.GetAsync(s => true);
 
-        // Filter by account status
+        // ── 2. Join teachers with users in memory ──────────────────────────────
+        var joined = allTeachers
+            .Select(teacher =>
+            {
+                var user = allUsers.FirstOrDefault(u => u.Id == teacher.UserId);
+
+                // Build subject names for this teacher
+                var subjectIds = allTeacherSubjects
+                    .Where(ts => ts.TeacherId == teacher.Id)
+                    .Select(ts => ts.SubjectId)
+                    .ToList();
+
+                var subjectNames = allSubjects
+                    .Where(s => subjectIds.Contains(s.Id))
+                    .Select(s => s.NameEn + " " + s.NameAr)
+                    .ToList();
+
+                // Combine all searchable text including custom subject
+                var subjectSearchText = string.Join(" ", subjectNames);
+                if (!string.IsNullOrWhiteSpace(teacher.CustomSubject))
+                    subjectSearchText += " " + teacher.CustomSubject;
+
+                // Get latest subscription
+                var latestSub = allSubscriptions
+                    .Where(s => s.TeacherId == teacher.Id)
+                    .OrderByDescending(s => s.EndDate)
+                    .FirstOrDefault();
+
+                return new
+                {
+                    Teacher = teacher,
+                    User = user,
+                    SubjectSearchText = subjectSearchText,
+                    LatestSub = latestSub
+                };
+            })
+            .ToList();
+
+        // ── 3. Filter by account status ────────────────────────────────────────
         if (!string.IsNullOrWhiteSpace(accountStatus) &&
             Enum.TryParse<AccountStatus>(accountStatus, true, out var parsedAccountStatus))
         {
-            query = query.Where(t => t.AccountStatus == parsedAccountStatus);
+            joined = joined.Where(x => x.Teacher.AccountStatus == parsedAccountStatus).ToList();
         }
 
-        // Search by teacher code (name/username search done post-query via User table)
+        // ── 4. Filter by subscription status ──────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(subscriptionStatus) &&
+            Enum.TryParse<SubscriptionStatus>(subscriptionStatus, true, out var parsedSubStatus))
+        {
+            joined = joined
+                .Where(x => x.LatestSub != null && x.LatestSub.SubscriptionStatus == parsedSubStatus)
+                .ToList();
+        }
+
+        // ── 5. Search — contains, case-insensitive, across all fields ─────────
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var search = request.Search.Trim().ToLower();
-            query = query.Where(t => t.TeacherCode.Contains(search));
+
+            joined = joined.Where(x =>
+                // Teacher code
+                x.Teacher.TeacherCode.ToLower().Contains(search) ||
+                // Full name
+                (x.User != null && x.User.FullName.ToLower().Contains(search)) ||
+                // Username
+                (x.User != null && x.User.Username.ToLower().Contains(search)) ||
+                // Phone number
+                (x.User != null && !string.IsNullOrWhiteSpace(x.User.PhoneNumber) &&
+                 x.User.PhoneNumber.ToLower().Contains(search)) ||
+                // Subject (predefined + custom)
+                x.SubjectSearchText.ToLower().Contains(search)
+            ).ToList();
         }
 
-        // Sort
-        query = request.SortBy?.ToLower() switch
+        // ── 6. Total count AFTER all filters ──────────────────────────────────
+        var totalCount = joined.Count;
+
+        bool isDesc = request.SortDirection == SortDirection.Desc;
+
+        joined = request.SortBy switch
         {
-            "capacity" => request.IsDescending
-                ? query.OrderByDescending(t => t.StudentCapacity)
-                : query.OrderBy(t => t.StudentCapacity),
-            "createdat" => request.IsDescending
-                ? query.OrderByDescending(t => t.CreateAt)
-                : query.OrderBy(t => t.CreateAt),
-            "code" => request.IsDescending
-                ? query.OrderByDescending(t => t.TeacherCode)
-                : query.OrderBy(t => t.TeacherCode),
-            _ => query.OrderByDescending(t => t.CreateAt)
+            TeacherSortBy.Capacity => isDesc
+                ? joined.OrderByDescending(x => x.Teacher.StudentCapacity).ToList()
+                : joined.OrderBy(x => x.Teacher.StudentCapacity).ToList(),
+
+            TeacherSortBy.Code => isDesc
+                ? joined.OrderByDescending(x => x.Teacher.TeacherCode).ToList()
+                : joined.OrderBy(x => x.Teacher.TeacherCode).ToList(),
+
+            TeacherSortBy.Name => isDesc
+                ? joined.OrderByDescending(x => x.User?.FullName ?? string.Empty).ToList()
+                : joined.OrderBy(x => x.User?.FullName ?? string.Empty).ToList(),
+
+            _ => isDesc
+                ? joined.OrderByDescending(x => x.Teacher.CreateAt).ToList()
+                : joined.OrderBy(x => x.Teacher.CreateAt).ToList()
         };
 
-        // Get total count from the already-filtered query and paginated data through repository
-        var totalCount = await teacherRepo.CountAsync(null);
-        // If filters were applied to the query, count should reflect that
-        if (!string.IsNullOrWhiteSpace(accountStatus) &&
-            Enum.TryParse<AccountStatus>(accountStatus, true, out _))
+        // ── 8. Paginate ────────────────────────────────────────────────────────
+        var paged = joined
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .ToList();
+
+        // ── 9. Build DTOs ──────────────────────────────────────────────────────
+        var items = paged.Select(x => new TeacherListItemDto
         {
-            totalCount = await teacherRepo.CountAsync(t => t.AccountStatus == Enum.Parse<AccountStatus>(accountStatus, true));
-        }
+            Id = x.Teacher.Id,
+            FullName = x.User?.FullName ?? string.Empty,
+            Username = x.User?.Username ?? string.Empty,
+            TeacherCode = x.Teacher.TeacherCode,
+            PhoneNumber = x.User?.PhoneNumber,
+            StudentCapacity = x.Teacher.StudentCapacity,
+            AccountStatus = x.Teacher.AccountStatus.ToString(),
+            IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
+            SubscriptionStatus = x.LatestSub?.SubscriptionStatus.ToString(),
+            SubscriptionEndDate = x.LatestSub?.EndDate,
+            CreatedAt = x.Teacher.CreateAt
+        }).ToList();
 
-        var teachers = await teacherRepo.GetPagedAsync(query, request.Page, request.PageSize);
-
-        // Build DTOs with user info and subscription
-        var items = new List<TeacherListItemDto>();
-        foreach (var teacher in teachers)
-        {
-            var user = await userRepo.FindAsync(u => u.Id == teacher.UserId);
-
-            // Name/username search filter (applied post-query because User is a separate table)
-            if (!string.IsNullOrWhiteSpace(request.Search))
-            {
-                var search = request.Search.Trim().ToLower();
-                bool matchesTeacherCode = teacher.TeacherCode.ToLower().Contains(search);
-                bool matchesUser = user is not null &&
-                    (user.FullName.ToLower().Contains(search) ||
-                     user.Username.ToLower().Contains(search));
-
-                if (!matchesTeacherCode && !matchesUser)
-                    continue;
-            }
-
-            // Get latest subscription for this teacher
-            var teacherSubs = await subscriptionRepo.GetAsync(s => s.TeacherId == teacher.Id);
-            var latestSub = teacherSubs
-                .OrderByDescending(s => s.EndDate)
-                .FirstOrDefault();
-
-            // Filter by subscription status if requested
-            if (!string.IsNullOrWhiteSpace(subscriptionStatus) &&
-                Enum.TryParse<SubscriptionStatus>(subscriptionStatus, true, out var parsedSubStatus))
-            {
-                if (latestSub is null || latestSub.SubscriptionStatus != parsedSubStatus)
-                    continue;
-            }
-
-            items.Add(new TeacherListItemDto
-            {
-                Id = teacher.Id,
-                FullName = user?.FullName ?? string.Empty,
-                Username = user?.Username ?? string.Empty,
-                TeacherCode = teacher.TeacherCode,
-                PhoneNumber = user?.PhoneNumber,
-                StudentCapacity = teacher.StudentCapacity,
-                AccountStatus = teacher.AccountStatus.ToString(),
-                IsConfigurationCompleted = teacher.IsConfigurationCompleted,
-                SubscriptionStatus = latestSub?.SubscriptionStatus.ToString(),
-                SubscriptionEndDate = latestSub?.EndDate,
-                CreatedAt = teacher.CreateAt
-            });
-        }
-
+        // ── 10. Build response ─────────────────────────────────────────────────
         var response = new PaginatedResponse<List<TeacherListItemDto>>
         {
             totalCount = totalCount,
@@ -632,7 +670,8 @@ public class TeacherService : ITeacherService
             data = items
         };
 
-        return Result<PaginatedResponse<List<TeacherListItemDto>>>.Success(response, _localizer, "Success", HttpStatusCode.OK);
+        return Result<PaginatedResponse<List<TeacherListItemDto>>>.Success(
+            response, _localizer, "Success", HttpStatusCode.OK);
     }
 
     // ══════════════════════════════════════════════

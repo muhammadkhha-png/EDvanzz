@@ -1,4 +1,29 @@
-﻿namespace Edvanz.Application.Dtos;
+﻿using System.ComponentModel;
+using System.Text.Json.Serialization;
+
+namespace Edvanz.Application.Dtos;
+
+/// <summary>
+/// Valid columns to sort the teacher list by.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum TeacherSortBy
+{
+    CreatedAt,
+    Name,
+    Capacity,
+    Code
+}
+
+/// <summary>
+/// Sort direction for list queries.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SortDirection
+{
+    Asc,
+    Desc
+}
 
 /// <summary>
 /// Shared input DTO for paginated list requests.
@@ -28,22 +53,22 @@ public class PaginatedRequest
     }
 
     /// <summary>
-    /// Optional search term for filtering by name, code, etc.
+    /// Optional search term. Searches across: name, username, teacher code,
+    /// phone number, and subject (English and Arabic).
+    /// Partial match — no need to type the full value.
     /// </summary>
+    [Description("Search by: name, username, teacher code, phone number, or subject (partial match, case-insensitive)")]
     public string? Search { get; set; }
 
     /// <summary>
-    /// Column to sort by. Null uses default sort.
+    /// Column to sort by: CreatedAt, Name, Capacity, Code.
+    /// Defaults to CreatedAt.
     /// </summary>
-    public string? SortBy { get; set; }
+    public TeacherSortBy SortBy { get; set; } = TeacherSortBy.CreatedAt;
 
     /// <summary>
-    /// Sort direction: "asc" or "desc". Defaults to "asc".
+    /// Sort direction: Asc or Desc. Defaults to Desc.
     /// </summary>
-    public string SortDirection { get; set; } = "asc";
+    public SortDirection SortDirection { get; set; } = SortDirection.Desc;
 
-    /// <summary>
-    /// Whether sort direction is descending.
-    /// </summary>
-    public bool IsDescending => SortDirection.Equals("desc", StringComparison.OrdinalIgnoreCase);
 }

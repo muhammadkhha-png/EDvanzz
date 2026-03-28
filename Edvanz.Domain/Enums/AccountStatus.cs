@@ -1,5 +1,8 @@
-﻿namespace Edvanz.Domain.Enums;
+﻿using System.Text.Json.Serialization;
 
+namespace Edvanz.Domain.Enums;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AccountStatus
 {
     Active = 1,
