@@ -14,8 +14,11 @@ namespace Edvanz.Application.Services;
 /// Follows the Result pattern for operation outcomes.
 /// All database access goes through IUnitOfWork + IGenericRepo.
 /// 
-/// This service handles Student-SPECIFIC operations only.
-/// User-level operations (registration, login, password) are in the User module.
+/// TRANSACTION SAFETY:
+/// Methods that write multiple rows check _unitOfWork.HasActiveTransaction.
+/// When called from User module registration (outer transaction active),
+/// they participate in that transaction. When called standalone, they
+/// manage their own. See ownsTransaction pattern in each write method.
 /// </summary>
 public class StudentUserService : IStudentUserService
 {
@@ -49,7 +52,12 @@ public class StudentUserService : IStudentUserService
         if (alreadyExists)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserAlreadyInitialized", HttpStatusCode.Conflict);
 
-        await _unitOfWork.BeginTransactionAsync();
+        // If caller already started a transaction (User module registration),
+        // we participate in it. Otherwise we manage our own.
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
         try
         {
@@ -69,16 +77,17 @@ public class StudentUserService : IStudentUserService
 
             await studentUserRepo.AddAsync(studentUser);
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
 
-            // Build and return the profile DTO
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
             var profileDto = BuildProfileDto(studentUser, user, linkedTeacherCount: 0);
-
             return Result<StudentUserProfileDto>.Success(profileDto, _localizer, "StudentUserInitializedSuccess", HttpStatusCode.Created);
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }
@@ -224,8 +233,10 @@ public class StudentUserService : IStudentUserService
         if (teacherStudent is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);
 
-        // ── 5. Create the link ──
-        await _unitOfWork.BeginTransactionAsync();
+        // ── 5. Create the link (transaction-safe) ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
         try
         {
@@ -249,9 +260,10 @@ public class StudentUserService : IStudentUserService
             }
 
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
 
-            // ── 6. Build the dashboard teacher DTO ──
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
             var dashboardTeacher = await BuildDashboardTeacherDtoAsync(
                 link, teacher, userRepo, teacherSubjectRepo, subjectRepo, configRepo);
 
@@ -259,7 +271,8 @@ public class StudentUserService : IStudentUserService
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }

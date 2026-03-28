@@ -13,6 +13,9 @@ namespace Edvanz.Application.Services;
 /// Implements all Parent User module operations.
 /// Follows the Result pattern for operation outcomes.
 /// All database access goes through IUnitOfWork + IGenericRepo.
+/// 
+/// TRANSACTION SAFETY:
+/// All transactional methods use the ownsTransaction pattern.
 /// </summary>
 public class ParentUserService : IParentUserService
 {
@@ -33,29 +36,44 @@ public class ParentUserService : IParentUserService
         var userRepo = _unitOfWork.GetRepository<User, long>();
         var parentRepo = _unitOfWork.GetRepository<ParentUser, long>();
 
-        // Validate the user exists and is of type Parent
         var user = await userRepo.FindAsync(u => u.Id == dto.UserId && u.UserType == UserType.Parent);
         if (user is null)
             return Result<ParentUserProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
-        // Ensure no duplicate ParentUser record for this user
         bool alreadyExists = await parentRepo.AnyAsync(p => p.UserId == dto.UserId);
         if (alreadyExists)
             return Result<ParentUserProfileDto>.Failure(_localizer, "ParentUserAlreadyInitialized", HttpStatusCode.Conflict);
 
-        var parentUser = new ParentUser
+        // Transaction-safe: participates in outer tx if active (User module registration)
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
         {
-            UserId = dto.UserId,
-            LanguagePreference = dto.LanguagePreference,
-            AccountStatus = AccountStatus.Active,
-            CreateAt = DateTime.UtcNow
-        };
+            var parentUser = new ParentUser
+            {
+                UserId = dto.UserId,
+                LanguagePreference = dto.LanguagePreference,
+                AccountStatus = AccountStatus.Active,
+                CreateAt = DateTime.UtcNow
+            };
 
-        await parentRepo.AddAsync(parentUser);
-        await _unitOfWork.SaveChangesAsync();
+            await parentRepo.AddAsync(parentUser);
+            await _unitOfWork.SaveChangesAsync();
 
-        var profileDto = BuildProfileDto(parentUser, user, childCount: 0);
-        return Result<ParentUserProfileDto>.Success(profileDto, _localizer, "ParentUserInitializedSuccess", HttpStatusCode.Created);
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            var profileDto = BuildProfileDto(parentUser, user, childCount: 0);
+            return Result<ParentUserProfileDto>.Success(profileDto, _localizer, "ParentUserInitializedSuccess", HttpStatusCode.Created);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -283,8 +301,11 @@ public class ParentUserService : IParentUserService
         if (teacherStudent is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);
 
-        // ── 5. Create the link ──
-        await _unitOfWork.BeginTransactionAsync();
+        // ── Transaction-safe ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
         try
         {
             var link = new ParentChildTeacherLink
@@ -299,7 +320,9 @@ public class ParentUserService : IParentUserService
 
             await linkRepo.AddAsync(link);
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
 
             var teacherDto = await BuildTeacherDtoAsync(
                 link.Id, link.LinkedAt, link.TeacherStudentId.HasValue,
@@ -309,7 +332,8 @@ public class ParentUserService : IParentUserService
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }

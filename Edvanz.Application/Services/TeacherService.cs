@@ -13,6 +13,12 @@ namespace Edvanz.Application.Services;
 /// Implements all Teacher module operations.
 /// Follows the Result pattern for operation outcomes.
 /// All database access goes through IUnitOfWork + IGenericRepo.
+/// 
+/// TRANSACTION SAFETY:
+/// All transactional methods use the ownsTransaction pattern:
+///   bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+/// This makes them safe for both standalone calls and nested calls
+/// from the User module's registration flow.
 /// </summary>
 public class TeacherService : ITeacherService
 {
@@ -65,7 +71,10 @@ public class TeacherService : ITeacherService
         if (dto.SubjectIds.Count == 0 && string.IsNullOrWhiteSpace(dto.CustomSubject))
             return Result<TeacherProfileDto>.Failure(_localizer, "SubjectRequired", HttpStatusCode.BadRequest);
 
-        await _unitOfWork.BeginTransactionAsync();
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
         try
         {
@@ -137,15 +146,17 @@ public class TeacherService : ITeacherService
 
             await proratedTierRepo.AddRangeAsync(defaultTiers);
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
 
-            // Build response
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
             var profile = await BuildTeacherProfileAsync(teacher.Id);
             return Result<TeacherProfileDto>.Success(profile, _localizer, "TeacherInitializedSuccess", HttpStatusCode.Created);
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }
@@ -212,7 +223,10 @@ public class TeacherService : ITeacherService
                 return Result<TeacherProfileDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
         }
 
-        await _unitOfWork.BeginTransactionAsync();
+        // ── Transaction-safe: participates in outer tx if active ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
         try
         {
@@ -251,14 +265,17 @@ public class TeacherService : ITeacherService
             }
 
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
 
             var profile = await BuildTeacherProfileAsync(teacherId);
             return Result<TeacherProfileDto>.Success(profile, _localizer, "ProfileUpdatedSuccess", HttpStatusCode.OK);
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }
@@ -288,7 +305,7 @@ public class TeacherService : ITeacherService
         {
             var firstSubject = await subjectRepo.FindAsync(s => s.Id == teacherSubjects.First().SubjectId);
             if (firstSubject is not null)
-                subjectName = firstSubject.NameEn; // Caller should determine language preference
+                subjectName = firstSubject.NameEn;
         }
 
         var dto = new TeacherPublicInfoDto
@@ -316,18 +333,19 @@ public class TeacherService : ITeacherService
         if (config is null)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
 
-        // Validate prorated tiers
         if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count == 0)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTiersRequired", HttpStatusCode.BadRequest);
 
         if (dto.ProratedTiers.Count > 3)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "MaxThreeProratedTiers", HttpStatusCode.BadRequest);
 
-        await _unitOfWork.BeginTransactionAsync();
+        // ── Transaction-safe ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
         try
         {
-            // Update capacity package on Teacher if provided
             if (dto.StudentCapacityPackageId.HasValue)
             {
                 var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
@@ -390,9 +408,10 @@ public class TeacherService : ITeacherService
             }
 
             await _unitOfWork.SaveChangesAsync();
-            await _unitOfWork.CommitAsync();
 
-            // Build response with save-specific success message
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
             var configResult = await GetConfigurationAsync(teacherId);
             if (configResult.IsSuccess && configResult.Data is not null)
                 return Result<TeacherConfigurationDto>.Success(configResult.Data, _localizer, "ConfigurationSavedSuccess", HttpStatusCode.OK);
@@ -401,7 +420,8 @@ public class TeacherService : ITeacherService
         }
         catch
         {
-            await _unitOfWork.RollbackAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
             throw;
         }
     }

@@ -36,6 +36,12 @@ namespace Edvanz.Infrastructure
         public async Task<int> SaveChangesAsync() => await _Context.SaveChangesAsync();
         public async ValueTask DisposeAsync() => await _Context.DisposeAsync();
         //--------------------------------------------------------------------------------------
+
+        /// <inheritdoc />
+        public bool HasActiveTransaction => _transaction is not null;
+
+        //--------------------------------------------------------------------------------------
+
         public async Task BeginTransactionAsync()
         {
             _transaction = await _Context.Database.BeginTransactionAsync();
