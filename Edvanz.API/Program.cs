@@ -4,6 +4,7 @@ using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
 using Edvanz.Infrastructure.Extensions;
 using Edvanz.Infrastructure.Persistence;
+using Edvanz.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -26,6 +27,7 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
+builder.Services.AddScoped<IUserRepo, UserRepo>();
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();

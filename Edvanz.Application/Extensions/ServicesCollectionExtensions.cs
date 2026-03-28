@@ -14,6 +14,20 @@ public static class ServicesCollectionExtensions
 {
     public static void AddApplication(this IServiceCollection services)
     {
+
+        #region Services
+        services.AddScoped<ITutorService, TutorService>();
+        services.AddScoped<ISmsService, SmsService>();
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IPasswordService, PasswordService>();
+        services.AddScoped<IOtpService, OtpService>();
+        services.AddScoped<IuserService, UserService>();
+
+        #endregion
+        #region Localization
+        // Add Localization
+        services.AddLocalization(options => options.ResourcesPath = "Resources");
+
         services.AddScoped<ITeacherService, TeacherService>();
 
         services.Configure<RequestLocalizationOptions>(options =>

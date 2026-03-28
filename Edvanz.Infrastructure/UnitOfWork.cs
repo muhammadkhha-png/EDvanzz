@@ -19,7 +19,7 @@ namespace Edvanz.Infrastructure
 
         private readonly ConcurrentDictionary<string, object> _Repositories = new ConcurrentDictionary<string, object>();
         private readonly EdvanzDbContext _Context;
-
+        private IUserRepo? _userRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -93,5 +93,10 @@ namespace Edvanz.Infrastructure
         //        zipStream.Close();
         //    }
         //}
+
+
+
+        public IUserRepo Users
+     => _userRepo ??= new UserRepo(_Context);
     }
 }
