@@ -164,6 +164,106 @@ public class TeacherService : ITeacherService
     }
 
     /// <inheritdoc />
+    public async Task<Result<TeacherProfileDto>> UpdateTeacherProfileAsync(long teacherId, UpdateTeacherProfileDto dto)
+    {
+        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
+        var userRepo = _unitOfWork.GetRepository<User, long>();
+        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
+
+        var teacher = await teacherRepo.FindAsync(t => t.Id == teacherId);
+        if (teacher is null)
+            return Result<TeacherProfileDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        var user = await userRepo.FindAsync(u => u.Id == teacher.UserId);
+        if (user is null)
+            return Result<TeacherProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
+
+        // Validate FullName is not empty
+        if (string.IsNullOrWhiteSpace(dto.FullName))
+            return Result<TeacherProfileDto>.Failure(_localizer, "FullNameRequired", HttpStatusCode.BadRequest);
+
+        // Validate language preference (system UI language — independent from code/session generation language)
+        if (dto.LanguagePreference != "en" && dto.LanguagePreference != "ar")
+            return Result<TeacherProfileDto>.Failure(_localizer, "InvalidLanguagePreference", HttpStatusCode.BadRequest);
+
+        // Validate at least one subject source
+        if (dto.SubjectIds.Count == 0 && string.IsNullOrWhiteSpace(dto.CustomSubject))
+            return Result<TeacherProfileDto>.Failure(_localizer, "SubjectRequired", HttpStatusCode.BadRequest);
+
+        // Validate all provided subject Ids exist and are active
+        if (dto.SubjectIds.Count > 0)
+        {
+            var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
+            foreach (var subjectId in dto.SubjectIds)
+            {
+                bool subjectExists = await subjectRepo.AnyAsync(s => s.Id == subjectId && s.IsActive);
+                if (!subjectExists)
+                    return Result<TeacherProfileDto>.Failure(_localizer, "InvalidSubject", HttpStatusCode.BadRequest);
+            }
+        }
+
+        // Validate capacity package if provided
+        StudentCapacityPackage? selectedPackage = null;
+        if (dto.StudentCapacityPackageId.HasValue)
+        {
+            var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
+            selectedPackage = await packageRepo.FindAsync(p => p.Id == dto.StudentCapacityPackageId.Value && p.IsActive);
+            if (selectedPackage is null)
+                return Result<TeacherProfileDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
+        }
+
+        await _unitOfWork.BeginTransactionAsync();
+
+        try
+        {
+            // Update User fields
+            user.FullName = dto.FullName.Trim();
+            await userRepo.UpdateAsync(user);
+
+            // Update Teacher fields
+            teacher.LanguagePreference = dto.LanguagePreference;
+            teacher.CustomSubject = string.IsNullOrWhiteSpace(dto.CustomSubject) ? null : dto.CustomSubject.Trim();
+
+            // Update capacity package and auto-set StudentCapacity from the package tier
+            if (selectedPackage is not null)
+            {
+                teacher.StudentCapacityPackageId = selectedPackage.Id;
+                // MaxStudents is null for the "3000+" tier — use int.MaxValue as effective capacity
+                teacher.StudentCapacity = selectedPackage.MaxStudents ?? int.MaxValue;
+            }
+
+            await teacherRepo.UpdateAsync(teacher);
+
+            // Replace subject associations: delete existing, add new
+            var existingSubjects = await teacherSubjectRepo.GetAsync(ts => ts.TeacherId == teacherId);
+            if (existingSubjects.Any())
+                await teacherSubjectRepo.DeleteRangeAsync(existingSubjects);
+
+            foreach (var subjectId in dto.SubjectIds)
+            {
+                var teacherSubject = new TeacherSubject
+                {
+                    TeacherId = teacherId,
+                    SubjectId = subjectId,
+                    CreateAt = DateTime.UtcNow
+                };
+                await teacherSubjectRepo.AddAsync(teacherSubject);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+
+            var profile = await BuildTeacherProfileAsync(teacherId);
+            return Result<TeacherProfileDto>.Success(profile, _localizer, "ProfileUpdatedSuccess", HttpStatusCode.OK);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<Result<TeacherPublicInfoDto>> GetTeacherByCodeAsync(string teacherCode)
     {
         if (string.IsNullOrWhiteSpace(teacherCode) || teacherCode.Length != 8)
@@ -236,6 +336,9 @@ public class TeacherService : ITeacherService
                     return Result<TeacherConfigurationDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
 
                 teacher.StudentCapacityPackageId = dto.StudentCapacityPackageId;
+                // Auto-update StudentCapacity from the selected package tier
+                // MaxStudents is null for the "3000+" tier — use int.MaxValue as effective capacity
+                teacher.StudentCapacity = package.MaxStudents ?? int.MaxValue;
                 await teacherRepo.UpdateAsync(teacher);
             }
 
@@ -432,12 +535,10 @@ public class TeacherService : ITeacherService
         var query = teacherRepo.GetQueryable();
 
         // Filter by account status
-        AccountStatus? parsedAccountStatus = null;
         if (!string.IsNullOrWhiteSpace(accountStatus) &&
-            Enum.TryParse<AccountStatus>(accountStatus, true, out var parsed))
+            Enum.TryParse<AccountStatus>(accountStatus, true, out var parsedAccountStatus))
         {
-            parsedAccountStatus = parsed;
-            query = query.Where(t => t.AccountStatus == parsedAccountStatus.Value);
+            query = query.Where(t => t.AccountStatus == parsedAccountStatus);
         }
 
         // Search by teacher code (name/username search done post-query via User table)
@@ -462,11 +563,14 @@ public class TeacherService : ITeacherService
             _ => query.OrderByDescending(t => t.CreateAt)
         };
 
-        // Get total count and paginated data through repository
-        var totalCount = await teacherRepo.CountAsync(
-            parsedAccountStatus.HasValue
-                ? t => t.AccountStatus == parsedAccountStatus.Value
-                : null);
+        // Get total count from the already-filtered query and paginated data through repository
+        var totalCount = await teacherRepo.CountAsync(null);
+        // If filters were applied to the query, count should reflect that
+        if (!string.IsNullOrWhiteSpace(accountStatus) &&
+            Enum.TryParse<AccountStatus>(accountStatus, true, out _))
+        {
+            totalCount = await teacherRepo.CountAsync(t => t.AccountStatus == Enum.Parse<AccountStatus>(accountStatus, true));
+        }
 
         var teachers = await teacherRepo.GetPagedAsync(query, request.Page, request.PageSize);
 

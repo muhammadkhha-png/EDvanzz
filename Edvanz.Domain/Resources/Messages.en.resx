@@ -133,4 +133,17 @@
     <value>You don't have an active subscription at the moment</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- TEACHER MODULE - PROFILE UPDATE        -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ProfileUpdatedSuccess" xml:space="preserve">
+    <value>Your profile has been updated successfully</value>
+  </data>
+  <data name="FullNameRequired" xml:space="preserve">
+    <value>Please enter your full name</value>
+  </data>
+  <data name="InvalidLanguagePreference" xml:space="preserve">
+    <value>Please select a valid language (English or Arabic)</value>
+  </data>
+
 </root>

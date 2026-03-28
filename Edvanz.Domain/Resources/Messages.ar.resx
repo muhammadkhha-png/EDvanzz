@@ -133,4 +133,17 @@
     <value>مفيش اشتراك نشط حالياً</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- المعلم - تحديث الملف الشخصي             -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ProfileUpdatedSuccess" xml:space="preserve">
+    <value>تم تحديث الملف الشخصي بنجاح</value>
+  </data>
+  <data name="FullNameRequired" xml:space="preserve">
+    <value>من فضلك اكتب اسمك بالكامل</value>
+  </data>
+  <data name="InvalidLanguagePreference" xml:space="preserve">
+    <value>من فضلك اختار لغة صحيحة (إنجليزي أو عربي)</value>
+  </data>
+
 </root>

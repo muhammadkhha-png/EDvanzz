@@ -66,6 +66,33 @@ public class TeacherController : ApiBaseController
     }
 
     /// <summary>
+    /// Updates the teacher's own profile information.
+    /// Allows changing name, language preference, and subjects.
+    /// TeacherCode is immutable and cannot be changed (AAM-BR-05).
+    /// StudentCapacity and AccountStatus are super admin-only fields.
+    /// </summary>
+    /// <remarks>
+    /// AAM-FR-02.3: Language preference changeable from settings.
+    /// AAM-FR-03.4: Full name supports Arabic and English.
+    /// AAM-FR-03.5: Subjects can be updated.
+    /// AAM-FR-03.6: Accessible from account settings at any time.
+    /// </remarks>
+    /// <param name="teacherId">The Teacher's Id.</param>
+    /// <param name="dto">Profile fields to update.</param>
+    /// <returns>The updated teacher profile.</returns>
+    [HttpPut("{teacherId:long}/profile")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateTeacherProfile(
+        [FromRoute] long teacherId,
+        [FromBody] UpdateTeacherProfileDto dto)
+    {
+        var result = await _teacherService.UpdateTeacherProfileAsync(teacherId, dto);
+        return ToResponse(result);
+    }
+
+    /// <summary>
     /// Retrieves minimal teacher info by their unique 8-digit TeacherCode.
     /// Used by students when adding a teacher to their account.
     /// Returns only the teacher's name and subject — no sensitive data exposed.

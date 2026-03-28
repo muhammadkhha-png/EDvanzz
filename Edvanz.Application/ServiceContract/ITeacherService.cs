@@ -33,6 +33,18 @@ public interface ITeacherService
     Task<Result<TeacherProfileDto>> GetTeacherProfileAsync(long teacherId);
 
     /// <summary>
+    /// Updates the teacher's own profile information.
+    /// AAM-FR-02.3: Language preference changeable from settings.
+    /// AAM-FR-03.4: Full name in Arabic or English.
+    /// AAM-FR-03.5: Subject selection updatable.
+    /// AAM-BR-05: TeacherCode is NOT updatable (immutable).
+    /// </summary>
+    /// <param name="teacherId">The Teacher's Id.</param>
+    /// <param name="dto">Profile fields to update.</param>
+    /// <returns>Result containing the updated teacher profile.</returns>
+    Task<Result<TeacherProfileDto>> UpdateTeacherProfileAsync(long teacherId, UpdateTeacherProfileDto dto);
+
+    /// <summary>
     /// Retrieves a teacher by their unique 8-digit TeacherCode.
     /// Used by students when adding a teacher (AAM-FR-05.5).
     /// </summary>
