@@ -12,7 +12,12 @@ namespace Edvanz.Application.Services;
 /// <summary>
 /// Implements all Teacher module operations.
 /// Follows the Result pattern for operation outcomes.
-/// All database access goes through IUnitOfWork + IGenericRepo.
+/// All database access goes through IUnitOfWork.Users (IUserRepo) — no direct
+/// GetRepository calls with raw expression predicates.
+/// 
+/// ARCHITECTURAL NOTE:
+/// All query logic is encapsulated in IUserRepo named methods.
+/// If a query needs to change, you edit the repo method — not this service.
 /// 
 /// TRANSACTION SAFETY:
 /// All transactional methods use the ownsTransaction pattern:
@@ -39,29 +44,22 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherProfileDto>> InitializeTeacherAsync(CreateTeacherDto dto)
     {
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var configRepo = _unitOfWork.GetRepository<TeacherConfiguration, long>();
-        var proratedTierRepo = _unitOfWork.GetRepository<TeacherProratedTier, long>();
-
         // Validate the user exists and is of type Teacher
-        var user = await userRepo.FindAsync(u => u.Id == dto.UserId && u.UserType == UserType.Teacher);
+        var user = await _unitOfWork.Users.GetByIdAndTypeAsync(dto.UserId, UserType.Teacher);
         if (user is null)
             return Result<TeacherProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
         // Ensure no duplicate Teacher record for this user
-        bool teacherExists = await teacherRepo.AnyAsync(t => t.UserId == dto.UserId);
+        bool teacherExists = await _unitOfWork.Users.TeacherExistsByUserIdAsync(dto.UserId);
         if (teacherExists)
             return Result<TeacherProfileDto>.Failure(_localizer, "TeacherAlreadyInitialized", HttpStatusCode.Conflict);
 
         // Validate subjects exist if provided
         if (dto.SubjectIds.Count > 0)
         {
-            var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
             foreach (var subjectId in dto.SubjectIds)
             {
-                bool subjectExists = await subjectRepo.AnyAsync(s => s.Id == subjectId && s.IsActive);
+                bool subjectExists = await _unitOfWork.Users.SubjectExistsAndActiveAsync(subjectId);
                 if (!subjectExists)
                     return Result<TeacherProfileDto>.Failure(_localizer, "InvalidSubject", HttpStatusCode.BadRequest);
             }
@@ -95,7 +93,7 @@ public class TeacherService : ITeacherService
                 CreateAt = DateTime.UtcNow
             };
 
-            await teacherRepo.AddAsync(teacher);
+            await _unitOfWork.Users.AddTeacherAsync(teacher);
             await _unitOfWork.SaveChangesAsync();
 
             // Create TeacherSubject records
@@ -107,7 +105,7 @@ public class TeacherService : ITeacherService
                     SubjectId = subjectId,
                     CreateAt = DateTime.UtcNow
                 };
-                await teacherSubjectRepo.AddAsync(teacherSubject);
+                await _unitOfWork.Users.AddTeacherSubjectAsync(teacherSubject);
             }
 
             // Create default TeacherConfiguration (AAM-BR-04 / AAM-NFR-05)
@@ -133,7 +131,7 @@ public class TeacherService : ITeacherService
                 CreateAt = DateTime.UtcNow
             };
 
-            await configRepo.AddAsync(config);
+            await _unitOfWork.Users.AddConfigurationAsync(config);
             await _unitOfWork.SaveChangesAsync();
 
             // Create default prorated tiers (REQ-PAY-021)
@@ -144,7 +142,7 @@ public class TeacherService : ITeacherService
                 new() { TeacherConfigurationId = config.Id, TierNumber = 3, ThresholdDayStart = 21, ThresholdDayEnd = 31, FractionRate = 0.3333m, CreateAt = DateTime.UtcNow }
             };
 
-            await proratedTierRepo.AddRangeAsync(defaultTiers);
+            await _unitOfWork.Users.AddProratedTiersAsync(defaultTiers);
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
@@ -164,8 +162,7 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherProfileDto>> GetTeacherProfileAsync(long teacherId)
     {
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var teacher = await teacherRepo.FindAsync(t => t.Id == teacherId);
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
 
         if (teacher is null)
             return Result<TeacherProfileDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
@@ -177,15 +174,11 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherProfileDto>> UpdateTeacherProfileAsync(long teacherId, UpdateTeacherProfileDto dto)
     {
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-
-        var teacher = await teacherRepo.FindAsync(t => t.Id == teacherId);
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<TeacherProfileDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        var user = await userRepo.FindAsync(u => u.Id == teacher.UserId);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
         if (user is null)
             return Result<TeacherProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
@@ -204,10 +197,9 @@ public class TeacherService : ITeacherService
         // Validate all provided subject Ids exist and are active
         if (dto.SubjectIds.Count > 0)
         {
-            var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
             foreach (var subjectId in dto.SubjectIds)
             {
-                bool subjectExists = await subjectRepo.AnyAsync(s => s.Id == subjectId && s.IsActive);
+                bool subjectExists = await _unitOfWork.Users.SubjectExistsAndActiveAsync(subjectId);
                 if (!subjectExists)
                     return Result<TeacherProfileDto>.Failure(_localizer, "InvalidSubject", HttpStatusCode.BadRequest);
             }
@@ -217,8 +209,7 @@ public class TeacherService : ITeacherService
         StudentCapacityPackage? selectedPackage = null;
         if (dto.StudentCapacityPackageId.HasValue)
         {
-            var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
-            selectedPackage = await packageRepo.FindAsync(p => p.Id == dto.StudentCapacityPackageId.Value && p.IsActive);
+            selectedPackage = await _unitOfWork.Users.GetActiveCapacityPackageByIdAsync(dto.StudentCapacityPackageId.Value);
             if (selectedPackage is null)
                 return Result<TeacherProfileDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
         }
@@ -232,7 +223,7 @@ public class TeacherService : ITeacherService
         {
             // Update User fields
             user.FullName = dto.FullName.Trim();
-            await userRepo.UpdateAsync(user);
+            await _unitOfWork.Users.UpdateAsync(user);
 
             // Update Teacher fields
             teacher.LanguagePreference = dto.LanguagePreference;
@@ -246,12 +237,12 @@ public class TeacherService : ITeacherService
                 teacher.StudentCapacity = selectedPackage.MaxStudents ?? int.MaxValue;
             }
 
-            await teacherRepo.UpdateAsync(teacher);
+            await _unitOfWork.Users.UpdateTeacherAsync(teacher);
 
             // Replace subject associations: delete existing, add new
-            var existingSubjects = await teacherSubjectRepo.GetAsync(ts => ts.TeacherId == teacherId);
+            var existingSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacherId);
             if (existingSubjects.Any())
-                await teacherSubjectRepo.DeleteRangeAsync(existingSubjects);
+                await _unitOfWork.Users.DeleteTeacherSubjectsAsync(existingSubjects);
 
             foreach (var subjectId in dto.SubjectIds)
             {
@@ -261,7 +252,7 @@ public class TeacherService : ITeacherService
                     SubjectId = subjectId,
                     CreateAt = DateTime.UtcNow
                 };
-                await teacherSubjectRepo.AddAsync(teacherSubject);
+                await _unitOfWork.Users.AddTeacherSubjectAsync(teacherSubject);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -286,24 +277,20 @@ public class TeacherService : ITeacherService
         if (string.IsNullOrWhiteSpace(teacherCode) || teacherCode.Length != 8)
             return Result<TeacherPublicInfoDto>.Failure(_localizer, "InvalidTeacherCode", HttpStatusCode.BadRequest);
 
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var teacher = await teacherRepo.FindAsync(t => t.TeacherCode == teacherCode && t.AccountStatus == AccountStatus.Active);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByCodeAsync(teacherCode);
 
         if (teacher is null)
             return Result<TeacherPublicInfoDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
         // Load related data for display
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var user = await userRepo.FindAsync(u => u.Id == teacher.UserId);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
 
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-        var teacherSubjects = await teacherSubjectRepo.GetAsync(ts => ts.TeacherId == teacher.Id);
+        var teacherSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacher.Id);
 
         string subjectName = teacher.CustomSubject ?? string.Empty;
         if (teacherSubjects.Any())
         {
-            var firstSubject = await subjectRepo.FindAsync(s => s.Id == teacherSubjects.First().SubjectId);
+            var firstSubject = await _unitOfWork.Users.GetSubjectByIdAsync(teacherSubjects.First().SubjectId);
             if (firstSubject is not null)
                 subjectName = firstSubject.NameEn;
         }
@@ -321,15 +308,11 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherConfigurationDto>> SaveConfigurationAsync(long teacherId, UpdateTeacherConfigurationDto dto)
     {
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var configRepo = _unitOfWork.GetRepository<TeacherConfiguration, long>();
-        var proratedTierRepo = _unitOfWork.GetRepository<TeacherProratedTier, long>();
-
-        var teacher = await teacherRepo.FindAsync(t => t.Id == teacherId);
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        var config = await configRepo.FindAsync(c => c.TeacherId == teacherId);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         if (config is null)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
 
@@ -348,8 +331,7 @@ public class TeacherService : ITeacherService
         {
             if (dto.StudentCapacityPackageId.HasValue)
             {
-                var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
-                var package = await packageRepo.FindAsync(p => p.Id == dto.StudentCapacityPackageId.Value && p.IsActive);
+                var package = await _unitOfWork.Users.GetActiveCapacityPackageByIdAsync(dto.StudentCapacityPackageId.Value);
                 if (package is null)
                     return Result<TeacherConfigurationDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
 
@@ -357,7 +339,7 @@ public class TeacherService : ITeacherService
                 // Auto-update StudentCapacity from the selected package tier
                 // MaxStudents is null for the "3000+" tier — use int.MaxValue as effective capacity
                 teacher.StudentCapacity = package.MaxStudents ?? int.MaxValue;
-                await teacherRepo.UpdateAsync(teacher);
+                await _unitOfWork.Users.UpdateTeacherAsync(teacher);
             }
 
             // Update configuration fields
@@ -379,12 +361,12 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
             config.UpdatedAt = DateTime.UtcNow;
 
-            await configRepo.UpdateAsync(config);
+            await _unitOfWork.Users.UpdateConfigurationAsync(config);
 
             // Replace prorated tiers: delete existing, add new
-            var existingTiers = await proratedTierRepo.GetAsync(pt => pt.TeacherConfigurationId == config.Id);
+            var existingTiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
             if (existingTiers.Any())
-                await proratedTierRepo.DeleteRangeAsync(existingTiers);
+                await _unitOfWork.Users.DeleteProratedTiersAsync(existingTiers);
 
             foreach (var tierDto in dto.ProratedTiers)
             {
@@ -397,14 +379,14 @@ public class TeacherService : ITeacherService
                     FractionRate = tierDto.FractionRate,
                     CreateAt = DateTime.UtcNow
                 };
-                await proratedTierRepo.AddAsync(tier);
+                await _unitOfWork.Users.AddProratedTierAsync(tier);
             }
 
             // Mark configuration as completed
             if (!teacher.IsConfigurationCompleted)
             {
                 teacher.IsConfigurationCompleted = true;
-                await teacherRepo.UpdateAsync(teacher);
+                await _unitOfWork.Users.UpdateTeacherAsync(teacher);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -429,14 +411,11 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherConfigurationDto>> GetConfigurationAsync(long teacherId)
     {
-        var configRepo = _unitOfWork.GetRepository<TeacherConfiguration, long>();
-        var proratedTierRepo = _unitOfWork.GetRepository<TeacherProratedTier, long>();
-
-        var config = await configRepo.FindAsync(c => c.TeacherId == teacherId);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         if (config is null)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
 
-        var tiers = await proratedTierRepo.GetAsync(pt => pt.TeacherConfigurationId == config.Id);
+        var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
 
         var dto = new TeacherConfigurationDto
         {
@@ -474,8 +453,7 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<IReadOnlyList<SubjectDto>>> GetAvailableSubjectsAsync()
     {
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-        var subjects = await subjectRepo.GetAsync(s => s.IsActive);
+        var subjects = await _unitOfWork.Users.GetActiveSubjectsAsync();
 
         var dtos = subjects
             .OrderBy(s => s.DisplayOrder)
@@ -494,8 +472,7 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<IReadOnlyList<StudentCapacityPackageDto>>> GetCapacityPackagesAsync()
     {
-        var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
-        var packages = await packageRepo.GetAsync(p => p.IsActive);
+        var packages = await _unitOfWork.Users.GetActiveCapacityPackagesAsync();
 
         var dtos = packages
             .OrderBy(p => p.DisplayOrder)
@@ -515,12 +492,8 @@ public class TeacherService : ITeacherService
     /// <inheritdoc />
     public async Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId)
     {
-        var subscriptionRepo = _unitOfWork.GetRepository<TeacherSubscription, long>();
-
         // Find the most recent active or expiring-soon subscription
-        var subscriptions = await subscriptionRepo.GetAsync(s =>
-            s.TeacherId == teacherId &&
-            (s.SubscriptionStatus == SubscriptionStatus.Active || s.SubscriptionStatus == SubscriptionStatus.ExpiringSoon));
+        var subscriptions = await _unitOfWork.Users.GetActiveSubscriptionsByTeacherIdAsync(teacherId);
 
         var activeSubscription = subscriptions
             .OrderByDescending(s => s.EndDate)
@@ -547,18 +520,12 @@ public class TeacherService : ITeacherService
         string? accountStatus = null,
         string? subscriptionStatus = null)
     {
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var subscriptionRepo = _unitOfWork.GetRepository<TeacherSubscription, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-
-        // ── 1. Load all base data ──────────────────────────────────────────────
-        var allTeachers = await teacherRepo.GetAsync(t => true);
-        var allUsers = await userRepo.GetAsync(u => true);
-        var allSubscriptions = await subscriptionRepo.GetAsync(s => true);
-        var allTeacherSubjects = await teacherSubjectRepo.GetAsync(ts => true);
-        var allSubjects = await subjectRepo.GetAsync(s => true);
+        // ── 1. Load all base data via named repo methods ───────────────────────
+        var allTeachers = await _unitOfWork.Users.GetAllTeachersAsync();
+        var allUsers = await _unitOfWork.Users.GetAllUsersAsync();
+        var allSubscriptions = await _unitOfWork.Users.GetAllSubscriptionsAsync();
+        var allTeacherSubjects = await _unitOfWork.Users.GetAllTeacherSubjectsAsync();
+        var allSubjects = await _unitOfWork.Users.GetAllSubjectsAsync();
 
         // ── 2. Join teachers with users in memory ──────────────────────────────
         var joined = allTeachers
@@ -700,23 +667,18 @@ public class TeacherService : ITeacherService
 
     /// <summary>
     /// Builds a full TeacherProfileDto by loading all related data.
+    /// All queries go through IUserRepo named methods — no raw expressions.
     /// </summary>
     private async Task<TeacherProfileDto> BuildTeacherProfileAsync(long teacherId)
     {
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-        var packageRepo = _unitOfWork.GetRepository<StudentCapacityPackage, long>();
-
-        var teacher = await teacherRepo.FindAsync(t => t.Id == teacherId);
-        var user = await userRepo.FindAsync(u => u.Id == teacher!.UserId);
-        var teacherSubjects = await teacherSubjectRepo.GetAsync(ts => ts.TeacherId == teacherId);
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher!.UserId);
+        var teacherSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacherId);
 
         var subjects = new List<SubjectDto>();
         foreach (var ts in teacherSubjects)
         {
-            var subject = await subjectRepo.FindAsync(s => s.Id == ts.SubjectId);
+            var subject = await _unitOfWork.Users.GetSubjectByIdAsync(ts.SubjectId);
             if (subject is not null)
             {
                 subjects.Add(new SubjectDto
@@ -732,7 +694,7 @@ public class TeacherService : ITeacherService
         string? packageName = null;
         if (teacher!.StudentCapacityPackageId.HasValue)
         {
-            var package = await packageRepo.FindAsync(p => p.Id == teacher.StudentCapacityPackageId.Value);
+            var package = await _unitOfWork.Users.GetCapacityPackageByIdAsync(teacher.StudentCapacityPackageId.Value);
             packageName = package?.Name;
         }
 

@@ -12,7 +12,12 @@ namespace Edvanz.Application.Services;
 /// <summary>
 /// Implements all Student User module operations.
 /// Follows the Result pattern for operation outcomes.
-/// All database access goes through IUnitOfWork + IGenericRepo.
+/// All database access goes through IUnitOfWork.Users (IUserRepo) — no direct
+/// GetRepository calls with raw expression predicates.
+/// 
+/// ARCHITECTURAL NOTE:
+/// All query logic is encapsulated in IUserRepo named methods.
+/// If a query needs to change, you edit the repo method — not this service.
 /// 
 /// TRANSACTION SAFETY:
 /// Methods that write multiple rows check _unitOfWork.HasActiveTransaction.
@@ -39,16 +44,13 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<StudentUserProfileDto>> InitializeStudentUserAsync(CreateStudentUserDto dto)
     {
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-
         // Validate the user exists and is of type Student
-        var user = await userRepo.FindAsync(u => u.Id == dto.UserId && u.UserType == UserType.Student);
+        var user = await _unitOfWork.Users.GetByIdAndTypeAsync(dto.UserId, UserType.Student);
         if (user is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
         // Ensure no duplicate StudentUser record for this user
-        bool alreadyExists = await studentUserRepo.AnyAsync(s => s.UserId == dto.UserId);
+        bool alreadyExists = await _unitOfWork.Users.StudentUserExistsByUserIdAsync(dto.UserId);
         if (alreadyExists)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserAlreadyInitialized", HttpStatusCode.Conflict);
 
@@ -75,7 +77,7 @@ public class StudentUserService : IStudentUserService
                 CreateAt = DateTime.UtcNow
             };
 
-            await studentUserRepo.AddAsync(studentUser);
+            await _unitOfWork.Users.AddStudentUserAsync(studentUser);
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
@@ -95,21 +97,16 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<StudentUserProfileDto>> GetStudentUserProfileAsync(long studentUserId)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-
-        var studentUser = await studentUserRepo.FindAsync(s => s.Id == studentUserId && s.DeletedAt == null);
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
         if (studentUser is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
-        var user = await userRepo.FindAsync(u => u.Id == studentUser.UserId);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(studentUser.UserId);
         if (user is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
         // Count active links for the profile summary
-        int linkedCount = await linkRepo.CountAsync(l =>
-            l.StudentUserId == studentUserId && l.LinkStatus == LinkStatus.Active);
+        int linkedCount = await _unitOfWork.Users.CountActiveStudentTeacherLinksAsync(studentUserId);
 
         var profileDto = BuildProfileDto(studentUser, user, linkedCount);
 
@@ -120,11 +117,7 @@ public class StudentUserService : IStudentUserService
     public async Task<Result<StudentUserProfileDto>> UpdateStudentUserProfileAsync(
         long studentUserId, UpdateStudentUserProfileDto dto)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-
-        var studentUser = await studentUserRepo.FindAsync(s => s.Id == studentUserId && s.DeletedAt == null);
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
         if (studentUser is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
@@ -139,13 +132,12 @@ public class StudentUserService : IStudentUserService
         if (dto.LanguagePreference is not null)
             studentUser.LanguagePreference = dto.LanguagePreference;
 
-        await studentUserRepo.UpdateAsync(studentUser);
+        await _unitOfWork.Users.UpdateStudentUserAsync(studentUser);
         await _unitOfWork.SaveChangesAsync();
 
         // Reload user for profile DTO
-        var user = await userRepo.FindAsync(u => u.Id == studentUser.UserId);
-        int linkedCount = await linkRepo.CountAsync(l =>
-            l.StudentUserId == studentUserId && l.LinkStatus == LinkStatus.Active);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(studentUser.UserId);
+        int linkedCount = await _unitOfWork.Users.CountActiveStudentTeacherLinksAsync(studentUserId);
 
         var profileDto = BuildProfileDto(studentUser, user!, linkedCount);
 
@@ -155,9 +147,7 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<StudentDashboardDto>> GetDashboardAsync(long studentUserId)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-
-        var studentUser = await studentUserRepo.FindAsync(s => s.Id == studentUserId && s.DeletedAt == null);
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
         if (studentUser is null)
             return Result<StudentDashboardDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
@@ -179,17 +169,8 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<StudentDashboardTeacherDto>> LinkTeacherAsync(long studentUserId, LinkTeacherDto dto)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var teacherStudentRepo = _unitOfWork.GetRepository<TeacherStudent, long>();
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-        var configRepo = _unitOfWork.GetRepository<TeacherConfiguration, long>();
-
         // ── 1. Validate student user exists ──
-        var studentUser = await studentUserRepo.FindAsync(s => s.Id == studentUserId && s.DeletedAt == null);
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
         if (studentUser is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
@@ -197,19 +178,13 @@ public class StudentUserService : IStudentUserService
         if (string.IsNullOrWhiteSpace(dto.TeacherCode) || dto.TeacherCode.Length != 8)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "InvalidTeacherCode", HttpStatusCode.BadRequest);
 
-        var teacher = await teacherRepo.FindAsync(t =>
-            t.TeacherCode == dto.TeacherCode &&
-            t.AccountStatus == AccountStatus.Active &&
-            t.DeletedAt == null);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByCodeAsync(dto.TeacherCode);
 
         if (teacher is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
         // ── 3. Check if already linked to this teacher ──
-        bool alreadyLinked = await linkRepo.AnyAsync(l =>
-            l.StudentUserId == studentUserId &&
-            l.TeacherId == teacher.Id &&
-            l.LinkStatus == LinkStatus.Active);
+        bool alreadyLinked = await _unitOfWork.Users.StudentTeacherLinkExistsAsync(studentUserId, teacher.Id);
 
         if (alreadyLinked)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherAlreadyLinked", HttpStatusCode.Conflict);
@@ -224,11 +199,8 @@ public class StudentUserService : IStudentUserService
         // Normalize student code to uppercase for case-insensitive matching (REQ-STU-CODE-003)
         string normalizedStudentCode = dto.StudentCode.Trim().ToUpperInvariant();
 
-        var teacherStudent = await teacherStudentRepo.FindAsync(ts =>
-            ts.TeacherId == teacher.Id &&
-            ts.StudentCode == normalizedStudentCode &&
-            ts.HashedToken == dto.HashedToken.Trim() &&
-            !ts.IsDeleted);
+        var teacherStudent = await _unitOfWork.Users.GetTeacherStudentByLinkingCredentialsAsync(
+            teacher.Id, normalizedStudentCode, dto.HashedToken.Trim());
 
         if (teacherStudent is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);
@@ -250,13 +222,13 @@ public class StudentUserService : IStudentUserService
                 CreateAt = DateTime.UtcNow
             };
 
-            await linkRepo.AddAsync(link);
+            await _unitOfWork.Users.AddStudentTeacherLinkAsync(link);
 
             // Update IsFirstLogin if this is the student's first teacher link
             if (studentUser.IsFirstLogin)
             {
                 studentUser.IsFirstLogin = false;
-                await studentUserRepo.UpdateAsync(studentUser);
+                await _unitOfWork.Users.UpdateStudentUserAsync(studentUser);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -264,8 +236,7 @@ public class StudentUserService : IStudentUserService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
-            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(
-                link, teacher, userRepo, teacherSubjectRepo, subjectRepo, configRepo);
+            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(link, teacher);
 
             return Result<StudentDashboardTeacherDto>.Success(dashboardTeacher, _localizer, "TeacherLinkSuccess", HttpStatusCode.Created);
         }
@@ -280,12 +251,7 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<bool>> UnlinkTeacherAsync(long studentUserId, long teacherId)
     {
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-
-        var link = await linkRepo.FindAsync(l =>
-            l.StudentUserId == studentUserId &&
-            l.TeacherId == teacherId &&
-            l.LinkStatus == LinkStatus.Active);
+        var link = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUserId, teacherId);
 
         if (link is null)
             return Result<bool>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
@@ -294,7 +260,7 @@ public class StudentUserService : IStudentUserService
         link.LinkStatus = LinkStatus.Unlinked;
         link.UnlinkedAt = DateTime.UtcNow;
 
-        await linkRepo.UpdateAsync(link);
+        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
         await _unitOfWork.SaveChangesAsync();
 
         return Result<bool>.Success(true, _localizer, "TeacherUnlinkSuccess", HttpStatusCode.OK);
@@ -303,23 +269,13 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<List<StudentDashboardTeacherDto>>> GetLinkedTeachersAsync(long studentUserId)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-        var teacherRepo = _unitOfWork.GetRepository<Teacher, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var teacherSubjectRepo = _unitOfWork.GetRepository<TeacherSubject, long>();
-        var subjectRepo = _unitOfWork.GetRepository<Subject, long>();
-        var configRepo = _unitOfWork.GetRepository<TeacherConfiguration, long>();
-
         // Validate student user exists
-        bool exists = await studentUserRepo.AnyAsync(s => s.Id == studentUserId && s.DeletedAt == null);
-        if (!exists)
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
+        if (studentUser is null)
             return Result<List<StudentDashboardTeacherDto>>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
         // Get all active links for this student
-        var activeLinks = await linkRepo.GetAsync(l =>
-            l.StudentUserId == studentUserId &&
-            l.LinkStatus == LinkStatus.Active);
+        var activeLinks = await _unitOfWork.Users.GetActiveStudentTeacherLinksAsync(studentUserId);
 
         if (!activeLinks.Any())
         {
@@ -332,11 +288,10 @@ public class StudentUserService : IStudentUserService
 
         foreach (var link in activeLinks)
         {
-            var teacher = await teacherRepo.FindAsync(t => t.Id == link.TeacherId && t.DeletedAt == null);
+            var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(link.TeacherId);
             if (teacher is null) continue; // Teacher account deleted — skip
 
-            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(
-                link, teacher, userRepo, teacherSubjectRepo, subjectRepo, configRepo);
+            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(link, teacher);
 
             dashboardTeachers.Add(dashboardTeacher);
         }
@@ -348,26 +303,19 @@ public class StudentUserService : IStudentUserService
     /// <inheritdoc />
     public async Task<Result<StudentUserProfileDto>> GetStudentUserByAccountCodeAsync(string accountCode)
     {
-        var studentUserRepo = _unitOfWork.GetRepository<StudentUser, long>();
-        var userRepo = _unitOfWork.GetRepository<User, long>();
-        var linkRepo = _unitOfWork.GetRepository<StudentTeacherLink, long>();
-
         if (string.IsNullOrWhiteSpace(accountCode))
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentAccountCodeRequired", HttpStatusCode.BadRequest);
 
-        var studentUser = await studentUserRepo.FindAsync(s =>
-            s.StudentAccountCode == accountCode.Trim().ToUpperInvariant() &&
-            s.DeletedAt == null);
+        var studentUser = await _unitOfWork.Users.GetStudentUserByAccountCodeAsync(accountCode);
 
         if (studentUser is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
-        var user = await userRepo.FindAsync(u => u.Id == studentUser.UserId);
+        var user = await _unitOfWork.Users.GetUserByIdAsync(studentUser.UserId);
         if (user is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
-        int linkedCount = await linkRepo.CountAsync(l =>
-            l.StudentUserId == studentUser.Id && l.LinkStatus == LinkStatus.Active);
+        int linkedCount = await _unitOfWork.Users.CountActiveStudentTeacherLinksAsync(studentUser.Id);
 
         var profileDto = BuildProfileDto(studentUser, user, linkedCount);
 
@@ -403,30 +351,27 @@ public class StudentUserService : IStudentUserService
     /// <summary>
     /// Builds a StudentDashboardTeacherDto by loading teacher's user info, subject, and configuration.
     /// Used by both LinkTeacherAsync and GetLinkedTeachersAsync.
+    /// All queries go through IUserRepo named methods — no raw expressions.
     /// </summary>
-    private static async Task<StudentDashboardTeacherDto> BuildDashboardTeacherDtoAsync(
+    private async Task<StudentDashboardTeacherDto> BuildDashboardTeacherDtoAsync(
         StudentTeacherLink link,
-        Teacher teacher,
-        IGenericRepo<User, long> userRepo,
-        IGenericRepo<TeacherSubject, long> teacherSubjectRepo,
-        IGenericRepo<Subject, long> subjectRepo,
-        IGenericRepo<TeacherConfiguration, long> configRepo)
+        Teacher teacher)
     {
         // Load the teacher's user record for the full name
-        var teacherUser = await userRepo.FindAsync(u => u.Id == teacher.UserId);
+        var teacherUser = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
 
         // Load the teacher's first subject for display
         string subjectName = teacher.CustomSubject ?? string.Empty;
-        var teacherSubjects = await teacherSubjectRepo.GetAsync(ts => ts.TeacherId == teacher.Id);
+        var teacherSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacher.Id);
         if (teacherSubjects.Any())
         {
-            var firstSubject = await subjectRepo.FindAsync(s => s.Id == teacherSubjects.First().SubjectId);
+            var firstSubject = await _unitOfWork.Users.GetSubjectByIdAsync(teacherSubjects.First().SubjectId);
             if (firstSubject is not null)
                 subjectName = firstSubject.NameEn; // TODO: respect language preference
         }
 
         // Load visibility configuration (AAM-FR-04.8 / AAM-FR-05.8)
-        var config = await configRepo.FindAsync(c => c.TeacherId == teacher.Id);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacher.Id);
 
         return new StudentDashboardTeacherDto
         {

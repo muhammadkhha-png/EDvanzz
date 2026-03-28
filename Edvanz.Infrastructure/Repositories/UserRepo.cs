@@ -1,34 +1,545 @@
 ﻿using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Edvanz.Infrastructure.Repositories
 {
+    /// <summary>
+    /// Extended repository for the User module ecosystem.
+    /// Centralizes all domain-specific query logic used by Teacher, Student, and Parent services.
+    /// 
+    /// ARCHITECTURAL NOTE:
+    /// This repo encapsulates ALL expression-based queries so the Application layer
+    /// never builds raw predicates. If a query needs to change, you edit it HERE —
+    /// not in every service that uses it.
+    /// 
+    /// Inherits from GenericRepo&lt;User, long&gt; for basic User CRUD,
+    /// and adds named methods for every entity in the User module ecosystem.
+    /// </summary>
     public class UserRepo : GenericRepo<User, long>, IUserRepo
     {
         public UserRepo(EdvanzDbContext context) : base(context)
         {
         }
 
+        // ══════════════════════════════════════════════
+        // USER ENTITY QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
         public async Task<User?> GetByPhoneAsync(string phone)
         {
             return await _context.Users
                 .FirstOrDefaultAsync(u => u.PhoneNumber == phone);
         }
+
+        /// <inheritdoc />
         public async Task<User?> GetByUserName(string userName)
         {
             return await _context.Users
                 .FirstOrDefaultAsync(u => u.PhoneNumber == userName);
         }
+
+        /// <inheritdoc />
         public async Task<User?> GetByEmail(string email)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.Email  == email);
+                .FirstOrDefaultAsync(u => u.Email == email);
         }
 
+        /// <inheritdoc />
+        public async Task<User?> GetByIdAndTypeAsync(long userId, UserType userType)
+        {
+            return await _context.Users
+                .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == userType);
+        }
+
+        /// <inheritdoc />
+        public async Task<User?> GetUserByIdAsync(long userId)
+        {
+            return await _context.Users
+                .FirstOrDefaultAsync(u => u.Id == userId);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<User>> GetAllUsersAsync()
+        {
+            return await _context.Users
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER ENTITY QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<Teacher?> GetTeacherByIdAsync(long teacherId)
+        {
+            return await _context.Set<Teacher>()
+                .FirstOrDefaultAsync(t => t.Id == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task<Teacher?> GetActiveTeacherByIdAsync(long teacherId)
+        {
+            return await _context.Set<Teacher>()
+                .FirstOrDefaultAsync(t => t.Id == teacherId && t.DeletedAt == null);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TeacherExistsByUserIdAsync(long userId)
+        {
+            return await _context.Set<Teacher>()
+                .AnyAsync(t => t.UserId == userId);
+        }
+
+        /// <inheritdoc />
+        public async Task<Teacher?> GetActiveTeacherByCodeAsync(string teacherCode)
+        {
+            return await _context.Set<Teacher>()
+                .FirstOrDefaultAsync(t =>
+                    t.TeacherCode == teacherCode &&
+                    t.AccountStatus == AccountStatus.Active &&
+                    t.DeletedAt == null);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<Teacher>> GetAllTeachersAsync()
+        {
+            return await _context.Set<Teacher>()
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task AddTeacherAsync(Teacher teacher)
+        {
+            await _context.Set<Teacher>().AddAsync(teacher);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateTeacherAsync(Teacher teacher)
+        {
+            _context.Entry(teacher).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER SUBJECT QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherSubject>> GetTeacherSubjectsByTeacherIdAsync(long teacherId)
+        {
+            return await _context.Set<TeacherSubject>()
+                .AsNoTracking()
+                .Where(ts => ts.TeacherId == teacherId)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherSubject>> GetAllTeacherSubjectsAsync()
+        {
+            return await _context.Set<TeacherSubject>()
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task AddTeacherSubjectAsync(TeacherSubject teacherSubject)
+        {
+            await _context.Set<TeacherSubject>().AddAsync(teacherSubject);
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteTeacherSubjectsAsync(IEnumerable<TeacherSubject> subjects)
+        {
+            _context.Set<TeacherSubject>().RemoveRange(subjects);
+        }
+
+        // ══════════════════════════════════════════════
+        // SUBJECT QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<Subject?> GetSubjectByIdAsync(long subjectId)
+        {
+            return await _context.Set<Subject>()
+                .FirstOrDefaultAsync(s => s.Id == subjectId);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> SubjectExistsAndActiveAsync(long subjectId)
+        {
+            return await _context.Set<Subject>()
+                .AnyAsync(s => s.Id == subjectId && s.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<Subject>> GetActiveSubjectsAsync()
+        {
+            return await _context.Set<Subject>()
+                .AsNoTracking()
+                .Where(s => s.IsActive)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<Subject>> GetAllSubjectsAsync()
+        {
+            return await _context.Set<Subject>()
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER CONFIGURATION QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<TeacherConfiguration?> GetConfigurationByTeacherIdAsync(long teacherId)
+        {
+            return await _context.Set<TeacherConfiguration>()
+                .FirstOrDefaultAsync(c => c.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task AddConfigurationAsync(TeacherConfiguration configuration)
+        {
+            await _context.Set<TeacherConfiguration>().AddAsync(configuration);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateConfigurationAsync(TeacherConfiguration configuration)
+        {
+            _context.Entry(configuration).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER PRORATED TIER QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherProratedTier>> GetProratedTiersByConfigIdAsync(long configurationId)
+        {
+            return await _context.Set<TeacherProratedTier>()
+                .AsNoTracking()
+                .Where(pt => pt.TeacherConfigurationId == configurationId)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task AddProratedTiersAsync(IEnumerable<TeacherProratedTier> tiers)
+        {
+            await _context.Set<TeacherProratedTier>().AddRangeAsync(tiers);
+        }
+
+        /// <inheritdoc />
+        public async Task AddProratedTierAsync(TeacherProratedTier tier)
+        {
+            await _context.Set<TeacherProratedTier>().AddAsync(tier);
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteProratedTiersAsync(IEnumerable<TeacherProratedTier> tiers)
+        {
+            _context.Set<TeacherProratedTier>().RemoveRange(tiers);
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER SUBSCRIPTION QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherSubscription>> GetActiveSubscriptionsByTeacherIdAsync(long teacherId)
+        {
+            return await _context.Set<TeacherSubscription>()
+                .AsNoTracking()
+                .Where(s => s.TeacherId == teacherId &&
+                    (s.SubscriptionStatus == SubscriptionStatus.Active ||
+                     s.SubscriptionStatus == SubscriptionStatus.ExpiringSoon))
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync()
+        {
+            return await _context.Set<TeacherSubscription>()
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        // ══════════════════════════════════════════════
+        // STUDENT CAPACITY PACKAGE QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentCapacityPackage>> GetActiveCapacityPackagesAsync()
+        {
+            return await _context.Set<StudentCapacityPackage>()
+                .AsNoTracking()
+                .Where(p => p.IsActive)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentCapacityPackage?> GetActiveCapacityPackageByIdAsync(long packageId)
+        {
+            return await _context.Set<StudentCapacityPackage>()
+                .FirstOrDefaultAsync(p => p.Id == packageId && p.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentCapacityPackage?> GetCapacityPackageByIdAsync(long packageId)
+        {
+            return await _context.Set<StudentCapacityPackage>()
+                .FirstOrDefaultAsync(p => p.Id == packageId);
+        }
+
+        // ══════════════════════════════════════════════
+        // STUDENT USER ENTITY QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<StudentUser?> GetActiveStudentUserByIdAsync(long studentUserId)
+        {
+            return await _context.Set<StudentUser>()
+                .FirstOrDefaultAsync(s => s.Id == studentUserId && s.DeletedAt == null);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> StudentUserExistsByUserIdAsync(long userId)
+        {
+            return await _context.Set<StudentUser>()
+                .AnyAsync(s => s.UserId == userId);
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentUser?> GetStudentUserByAccountCodeAsync(string accountCode)
+        {
+            string normalizedCode = accountCode.Trim().ToUpperInvariant();
+            return await _context.Set<StudentUser>()
+                .FirstOrDefaultAsync(s => s.StudentAccountCode == normalizedCode && s.DeletedAt == null);
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentUser?> GetStudentUserByIdAsync(long studentUserId)
+        {
+            return await _context.Set<StudentUser>()
+                .FirstOrDefaultAsync(s => s.Id == studentUserId);
+        }
+
+        /// <inheritdoc />
+        public async Task AddStudentUserAsync(StudentUser studentUser)
+        {
+            await _context.Set<StudentUser>().AddAsync(studentUser);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateStudentUserAsync(StudentUser studentUser)
+        {
+            _context.Entry(studentUser).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // STUDENT TEACHER LINK QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<int> CountActiveStudentTeacherLinksAsync(long studentUserId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .CountAsync(l => l.StudentUserId == studentUserId && l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentTeacherLink>> GetActiveStudentTeacherLinksAsync(long studentUserId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.StudentUserId == studentUserId && l.LinkStatus == LinkStatus.Active)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetActiveStudentTeacherLinkAsync(long studentUserId, long teacherId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .FirstOrDefaultAsync(l =>
+                    l.StudentUserId == studentUserId &&
+                    l.TeacherId == teacherId &&
+                    l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> StudentTeacherLinkExistsAsync(long studentUserId, long teacherId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .AnyAsync(l =>
+                    l.StudentUserId == studentUserId &&
+                    l.TeacherId == teacherId &&
+                    l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task AddStudentTeacherLinkAsync(StudentTeacherLink link)
+        {
+            await _context.Set<StudentTeacherLink>().AddAsync(link);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateStudentTeacherLinkAsync(StudentTeacherLink link)
+        {
+            _context.Entry(link).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // TEACHER STUDENT (TEACHER-SCOPED RECORD) QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<TeacherStudent?> GetTeacherStudentByLinkingCredentialsAsync(
+            long teacherId, string studentCode, string hashedToken)
+        {
+            return await _context.Set<TeacherStudent>()
+                .FirstOrDefaultAsync(ts =>
+                    ts.TeacherId == teacherId &&
+                    ts.StudentCode == studentCode &&
+                    ts.HashedToken == hashedToken &&
+                    !ts.IsDeleted);
+        }
+
+        // ══════════════════════════════════════════════
+        // PARENT USER ENTITY QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<ParentUser?> GetActiveParentUserByIdAsync(long parentUserId)
+        {
+            return await _context.Set<ParentUser>()
+                .FirstOrDefaultAsync(p => p.Id == parentUserId && p.DeletedAt == null);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> ParentUserExistsByUserIdAsync(long userId)
+        {
+            return await _context.Set<ParentUser>()
+                .AnyAsync(p => p.UserId == userId);
+        }
+
+        /// <inheritdoc />
+        public async Task AddParentUserAsync(ParentUser parentUser)
+        {
+            await _context.Set<ParentUser>().AddAsync(parentUser);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateParentUserAsync(ParentUser parentUser)
+        {
+            _context.Entry(parentUser).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // PARENT CHILD QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<int> CountActiveChildrenAsync(long parentUserId)
+        {
+            return await _context.Set<ParentChild>()
+                .CountAsync(c => c.ParentUserId == parentUserId && c.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ParentChild>> GetActiveChildrenAsync(long parentUserId)
+        {
+            return await _context.Set<ParentChild>()
+                .AsNoTracking()
+                .Where(c => c.ParentUserId == parentUserId && c.IsActive)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<ParentChild?> GetActiveChildAsync(long parentUserId, long childId)
+        {
+            return await _context.Set<ParentChild>()
+                .FirstOrDefaultAsync(c =>
+                    c.Id == childId &&
+                    c.ParentUserId == parentUserId &&
+                    c.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> ChildAlreadyLinkedAsync(long parentUserId, long studentUserId)
+        {
+            return await _context.Set<ParentChild>()
+                .AnyAsync(c =>
+                    c.ParentUserId == parentUserId &&
+                    c.StudentUserId == studentUserId &&
+                    c.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task AddParentChildAsync(ParentChild parentChild)
+        {
+            await _context.Set<ParentChild>().AddAsync(parentChild);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateParentChildAsync(ParentChild parentChild)
+        {
+            _context.Entry(parentChild).State = EntityState.Modified;
+        }
+
+        // ══════════════════════════════════════════════
+        // PARENT CHILD TEACHER LINK QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ParentChildTeacherLink>> GetActiveParentChildTeacherLinksAsync(long parentChildId)
+        {
+            return await _context.Set<ParentChildTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.ParentChildId == parentChildId && l.LinkStatus == LinkStatus.Active)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> ParentChildTeacherLinkExistsAsync(long parentChildId, long teacherId)
+        {
+            return await _context.Set<ParentChildTeacherLink>()
+                .AnyAsync(l =>
+                    l.ParentChildId == parentChildId &&
+                    l.TeacherId == teacherId &&
+                    l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<ParentChildTeacherLink?> GetActiveParentChildTeacherLinkAsync(long parentChildId, long teacherId)
+        {
+            return await _context.Set<ParentChildTeacherLink>()
+                .FirstOrDefaultAsync(l =>
+                    l.ParentChildId == parentChildId &&
+                    l.TeacherId == teacherId &&
+                    l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task AddParentChildTeacherLinkAsync(ParentChildTeacherLink link)
+        {
+            await _context.Set<ParentChildTeacherLink>().AddAsync(link);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateParentChildTeacherLinkAsync(ParentChildTeacherLink link)
+        {
+            _context.Entry(link).State = EntityState.Modified;
+        }
     }
 }
