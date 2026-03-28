@@ -200,4 +200,50 @@
     <value>مفيش ربط نشط بين حسابك والمعلم ده</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- ولي الأمر - التسجيل                     -->
+  <!-- AAM-FR-06                              -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ParentUserInitializedSuccess" xml:space="preserve">
+    <value>تم إنشاء حساب ولي الأمر بنجاح</value>
+  </data>
+  <data name="ParentUserAlreadyInitialized" xml:space="preserve">
+    <value>الحساب ده متسجل كولي أمر بالفعل</value>
+  </data>
+  <data name="ParentUserNotFound" xml:space="preserve">
+    <value>مش لاقيين حساب ولي الأمر ده. من فضلك راجع البيانات وحاول تاني</value>
+  </data>
+  <data name="ParentUserProfileUpdated" xml:space="preserve">
+    <value>تم تحديث بياناتك بنجاح</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- ولي الأمر - إدارة الأبناء               -->
+  <!-- AAM-FR-06.3 / 06.4 / 06.5            -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ChildLinkedSuccess" xml:space="preserve">
+    <value>تم ربط الابن/الابنة بحسابك بنجاح</value>
+  </data>
+  <data name="ChildCreatedSuccess" xml:space="preserve">
+    <value>تم إنشاء ملف الابن/الابنة بنجاح. تقدر تضيف معلمين دلوقتي</value>
+  </data>
+  <data name="ChildAlreadyLinked" xml:space="preserve">
+    <value>الابن/الابنة ده مربوط بحسابك بالفعل</value>
+  </data>
+  <data name="ChildNotFound" xml:space="preserve">
+    <value>مش لاقيين الابن/الابنة ده تحت حسابك</value>
+  </data>
+  <data name="ChildNameRequired" xml:space="preserve">
+    <value>من فضلك اكتب اسم الابن/الابنة</value>
+  </data>
+  <data name="ChildRemovedSuccess" xml:space="preserve">
+    <value>تم إزالة الابن/الابنة من حسابك</value>
+  </data>
+  <data name="CannotLinkTeacherToMethodAChild" xml:space="preserve">
+    <value>الابن/الابنة عنده حساب طالب. المعلمين بيتضافوا من حساب الطالب نفسه</value>
+  </data>
+  <data name="CannotUnlinkTeacherFromMethodAChild" xml:space="preserve">
+    <value>الابن/الابنة عنده حساب طالب. المعلمين بيتشالوا من حساب الطالب نفسه</value>
+  </data>
+
 </root>

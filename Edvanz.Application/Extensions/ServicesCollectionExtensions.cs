@@ -24,6 +24,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<IuserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
+        services.AddScoped<IParentUserService, ParentUserService>();
 
         #endregion
 

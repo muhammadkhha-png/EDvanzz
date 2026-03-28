@@ -200,4 +200,50 @@
     <value>No active link found between your account and this teacher</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- PARENT USER MODULE - REGISTRATION      -->
+  <!-- AAM-FR-06                              -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ParentUserInitializedSuccess" xml:space="preserve">
+    <value>Your parent account has been created successfully</value>
+  </data>
+  <data name="ParentUserAlreadyInitialized" xml:space="preserve">
+    <value>This account has already been set up as a parent</value>
+  </data>
+  <data name="ParentUserNotFound" xml:space="preserve">
+    <value>We couldn't find this parent account. Please check and try again</value>
+  </data>
+  <data name="ParentUserProfileUpdated" xml:space="preserve">
+    <value>Your profile has been updated successfully</value>
+  </data>
+
+  <!-- ══════════════════════════════════════ -->
+  <!-- PARENT USER MODULE - CHILD MANAGEMENT  -->
+  <!-- AAM-FR-06.3 / 06.4 / 06.5            -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="ChildLinkedSuccess" xml:space="preserve">
+    <value>Child linked to your account successfully</value>
+  </data>
+  <data name="ChildCreatedSuccess" xml:space="preserve">
+    <value>Child profile created successfully. You can now add teachers</value>
+  </data>
+  <data name="ChildAlreadyLinked" xml:space="preserve">
+    <value>This child is already linked to your account</value>
+  </data>
+  <data name="ChildNotFound" xml:space="preserve">
+    <value>We couldn't find this child under your account</value>
+  </data>
+  <data name="ChildNameRequired" xml:space="preserve">
+    <value>Please enter the child's name</value>
+  </data>
+  <data name="ChildRemovedSuccess" xml:space="preserve">
+    <value>Child removed from your account</value>
+  </data>
+  <data name="CannotLinkTeacherToMethodAChild" xml:space="preserve">
+    <value>This child has a student account. Teachers are managed from the student's own account</value>
+  </data>
+  <data name="CannotUnlinkTeacherFromMethodAChild" xml:space="preserve">
+    <value>This child has a student account. Teachers can only be removed from the student's own account</value>
+  </data>
+
 </root>

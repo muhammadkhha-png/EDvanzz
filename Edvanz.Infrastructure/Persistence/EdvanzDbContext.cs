@@ -36,6 +36,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<StudentUser> StudentUsers { get; set; }
     public DbSet<StudentTeacherLink> StudentTeacherLinks { get; set; }
 
+    // ─── Parent User module tables (AAM-FR-06) ───
+    public DbSet<ParentUser> ParentUsers { get; set; }
+    public DbSet<ParentChild> ParentChildren { get; set; }
+    public DbSet<ParentChildTeacherLink> ParentChildTeacherLinks { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
@@ -406,6 +411,115 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Performance index: active links filter (most common query path for dashboard)
             entity.HasIndex(stl => new { stl.StudentUserId, stl.LinkStatus })
                 .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_LinkStatus");
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // PARENT USER MODULE CONFIGURATION (AAM-FR-06)
+        // ════════════════════════════════════════════════
+
+        #region ParentUser (parent user account, AAM-FR-06)
+        modelBuilder.Entity<ParentUser>(entity =>
+        {
+            entity.ToTable("ParentUsers");
+
+            // UserId: one-to-one with User (same pattern as Teachers, StudentUsers)
+            // The User table holds: FullName, Username, Email, PasswordHashed,
+            // PhoneNumber, SecurityStamp, UserType = Parent. No auth fields here.
+            entity.HasIndex(pu => pu.UserId)
+                .IsUnique()
+                .HasDatabaseName("IX_ParentUsers_UserId");
+
+            entity.HasOne(pu => pu.User)
+                .WithOne()
+                .HasForeignKey<ParentUser>(pu => pu.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // LanguagePreference: short code ("en" or "ar")
+            entity.Property(pu => pu.LanguagePreference)
+                .HasMaxLength(5);
+
+            // Soft-delete filter: queries exclude deleted records by default
+            entity.HasQueryFilter(pu => pu.DeletedAt == null);
+
+            // Performance index for active, non-deleted parent users
+            entity.HasIndex(pu => new { pu.AccountStatus, pu.DeletedAt })
+                .HasDatabaseName("IX_ParentUsers_AccountStatus_DeletedAt");
+        });
+        #endregion
+
+        #region ParentChild (1:N from ParentUser, AAM-FR-06.3/06.4)
+        modelBuilder.Entity<ParentChild>(entity =>
+        {
+            entity.ToTable("ParentChildren");
+
+            // ParentUser FK: cascade delete when parent account is removed
+            entity.HasOne(pc => pc.ParentUser)
+                .WithMany(pu => pu.Children)
+                .HasForeignKey(pc => pc.ParentUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // StudentUser FK: optional (null for Method B manual profiles)
+            // Restrict: don't cascade student user deletion to parent child records
+            entity.HasOne(pc => pc.StudentUser)
+                .WithMany()
+                .HasForeignKey(pc => pc.StudentUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ChildName: mandatory for both Method A and Method B
+            entity.Property(pc => pc.ChildName)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            // Prevent duplicate Method A links: same parent cannot link the same student twice
+            // Filtered unique index — only applies when StudentUserId IS NOT NULL (Method A)
+            entity.HasIndex(pc => new { pc.ParentUserId, pc.StudentUserId })
+                .IsUnique()
+                .HasFilter("[StudentUserId] IS NOT NULL")
+                .HasDatabaseName("IX_ParentChildren_ParentUserId_StudentUserId");
+
+            // Performance index: active children per parent (dashboard query path)
+            entity.HasIndex(pc => new { pc.ParentUserId, pc.IsActive })
+                .HasDatabaseName("IX_ParentChildren_ParentUserId_IsActive");
+        });
+        #endregion
+
+        #region ParentChildTeacherLink (Method B teacher linking, AAM-FR-06.3/06.5)
+        modelBuilder.Entity<ParentChildTeacherLink>(entity =>
+        {
+            entity.ToTable("ParentChildTeacherLinks");
+
+            // Composite unique: a Method B child can only link to the same teacher once
+            entity.HasIndex(pctl => new { pctl.ParentChildId, pctl.TeacherId })
+                .IsUnique()
+                .HasDatabaseName("IX_ParentChildTeacherLinks_ChildId_TeacherId");
+
+            // ParentChild FK: cascade delete when child record is removed
+            entity.HasOne(pctl => pctl.ParentChild)
+                .WithMany(pc => pc.TeacherLinks)
+                .HasForeignKey(pctl => pctl.ParentChildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Teacher FK: restrict — don't cascade teacher deletion to parent links
+            entity.HasOne(pctl => pctl.Teacher)
+                .WithMany()
+                .HasForeignKey(pctl => pctl.TeacherId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // TeacherStudent FK: set null if teacher deletes the student record
+            // The link survives but TeacherStudentId becomes null (degraded state)
+            entity.HasOne(pctl => pctl.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(pctl => pctl.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Performance index: reverse lookup — which parent children are linked to a teacher
+            entity.HasIndex(pctl => pctl.TeacherId)
+                .HasDatabaseName("IX_ParentChildTeacherLinks_TeacherId");
+
+            // Performance index: active links filter for child dashboard
+            entity.HasIndex(pctl => new { pctl.ParentChildId, pctl.LinkStatus })
+                .HasDatabaseName("IX_ParentChildTeacherLinks_ChildId_LinkStatus");
         });
         #endregion
 
