@@ -1,0 +1,89 @@
+﻿using Edvanz.Domain.Entities.ShareProp;
+using Edvanz.Domain.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Edvanz.Domain.Entities;
+
+/// <summary>
+/// Represents a Teacher account in the system. Links to a User record via UserId.
+/// This is the multi-tenant anchor: students, sessions, payments, and all module data
+/// are scoped to a Teacher's Id.
+/// </summary>
+public class Teacher : BaseEntity
+{
+    /// <summary>
+    /// Foreign key to the User table. Establishes 1:1 identity link.
+    /// </summary>
+    public long UserId { get; set; }
+    public User User { get; set; } = null!;
+
+    /// <summary>
+    /// Unique, immutable, 8-digit code auto-generated upon registration.
+    /// AAM-FR-03.3 / AAM-BR-05: Permanent after creation, cannot be changed or regenerated.
+    /// AAM-NFR-03: Cryptographically unique and collision-resistant.
+    /// </summary>
+    public string TeacherCode { get; set; } = null!;
+
+    /// <summary>
+    /// Selected student capacity package tier. FK to StudentCapacityPackages lookup table.
+    /// AAM-FR-04.1: Determines subscription tier. Nullable until configuration is completed.
+    /// </summary>
+    [ForeignKey(nameof(StudentCapacityPackage))]
+    public long? StudentCapacityPackageId { get; set; }
+    public StudentCapacityPackage? StudentCapacityPackage { get; set; }
+
+    /// <summary>
+    /// Effective maximum student count for this account.
+    /// REQ-ADM-006/009: Set by super admin during creation, adjustable at any time.
+    /// Defaults to 500 per REQ-STU-002.
+    /// </summary>
+    public int StudentCapacity { get; set; } = 500;
+
+    /// <summary>
+    /// Teacher's preferred UI language. "en" or "ar".
+    /// AAM-FR-02.1/02.3: Selected during registration, changeable from settings.
+    /// </summary>
+    public string? LanguagePreference { get; set; }
+
+    /// <summary>
+    /// Free-text subject name for subjects not in the ministry-defined list.
+    /// AAM-FR-03.5: Used only when the teacher's subject is not in the Subjects lookup.
+    /// </summary>
+    public string? CustomSubject { get; set; }
+
+    /// <summary>
+    /// Current account status: Active, Inactive, or Suspended.
+    /// </summary>
+    public AccountStatus AccountStatus { get; set; } = AccountStatus.Active;
+
+    /// <summary>
+    /// Indicates whether the teacher has completed the post-registration configuration flow.
+    /// AAM-NFR-05: Skippable; system applies defaults. UI uses this to prompt configuration.
+    /// </summary>
+    public bool IsConfigurationCompleted { get; set; } = false;
+
+    /// <summary>
+    /// Timestamp of account deactivation. Null if account is active.
+    /// REQ-ADM-017/018: Set when super admin deactivates the account.
+    /// </summary>
+    public DateTime? DeactivatedAt { get; set; }
+
+    /// <summary>
+    /// Soft-delete timestamp. Null if account is not deleted.
+    /// REQ-ADM-020 through 024: Data preservation period before permanent removal.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// The user who created this teacher account (typically the super admin).
+    /// REQ-ADM-006: Super admin creates tutor accounts.
+    /// </summary>
+    [ForeignKey(nameof(CreatedByUser))]
+    public long? CreatedByUserId { get; set; }
+    public User? CreatedByUser { get; set; }
+
+    // Navigation properties
+    public TeacherConfiguration? Configuration { get; set; }
+    public ICollection<TeacherSubject> TeacherSubjects { get; set; } = new List<TeacherSubject>();
+    public ICollection<TeacherSubscription> Subscriptions { get; set; } = new List<TeacherSubscription>();
+}

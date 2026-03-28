@@ -10,6 +10,10 @@ using System.Threading.Tasks;
 
 namespace Edvanz.Infrastructure.Repositories
 {
+    /// <summary>
+    /// Generic repository implementation using EF Core.
+    /// All EF Core dependencies are isolated here in the Infrastructure layer.
+    /// </summary>
     public class GenericRepo<T, Tkey> : IGenericRepo<T, Tkey> where T : class where Tkey : IEquatable<Tkey>
     {
         protected readonly EdvanzDbContext _context;
@@ -35,7 +39,6 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Set<T>().AsNoTracking().Where(predicate).ToListAsync();
         }
         //----------------------------------------------------------------
-     
         public async Task AddAsync(T entity)
         {
             await _context.Set<T>().AddAsync(entity);
@@ -44,22 +47,17 @@ namespace Edvanz.Infrastructure.Repositories
         public async Task AddRangeAsync(IEnumerable<T> entities)
         {
             await _context.Set<T>().AddRangeAsync(entities);
-           
         }
         //----------------------------------------------------------------
         public async Task UpdateAsync(T entity)
         {
             _context.Entry(entity).State = EntityState.Modified;
-           
         }
-      
         //----------------------------------------------------------------
         public async Task DeleteAsync(T entity)
         {
             _context.Set<T>().Remove(entity);
-          
         }
-     
         //----------------------------------------------------------------
         public IQueryable<T> GetQueryable()
         {
@@ -76,17 +74,29 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Set<T>().AnyAsync(predicate);
         }
         //----------------------------------------------------------------
-        //----------------------------------------------------------------
         public async Task DeleteRangeAsync(IEnumerable<T> entities)
         {
             _context.Set<T>().RemoveRange(entities);
-          
         }
-
-       
-      
         //----------------------------------------------------------------
+        /// <inheritdoc />
+        public async Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null)
+        {
+            if (predicate is null)
+                return await _context.Set<T>().CountAsync();
 
+            return await _context.Set<T>().CountAsync(predicate);
+        }
+        //----------------------------------------------------------------
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<T>> GetPagedAsync(IQueryable<T> query, int page, int pageSize)
+        {
+            return await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+        //----------------------------------------------------------------
     }
 }
-

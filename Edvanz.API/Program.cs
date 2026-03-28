@@ -1,8 +1,9 @@
+using Edvanz.API.Filters;
 using Edvanz.Application.Extensions;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
+using Edvanz.Infrastructure.Extensions;
 using Edvanz.Infrastructure.Persistence;
-using Edvanz.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -14,18 +15,34 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
-builder.Services.AddScoped<IUserRepo, UserRepo>();
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
-
-
 builder.Services.AddApplication();
+builder.Services.AddInfrastructure();
+builder.Services.AddLocalization();
 
+builder.Services.Configure<RequestLocalizationOptions>(options =>
+{
+    var supportedCultures = new[] { "en", "ar" };
+    options.DefaultRequestCulture = new Microsoft.AspNetCore.Localization.RequestCulture("en");
+    options.SupportedCultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
+    options.SupportedUICultures = supportedCultures.Select(c => new CultureInfo(c)).ToList();
+
+    options.RequestCultureProviders = new List<Microsoft.AspNetCore.Localization.IRequestCultureProvider>
+    {
+        new Microsoft.AspNetCore.Localization.AcceptLanguageHeaderRequestCultureProvider()
+    };
+});
 
 builder.Services.AddCors(options =>
 {
@@ -42,8 +59,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
-
-
+    c.OperationFilter<AcceptLanguageHeaderFilter>();
+    c.UseInlineDefinitionsForEnums();
 });
 var app = builder.Build();
 
