@@ -252,14 +252,6 @@
   <data name="CannotUnlinkTeacherFromMethodAChild" xml:space="preserve">
     <value>الابن/الابنة عنده حساب طالب. المعلمين بيتشالوا من حساب الطالب نفسه</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- موديول الطلاب (Module 1)                -->
-  <!-- سجلات طلاب المعلم - CRUD               -->
-  <!-- REQ-STU-NFR-006: مصري                  -->
-  <!-- ══════════════════════════════════════ -->
-
-  <!-- ── إضافة طالب ── -->
   <data name="StudentCreatedSuccess" xml:space="preserve">
     <value>تم إضافة الطالب بنجاح</value>
   </data>
@@ -269,8 +261,6 @@
   <data name="StudentCapacityReached" xml:space="preserve">
     <value>وصلت للحد الأقصى لعدد الطلاب. من فضلك قم بترقية خطتك أو تواصل مع المسؤول لإضافة طلاب أكتر</value>
   </data>
-
-  <!-- ── كود الطالب ── -->
   <data name="StudentCodeRequiredManual" xml:space="preserve">
     <value>كود الطالب مطلوب لما يكون التوليد التلقائي مغلق. من فضلك ادخل كود فريد</value>
   </data>
@@ -286,16 +276,12 @@
   <data name="StudentCodeSpaceExhausted" xml:space="preserve">
     <value>وصلت للحد الأقصى للأكواد التلقائية. من فضلك حول لإدخال الأكواد يدوي</value>
   </data>
-
-  <!-- ── تحديث ── -->
   <data name="StudentUpdatedSuccess" xml:space="preserve">
     <value>تم تحديث بيانات الطالب بنجاح</value>
   </data>
   <data name="StudentNotFound" xml:space="preserve">
     <value>الطالب مش موجود. ممكن يكون اتمسح أو مش تابع لحسابك</value>
   </data>
-
-  <!-- ── حذف / سلة المحذوفات ── -->
   <data name="StudentDeletedSuccess" xml:space="preserve">
     <value>تم نقل الطالب لسلة المحذوفات. تقدر تسترجعه خلال 10 أيام</value>
   </data>
@@ -317,13 +303,19 @@
   <data name="NoStudentsSelected" xml:space="preserve">
     <value>مفيش طلاب محددين. من فضلك اختار طالب واحد على الأقل</value>
   </data>
-
-  <!-- ── استيراد جماعي ── -->
   <data name="BulkImportComplete" xml:space="preserve">
     <value>تم الاستيراد</value>
   </data>
   <data name="BulkImportExceedsCapacity" xml:space="preserve">
     <value>عدد الطلاب الصحيحين في الاستيراد ده أكبر من السعة المتبقية. من فضلك قلل عدد الطلاب أو قم بترقية خطتك</value>
   </data>
-
+  <data name="InvalidGoogletoken" xml:space="preserve">
+    <value>حساب جوجل غير مصرح</value>
+  </data>
+  <data name="Googleaccountalreadyregistered" xml:space="preserve">
+    <value> الحساب مسجل بالفعل مينغعش تسجل تاني</value>
+  </data>
+  <data name="CompleteYourProfile" xml:space="preserve">
+    <value>كمل باقي البيانات ضروري ع تقدر تسخدم الابليكشن</value>
+  </data>
 </root>

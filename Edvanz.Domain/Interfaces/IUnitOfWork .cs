@@ -22,6 +22,8 @@ namespace Edvanz.Domain.Interfaces
         IUserRepo Users { get; }
         IUserPermissionRepo UsersPermissions { get; }
         IRefreshTokenRepo RefreshTokenRepo { get; }
+        IgoogleUserRepo googleUserRepo { get; }
+
 
 
         /// <summary>

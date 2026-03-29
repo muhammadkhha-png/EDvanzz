@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Edvanz.Application.IservicesContract
 {
-    public class ICurrentUserService
+    public interface ICurrentUserService
     {
        public long? UserId { get; }
         public string? Username { get; }

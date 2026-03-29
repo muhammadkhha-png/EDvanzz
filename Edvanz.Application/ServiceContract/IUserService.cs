@@ -1,4 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Auth;
+using Edvanz.Application.Dtos.UserDto;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -25,6 +27,6 @@ namespace Edvanz.Application.ServiceContract
         /// </summary>
         /// <param name="user">Registration data including credentials and user type.</param>
         /// <returns>Result containing the registration data on success.</returns>
-        Task<Result<AddUserDto?>> AddUser(AddUserDto user);
+        Task<Result<string>> AddUser(SigupDto user);
     }
 }

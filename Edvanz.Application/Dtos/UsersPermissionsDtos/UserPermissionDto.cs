@@ -1,8 +1,9 @@
-﻿using System;
+﻿using Edvanz.Application.Dtos.ModulesPermissions;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Edvanz.Application.Dtos
+namespace Edvanz.Application.Dtos.UsersPermissionsDtos
 {
     public class UserPermissionDto
     {

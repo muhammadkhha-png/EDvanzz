@@ -24,7 +24,7 @@ namespace Edvanz.Infrastructure
         private ITeacherStudentRepo? _teacherStudentRepo;
         private IUserPermissionRepo? _userPermissionRepo;
         private IRefreshTokenRepo? _refreshTokenRepo;
-
+        private  IgoogleUserRepo? _googleUserRepo;
 
         public UnitOfWork(EdvanzDbContext _context)
         {
@@ -144,5 +144,7 @@ namespace Edvanz.Infrastructure
         public IUserPermissionRepo UsersPermissions => _userPermissionRepo ??= new UserPermissionRepo(_Context);
 
         public IRefreshTokenRepo RefreshTokenRepo => _refreshTokenRepo ??= new RefreshTokenRepo(_Context);
+
+        public IgoogleUserRepo googleUserRepo => _googleUserRepo ??= new GoogleUserRepo(_Context);
     }
 }

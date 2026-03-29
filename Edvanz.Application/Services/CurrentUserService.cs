@@ -21,7 +21,7 @@ namespace Edvanz.Application.Services
             get
             {
                 var claim = _httpContextAccessor.HttpContext?.User
-                    .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                    .FindFirst(ClaimTypes.NameIdentifier)?.Value ;
 
                 return long.TryParse(claim, out var id) ? id : null;
             }

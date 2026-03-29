@@ -43,6 +43,7 @@ public class ExceptionMiddleware
 
         string messageKey = ex switch
         {
+            UnauthorizedAccessException uae when uae.Message.Contains("Google token") => "InvalidGoogletoken",
             NotFoundException => "NotFound",
             UnauthorizedAccessException => "Unauthorized",
             ArgumentException => "BadRequest",

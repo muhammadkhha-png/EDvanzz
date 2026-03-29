@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Auth;
 using System;
 using System.Collections.Generic;
 using System.Text;

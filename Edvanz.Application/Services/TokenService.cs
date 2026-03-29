@@ -14,26 +14,38 @@ namespace Edvanz.Application.Services
     {
         public string GenerateJwtToken(User user, List<string> permissions)
         {
-            var claims = new List<Claim>
-    {
-        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Name, user.Username),
-        new Claim(ClaimTypes.Role, user.UserType.ToString()),
-        new Claim("SecurityStamp", user.SecurityStamp)
-    };
+            var claims = new List<Claim>();
 
+            if (user.Id != 0)
+                claims.Add(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()));
 
-            if (permissions == null || !permissions.Any())
-                claims.Add(new Claim("Permission", "None")); 
-            else
-                claims.AddRange(permissions.Select(p => new Claim("Permission", p)));
+            if (!string.IsNullOrWhiteSpace(user.Username))
+                claims.Add(new Claim(ClaimTypes.Name, user.Username));
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL"));
+            if (user.UserType != null)
+                claims.Add(new Claim(ClaimTypes.Role, user.UserType.ToString()));
+
+            if (!string.IsNullOrWhiteSpace(user.SecurityStamp))
+                claims.Add(new Claim("SecurityStamp", user.SecurityStamp));
+
+            if (permissions != null && permissions.Any())
+            {
+                claims.AddRange(
+                    permissions
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => new Claim("Permission", p))
+                );
+            }
+
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")
+            );
+
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(5), 
+                expires: DateTime.UtcNow.AddMinutes(5),
                 signingCredentials: creds
             );
 
@@ -46,6 +58,30 @@ namespace Edvanz.Application.Services
             rng.GetBytes(randomBytes);
 
             return Convert.ToBase64String(randomBytes);
+        }
+        public string GenerateCompleteProfileToken(GoogleUser googleUser)
+        {
+            var claims = new List<Claim>
+    {
+        new Claim(ClaimTypes.NameIdentifier, googleUser.Id.ToString()),
+        new Claim(ClaimTypes.Email, googleUser.Email ?? ""),
+       
+        new Claim("Permission", "CompleteProfile") 
+    };
+
+            var key = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")
+            );
+
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var token = new JwtSecurityToken(
+                claims: claims,
+                expires: DateTime.UtcNow.AddMinutes(10), 
+                signingCredentials: creds
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
     }
 }

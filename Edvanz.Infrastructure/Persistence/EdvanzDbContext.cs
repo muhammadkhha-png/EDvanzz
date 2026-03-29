@@ -14,7 +14,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<UsersPermission> UsersPermissions { get; set; }
     public DbSet<Permission> Permissions { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
-
+    public DbSet<GoogleUser> GoogleUsers { get; set; }
     public DbSet<Module> Models { get; set; }
     public DbSet<Template> Templates { get; set; }
     public DbSet<TemplateAssistant> TemplatesOfAssistants { get; set; }

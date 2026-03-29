@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace Edvanz.Application.Dtos
+namespace Edvanz.Application.Dtos.ModulesPermissions
 {
     public class ModulePermissionsDto
     {

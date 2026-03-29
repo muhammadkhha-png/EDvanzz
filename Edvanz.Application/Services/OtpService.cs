@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Auth;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;

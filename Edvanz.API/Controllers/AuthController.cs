@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos.Auth;
+using Edvanz.Application.Dtos.UserDto;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Microsoft.AspNetCore.Authorization;
@@ -49,7 +50,7 @@ namespace Edvanz.API.Controllers
         /// <param name="req">Registration data including user type, credentials, and optional ID image.</param>
         /// <returns>Result containing the registration data on success.</returns>
         [HttpPost("sign-up")]
-        public async Task<IActionResult> Signup([FromForm] AddUserDto req)
+        public async Task<IActionResult> Signup([FromForm] SigupDto req)
         {
             var result = await _userService.AddUser(req);
             return ToResponse(result);
@@ -96,7 +97,13 @@ namespace Edvanz.API.Controllers
         [HttpPost("refresh")]
         public async Task<IActionResult> RefreshToken(RefeshDto req)
         {
-            var result = await authService.Refresh(req.refreshToken);
+            var result = await authService.Refresh(req.token);
+            return ToResponse(result);
+        }
+        [HttpPost("sigup-by-google")]
+        public async Task<IActionResult> GoogleSignUp(RefeshDto req)
+        {
+            var result = await authService.SigUpByGoogle(req.token);
             return ToResponse(result);
         }
 

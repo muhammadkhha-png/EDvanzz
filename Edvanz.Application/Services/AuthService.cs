@@ -1,9 +1,11 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Auth;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
+using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Localization;
@@ -27,7 +29,7 @@ namespace Edvanz.Application.Services
         private readonly IPasswordService _passwordService;
         private readonly ITokenService tokenService;
         private readonly ICurrentUserService _currentUser;
-
+        private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
 
 
         /// <summary>
@@ -126,7 +128,7 @@ namespace Edvanz.Application.Services
         }
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {
-            if (_currentUser.UserId == null)
+            if (  _currentUser.UserId == null)
                 return Result<string>.Failure(_localizer, "UserNotFound");
 
             var userId = _currentUser.UserId.Value;
@@ -188,5 +190,60 @@ namespace Edvanz.Application.Services
             };
             return Result<AuthResponse>.Success(result, _localizer, "TokenRefreshedSuccessfully");
         }
+
+        public async Task<Result<AuthResponse>> SigUpByGoogle(string idToken)
+        {
+            GoogleJsonWebSignature.Payload payload;
+            try
+            {
+                payload = await GoogleJsonWebSignature.ValidateAsync(idToken, new GoogleJsonWebSignature.ValidationSettings
+                {
+
+                    Audience = null, // Specify the client ID of your application if you want to restrict token validation to a specific audience
+                    //null ==> _googleClientId when using fron front 
+                });
+
+            }
+            catch
+            {
+                throw new UnauthorizedAccessException("Invalid Google token");
+            }
+
+            var googleUser = await _unitOfWork.googleUserRepo.GetByGoogleIdAsync(payload.Subject);
+
+            if (googleUser != null)
+            {
+                if (googleUser.IsCompleted)
+                {
+                    return Result<AuthResponse>.Failure(_localizer,"Googleaccountalreadyregistered");
+                }
+            }
+            else
+            {
+                googleUser = new GoogleUser
+                {
+                    GoogleId = payload.Subject,
+                    Email = payload.Email,
+                    CreateAt = DateTime.UtcNow,
+                    IsCompleted = false,
+                };
+
+                await _unitOfWork.googleUserRepo.AddAsync(googleUser);
+               var res=  await _unitOfWork.SaveChangesAsync();
+                if (res <= 0)
+                    return Result<AuthResponse>.Failure(_localizer, "ServerError");
+            }
+
+            var token = tokenService.GenerateCompleteProfileToken(googleUser);
+
+            var result = new AuthResponse()
+            {
+                accessToken = token,
+                refreshToken = null
+            };
+
+            return Result<AuthResponse>.Success(result, _localizer, "CompleteYourProfile");
+        }
+
     }
 }
