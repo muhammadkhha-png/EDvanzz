@@ -40,10 +40,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX B1: Previously queried PhoneNumber instead of Username — now correctly queries Username
         public async Task<User?> GetByUserName(string userName)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.PhoneNumber == userName);
+                .FirstOrDefaultAsync(u => u.Username == userName);
         }
 
         /// <inheritdoc />
@@ -73,6 +74,19 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Users
                 .AsNoTracking()
                 .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        // FIX V1: Encapsulates the complex OR-based duplicate check that was previously
+        // a raw expression in UserService.AddUser. Now the Application layer calls this
+        // named method instead of building the predicate itself.
+        public async Task<User?> FindExistingUserByCredentialsAsync(string phoneNumber, string username, string? email)
+        {
+            return await _context.Users
+                .FirstOrDefaultAsync(u =>
+                    u.PhoneNumber == phoneNumber ||
+                    u.Username == username ||
+                    (!string.IsNullOrEmpty(email) && u.Email == email));
         }
 
         // ══════════════════════════════════════════════

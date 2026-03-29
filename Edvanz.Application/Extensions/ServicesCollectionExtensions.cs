@@ -11,18 +11,29 @@ namespace Edvanz.Application.Extensions;
 
 /// <summary>
 /// Registers Application layer services into the DI container.
+/// All services are registered as Scoped (one instance per HTTP request).
 /// </summary>
 public static class ServicesCollectionExtensions
 {
+    /// <summary>
+    /// Adds all Application layer services to the dependency injection container.
+    /// Includes: authentication services, user module services, type-specific services,
+    /// and localization configuration.
+    /// </summary>
+    /// <param name="services">The service collection to register services into.</param>
     public static void AddApplication(this IServiceCollection services)
     {
 
         #region Services
         services.AddScoped<ISmsService, SmsService>();
+        // FIX B5: AuthService now requires IPasswordService in its constructor
+        // (previously it was missing, causing the plain-text vs hash comparison bug)
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPasswordService, PasswordService>();
         services.AddScoped<IOtpService, OtpService>();
-        services.AddScoped<IuserService, UserService>();
+        // FIX I1/I3: Renamed from IuserService to IUserService
+        // FIX I1: Interface moved from Edvanz.Domain.ServiceContract to Edvanz.Application.ServiceContract
+        services.AddScoped<IUserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
         services.AddScoped<IParentUserService, ParentUserService>();
 

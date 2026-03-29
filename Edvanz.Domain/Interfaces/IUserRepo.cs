@@ -28,7 +28,7 @@ namespace Edvanz.Domain.Interfaces
 
         /// <summary>
         /// Finds a user by phone number.
-        /// Used by UserService during registration duplicate checks.
+        /// Used by OtpService and AuthService for phone-based lookup.
         /// </summary>
         Task<User?> GetByPhoneAsync(string phone);
 
@@ -61,6 +61,19 @@ namespace Edvanz.Domain.Interfaces
         /// Retrieves all users (no filter). Used by TeacherService.GetTeachersAsync for bulk join.
         /// </summary>
         Task<IReadOnlyList<User>> GetAllUsersAsync();
+
+        /// <summary>
+        /// Finds an existing user that matches any of the unique credential fields:
+        /// phone number, username, or email (if email is not null/empty).
+        /// Used by UserService.AddUser during registration to detect duplicate accounts.
+        /// 
+        /// Returns the first matching user, or null if no match found.
+        /// The caller checks which field matched to return the appropriate error message.
+        /// </summary>
+        /// <param name="phoneNumber">The phone number to check for duplicates.</param>
+        /// <param name="username">The username to check for duplicates.</param>
+        /// <param name="email">The email to check for duplicates (skipped if null or empty).</param>
+        Task<User?> FindExistingUserByCredentialsAsync(string phoneNumber, string username, string? email);
 
         // ══════════════════════════════════════════════
         // TEACHER ENTITY QUERIES
