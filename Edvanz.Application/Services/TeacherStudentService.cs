@@ -23,6 +23,14 @@ namespace Edvanz.Application.Services;
 /// ARCHITECTURAL NOTE:
 /// All query logic is encapsulated in ITeacherStudentRepo named methods.
 /// If a query changes, you edit the repo method — not this service.
+/// 
+/// FIX GAP-1: Code generation now respects TeacherConfiguration.StudentCodeLanguage.
+///            Passes the language to IStudentCodeGenerator.GenerateNextCodeAsync so
+///            codes are generated with Arabic or English letter prefixes per AAM-FR-04.2.
+/// 
+/// FIX GAP-2: Bulk import now respects TeacherConfiguration.StudentCodeGenerationMode.
+///            When mode is Manual, rows with blank codes are rejected (consistent with
+///            single-entry behavior per REQ-STU-011.1).
 /// </summary>
 public class TeacherStudentService : ITeacherStudentService
 {
@@ -93,7 +101,9 @@ public class TeacherStudentService : ITeacherStudentService
         else
         {
             // REQ-STU-008/009: Auto-generate code
-            studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+            // FIX GAP-1: Pass the teacher's configured language preference (AAM-FR-04.2)
+            var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
+            studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
         }
 
         // 5. Generate hashed token (auto-generated, REQ-STU-004)
@@ -207,20 +217,20 @@ public class TeacherStudentService : ITeacherStudentService
             request.SortBy,
             request.SortDirection);
 
-        // Get total count of filtered results (for pagination metadata)
-        int filteredCount = await _unitOfWork.Students.CountAsync(query);
+        // Get total count AFTER filtering (for filtered count display)
+        int totalCount = await _unitOfWork.Students.CountAsync(query);
 
-        // Apply pagination
+        // Get the current page
         var students = await _unitOfWork.Students.GetPagedAsync(query, request.Page, request.PageSize);
 
         var dtos = students.Select(MapToDto).ToList();
 
         var response = new PaginatedResponse<List<TeacherStudentDto>>
         {
-            totalCount = filteredCount,
+            totalCount = totalCount,
             page = request.Page,
             pageSize = request.PageSize,
-            totalPages = (int)Math.Ceiling((double)filteredCount / request.PageSize),
+            totalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
             data = dtos
         };
 
@@ -228,18 +238,22 @@ public class TeacherStudentService : ITeacherStudentService
     }
 
     /// <inheritdoc />
-    public async Task<Result<StudentCountsDto>> GetStudentCountsAsync(long teacherId, StudentListRequest request)
+    public async Task<Result<StudentCountsDto>> GetStudentCountsAsync(
+        long teacherId, StudentListRequest request)
     {
+        // Total active (no filters)
         int totalActive = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
+
+        // Recycle bin count
         int recycleBin = await _unitOfWork.Students.CountRecycleBinStudentsAsync(teacherId);
 
-        // Get filtered count only if filters are active
+        // Filtered count (only if filters are actually applied)
         int filteredCount = totalActive;
-        bool hasFilters = request.SessionId.HasValue
-                       || request.MissingStudentPhone
-                       || request.MissingParentPhone
-                       || request.MissingSession
-                       || !string.IsNullOrWhiteSpace(request.Search);
+        bool hasFilters = !string.IsNullOrWhiteSpace(request.Search)
+                        || request.SessionId.HasValue
+                        || request.MissingStudentPhone
+                        || request.MissingParentPhone
+                        || request.MissingSession;
 
         if (hasFilters)
         {
@@ -441,6 +455,13 @@ public class TeacherStudentService : ITeacherStudentService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
+    /// <summary>
+    /// FIX GAP-1: Auto-generated codes now use the teacher's StudentCodeLanguage preference.
+    /// FIX GAP-2: When StudentCodeGenerationMode == Manual, rows with blank codes are REJECTED
+    ///            (consistent with single-entry behavior per REQ-STU-011.1) instead of silently
+    ///            auto-generating them. This ensures the bulk import respects the same business
+    ///            rules as the single-entry form.
+    /// </summary>
     public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(BulkImportTeacherStudentsDto dto)
     {
         // 1. Validate teacher exists
@@ -449,6 +470,12 @@ public class TeacherStudentService : ITeacherStudentService
             return Result<BulkImportResultDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+
+        // FIX GAP-1: Resolve the teacher's configured code generation language
+        var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
+
+        // FIX GAP-2: Determine if the teacher uses manual code entry
+        bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
 
         // 2. Check capacity
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
@@ -482,6 +509,7 @@ public class TeacherStudentService : ITeacherStudentService
 
             if (!string.IsNullOrWhiteSpace(row.StudentCode))
             {
+                // Code was provided in the import row — validate it regardless of mode
                 // REQ-STU-CODE-006: Format validation for bulk import codes
                 var codeValidation = ValidateStudentCodeFormat(row.StudentCode);
                 if (codeValidation is not null)
@@ -527,13 +555,31 @@ public class TeacherStudentService : ITeacherStudentService
             }
             else
             {
-                // REQ-STU-018: Auto-generate code for blank code fields
-                studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+                // Code is blank in the import row
+
+                // FIX GAP-2: When teacher config is Manual mode, a blank code is an error.
+                // This is consistent with single-entry behavior (REQ-STU-011.1):
+                // "the system shall not allow adding any students without entering a unique code"
+                if (isManualMode)
+                {
+                    result.Failures.Add(new BulkImportFailureDto
+                    {
+                        RowNumber = rowNumber,
+                        StudentName = row.StudentName,
+                        StudentCode = row.StudentCode,
+                        Reason = _localizer["StudentCodeRequiredManual"]
+                    });
+                    continue;
+                }
+
+                // Auto mode: generate the next sequential code
+                // FIX GAP-1: Pass the teacher's configured language (AAM-FR-04.2)
+                studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
 
                 // Keep generating until we find one not already used in this batch
                 while (usedCodes.Contains(studentCode))
                 {
-                    studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+                    studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
                 }
             }
 
