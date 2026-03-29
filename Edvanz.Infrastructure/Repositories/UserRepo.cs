@@ -21,6 +21,13 @@ namespace Edvanz.Infrastructure.Repositories
     /// 
     /// Inherits from GenericRepo&lt;User, long&gt; for basic User CRUD,
     /// and adds named methods for every entity in the User module ecosystem.
+    /// 
+    /// FIX BUG-2: All synchronous EF Core operations (Entry().State, Remove, RemoveRange)
+    /// now use 'await Task.CompletedTask' to maintain the project's all-async convention
+    /// and suppress CS1998 compiler warnings.
+    /// 
+    /// FIX DB-1: Added batch loading methods to eliminate N+1 query patterns in
+    /// dashboard builders. These load all related data in bulk instead of per-entity loops.
     /// </summary>
     public class UserRepo : GenericRepo<User, long>, IUserRepo
     {
@@ -139,9 +146,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateTeacherAsync(Teacher teacher)
         {
             _context.Entry(teacher).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -172,9 +181,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: RemoveRange is synchronous — await Task.CompletedTask for async contract
         public async Task DeleteTeacherSubjectsAsync(IEnumerable<TeacherSubject> subjects)
         {
             _context.Set<TeacherSubject>().RemoveRange(subjects);
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -230,9 +241,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateConfigurationAsync(TeacherConfiguration configuration)
         {
             _context.Entry(configuration).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -261,9 +274,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: RemoveRange is synchronous — await Task.CompletedTask for async contract
         public async Task DeleteProratedTiersAsync(IEnumerable<TeacherProratedTier> tiers)
         {
             _context.Set<TeacherProratedTier>().RemoveRange(tiers);
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -356,9 +371,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateStudentUserAsync(StudentUser studentUser)
         {
             _context.Entry(studentUser).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -408,9 +425,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateStudentTeacherLinkAsync(StudentTeacherLink link)
         {
             _context.Entry(link).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -454,9 +473,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateParentUserAsync(ParentUser parentUser)
         {
             _context.Entry(parentUser).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -506,9 +527,11 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateParentChildAsync(ParentChild parentChild)
         {
             _context.Entry(parentChild).State = EntityState.Modified;
+            await Task.CompletedTask;
         }
 
         // ══════════════════════════════════════════════
@@ -551,9 +574,71 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        // FIX BUG-2: Entry().State is synchronous — await Task.CompletedTask for async contract
         public async Task UpdateParentChildTeacherLinkAsync(ParentChildTeacherLink link)
         {
             _context.Entry(link).State = EntityState.Modified;
+            await Task.CompletedTask;
+        }
+
+        // ══════════════════════════════════════════════
+        // BATCH LOADING METHODS (FIX DB-1: N+1 elimination)
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        /// <summary>
+        /// FIX DB-1: Loads all data needed for student dashboard teacher rendering in bulk.
+        /// Previously each teacher in the loop triggered 4 separate DB calls (teacher user,
+        /// teacher subjects, first subject name, configuration) — totaling 4×N round-trips.
+        /// Now loads everything for a set of teacher IDs in 4 queries total regardless of N.
+        /// </summary>
+        public async Task<TeacherDashboardBatchData> GetTeacherDashboardDataAsync(IReadOnlyList<long> teacherIds)
+        {
+            if (!teacherIds.Any())
+                return new TeacherDashboardBatchData();
+
+            var distinctIds = teacherIds.Distinct().ToList();
+
+            // 1. Bulk load all teachers
+            var teachers = await _context.Set<Teacher>()
+                .AsNoTracking()
+                .Where(t => distinctIds.Contains(t.Id) && t.DeletedAt == null)
+                .ToListAsync();
+
+            // 2. Bulk load all user records for these teachers
+            var userIds = teachers.Select(t => t.UserId).Distinct().ToList();
+            var users = await _context.Users
+                .AsNoTracking()
+                .Where(u => userIds.Contains(u.Id))
+                .ToListAsync();
+
+            // 3. Bulk load all teacher-subject associations and their subjects
+            var teacherSubjects = await _context.Set<TeacherSubject>()
+                .AsNoTracking()
+                .Where(ts => distinctIds.Contains(ts.TeacherId))
+                .ToListAsync();
+
+            var subjectIds = teacherSubjects.Select(ts => ts.SubjectId).Distinct().ToList();
+            var subjects = await _context.Set<Subject>()
+                .AsNoTracking()
+                .Where(s => subjectIds.Contains(s.Id))
+                .ToListAsync();
+
+            // 4. Bulk load all configurations for these teachers
+            var configs = await _context.Set<TeacherConfiguration>()
+                .AsNoTracking()
+                .Where(c => distinctIds.Contains(c.TeacherId))
+                .ToListAsync();
+
+            return new TeacherDashboardBatchData
+            {
+                Teachers = teachers.ToDictionary(t => t.Id),
+                Users = users.ToDictionary(u => u.Id),
+                TeacherSubjects = teacherSubjects.GroupBy(ts => ts.TeacherId)
+                    .ToDictionary(g => g.Key, g => (IReadOnlyList<TeacherSubject>)g.ToList()),
+                Subjects = subjects.ToDictionary(s => s.Id),
+                Configurations = configs.ToDictionary(c => c.TeacherId)
+            };
         }
     }
 }

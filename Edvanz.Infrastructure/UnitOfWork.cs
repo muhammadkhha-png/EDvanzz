@@ -53,16 +53,39 @@ namespace Edvanz.Infrastructure
         {
             return await _Context.Database.BeginTransactionAsync();
         }
+
+        /// <summary>
+        /// FIX BUG-1: Commits the current transaction and clears the reference.
+        /// Previously _transaction was NOT set to null after commit, causing
+        /// HasActiveTransaction to stay true for the rest of the HTTP request scope.
+        /// This caused subsequent service calls to skip their own transaction management,
+        /// potentially leaving writes without transactional safety.
+        /// </summary>
         public async Task CommitAsync()
         {
             if (_transaction != null)
+            {
                 await _transaction.CommitAsync();
+                // FIX BUG-1: Clear reference so HasActiveTransaction returns false
+                await _transaction.DisposeAsync();
+                _transaction = null;
+            }
         }
 
+        /// <summary>
+        /// FIX BUG-1: Rolls back the current transaction and clears the reference.
+        /// Same root cause as CommitAsync — stale _transaction reference prevented
+        /// proper transaction lifecycle management for subsequent operations.
+        /// </summary>
         public async Task RollbackAsync()
         {
             if (_transaction != null)
+            {
                 await _transaction.RollbackAsync();
+                // FIX BUG-1: Clear reference so HasActiveTransaction returns false
+                await _transaction.DisposeAsync();
+                _transaction = null;
+            }
         }
 
         //public async Task LogError(Exception ex)

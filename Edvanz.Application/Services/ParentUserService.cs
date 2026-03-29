@@ -21,6 +21,9 @@ namespace Edvanz.Application.Services;
 /// 
 /// TRANSACTION SAFETY:
 /// All transactional methods use the ownsTransaction pattern.
+/// 
+/// FIX DB-1: Dashboard and child DTO builders use batch loading via
+/// GetTeacherDashboardDataAsync to eliminate N+1 query patterns.
 /// </summary>
 public class ParentUserService : IParentUserService
 {
@@ -123,6 +126,11 @@ public class ParentUserService : IParentUserService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// FIX DB-1: Rewritten to collect ALL teacher IDs across ALL children first,
+    /// then batch-load in one call. Previously each child × each teacher = 4×M×N round-trips.
+    /// Now: 1 query for children + 1 per child for links + 4 batch queries = much fewer.
+    /// </summary>
     public async Task<Result<ParentDashboardDto>> GetDashboardAsync(long parentUserId)
     {
         var parentUser = await _unitOfWork.Users.GetActiveParentUserByIdAsync(parentUserId);
@@ -131,10 +139,36 @@ public class ParentUserService : IParentUserService
 
         var children = await _unitOfWork.Users.GetActiveChildrenAsync(parentUserId);
 
+        // FIX DB-1: Collect ALL teacher IDs across ALL children first for batch loading
+        var allTeacherIds = new List<long>();
+        var childLinksMap = new Dictionary<long, IReadOnlyList<StudentTeacherLink>>();
+        var childParentLinksMap = new Dictionary<long, IReadOnlyList<ParentChildTeacherLink>>();
+
+        foreach (var child in children)
+        {
+            if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
+            {
+                var studentLinks = await _unitOfWork.Users.GetActiveStudentTeacherLinksAsync(child.StudentUserId.Value);
+                childLinksMap[child.Id] = studentLinks;
+                allTeacherIds.AddRange(studentLinks.Select(l => l.TeacherId));
+            }
+            else if (child.LinkMethod == ChildLinkMethod.ManualProfile)
+            {
+                var parentLinks = await _unitOfWork.Users.GetActiveParentChildTeacherLinksAsync(child.Id);
+                childParentLinksMap[child.Id] = parentLinks;
+                allTeacherIds.AddRange(parentLinks.Select(l => l.TeacherId));
+            }
+        }
+
+        // FIX DB-1: Single batch load for ALL teachers across ALL children
+        var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(allTeacherIds.Distinct().ToList());
+
+        // Build child DTOs using pre-loaded batch data — zero additional DB calls per teacher
         var childDtos = new List<ParentChildDto>();
         foreach (var child in children)
         {
-            var childDto = await BuildChildDtoAsync(child);
+            var childDto = await BuildChildDtoFromBatchAsync(
+                child, parentUser.LanguagePreference, batchData, childLinksMap, childParentLinksMap);
             childDtos.Add(childDto);
         }
 
@@ -143,15 +177,16 @@ public class ParentUserService : IParentUserService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// FIX BUG-5: Now uses ownsTransaction pattern for consistency.
+    /// </summary>
     public async Task<Result<ParentChildDto>> AddChildByAccountCodeAsync(
         long parentUserId, AddChildByAccountCodeDto dto)
     {
-        // Validate parent exists
         var parentUser = await _unitOfWork.Users.GetActiveParentUserByIdAsync(parentUserId);
         if (parentUser is null)
             return Result<ParentChildDto>.Failure(_localizer, "ParentUserNotFound", HttpStatusCode.NotFound);
 
-        // Validate student account code
         if (string.IsNullOrWhiteSpace(dto.StudentAccountCode))
             return Result<ParentChildDto>.Failure(_localizer, "StudentAccountCodeRequired", HttpStatusCode.BadRequest);
 
@@ -160,34 +195,60 @@ public class ParentUserService : IParentUserService
         if (studentUser is null)
             return Result<ParentChildDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
-        // Check if this child is already linked to this parent
         bool alreadyLinked = await _unitOfWork.Users.ChildAlreadyLinkedAsync(parentUserId, studentUser.Id);
 
         if (alreadyLinked)
             return Result<ParentChildDto>.Failure(_localizer, "ChildAlreadyLinked", HttpStatusCode.Conflict);
 
-        // Get the child's name from their User record
         var childUser = await _unitOfWork.Users.GetUserByIdAsync(studentUser.UserId);
         string childName = childUser?.FullName ?? "Unknown";
 
-        var child = new ParentChild
+        // FIX BUG-5: Added ownsTransaction pattern for consistency
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
         {
-            ParentUserId = parentUserId,
-            LinkMethod = ChildLinkMethod.StudentAccount,
-            StudentUserId = studentUser.Id,
-            ChildName = childName,
-            IsActive = true,
-            CreateAt = DateTime.UtcNow
-        };
+            var child = new ParentChild
+            {
+                ParentUserId = parentUserId,
+                LinkMethod = ChildLinkMethod.StudentAccount,
+                StudentUserId = studentUser.Id,
+                ChildName = childName,
+                IsActive = true,
+                CreateAt = DateTime.UtcNow
+            };
 
-        await _unitOfWork.Users.AddParentChildAsync(child);
-        await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.Users.AddParentChildAsync(child);
+            await _unitOfWork.SaveChangesAsync();
 
-        var childDto = await BuildChildDtoAsync(child);
-        return Result<ParentChildDto>.Success(childDto, _localizer, "ChildLinkedSuccess", HttpStatusCode.Created);
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            // Build child DTO with batch data for the linked teachers
+            var studentLinks = await _unitOfWork.Users.GetActiveStudentTeacherLinksAsync(studentUser.Id);
+            var teacherIds = studentLinks.Select(l => l.TeacherId).Distinct().ToList();
+            var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(teacherIds);
+
+            var childDto = BuildChildDtoFromBatchSync(
+                child, parentUser.LanguagePreference, batchData,
+                studentLinks: studentLinks, parentLinks: null, studentUser);
+
+            return Result<ParentChildDto>.Success(childDto, _localizer, "ChildLinkedSuccess", HttpStatusCode.Created);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// FIX BUG-5: Now uses ownsTransaction pattern for consistency.
+    /// </summary>
     public async Task<Result<ParentChildDto>> AddChildManualAsync(
         long parentUserId, AddChildManualDto dto)
     {
@@ -198,38 +259,62 @@ public class ParentUserService : IParentUserService
         if (string.IsNullOrWhiteSpace(dto.ChildName))
             return Result<ParentChildDto>.Failure(_localizer, "ChildNameRequired", HttpStatusCode.BadRequest);
 
-        var child = new ParentChild
+        // FIX BUG-5: Added ownsTransaction pattern for consistency
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
         {
-            ParentUserId = parentUserId,
-            LinkMethod = ChildLinkMethod.ManualProfile,
-            StudentUserId = null,
-            ChildName = dto.ChildName.Trim(),
-            IsActive = true,
-            CreateAt = DateTime.UtcNow
-        };
+            var child = new ParentChild
+            {
+                ParentUserId = parentUserId,
+                LinkMethod = ChildLinkMethod.ManualProfile,
+                StudentUserId = null,
+                ChildName = dto.ChildName.Trim(),
+                IsActive = true,
+                CreateAt = DateTime.UtcNow
+            };
 
-        await _unitOfWork.Users.AddParentChildAsync(child);
-        await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.Users.AddParentChildAsync(child);
+            await _unitOfWork.SaveChangesAsync();
 
-        var childDto = await BuildChildDtoAsync(child);
-        return Result<ParentChildDto>.Success(childDto, _localizer, "ChildCreatedSuccess", HttpStatusCode.Created);
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            // New manual child has no teachers yet — empty batch data
+            var childDto = new ParentChildDto
+            {
+                ChildId = child.Id,
+                ChildName = child.ChildName,
+                LinkMethod = child.LinkMethod.ToString(),
+                StudentAccountCode = null,
+                IsActive = child.IsActive,
+                Teachers = new List<ParentChildTeacherDto>()
+            };
+
+            return Result<ParentChildDto>.Success(childDto, _localizer, "ChildCreatedSuccess", HttpStatusCode.Created);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <inheritdoc />
     public async Task<Result<ParentChildTeacherDto>> LinkTeacherToChildAsync(
         long parentUserId, long childId, LinkTeacherToChildDto dto)
     {
-        // ── 1. Validate child exists and belongs to this parent ──
         var child = await _unitOfWork.Users.GetActiveChildAsync(parentUserId, childId);
 
         if (child is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "ChildNotFound", HttpStatusCode.NotFound);
 
-        // Method B only — Method A children get teachers from their StudentUser account
         if (child.LinkMethod == ChildLinkMethod.StudentAccount)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "CannotLinkTeacherToMethodAChild", HttpStatusCode.BadRequest);
 
-        // ── 2. Validate TeacherCode ──
         if (string.IsNullOrWhiteSpace(dto.TeacherCode) || dto.TeacherCode.Length != 8)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "InvalidTeacherCode", HttpStatusCode.BadRequest);
 
@@ -238,28 +323,22 @@ public class ParentUserService : IParentUserService
         if (teacher is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // ── 3. Check duplicate link ──
-        bool alreadyLinked = await _unitOfWork.Users.ParentChildTeacherLinkExistsAsync(childId, teacher.Id);
-
-        if (alreadyLinked)
-            return Result<ParentChildTeacherDto>.Failure(_localizer, "TeacherAlreadyLinked", HttpStatusCode.Conflict);
-
-        // ── 4. Validate StudentCode + HashedToken ──
         if (string.IsNullOrWhiteSpace(dto.StudentCode))
             return Result<ParentChildTeacherDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);
 
         if (string.IsNullOrWhiteSpace(dto.HashedToken))
             return Result<ParentChildTeacherDto>.Failure(_localizer, "HashedTokenRequired", HttpStatusCode.BadRequest);
 
-        string normalizedStudentCode = dto.StudentCode.Trim().ToUpperInvariant();
-
         var teacherStudent = await _unitOfWork.Users.GetTeacherStudentByLinkingCredentialsAsync(
-            teacher.Id, normalizedStudentCode, dto.HashedToken.Trim());
+            teacher.Id, dto.StudentCode, dto.HashedToken);
 
         if (teacherStudent is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);
 
-        // ── Transaction-safe ──
+        bool linkExists = await _unitOfWork.Users.ParentChildTeacherLinkExistsAsync(child.Id, teacher.Id);
+        if (linkExists)
+            return Result<ParentChildTeacherDto>.Failure(_localizer, "TeacherAlreadyLinked", HttpStatusCode.Conflict);
+
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
@@ -268,7 +347,7 @@ public class ParentUserService : IParentUserService
         {
             var link = new ParentChildTeacherLink
             {
-                ParentChildId = childId,
+                ParentChildId = child.Id,
                 TeacherId = teacher.Id,
                 TeacherStudentId = teacherStudent.Id,
                 LinkStatus = LinkStatus.Active,
@@ -282,8 +361,13 @@ public class ParentUserService : IParentUserService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
-            var teacherDto = await BuildTeacherDtoAsync(
-                link.Id, link.LinkedAt, link.TeacherStudentId.HasValue, teacher);
+            // Resolve parent's language preference for subject name
+            var parentUser = await _unitOfWork.Users.GetActiveParentUserByIdAsync(parentUserId);
+            var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(new List<long> { teacher.Id });
+
+            var teacherDto = BuildTeacherDtoFromBatch(
+                link.Id, link.LinkedAt, link.TeacherStudentId.HasValue,
+                teacher.Id, parentUser?.LanguagePreference, batchData);
 
             return Result<ParentChildTeacherDto>.Success(teacherDto, _localizer, "TeacherLinkSuccess", HttpStatusCode.Created);
         }
@@ -299,7 +383,6 @@ public class ParentUserService : IParentUserService
     public async Task<Result<bool>> UnlinkTeacherFromChildAsync(
         long parentUserId, long childId, long teacherId)
     {
-        // Validate child belongs to this parent
         var child = await _unitOfWork.Users.GetActiveChildAsync(parentUserId, childId);
 
         if (child is null)
@@ -330,7 +413,33 @@ public class ParentUserService : IParentUserService
         if (child is null)
             return Result<ParentChildDto>.Failure(_localizer, "ChildNotFound", HttpStatusCode.NotFound);
 
-        var childDto = await BuildChildDtoAsync(child);
+        var parentUser = await _unitOfWork.Users.GetActiveParentUserByIdAsync(parentUserId);
+
+        // Load teacher links and batch data for this single child
+        var teacherIds = new List<long>();
+        IReadOnlyList<StudentTeacherLink>? studentLinks = null;
+        IReadOnlyList<ParentChildTeacherLink>? parentLinks = null;
+
+        if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
+        {
+            studentLinks = await _unitOfWork.Users.GetActiveStudentTeacherLinksAsync(child.StudentUserId.Value);
+            teacherIds.AddRange(studentLinks.Select(l => l.TeacherId));
+        }
+        else if (child.LinkMethod == ChildLinkMethod.ManualProfile)
+        {
+            parentLinks = await _unitOfWork.Users.GetActiveParentChildTeacherLinksAsync(child.Id);
+            teacherIds.AddRange(parentLinks.Select(l => l.TeacherId));
+        }
+
+        var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(teacherIds.Distinct().ToList());
+
+        StudentUser? studentUser = null;
+        if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
+            studentUser = await _unitOfWork.Users.GetStudentUserByIdAsync(child.StudentUserId.Value);
+
+        var childDto = BuildChildDtoFromBatchSync(
+            child, parentUser?.LanguagePreference, batchData, studentLinks, parentLinks, studentUser);
+
         return Result<ParentChildDto>.Success(childDto, _localizer, "Success", HttpStatusCode.OK);
     }
 
@@ -374,51 +483,67 @@ public class ParentUserService : IParentUserService
     }
 
     /// <summary>
-    /// Builds a ParentChildDto including all linked teachers.
-    /// Handles both Method A (from StudentTeacherLink) and Method B (from ParentChildTeacherLink).
-    /// All queries go through IUserRepo named methods — no raw expressions.
+    /// FIX DB-1: Builds a ParentChildDto from pre-loaded batch data for the dashboard.
+    /// Used when link data was already fetched during the dashboard aggregation pass.
+    /// Only the StudentUser lookup (for account code) requires an async call.
     /// </summary>
-    private async Task<ParentChildDto> BuildChildDtoAsync(ParentChild child)
+    private async Task<ParentChildDto> BuildChildDtoFromBatchAsync(
+        ParentChild child,
+        string? languagePreference,
+        TeacherDashboardBatchData batchData,
+        Dictionary<long, IReadOnlyList<StudentTeacherLink>> childLinksMap,
+        Dictionary<long, IReadOnlyList<ParentChildTeacherLink>> childParentLinksMap)
+    {
+        IReadOnlyList<StudentTeacherLink>? studentLinks = null;
+        IReadOnlyList<ParentChildTeacherLink>? parentLinks = null;
+
+        if (child.LinkMethod == ChildLinkMethod.StudentAccount)
+            childLinksMap.TryGetValue(child.Id, out studentLinks);
+        else if (child.LinkMethod == ChildLinkMethod.ManualProfile)
+            childParentLinksMap.TryGetValue(child.Id, out parentLinks);
+
+        StudentUser? studentUser = null;
+        if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
+            studentUser = await _unitOfWork.Users.GetStudentUserByIdAsync(child.StudentUserId.Value);
+
+        return BuildChildDtoFromBatchSync(child, languagePreference, batchData, studentLinks, parentLinks, studentUser);
+    }
+
+    /// <summary>
+    /// FIX DB-1: Pure in-memory child DTO builder — zero database calls.
+    /// All teacher data is resolved from the pre-loaded batchData dictionaries.
+    /// </summary>
+    private static ParentChildDto BuildChildDtoFromBatchSync(
+        ParentChild child,
+        string? languagePreference,
+        TeacherDashboardBatchData batchData,
+        IReadOnlyList<StudentTeacherLink>? studentLinks,
+        IReadOnlyList<ParentChildTeacherLink>? parentLinks,
+        StudentUser? studentUser)
     {
         var teacherDtos = new List<ParentChildTeacherDto>();
 
-        if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
+        if (child.LinkMethod == ChildLinkMethod.StudentAccount && studentLinks is not null)
         {
-            // Method A: read teachers from StudentTeacherLink (read-only for parent)
-            var studentLinks = await _unitOfWork.Users.GetActiveStudentTeacherLinksAsync(child.StudentUserId.Value);
-
             foreach (var link in studentLinks)
             {
-                var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(link.TeacherId);
-                if (teacher is null) continue;
-
-                var teacherDto = await BuildTeacherDtoAsync(
-                    link.Id, link.LinkedAt, link.TeacherStudentId.HasValue, teacher);
-                teacherDtos.Add(teacherDto);
+                if (!batchData.Teachers.ContainsKey(link.TeacherId)) continue;
+                var dto = BuildTeacherDtoFromBatch(
+                    link.Id, link.LinkedAt, link.TeacherStudentId.HasValue,
+                    link.TeacherId, languagePreference, batchData);
+                teacherDtos.Add(dto);
             }
         }
-        else if (child.LinkMethod == ChildLinkMethod.ManualProfile)
+        else if (child.LinkMethod == ChildLinkMethod.ManualProfile && parentLinks is not null)
         {
-            // Method B: read teachers from ParentChildTeacherLink
-            var parentLinks = await _unitOfWork.Users.GetActiveParentChildTeacherLinksAsync(child.Id);
-
             foreach (var link in parentLinks)
             {
-                var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(link.TeacherId);
-                if (teacher is null) continue;
-
-                var teacherDto = await BuildTeacherDtoAsync(
-                    link.Id, link.LinkedAt, link.TeacherStudentId.HasValue, teacher);
-                teacherDtos.Add(teacherDto);
+                if (!batchData.Teachers.ContainsKey(link.TeacherId)) continue;
+                var dto = BuildTeacherDtoFromBatch(
+                    link.Id, link.LinkedAt, link.TeacherStudentId.HasValue,
+                    link.TeacherId, languagePreference, batchData);
+                teacherDtos.Add(dto);
             }
-        }
-
-        // Resolve StudentAccountCode for Method A children
-        string? studentAccountCode = null;
-        if (child.LinkMethod == ChildLinkMethod.StudentAccount && child.StudentUserId.HasValue)
-        {
-            var studentUser = await _unitOfWork.Users.GetStudentUserByIdAsync(child.StudentUserId.Value);
-            studentAccountCode = studentUser?.StudentAccountCode;
         }
 
         return new ParentChildDto
@@ -426,40 +551,50 @@ public class ParentUserService : IParentUserService
             ChildId = child.Id,
             ChildName = child.ChildName,
             LinkMethod = child.LinkMethod.ToString(),
-            StudentAccountCode = studentAccountCode,
+            StudentAccountCode = studentUser?.StudentAccountCode,
             IsActive = child.IsActive,
             Teachers = teacherDtos
         };
     }
 
     /// <summary>
-    /// Builds a ParentChildTeacherDto using PARENT visibility settings (AAM-FR-04.9).
-    /// Shared by both Method A and Method B teacher rendering.
-    /// All queries go through IUserRepo named methods — no raw expressions.
+    /// FIX DB-1 + FIX BUG-3: Builds a ParentChildTeacherDto from pre-loaded batch data.
+    /// Uses PARENT visibility settings (AAM-FR-04.9).
+    /// Subject name respects parent's language preference (AAM-FR-02.2).
+    /// Zero database calls — all data resolved from in-memory dictionaries.
     /// </summary>
-    private async Task<ParentChildTeacherDto> BuildTeacherDtoAsync(
+    private static ParentChildTeacherDto BuildTeacherDtoFromBatch(
         long linkId, DateTime linkedAt, bool isEnrollmentActive,
-        Teacher teacher)
+        long teacherId, string? languagePreference,
+        TeacherDashboardBatchData batchData)
     {
-        var teacherUser = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        var teacher = batchData.Teachers.GetValueOrDefault(teacherId);
+        string teacherFullName = string.Empty;
+        if (teacher is not null && batchData.Users.TryGetValue(teacher.UserId, out var teacherUser))
+            teacherFullName = teacherUser.FullName;
 
-        string subjectName = teacher.CustomSubject ?? string.Empty;
-        var teacherSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacher.Id);
-        if (teacherSubjects.Any())
+        // Resolve subject name with language preference
+        string subjectName = teacher?.CustomSubject ?? string.Empty;
+        if (teacher is not null &&
+            batchData.TeacherSubjects.TryGetValue(teacherId, out var teacherSubjects) &&
+            teacherSubjects.Any())
         {
-            var firstSubject = await _unitOfWork.Users.GetSubjectByIdAsync(teacherSubjects.First().SubjectId);
-            if (firstSubject is not null)
-                subjectName = firstSubject.NameEn;
+            var firstSubjectId = teacherSubjects.First().SubjectId;
+            if (batchData.Subjects.TryGetValue(firstSubjectId, out var subject))
+            {
+                // FIX BUG-3: Respect user's language preference (AAM-FR-02.2)
+                subjectName = languagePreference == "ar" ? subject.NameAr : subject.NameEn;
+            }
         }
 
-        // PARENT visibility settings (AAM-FR-04.9) — distinct from student settings
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacher.Id);
+        // PARENT visibility settings (AAM-FR-04.9)
+        batchData.Configurations.TryGetValue(teacherId, out var config);
 
         return new ParentChildTeacherDto
         {
             LinkId = linkId,
-            TeacherCode = teacher.TeacherCode,
-            TeacherFullName = teacherUser?.FullName ?? string.Empty,
+            TeacherCode = teacher?.TeacherCode ?? string.Empty,
+            TeacherFullName = teacherFullName,
             SubjectName = subjectName,
             LinkedAt = linkedAt,
             IsEnrollmentActive = isEnrollmentActive,

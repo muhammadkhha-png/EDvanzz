@@ -420,5 +420,13 @@ namespace Edvanz.Domain.Interfaces
         /// Updates an existing ParentChildTeacherLink entity.
         /// </summary>
         Task UpdateParentChildTeacherLinkAsync(ParentChildTeacherLink link);
+
+        /// Used by StudentUserService.GetLinkedTeachersAsync and ParentUserService.BuildChildDtoAsync
+        /// to render teacher entries on the student/parent dashboard without per-teacher loops.
+        /// </summary>
+        /// <param name="teacherIds">The set of Teacher IDs to load data for.</param>
+        /// <returns>A container with all related data keyed by ID for O(1) lookup.</returns>
+        Task<TeacherDashboardBatchData> GetTeacherDashboardDataAsync(IReadOnlyList<long> teacherIds);
+
     }
 }

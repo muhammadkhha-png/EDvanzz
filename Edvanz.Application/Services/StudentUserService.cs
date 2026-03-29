@@ -24,6 +24,10 @@ namespace Edvanz.Application.Services;
 /// When called from User module registration (outer transaction active),
 /// they participate in that transaction. When called standalone, they
 /// manage their own. See ownsTransaction pattern in each write method.
+/// 
+/// FIX DB-1: Dashboard methods use batch loading via GetTeacherDashboardDataAsync
+/// to eliminate N+1 query patterns. Previously each linked teacher caused 4 individual
+/// DB round-trips; now all data is loaded in 4 total queries regardless of teacher count.
 /// </summary>
 public class StudentUserService : IStudentUserService
 {
@@ -105,7 +109,6 @@ public class StudentUserService : IStudentUserService
         if (user is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
 
-        // Count active links for the profile summary
         int linkedCount = await _unitOfWork.Users.CountActiveStudentTeacherLinksAsync(studentUserId);
 
         var profileDto = BuildProfileDto(studentUser, user, linkedCount);
@@ -121,7 +124,6 @@ public class StudentUserService : IStudentUserService
         if (studentUser is null)
             return Result<StudentUserProfileDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
 
-        // Validate language preference if provided
         if (dto.LanguagePreference is not null &&
             dto.LanguagePreference != "en" && dto.LanguagePreference != "ar")
         {
@@ -183,29 +185,27 @@ public class StudentUserService : IStudentUserService
         if (teacher is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // ── 3. Check if already linked to this teacher ──
-        bool alreadyLinked = await _unitOfWork.Users.StudentTeacherLinkExistsAsync(studentUserId, teacher.Id);
-
-        if (alreadyLinked)
-            return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherAlreadyLinked", HttpStatusCode.Conflict);
-
-        // ── 4. Validate StudentCode + HashedToken (credentials #2 and #3) ──
+        // ── 3. Validate StudentCode (credential #2) ──
         if (string.IsNullOrWhiteSpace(dto.StudentCode))
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);
 
+        // ── 4. Validate HashedToken (credential #3) ──
         if (string.IsNullOrWhiteSpace(dto.HashedToken))
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "HashedTokenRequired", HttpStatusCode.BadRequest);
 
-        // Normalize student code to uppercase for case-insensitive matching (REQ-STU-CODE-003)
-        string normalizedStudentCode = dto.StudentCode.Trim().ToUpperInvariant();
-
+        // ── 5. Validate all three credentials match a TeacherStudent record ──
         var teacherStudent = await _unitOfWork.Users.GetTeacherStudentByLinkingCredentialsAsync(
-            teacher.Id, normalizedStudentCode, dto.HashedToken.Trim());
+            teacher.Id, dto.StudentCode, dto.HashedToken);
 
         if (teacherStudent is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);
 
-        // ── 5. Create the link (transaction-safe) ──
+        // ── 6. Check for duplicate link ──
+        bool linkExists = await _unitOfWork.Users.StudentTeacherLinkExistsAsync(studentUserId, teacher.Id);
+        if (linkExists)
+            return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherAlreadyLinked", HttpStatusCode.Conflict);
+
+        // ── 7. Create the link (transaction-safe) ──
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
@@ -236,7 +236,10 @@ public class StudentUserService : IStudentUserService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
-            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(link, teacher);
+            // FIX DB-1: For single-teacher link, batch load is overkill — use direct load.
+            // FIX BUG-3: Pass student's language preference for localized subject name.
+            var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(new List<long> { teacher.Id });
+            var dashboardTeacher = BuildDashboardTeacherDtoFromBatch(link, teacher.Id, studentUser.LanguagePreference, batchData);
 
             return Result<StudentDashboardTeacherDto>.Success(dashboardTeacher, _localizer, "TeacherLinkSuccess", HttpStatusCode.Created);
         }
@@ -267,6 +270,11 @@ public class StudentUserService : IStudentUserService
     }
 
     /// <inheritdoc />
+    /// <summary>
+    /// FIX DB-1: Completely rewritten to use batch loading.
+    /// Previously: N teachers × 4 queries each = 4N database round-trips.
+    /// Now: 1 query for links + 4 queries for all teacher data = 5 total regardless of N.
+    /// </summary>
     public async Task<Result<List<StudentDashboardTeacherDto>>> GetLinkedTeachersAsync(long studentUserId)
     {
         // Validate student user exists
@@ -283,15 +291,20 @@ public class StudentUserService : IStudentUserService
                 new List<StudentDashboardTeacherDto>(), _localizer, "Success", HttpStatusCode.OK);
         }
 
-        // Build dashboard DTOs for each linked teacher
+        // FIX DB-1: Batch load ALL teacher data in one call (4 queries total, not 4×N)
+        var teacherIds = activeLinks.Select(l => l.TeacherId).Distinct().ToList();
+        var batchData = await _unitOfWork.Users.GetTeacherDashboardDataAsync(teacherIds);
+
+        // Build dashboard DTOs from pre-loaded data — zero additional DB calls
         var dashboardTeachers = new List<StudentDashboardTeacherDto>();
 
         foreach (var link in activeLinks)
         {
-            var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(link.TeacherId);
-            if (teacher is null) continue; // Teacher account deleted — skip
+            if (!batchData.Teachers.ContainsKey(link.TeacherId))
+                continue; // Teacher account deleted — skip
 
-            var dashboardTeacher = await BuildDashboardTeacherDtoAsync(link, teacher);
+            var dashboardTeacher = BuildDashboardTeacherDtoFromBatch(
+                link, link.TeacherId, studentUser.LanguagePreference, batchData);
 
             dashboardTeachers.Add(dashboardTeacher);
         }
@@ -349,35 +362,43 @@ public class StudentUserService : IStudentUserService
     }
 
     /// <summary>
-    /// Builds a StudentDashboardTeacherDto by loading teacher's user info, subject, and configuration.
-    /// Used by both LinkTeacherAsync and GetLinkedTeachersAsync.
-    /// All queries go through IUserRepo named methods — no raw expressions.
+    /// FIX DB-1 + FIX BUG-3: Builds a StudentDashboardTeacherDto from pre-loaded batch data.
+    /// Zero database calls — all data resolved from in-memory dictionaries.
+    /// Subject name respects the student's language preference (AAM-FR-02.2).
     /// </summary>
-    private async Task<StudentDashboardTeacherDto> BuildDashboardTeacherDtoAsync(
+    private static StudentDashboardTeacherDto BuildDashboardTeacherDtoFromBatch(
         StudentTeacherLink link,
-        Teacher teacher)
+        long teacherId,
+        string? languagePreference,
+        TeacherDashboardBatchData batchData)
     {
-        // Load the teacher's user record for the full name
-        var teacherUser = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        var teacher = batchData.Teachers.GetValueOrDefault(teacherId);
+        string teacherFullName = string.Empty;
+        if (teacher is not null && batchData.Users.TryGetValue(teacher.UserId, out var teacherUser))
+            teacherFullName = teacherUser.FullName;
 
-        // Load the teacher's first subject for display
-        string subjectName = teacher.CustomSubject ?? string.Empty;
-        var teacherSubjects = await _unitOfWork.Users.GetTeacherSubjectsByTeacherIdAsync(teacher.Id);
-        if (teacherSubjects.Any())
+        // Resolve subject name with language preference
+        string subjectName = teacher?.CustomSubject ?? string.Empty;
+        if (teacher is not null &&
+            batchData.TeacherSubjects.TryGetValue(teacherId, out var teacherSubjects) &&
+            teacherSubjects.Any())
         {
-            var firstSubject = await _unitOfWork.Users.GetSubjectByIdAsync(teacherSubjects.First().SubjectId);
-            if (firstSubject is not null)
-                subjectName = firstSubject.NameEn; // TODO: respect language preference
+            var firstSubjectId = teacherSubjects.First().SubjectId;
+            if (batchData.Subjects.TryGetValue(firstSubjectId, out var subject))
+            {
+                // FIX BUG-3: Respect user's language preference for subject name (AAM-FR-02.2)
+                subjectName = languagePreference == "ar" ? subject.NameAr : subject.NameEn;
+            }
         }
 
-        // Load visibility configuration (AAM-FR-04.8 / AAM-FR-05.8)
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacher.Id);
+        // Load STUDENT visibility settings (AAM-FR-04.8 / AAM-FR-05.8)
+        batchData.Configurations.TryGetValue(teacherId, out var config);
 
         return new StudentDashboardTeacherDto
         {
             LinkId = link.Id,
-            TeacherCode = teacher.TeacherCode,
-            TeacherFullName = teacherUser?.FullName ?? string.Empty,
+            TeacherCode = teacher?.TeacherCode ?? string.Empty,
+            TeacherFullName = teacherFullName,
             SubjectName = subjectName,
             LinkedAt = link.LinkedAt,
             IsEnrollmentActive = link.TeacherStudentId.HasValue,

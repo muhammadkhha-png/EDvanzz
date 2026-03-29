@@ -505,6 +505,15 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Performance index: active children per parent (dashboard query path)
             entity.HasIndex(pc => new { pc.ParentUserId, pc.IsActive })
                 .HasDatabaseName("IX_ParentChildren_ParentUserId_IsActive");
+
+            // The method filters on ParentUserId + StudentUserId + IsActive.
+            // The existing filtered unique index (IX_ParentChildren_ParentUserId_StudentUserId)
+            // only covers non-null StudentUserId and doesn't include IsActive,
+            // forcing a scan for the AnyAsync check.
+            // This composite index covers the exact query predicate for O(1) lookup.
+            entity.HasIndex(pc => new { pc.ParentUserId, pc.StudentUserId, pc.IsActive })
+                .HasFilter("[StudentUserId] IS NOT NULL")
+                .HasDatabaseName("IX_ParentChildren_ParentUserId_StudentUserId_IsActive");
         });
         #endregion
 
