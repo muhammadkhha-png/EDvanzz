@@ -137,5 +137,9 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public ITeacherStudentRepo Students
      => _teacherStudentRepo ??= new TeacherStudentRepo(_Context);
+
+        public IUserPermissionRepo UsersPermissions => _userPermissionRepo ??= new UserPermissionRepo(_Context);
+
+        public IRefreshTokenRepo RefreshTokenRepo => _refreshTokenRepo ??= new RefreshTokenRepo(_Context);
     }
 }

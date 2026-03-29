@@ -113,7 +113,7 @@ namespace Edvanz.Application.Services
             // FIX B4: SaveChangesAsync() returns the number of rows affected (0 or positive).
             // It NEVER returns negative values. Previously used "< 0" which would never be true,
             // silently treating save failures as success. Now correctly checks "== 0".
-            if (isUpdated == 0)
+            if (isUpdated <= 0)
                 return Result<string>.Failure(_localizer, "ServerError", System.Net.HttpStatusCode.InternalServerError);
 
             return Result<string>.Success(null, _localizer, "accountVerified");

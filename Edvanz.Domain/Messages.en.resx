@@ -1,5 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -58,10 +117,6 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- GLOBAL MESSAGES                        -->
-  <!-- ══════════════════════════════════════ -->
   <data name="Success" xml:space="preserve">
     <value>Done successfully</value>
   </data>
@@ -77,17 +132,9 @@
   <data name="ServerError" xml:space="preserve">
     <value>Something went wrong on our end. Please try again later</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- USER MODULE MESSAGES                   -->
-  <!-- ══════════════════════════════════════ -->
   <data name="UserNotFound" xml:space="preserve">
     <value>We couldn't find this user account. Please check and try again</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- TEACHER MODULE - REGISTRATION          -->
-  <!-- ══════════════════════════════════════ -->
   <data name="TeacherInitializedSuccess" xml:space="preserve">
     <value>Your teacher account has been created successfully. Your unique Teacher Code is ready</value>
   </data>
@@ -106,10 +153,6 @@
   <data name="InvalidTeacherCode" xml:space="preserve">
     <value>The Teacher Code must be exactly 8 digits. Please check and try again</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- TEACHER MODULE - CONFIGURATION         -->
-  <!-- ══════════════════════════════════════ -->
   <data name="ConfigurationSavedSuccess" xml:space="preserve">
     <value>Your settings have been saved successfully</value>
   </data>
@@ -125,17 +168,9 @@
   <data name="InvalidCapacityPackage" xml:space="preserve">
     <value>The selected student capacity package is not available. Please refresh and try again</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- TEACHER MODULE - SUBSCRIPTION          -->
-  <!-- ══════════════════════════════════════ -->
   <data name="NoActiveSubscription" xml:space="preserve">
     <value>You don't have an active subscription at the moment</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- TEACHER MODULE - PROFILE UPDATE        -->
-  <!-- ══════════════════════════════════════ -->
   <data name="ProfileUpdatedSuccess" xml:space="preserve">
     <value>Your profile has been updated successfully</value>
   </data>
@@ -145,11 +180,6 @@
   <data name="InvalidLanguagePreference" xml:space="preserve">
     <value>Please select a valid language (English or Arabic)</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- STUDENT USER MODULE - REGISTRATION     -->
-  <!-- AAM-FR-05                              -->
-  <!-- ══════════════════════════════════════ -->
   <data name="StudentUserInitializedSuccess" xml:space="preserve">
     <value>Your student account has been created successfully. Your unique Student Code is ready</value>
   </data>
@@ -162,18 +192,9 @@
   <data name="StudentAccountCodeRequired" xml:space="preserve">
     <value>Please provide a Student Account Code</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- STUDENT USER MODULE - PROFILE          -->
-  <!-- ══════════════════════════════════════ -->
   <data name="StudentUserProfileUpdated" xml:space="preserve">
     <value>Your profile has been updated successfully</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- STUDENT USER MODULE - TEACHER LINKING  -->
-  <!-- AAM-FR-05.5 through 05.7              -->
-  <!-- ══════════════════════════════════════ -->
   <data name="TeacherLinkSuccess" xml:space="preserve">
     <value>Teacher added to your dashboard successfully</value>
   </data>
@@ -189,21 +210,12 @@
   <data name="HashedTokenRequired" xml:space="preserve">
     <value>Please provide the student token/hash assigned by the teacher</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- STUDENT USER MODULE - TEACHER UNLINK   -->
-  <!-- ══════════════════════════════════════ -->
   <data name="TeacherUnlinkSuccess" xml:space="preserve">
     <value>Teacher removed from your dashboard</value>
   </data>
   <data name="LinkNotFound" xml:space="preserve">
     <value>No active link found between your account and this teacher</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- PARENT USER MODULE - REGISTRATION      -->
-  <!-- AAM-FR-06                              -->
-  <!-- ══════════════════════════════════════ -->
   <data name="ParentUserInitializedSuccess" xml:space="preserve">
     <value>Your parent account has been created successfully</value>
   </data>
@@ -216,11 +228,6 @@
   <data name="ParentUserProfileUpdated" xml:space="preserve">
     <value>Your profile has been updated successfully</value>
   </data>
-
-  <!-- ══════════════════════════════════════ -->
-  <!-- PARENT USER MODULE - CHILD MANAGEMENT  -->
-  <!-- AAM-FR-06.3 / 06.4 / 06.5            -->
-  <!-- ══════════════════════════════════════ -->
   <data name="ChildLinkedSuccess" xml:space="preserve">
     <value>Child linked to your account successfully</value>
   </data>

@@ -6,7 +6,7 @@ namespace Edvanz.Domain.Entities;
 /// Junction table linking an Assistant to their granted Permissions.
 /// REQ-USR-010: No default permissions; each must be explicitly granted.
 /// </summary>
-public class AssistantPermission
+public class UsersPermission
 {
     [ForeignKey(nameof(Assistant))]
     public long UserId { get; set; }

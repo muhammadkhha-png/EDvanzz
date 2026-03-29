@@ -15,6 +15,6 @@ namespace Edvanz.Domain.Entities
         public DateTime ExpiryDate { get; set; }
         public bool IsRevoked { get; set; }
         public DateTime CreatedAt { get; set; }
-        public string ReplacedByToken { get; set; }
+        public string SecurityStamp { get; set; }
     }
 }

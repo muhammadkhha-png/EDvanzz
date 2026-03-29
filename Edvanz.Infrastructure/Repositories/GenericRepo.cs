@@ -31,7 +31,7 @@ namespace Edvanz.Infrastructure.Repositories
             return _context.Set<T>().AsNoTracking().AsQueryable();
         }
         //----------------------------------------------------------------
-        public async Task<T?> GetByIdAsync(int id)
+        public async Task<T?> GetByIdAsync(long id)
         {
             return await _context.Set<T>().FindAsync(id);
         }
@@ -121,5 +121,9 @@ namespace Edvanz.Infrastructure.Repositories
                 .ToListAsync();
         }
         //----------------------------------------------------------------
+        public IQueryable<T> GetAllTracked()
+        {
+            return _context.Set<T>().AsQueryable(); // without AsNoTracking to can make changes to elements
+        }
     }
 }

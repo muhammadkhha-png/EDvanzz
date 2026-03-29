@@ -4,6 +4,8 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
@@ -23,6 +25,10 @@ namespace Edvanz.Application.Services
         private readonly IStringLocalizer<Messages> _localizer;
         // FIX B5: Added IPasswordService dependency to properly verify hashed OTPs
         private readonly IPasswordService _passwordService;
+        private readonly ITokenService tokenService;
+        private readonly ICurrentUserService _currentUser;
+
+
 
         /// <summary>
         /// Initializes a new instance of AuthService with required dependencies.
@@ -33,11 +39,13 @@ namespace Edvanz.Application.Services
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService)
+            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
             _passwordService = passwordService;
+            this.tokenService = tokenService;
+            this._currentUser = currentUser;
         }
 
         /// <summary>
@@ -78,6 +86,107 @@ namespace Edvanz.Application.Services
             await _unitOfWork.SaveChangesAsync();
 
             return Result<string>.Success(null, _localizer, "Account Verified");
+        }
+
+        public async Task<Result<AuthResponse>> Login(LoginDto req)
+        {
+            var user = await _unitOfWork.Users.GetByUserName(req.userName);
+            if (user == null)
+                return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+            var IsPassMatched= _passwordService.VerifyPassword(user.PasswordHashed, req.password);
+            if(!IsPassMatched)
+                return Result<AuthResponse>.Failure(_localizer, "PasswordError");
+            var permissions = await _unitOfWork.UsersPermissions.GetUserPermissionsAsync(user.Id);
+
+            var jwt = tokenService.GenerateJwtToken(user, permissions);
+
+            var refreshToken = tokenService.GenerateRefreshToken();
+
+            var refreshTokenEntity = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = refreshToken,
+                ExpiryDate = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp=user.SecurityStamp,
+                IsRevoked=false,
+                
+            };
+
+            await _unitOfWork.GetRepository<RefreshToken,long>().AddAsync(refreshTokenEntity);
+           var res= await _unitOfWork.SaveChangesAsync();
+            if (res <= 0)
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+             return Result<AuthResponse>.Success(new AuthResponse
+             {
+                 accessToken = jwt,
+                 refreshToken = refreshToken
+             },_localizer,"successlogin");
+        }
+        public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
+        {
+            if (_currentUser.UserId == null)
+                return Result<string>.Failure(_localizer, "UserNotFound");
+
+            var userId = _currentUser.UserId.Value;
+
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (user == null)
+                return Result<string>.Failure(_localizer, "UserNotFound");
+
+            var isOldPasswordVerified = _passwordService.VerifyPassword(user.PasswordHashed, req.oldPassword);
+            if (!isOldPasswordVerified)
+                return Result<string>.Failure(_localizer, "oldPassNotMatched");
+
+            var newHashedPassword = _passwordService.HashPassword(req.newPassword);
+
+            await _unitOfWork.BeginTransactionAsync();
+
+            user.PasswordHashed = newHashedPassword;
+
+            user.SecurityStamp = Guid.NewGuid().ToString();
+
+            var entities = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(entities);
+
+            var res = await _unitOfWork.SaveChangesAsync();
+            if(res <= 0)
+            {
+                await _unitOfWork.RollbackAsync();
+                return Result<string>.Failure(_localizer, "ServerError");
+
+            }
+            await _unitOfWork.CommitAsync();
+            return Result<string>.Success(null,_localizer, "PasswordChangedSuccessfully");
+        }
+
+        public async Task<Result<AuthResponse>> Refresh(string refreshToken)
+        {
+            var token =await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
+            if (token == null )
+                return Result<AuthResponse>.Failure(_localizer, "notFoundToken");
+            if (token.user == null || token.ExpiryDate <= DateTime.UtcNow)
+                return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
+            var permissions = await _unitOfWork.UsersPermissions.GetUserPermissionsAsync(token.UserId);
+
+
+            var newAccessToken = tokenService.GenerateJwtToken(token.user, permissions);
+            var newRefreshToken = tokenService.GenerateRefreshToken();
+
+            token.Token = newRefreshToken;
+            token.ExpiryDate = DateTime.UtcNow.AddDays(7);
+            await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
+          var res=  await _unitOfWork.SaveChangesAsync();
+            if (res <= 0)
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+            var result = new AuthResponse
+            {
+                accessToken = newAccessToken,
+                refreshToken = newRefreshToken
+            };
+            return Result<AuthResponse>.Success(result, _localizer, "TokenRefreshedSuccessfully");
         }
     }
 }

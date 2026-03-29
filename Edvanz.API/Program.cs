@@ -1,14 +1,20 @@
 using Edvanz.API.Filters;
 using Edvanz.Application.Extensions;
+using Edvanz.Application.Security;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
 using Edvanz.Infrastructure.Extensions;
 using Edvanz.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System;
 using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -43,7 +49,7 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
         new Microsoft.AspNetCore.Localization.AcceptLanguageHeaderRequestCultureProvider()
     };
 });
-
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -62,6 +68,35 @@ builder.Services.AddSwaggerGen(c =>
     c.OperationFilter<AcceptLanguageHeaderFilter>();
     c.UseInlineDefinitionsForEnums();
 });
+JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")),
+        ClockSkew = TimeSpan.Zero,
+        NameClaimType = ClaimTypes.Name,
+        RoleClaimType = ClaimTypes.Role
+    };
+});
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("Orders.Create", policy =>
+        policy.Requirements.Add(new PermissionRequirement("Orders.Create")));
+
+    options.AddPolicy("Users.Edit", policy =>
+        policy.Requirements.Add(new PermissionRequirement("Users.Edit")));
+});
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 var app = builder.Build();
 
 // Use localization middleware
@@ -78,7 +113,9 @@ app.UseSwagger();
 
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll"); 
+app.UseCors("AllowAll");
+
+app.UseAuthentication(); 
 
 app.UseAuthorization();
 

@@ -31,6 +31,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPasswordService, PasswordService>();
         services.AddScoped<IOtpService, OtpService>();
+        services.AddScoped<ICurrentUserService, CurrentUserService>();
+
         // FIX I1/I3: Renamed from IuserService to IUserService
         // FIX I1: Interface moved from Edvanz.Domain.ServiceContract to Edvanz.Application.ServiceContract
         services.AddScoped<IUserService, UserService>();

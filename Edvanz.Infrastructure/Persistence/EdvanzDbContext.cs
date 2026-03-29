@@ -11,7 +11,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<User> Users { get; set; }
     public DbSet<Assistant> Assistants { get; set; }
     public DbSet<UsersTutor> UserTutor { get; set; }
-    public DbSet<AssistantPermission> AssistantPermissions { get; set; }
+    public DbSet<UsersPermission> UsersPermissions { get; set; }
     public DbSet<Permission> Permissions { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
 
@@ -57,7 +57,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         // ════════════════════════════════════════════════
 
         #region Existing composite keys
-        modelBuilder.Entity<AssistantPermission>()
+        modelBuilder.Entity<UsersPermission>()
             .HasKey(ap => new { ap.UserId, ap.PermissionId });
 
         modelBuilder.Entity<UsersTutor>()

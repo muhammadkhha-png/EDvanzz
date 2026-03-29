@@ -20,6 +20,9 @@ namespace Edvanz.Domain.Interfaces
         /// Extended repository for the User module ecosystem (User, Teacher, StudentUser, ParentUser, linking).
         /// </summary>
         IUserRepo Users { get; }
+        IUserPermissionRepo UsersPermissions { get; }
+        IRefreshTokenRepo RefreshTokenRepo { get; }
+
 
         /// <summary>
         /// Extended repository for the Student Module (Module 1: teacher-scoped student records).

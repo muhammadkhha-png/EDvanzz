@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.ComponentModel.DataAnnotations;
@@ -26,16 +27,18 @@ namespace Edvanz.API.Controllers
         // FIX I1/I3: Updated from IuserService to IUserService (PascalCase, correct namespace)
         private readonly IUserService _userService;
         private readonly IOtpService _otpService;
+        private readonly IAuthService authService;
 
         /// <summary>
         /// Initializes a new instance of AuthController with required service dependencies.
         /// </summary>
         /// <param name="userService">User registration service.</param>
         /// <param name="otpService">OTP generation and verification service.</param>
-        public AuthController(IUserService userService, IOtpService otpService)
+        public AuthController(IUserService userService, IOtpService otpService,IAuthService _authService)
         {
             _userService = userService;
             _otpService = otpService;
+            authService = _authService;
         }
 
         /// <summary>
@@ -77,5 +80,25 @@ namespace Edvanz.API.Controllers
             var result = await _otpService.VerifyOtp(req);
             return ToResponse(result);
         }
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(LoginDto req)
+        {
+            var result = await authService.Login(req);
+            return ToResponse(result);
+        }
+        [Authorize]
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword(ChangePasswordDto req)
+        {
+            var result = await authService.ChangePassword(req);
+            return ToResponse(result);
+        }
+        [HttpPost("refresh")]
+        public async Task<IActionResult> RefreshToken(RefeshDto req)
+        {
+            var result = await authService.Refresh(req.refreshToken);
+            return ToResponse(result);
+        }
+
     }
 }

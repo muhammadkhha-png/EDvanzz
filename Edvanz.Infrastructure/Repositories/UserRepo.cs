@@ -51,7 +51,7 @@ namespace Edvanz.Infrastructure.Repositories
         public async Task<User?> GetByUserName(string userName)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.Username == userName);
+                .FirstOrDefaultAsync(u => u.Username == userName && u.IsActive==true);
         }
 
         /// <inheritdoc />

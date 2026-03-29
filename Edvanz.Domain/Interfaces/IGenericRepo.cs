@@ -13,8 +13,10 @@ namespace Edvanz.Domain.Interfaces
     /// </summary>
     public interface IGenericRepo<T, Tkey> where T : class where Tkey : IEquatable<Tkey>
     {
+        public IQueryable<T> GetAllTracked();
+
         Task<IReadOnlyList<T>> GetAllAsync();
-        Task<T?> GetByIdAsync(int id);
+        Task<T?> GetByIdAsync(long id);
         Task<IReadOnlyList<T>> GetAsync(Expression<Func<T, bool>> predicate);
         Task AddAsync(T entity);
         Task AddRangeAsync(IEnumerable<T> entities);
