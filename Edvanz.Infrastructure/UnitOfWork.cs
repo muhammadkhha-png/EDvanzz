@@ -12,14 +12,17 @@ using System.Threading.Tasks;
 
 namespace Edvanz.Infrastructure
 {
-    public class UnitOfWork:IUnitOfWork
+    public class UnitOfWork : IUnitOfWork
     {
-       
+
         private IDbContextTransaction? _transaction;
 
         private readonly ConcurrentDictionary<string, object> _Repositories = new ConcurrentDictionary<string, object>();
         private readonly EdvanzDbContext _Context;
         private IUserRepo? _userRepo;
+        // Student Module repo (Module 1: teacher-scoped student records)
+        private ITeacherStudentRepo? _teacherStudentRepo;
+
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -30,7 +33,7 @@ namespace Edvanz.Infrastructure
             where Tkey : IEquatable<Tkey>
         {
             // Check If The Repository Already Exists In The Dictionary Or Add New Repository
-            return (IGenericRepo<T, Tkey>)_Repositories.GetOrAdd(typeof(T).Name, new GenericRepo <T, Tkey>(_Context));
+            return (IGenericRepo<T, Tkey>)_Repositories.GetOrAdd(typeof(T).Name, new GenericRepo<T, Tkey>(_Context));
         }
         //--------------------------------------------------------------------------------------
         public async Task<int> SaveChangesAsync() => await _Context.SaveChangesAsync();
@@ -100,9 +103,16 @@ namespace Edvanz.Infrastructure
         //    }
         //}
 
-
-
+        /// <summary>
+        /// User module ecosystem repo (User, Teacher, StudentUser, ParentUser, linking).
+        /// </summary>
         public IUserRepo Users
      => _userRepo ??= new UserRepo(_Context);
+
+        /// <summary>
+        /// Student Module repo (Module 1: teacher-scoped student CRUD, search, filter, recycle bin).
+        /// </summary>
+        public ITeacherStudentRepo Students
+     => _teacherStudentRepo ??= new TeacherStudentRepo(_Context);
     }
 }

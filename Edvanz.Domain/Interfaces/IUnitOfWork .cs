@@ -15,7 +15,21 @@ namespace Edvanz.Domain.Interfaces
         Task RollbackAsync();
         Task CommitAsync();
         //Task LogError(Exception ex);
+
+        /// <summary>
+        /// Extended repository for the User module ecosystem (User, Teacher, StudentUser, ParentUser, linking).
+        /// </summary>
         IUserRepo Users { get; }
+
+        /// <summary>
+        /// Extended repository for the Student Module (Module 1: teacher-scoped student records).
+        /// Handles CRUD, search, filter, recycle bin, code generation, and bulk operations
+        /// for TeacherStudent records.
+        /// 
+        /// IMPORTANT: This is separate from IUserRepo. The Student Module manages
+        /// teacher-owned student DATA records, not StudentUser accounts.
+        /// </summary>
+        ITeacherStudentRepo Students { get; }
 
         /// <summary>
         /// Returns true if a database transaction is currently active.

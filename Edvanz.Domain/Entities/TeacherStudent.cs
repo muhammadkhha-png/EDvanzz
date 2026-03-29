@@ -67,6 +67,17 @@ public class TeacherStudent : BaseEntity
     public string? Barcode { get; set; }
 
     /// <summary>
+    /// Optional FK to the Session this student is assigned to.
+    /// REQ-STU-004: "Assigned Session" is optional.
+    /// BR-SES-002: A student may only be assigned to one session at a time.
+    /// REQ-SES-042: Set to null when the assigned session is deleted.
+    /// 
+    /// NOTE: This is a nullable long column with NO FK constraint yet.
+    /// The FK relationship will be configured when the Session module is implemented.
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>
     /// Soft-delete flag for recycle bin functionality.
     /// REQ-STU-025: Deleted records move to recycle bin.
     /// REQ-STU-026: Retained for 10 days before permanent purge.

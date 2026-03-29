@@ -18,7 +18,7 @@ public static class ServicesCollectionExtensions
     /// <summary>
     /// Adds all Application layer services to the dependency injection container.
     /// Includes: authentication services, user module services, type-specific services,
-    /// and localization configuration.
+    /// student module service, and localization configuration.
     /// </summary>
     /// <param name="services">The service collection to register services into.</param>
     public static void AddApplication(this IServiceCollection services)
@@ -36,6 +36,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
         services.AddScoped<IParentUserService, ParentUserService>();
+
+        // Student Module (Module 1: teacher-scoped student records CRUD)
+        services.AddScoped<ITeacherStudentService, TeacherStudentService>();
 
         #endregion
 

@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Text.Json.Serialization;
+using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.Dtos;
 
@@ -15,15 +16,6 @@ public enum TeacherSortBy
     Code
 }
 
-/// <summary>
-/// Sort direction for list queries.
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum SortDirection
-{
-    Asc,
-    Desc
-}
 
 /// <summary>
 /// Shared input DTO for paginated list requests.

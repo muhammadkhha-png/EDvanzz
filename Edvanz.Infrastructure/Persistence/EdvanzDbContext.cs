@@ -314,6 +314,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(ts => ts.Barcode)
                 .HasMaxLength(50);
 
+            // SessionId: nullable long column, NO FK constraint yet.
+            // The FK relationship will be configured when the Session module is implemented.
+            // REQ-STU-004: "Assigned Session" is optional.
+            // BR-SES-002: A student may only be assigned to one session at a time.
+            entity.Property(ts => ts.SessionId);
+
             // Teacher FK: cascade delete when teacher account is removed
             entity.HasOne(ts => ts.Teacher)
                 .WithMany()
@@ -323,6 +329,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Soft-delete filter: queries exclude deleted records by default
             entity.HasQueryFilter(ts => !ts.IsDeleted);
 
+            // ── INDEXES ──
+
             // Performance index: active students per teacher (most common query path)
             entity.HasIndex(ts => new { ts.TeacherId, ts.IsDeleted })
                 .HasDatabaseName("IX_TeacherStudents_TeacherId_IsDeleted");
@@ -330,6 +338,22 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Performance index: linking flow lookup — TeacherId + StudentCode + HashedToken
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode, ts.HashedToken })
                 .HasDatabaseName("IX_TeacherStudents_LinkingLookup");
+
+            // NEW: Performance index for filtering by assigned session (REQ-STU-036)
+            // Also supports session student count queries (REQ-STU-UX-004)
+            entity.HasIndex(ts => new { ts.TeacherId, ts.SessionId })
+                .HasDatabaseName("IX_TeacherStudents_TeacherId_SessionId");
+
+            // NEW: Performance index for recycle bin purge queries (REQ-STU-027/028)
+            // Enables efficient lookup of expired soft-deleted records by deletion date
+            entity.HasIndex(ts => new { ts.IsDeleted, ts.DeletedAt })
+                .HasFilter("[IsDeleted] = 1")
+                .HasDatabaseName("IX_TeacherStudents_RecycleBin_DeletedAt");
+
+            // NEW: Performance index for student name search (REQ-STU-032)
+            // Supports partial match queries on StudentName within a teacher scope
+            entity.HasIndex(ts => new { ts.TeacherId, ts.StudentName })
+                .HasDatabaseName("IX_TeacherStudents_TeacherId_StudentName");
         });
         #endregion
 

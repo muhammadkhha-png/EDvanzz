@@ -246,4 +246,76 @@
     <value>This child has a student account. Teachers can only be removed from the student's own account</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- STUDENT MODULE (Module 1)              -->
+  <!-- Teacher-scoped student records CRUD    -->
+  <!-- ══════════════════════════════════════ -->
+
+  <!-- ── CREATION ── -->
+  <data name="StudentCreatedSuccess" xml:space="preserve">
+    <value>Student added successfully</value>
+  </data>
+  <data name="StudentNameRequired" xml:space="preserve">
+    <value>Student name is required and cannot be blank</value>
+  </data>
+  <data name="StudentCapacityReached" xml:space="preserve">
+    <value>You have reached your student capacity limit. Please upgrade your plan or contact the administrator to add more students</value>
+  </data>
+
+  <!-- ── STUDENT CODE ── -->
+  <data name="StudentCodeRequiredManual" xml:space="preserve">
+    <value>Student code is required when auto-generation is disabled. Please enter a unique code</value>
+  </data>
+  <data name="StudentCodeDuplicate" xml:space="preserve">
+    <value>This student code already exists in your account. Please use a different code</value>
+  </data>
+  <data name="StudentCodeTooLong" xml:space="preserve">
+    <value>Student code cannot exceed 10 characters</value>
+  </data>
+  <data name="StudentCodeInvalidFormat" xml:space="preserve">
+    <value>Student code can only contain letters (A-Z) and numbers (0-9). Spaces, special characters, and Arabic letters are not allowed</value>
+  </data>
+  <data name="StudentCodeSpaceExhausted" xml:space="preserve">
+    <value>The auto-generated student code limit has been reached. Please switch to manual code entry</value>
+  </data>
+
+  <!-- ── UPDATE ── -->
+  <data name="StudentUpdatedSuccess" xml:space="preserve">
+    <value>Student record updated successfully</value>
+  </data>
+  <data name="StudentNotFound" xml:space="preserve">
+    <value>Student not found. The record may have been deleted or does not belong to your account</value>
+  </data>
+
+  <!-- ── DELETE / RECYCLE BIN ── -->
+  <data name="StudentDeletedSuccess" xml:space="preserve">
+    <value>Student moved to the recycle bin. You can restore it within 10 days</value>
+  </data>
+  <data name="BulkDeleteSuccess" xml:space="preserve">
+    <value>Selected students moved to the recycle bin successfully</value>
+  </data>
+  <data name="StudentRestoredSuccess" xml:space="preserve">
+    <value>Student restored successfully</value>
+  </data>
+  <data name="BulkRestoreSuccess" xml:space="preserve">
+    <value>Selected students restored successfully</value>
+  </data>
+  <data name="StudentPermanentlyDeleted" xml:space="preserve">
+    <value>Student permanently deleted. This action cannot be undone</value>
+  </data>
+  <data name="RecycleBinStudentNotFound" xml:space="preserve">
+    <value>Student not found in the recycle bin</value>
+  </data>
+  <data name="NoStudentsSelected" xml:space="preserve">
+    <value>No students selected. Please select at least one student</value>
+  </data>
+
+  <!-- ── BULK IMPORT ── -->
+  <data name="BulkImportComplete" xml:space="preserve">
+    <value>Bulk import completed</value>
+  </data>
+  <data name="BulkImportExceedsCapacity" xml:space="preserve">
+    <value>The number of valid students in this import exceeds your remaining capacity. Please reduce the import size or upgrade your plan</value>
+  </data>
+
 </root>

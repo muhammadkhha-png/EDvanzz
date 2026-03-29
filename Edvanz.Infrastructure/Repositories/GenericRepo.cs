@@ -89,6 +89,12 @@ namespace Edvanz.Infrastructure.Repositories
         }
         //----------------------------------------------------------------
         /// <inheritdoc />
+        public async Task<int> CountAsync(IQueryable<T> query)
+        {
+            return await query.CountAsync();
+        }
+        //----------------------------------------------------------------
+        /// <inheritdoc />
         public async Task<IReadOnlyList<T>> GetPagedAsync(IQueryable<T> query, int page, int pageSize)
         {
             return await query

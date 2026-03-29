@@ -246,4 +246,77 @@
     <value>الابن/الابنة عنده حساب طالب. المعلمين بيتشالوا من حساب الطالب نفسه</value>
   </data>
 
+  <!-- ══════════════════════════════════════ -->
+  <!-- موديول الطلاب (Module 1)                -->
+  <!-- سجلات طلاب المعلم - CRUD               -->
+  <!-- REQ-STU-NFR-006: مصري                  -->
+  <!-- ══════════════════════════════════════ -->
+
+  <!-- ── إضافة طالب ── -->
+  <data name="StudentCreatedSuccess" xml:space="preserve">
+    <value>تم إضافة الطالب بنجاح</value>
+  </data>
+  <data name="StudentNameRequired" xml:space="preserve">
+    <value>اسم الطالب مطلوب ومينفعش يكون فاضي</value>
+  </data>
+  <data name="StudentCapacityReached" xml:space="preserve">
+    <value>وصلت للحد الأقصى لعدد الطلاب. من فضلك قم بترقية خطتك أو تواصل مع المسؤول لإضافة طلاب أكتر</value>
+  </data>
+
+  <!-- ── كود الطالب ── -->
+  <data name="StudentCodeRequiredManual" xml:space="preserve">
+    <value>كود الطالب مطلوب لما يكون التوليد التلقائي مغلق. من فضلك ادخل كود فريد</value>
+  </data>
+  <data name="StudentCodeDuplicate" xml:space="preserve">
+    <value>الكود ده موجود بالفعل في حسابك. من فضلك استخدم كود تاني</value>
+  </data>
+  <data name="StudentCodeTooLong" xml:space="preserve">
+    <value>كود الطالب مينفعش يزيد عن 10 حروف</value>
+  </data>
+  <data name="StudentCodeInvalidFormat" xml:space="preserve">
+    <value>كود الطالب لازم يكون حروف إنجليزي (A-Z) وأرقام (0-9) بس. مفيش مسافات أو رموز أو حروف عربي</value>
+  </data>
+  <data name="StudentCodeSpaceExhausted" xml:space="preserve">
+    <value>وصلت للحد الأقصى للأكواد التلقائية. من فضلك حول لإدخال الأكواد يدوي</value>
+  </data>
+
+  <!-- ── تحديث ── -->
+  <data name="StudentUpdatedSuccess" xml:space="preserve">
+    <value>تم تحديث بيانات الطالب بنجاح</value>
+  </data>
+  <data name="StudentNotFound" xml:space="preserve">
+    <value>الطالب مش موجود. ممكن يكون اتمسح أو مش تابع لحسابك</value>
+  </data>
+
+  <!-- ── حذف / سلة المحذوفات ── -->
+  <data name="StudentDeletedSuccess" xml:space="preserve">
+    <value>تم نقل الطالب لسلة المحذوفات. تقدر تسترجعه خلال 10 أيام</value>
+  </data>
+  <data name="BulkDeleteSuccess" xml:space="preserve">
+    <value>تم نقل الطلاب المحددين لسلة المحذوفات بنجاح</value>
+  </data>
+  <data name="StudentRestoredSuccess" xml:space="preserve">
+    <value>تم استرجاع الطالب بنجاح</value>
+  </data>
+  <data name="BulkRestoreSuccess" xml:space="preserve">
+    <value>تم استرجاع الطلاب المحددين بنجاح</value>
+  </data>
+  <data name="StudentPermanentlyDeleted" xml:space="preserve">
+    <value>تم حذف الطالب نهائياً. العملية دي مش ممكن التراجع عنها</value>
+  </data>
+  <data name="RecycleBinStudentNotFound" xml:space="preserve">
+    <value>الطالب مش موجود في سلة المحذوفات</value>
+  </data>
+  <data name="NoStudentsSelected" xml:space="preserve">
+    <value>مفيش طلاب محددين. من فضلك اختار طالب واحد على الأقل</value>
+  </data>
+
+  <!-- ── استيراد جماعي ── -->
+  <data name="BulkImportComplete" xml:space="preserve">
+    <value>تم الاستيراد</value>
+  </data>
+  <data name="BulkImportExceedsCapacity" xml:space="preserve">
+    <value>عدد الطلاب الصحيحين في الاستيراد ده أكبر من السعة المتبقية. من فضلك قلل عدد الطلاب أو قم بترقية خطتك</value>
+  </data>
+
 </root>

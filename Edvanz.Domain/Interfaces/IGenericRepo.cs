@@ -32,6 +32,15 @@ namespace Edvanz.Domain.Interfaces
         Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null);
 
         /// <summary>
+        /// Returns the count of entities from an IQueryable source.
+        /// Used when the query has already been built with filters applied
+        /// (e.g., by a BuildStudentListQuery method in an extended repo).
+        /// Follows the same pattern as GetPagedAsync — accepts a pre-built IQueryable.
+        /// </summary>
+        /// <param name="query">The IQueryable with filters already applied.</param>
+        Task<int> CountAsync(IQueryable<T> query);
+
+        /// <summary>
         /// Returns a paginated list of entities from an IQueryable source.
         /// Executes the query with Skip/Take applied asynchronously.
         /// </summary>

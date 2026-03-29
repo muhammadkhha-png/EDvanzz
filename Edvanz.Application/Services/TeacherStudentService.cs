@@ -1,0 +1,660 @@
+﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.TeacherStudent;
+using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
+using Edvanz.Domain.Interfaces;
+using Microsoft.Extensions.Localization;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+
+namespace Edvanz.Application.Services;
+
+/// <summary>
+/// Implements all Student Module (Module 1) operations.
+/// Manages teacher-scoped student records: CRUD, search, filter, bulk import,
+/// recycle bin, and student code generation.
+/// 
+/// All database access goes through IUnitOfWork.Students (ITeacherStudentRepo)
+/// and IUnitOfWork.Users (IUserRepo for teacher validation) — no direct
+/// GetRepository calls with raw expression predicates.
+/// 
+/// ARCHITECTURAL NOTE:
+/// All query logic is encapsulated in ITeacherStudentRepo named methods.
+/// If a query changes, you edit the repo method — not this service.
+/// </summary>
+public class TeacherStudentService : ITeacherStudentService
+{
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IStudentCodeGenerator _codeGenerator;
+    private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+
+    /// <summary>
+    /// Regex for manual student code format validation.
+    /// REQ-STU-CODE-001: 1-10 alphanumeric characters (A-Z, a-z, 0-9 only).
+    /// </summary>
+    private static readonly Regex StudentCodeFormatRegex = new(@"^[A-Za-z0-9]{1,10}$", RegexOptions.Compiled);
+
+    public TeacherStudentService(
+        IUnitOfWork unitOfWork,
+        IStudentCodeGenerator codeGenerator,
+        IStringLocalizer<Domain.Resources.Messages> localizer)
+    {
+        _unitOfWork = unitOfWork;
+        _codeGenerator = codeGenerator;
+        _localizer = localizer;
+    }
+
+    // ══════════════════════════════════════════════
+    // SINGLE STUDENT CRUD
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<TeacherStudentDto>> CreateStudentAsync(CreateTeacherStudentDto dto)
+    {
+        // 1. Validate teacher exists
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        if (teacher is null)
+            return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // 2. Validate student name is not empty (REQ-STU-014)
+        if (string.IsNullOrWhiteSpace(dto.StudentName))
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
+
+        // 3. Check student capacity limit
+        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+        if (activeCount >= teacher.StudentCapacity)
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
+
+        // 4. Resolve student code based on teacher configuration
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+        string studentCode;
+
+        if (config?.StudentCodeGenerationMode == GenerationMode.Manual)
+        {
+            // REQ-STU-011.1: Manual mode — code is required
+            if (string.IsNullOrWhiteSpace(dto.StudentCode))
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeRequiredManual", HttpStatusCode.BadRequest);
+
+            // REQ-STU-CODE-001: Validate format
+            var codeValidation = ValidateStudentCodeFormat(dto.StudentCode);
+            if (codeValidation is not null)
+                return Result<TeacherStudentDto>.Failure(codeValidation, HttpStatusCode.BadRequest);
+
+            // REQ-STU-CODE-003: Normalize to uppercase
+            studentCode = dto.StudentCode.Trim().ToUpperInvariant();
+
+            // REQ-STU-010: Check uniqueness
+            bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(dto.TeacherId, studentCode);
+            if (codeExists)
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeDuplicate", HttpStatusCode.Conflict);
+        }
+        else
+        {
+            // REQ-STU-008/009: Auto-generate code
+            studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+        }
+
+        // 5. Generate hashed token (auto-generated, REQ-STU-004)
+        string hashedToken = GenerateHashedToken();
+
+        // 6. Generate barcode (REQ-STU-047: encodes the student code)
+        string barcode = studentCode; // Barcode data = student code per REQ-STU-047
+
+        // 7. Create the entity
+        var student = new TeacherStudent
+        {
+            TeacherId = dto.TeacherId,
+            StudentName = dto.StudentName.Trim(),
+            StudentCode = studentCode,
+            HashedToken = hashedToken,
+            StudentPhoneNumber = dto.StudentPhoneNumber?.Trim(),
+            ParentPhoneNumber = dto.ParentPhoneNumber?.Trim(),
+            Barcode = barcode,
+            SessionId = dto.SessionId,
+            IsDeleted = false,
+            CreateAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.Students.AddAsync(student);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<TeacherStudentDto>.Success(
+            MapToDto(student), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<TeacherStudentDto>> GetStudentByIdAsync(long teacherId, long studentId)
+    {
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+        if (student is null)
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<TeacherStudentDto>> UpdateStudentAsync(
+        long teacherId, long studentId, UpdateTeacherStudentDto dto)
+    {
+        // 1. Find existing student
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+        if (student is null)
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        // 2. Validate name not empty
+        if (string.IsNullOrWhiteSpace(dto.StudentName))
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
+
+        // 3. Handle student code update (if code is provided)
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+
+        if (config?.StudentCodeGenerationMode == GenerationMode.Manual && !string.IsNullOrWhiteSpace(dto.StudentCode))
+        {
+            // Validate format
+            var codeValidation = ValidateStudentCodeFormat(dto.StudentCode);
+            if (codeValidation is not null)
+                return Result<TeacherStudentDto>.Failure(codeValidation, HttpStatusCode.BadRequest);
+
+            string normalizedCode = dto.StudentCode.Trim().ToUpperInvariant();
+
+            // Check uniqueness excluding the current student
+            bool codeExists = await _unitOfWork.Students.StudentCodeExistsExcludingAsync(
+                teacherId, normalizedCode, studentId);
+            if (codeExists)
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeDuplicate", HttpStatusCode.Conflict);
+
+            student.StudentCode = normalizedCode;
+        }
+        // If auto-generate mode, student code is NOT editable (REQ-STU-048 spirit: immutable auto-codes)
+
+        // 4. Update fields
+        student.StudentName = dto.StudentName.Trim();
+        student.StudentPhoneNumber = dto.StudentPhoneNumber?.Trim();
+        student.ParentPhoneNumber = dto.ParentPhoneNumber?.Trim();
+        student.SessionId = dto.SessionId;
+        // REQ-STU-048: Barcode NEVER changes even if other fields are modified
+
+        await _unitOfWork.Students.UpdateAsync(student);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer, "StudentUpdatedSuccess");
+    }
+
+    // ══════════════════════════════════════════════
+    // STUDENT LIST (SEARCH + FILTER + PAGINATION)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<TeacherStudentDto>>>> GetStudentListAsync(
+        long teacherId, StudentListRequest request)
+    {
+        // Validate teacher exists
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<PaginatedResponse<List<TeacherStudentDto>>>.Failure(
+                _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // Build the filtered, sorted query via repo
+        var query = _unitOfWork.Students.BuildStudentListQuery(
+            teacherId,
+            request.Search,
+            request.SessionId,
+            request.MissingStudentPhone,
+            request.MissingParentPhone,
+            request.MissingSession,
+            request.SortBy,
+            request.SortDirection);
+
+        // Get total count of filtered results (for pagination metadata)
+        int filteredCount = await _unitOfWork.Students.CountAsync(query);
+
+        // Apply pagination
+        var students = await _unitOfWork.Students.GetPagedAsync(query, request.Page, request.PageSize);
+
+        var dtos = students.Select(MapToDto).ToList();
+
+        var response = new PaginatedResponse<List<TeacherStudentDto>>
+        {
+            totalCount = filteredCount,
+            page = request.Page,
+            pageSize = request.PageSize,
+            totalPages = (int)Math.Ceiling((double)filteredCount / request.PageSize),
+            data = dtos
+        };
+
+        return Result<PaginatedResponse<List<TeacherStudentDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<StudentCountsDto>> GetStudentCountsAsync(long teacherId, StudentListRequest request)
+    {
+        int totalActive = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
+        int recycleBin = await _unitOfWork.Students.CountRecycleBinStudentsAsync(teacherId);
+
+        // Get filtered count only if filters are active
+        int filteredCount = totalActive;
+        bool hasFilters = request.SessionId.HasValue
+                       || request.MissingStudentPhone
+                       || request.MissingParentPhone
+                       || request.MissingSession
+                       || !string.IsNullOrWhiteSpace(request.Search);
+
+        if (hasFilters)
+        {
+            var query = _unitOfWork.Students.BuildStudentListQuery(
+                teacherId,
+                request.Search,
+                request.SessionId,
+                request.MissingStudentPhone,
+                request.MissingParentPhone,
+                request.MissingSession);
+
+            filteredCount = await _unitOfWork.Students.CountAsync(query);
+        }
+
+        var counts = new StudentCountsDto
+        {
+            TotalActiveStudents = totalActive,
+            FilteredCount = filteredCount,
+            RecycleBinCount = recycleBin
+        };
+
+        return Result<StudentCountsDto>.Success(counts, _localizer);
+    }
+
+    // ══════════════════════════════════════════════
+    // SOFT DELETE (RECYCLE BIN)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> SoftDeleteStudentAsync(long teacherId, long studentId)
+    {
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+        if (student is null)
+            return Result<bool>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        // REQ-STU-025: Move to recycle bin (soft-delete)
+        student.IsDeleted = true;
+        student.DeletedAt = DateTime.UtcNow;
+
+        await _unitOfWork.Students.UpdateAsync(student);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<bool>.Success(true, _localizer, "StudentDeletedSuccess");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<int>> BulkSoftDeleteStudentsAsync(BulkStudentIdsDto dto)
+    {
+        if (dto.StudentIds.Count == 0)
+            return Result<int>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
+
+        var students = await _unitOfWork.Students.GetActiveByIdsAndTeacherAsync(dto.TeacherId, dto.StudentIds);
+
+        if (students.Count == 0)
+            return Result<int>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        var now = DateTime.UtcNow;
+        foreach (var student in students)
+        {
+            student.IsDeleted = true;
+            student.DeletedAt = now;
+            await _unitOfWork.Students.UpdateAsync(student);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<int>.Success(students.Count, _localizer, "BulkDeleteSuccess");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<RecycleBinStudentDto>>>> GetRecycleBinAsync(
+        long teacherId, int page = 1, int pageSize = 20)
+    {
+        var query = _unitOfWork.Students.BuildRecycleBinQuery(teacherId);
+        int totalCount = await _unitOfWork.Students.CountAsync(query);
+
+        var students = await _unitOfWork.Students.GetPagedAsync(query, page, pageSize);
+
+        var now = DateTime.UtcNow;
+        var dtos = students.Select(s => new RecycleBinStudentDto
+        {
+            Id = s.Id,
+            StudentName = s.StudentName,
+            StudentCode = s.StudentCode,
+            StudentPhoneNumber = s.StudentPhoneNumber,
+            ParentPhoneNumber = s.ParentPhoneNumber,
+            DeletedAt = s.DeletedAt,
+            // REQ-STU-UX-010: Days remaining = 10 - days since deletion
+            DaysRemaining = s.DeletedAt.HasValue
+                ? Math.Max(0, 10 - (int)(now - s.DeletedAt.Value).TotalDays)
+                : 0
+        }).ToList();
+
+        var response = new PaginatedResponse<List<RecycleBinStudentDto>>
+        {
+            totalCount = totalCount,
+            page = page,
+            pageSize = pageSize,
+            totalPages = (int)Math.Ceiling((double)totalCount / pageSize),
+            data = dtos
+        };
+
+        return Result<PaginatedResponse<List<RecycleBinStudentDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<TeacherStudentDto>> RestoreStudentAsync(long teacherId, long studentId)
+    {
+        var student = await _unitOfWork.Students.GetByIdAndTeacherIgnoreFiltersAsync(studentId, teacherId);
+
+        if (student is null || !student.IsDeleted)
+            return Result<TeacherStudentDto>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
+
+        // Check capacity before restoring
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is not null)
+        {
+            int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
+            if (activeCount >= teacher.StudentCapacity)
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
+        }
+
+        // REQ-STU-031: Restore with all original data intact
+        student.IsDeleted = false;
+        student.DeletedAt = null;
+
+        await _unitOfWork.Students.UpdateAsync(student);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer, "StudentRestoredSuccess");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<int>> BulkRestoreStudentsAsync(BulkStudentIdsDto dto)
+    {
+        if (dto.StudentIds.Count == 0)
+            return Result<int>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
+
+        // Check capacity before restoring
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        if (teacher is not null)
+        {
+            int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+            int remaining = teacher.StudentCapacity - activeCount;
+
+            if (dto.StudentIds.Count > remaining)
+                return Result<int>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
+        }
+
+        var students = await _unitOfWork.Students.GetDeletedByIdsAndTeacherAsync(dto.TeacherId, dto.StudentIds);
+
+        if (students.Count == 0)
+            return Result<int>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
+
+        foreach (var student in students)
+        {
+            student.IsDeleted = false;
+            student.DeletedAt = null;
+            await _unitOfWork.Students.UpdateAsync(student);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<int>.Success(students.Count, _localizer, "BulkRestoreSuccess");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> PermanentDeleteStudentAsync(long teacherId, long studentId)
+    {
+        var student = await _unitOfWork.Students.GetByIdAndTeacherIgnoreFiltersAsync(studentId, teacherId);
+
+        if (student is null || !student.IsDeleted)
+            return Result<bool>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
+
+        // WARNING: This is irreversible
+        await _unitOfWork.Students.DeleteAsync(student);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<bool>.Success(true, _localizer, "StudentPermanentlyDeleted");
+    }
+
+    /// <inheritdoc />
+    public async Task<int> PurgeExpiredRecycleBinRecordsAsync()
+    {
+        // REQ-STU-027/028: Purge records older than 10 days
+        var expiredRecords = await _unitOfWork.Students.GetExpiredRecycleBinRecordsAsync();
+
+        if (expiredRecords.Count == 0)
+            return 0;
+
+        await _unitOfWork.Students.DeleteRangeAsync(expiredRecords);
+        await _unitOfWork.SaveChangesAsync();
+
+        return expiredRecords.Count;
+    }
+
+    // ══════════════════════════════════════════════
+    // BULK IMPORT
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(BulkImportTeacherStudentsDto dto)
+    {
+        // 1. Validate teacher exists
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        if (teacher is null)
+            return Result<BulkImportResultDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+
+        // 2. Check capacity
+        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+        int remainingCapacity = teacher.StudentCapacity - activeCount;
+
+        var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
+        var validStudents = new List<TeacherStudent>();
+        var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 3. Validate each row
+        for (int i = 0; i < dto.Students.Count; i++)
+        {
+            var row = dto.Students[i];
+            int rowNumber = i + 1;
+
+            // REQ-STU-018: Skip rows where StudentName is empty
+            if (string.IsNullOrWhiteSpace(row.StudentName))
+            {
+                result.Failures.Add(new BulkImportFailureDto
+                {
+                    RowNumber = rowNumber,
+                    StudentName = row.StudentName,
+                    StudentCode = row.StudentCode,
+                    Reason = _localizer["StudentNameRequired"]
+                });
+                continue;
+            }
+
+            // Resolve student code
+            string studentCode;
+
+            if (!string.IsNullOrWhiteSpace(row.StudentCode))
+            {
+                // REQ-STU-CODE-006: Format validation for bulk import codes
+                var codeValidation = ValidateStudentCodeFormat(row.StudentCode);
+                if (codeValidation is not null)
+                {
+                    result.Failures.Add(new BulkImportFailureDto
+                    {
+                        RowNumber = rowNumber,
+                        StudentName = row.StudentName,
+                        StudentCode = row.StudentCode,
+                        Reason = codeValidation
+                    });
+                    continue;
+                }
+
+                studentCode = row.StudentCode.Trim().ToUpperInvariant();
+
+                // Check for duplicates within this import batch
+                if (usedCodes.Contains(studentCode))
+                {
+                    result.Failures.Add(new BulkImportFailureDto
+                    {
+                        RowNumber = rowNumber,
+                        StudentName = row.StudentName,
+                        StudentCode = row.StudentCode,
+                        Reason = _localizer["StudentCodeDuplicate"]
+                    });
+                    continue;
+                }
+
+                // REQ-STU-018: Detect and reject duplicate codes against existing DB records
+                bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(dto.TeacherId, studentCode);
+                if (codeExists)
+                {
+                    result.Failures.Add(new BulkImportFailureDto
+                    {
+                        RowNumber = rowNumber,
+                        StudentName = row.StudentName,
+                        StudentCode = row.StudentCode,
+                        Reason = _localizer["StudentCodeDuplicate"]
+                    });
+                    continue;
+                }
+            }
+            else
+            {
+                // REQ-STU-018: Auto-generate code for blank code fields
+                studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+
+                // Keep generating until we find one not already used in this batch
+                while (usedCodes.Contains(studentCode))
+                {
+                    studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId);
+                }
+            }
+
+            usedCodes.Add(studentCode);
+
+            // Create entity
+            var student = new TeacherStudent
+            {
+                TeacherId = dto.TeacherId,
+                StudentName = row.StudentName.Trim(),
+                StudentCode = studentCode,
+                HashedToken = GenerateHashedToken(),
+                StudentPhoneNumber = row.StudentPhoneNumber?.Trim(),
+                ParentPhoneNumber = row.ParentPhoneNumber?.Trim(),
+                Barcode = studentCode, // REQ-STU-054: Auto-generate barcode
+                IsDeleted = false,
+                CreateAt = DateTime.UtcNow
+            };
+
+            validStudents.Add(student);
+        }
+
+        // 4. Check if valid students exceed remaining capacity
+        if (validStudents.Count > remainingCapacity)
+        {
+            return Result<BulkImportResultDto>.Failure(_localizer, "BulkImportExceedsCapacity", HttpStatusCode.BadRequest);
+        }
+
+        // 5. Insert all valid students in a single transaction
+        if (validStudents.Count > 0)
+        {
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await _unitOfWork.Students.AddRangeAsync(validStudents);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                // REQ-STU-OFF-006: Full rollback on failure — no partial records saved
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
+        result.SuccessCount = validStudents.Count;
+        result.FailedCount = result.Failures.Count;
+
+        return Result<BulkImportResultDto>.Success(result, _localizer, "BulkImportComplete");
+    }
+
+    // ══════════════════════════════════════════════
+    // PRIVATE HELPERS
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Maps a TeacherStudent entity to the output DTO.
+    /// </summary>
+    private static TeacherStudentDto MapToDto(TeacherStudent student)
+    {
+        return new TeacherStudentDto
+        {
+            Id = student.Id,
+            TeacherId = student.TeacherId,
+            StudentName = student.StudentName,
+            StudentCode = student.StudentCode,
+            HashedToken = student.HashedToken,
+            StudentPhoneNumber = student.StudentPhoneNumber,
+            ParentPhoneNumber = student.ParentPhoneNumber,
+            Barcode = student.Barcode,
+            SessionId = student.SessionId,
+            CreatedAt = student.CreateAt,
+            // REQ-STU-UX-007: Complete = all optional fields filled
+            IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
+                      && !string.IsNullOrWhiteSpace(student.ParentPhoneNumber)
+                      && student.SessionId.HasValue
+        };
+    }
+
+    /// <summary>
+    /// Validates the format of a manually entered student code.
+    /// REQ-STU-CODE-001: 1-10 alphanumeric characters (A-Z, a-z, 0-9 only).
+    /// Returns a localized error message if invalid, null if valid.
+    /// </summary>
+    private string? ValidateStudentCodeFormat(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            return _localizer["StudentCodeRequiredManual"];
+
+        string trimmed = code.Trim();
+
+        // REQ-STU-CODE-005: Specific error for length violation
+        if (trimmed.Length > 10)
+            return _localizer["StudentCodeTooLong"];
+
+        // REQ-STU-CODE-005: Specific error for disallowed characters
+        if (!StudentCodeFormatRegex.IsMatch(trimmed))
+            return _localizer["StudentCodeInvalidFormat"];
+
+        return null;
+    }
+
+    /// <summary>
+    /// Generates a cryptographically secure hashed token for a student.
+    /// REQ-STU-004: "Student Hashed Password" — auto-generated.
+    /// AAM-NFR-03: Cryptographically unique and collision-resistant.
+    /// Uses the same approach as StudentAccountCodeGenerator.
+    /// </summary>
+    private static string GenerateHashedToken()
+    {
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        const int length = 16;
+        var tokenChars = new char[length];
+
+        for (int i = 0; i < length; i++)
+        {
+            int index = RandomNumberGenerator.GetInt32(0, chars.Length);
+            tokenChars[i] = chars[index];
+        }
+
+        return new string(tokenChars);
+    }
+}

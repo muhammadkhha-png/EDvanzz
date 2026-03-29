@@ -1,0 +1,17 @@
+diff a/Edvanz.API/appsettings.json b/Edvanz.API/appsettings.json	(rejected hunks)
+@@ -1,15 +0,0 @@
+-{
+-  "Logging": {
+-    "LogLevel": {
+-      "Default": "Information",
+-      "Microsoft.AspNetCore": "Warning"
+-    }
+-  },
+-  "AllowedHosts": "*",
+-  "ConnectionStrings": {
+-    "con": "Server=.\\TEW_SQLEXPRESS;Database=Edvanz;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+-  },
+-  "environmentVariables": {
+-    "ASPNETCORE_ENVIRONMENT": "Development"
+-  }
+-}
