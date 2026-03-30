@@ -38,7 +38,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
         services.AddScoped<IParentUserService, ParentUserService>();
-
+        services.AddScoped<ITokenService, TokenService>();
         // Student Module (Module 1: teacher-scoped student records CRUD)
         services.AddScoped<ITeacherStudentService, TeacherStudentService>();
 

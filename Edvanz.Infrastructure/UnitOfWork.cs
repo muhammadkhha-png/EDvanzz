@@ -22,6 +22,9 @@ namespace Edvanz.Infrastructure
         private IUserRepo? _userRepo;
         // Student Module repo (Module 1: teacher-scoped student records)
         private ITeacherStudentRepo? _teacherStudentRepo;
+        private IUserPermissionRepo? _userPermissionRepo;
+        private IRefreshTokenRepo? _refreshTokenRepo;
+
 
         public UnitOfWork(EdvanzDbContext _context)
         {
