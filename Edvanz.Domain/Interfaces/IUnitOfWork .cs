@@ -37,6 +37,13 @@ namespace Edvanz.Domain.Interfaces
         ITeacherStudentRepo Students { get; }
 
         /// <summary>
+        /// Extended repository for the Session Module (Module 2: sessions, groups, links).
+        /// Handles CRUD, search, filter, group management, and membership linking
+        /// for Session, SessionGroup, and SessionLink records.
+        /// </summary>
+        ISessionRepo SessionsRepo { get; }
+
+        /// <summary>
         /// Returns true if a database transaction is currently active.
         /// 
         /// Used by type-specific services (Teacher, Student, Parent) to detect

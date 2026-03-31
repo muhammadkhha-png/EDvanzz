@@ -78,6 +78,13 @@ public class TeacherStudent : BaseEntity
     public long? SessionId { get; set; }
 
     /// <summary>
+    /// Navigation property to the assigned Session.
+    /// REQ-SES-016: Students are assigned to sessions.
+    /// REQ-SES-042: Set to null (via DB SetNull cascade) when session is deleted.
+    /// </summary>
+    public Session? Session { get; set; }
+
+    /// <summary>
     /// Soft-delete flag for recycle bin functionality.
     /// REQ-STU-025: Deleted records move to recycle bin.
     /// REQ-STU-026: Retained for 10 days before permanent purge.

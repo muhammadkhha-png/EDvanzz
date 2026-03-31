@@ -41,12 +41,15 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ITokenService, TokenService>();
         // Student Module (Module 1: teacher-scoped student records CRUD)
         services.AddScoped<ITeacherStudentService, TeacherStudentService>();
+        services.AddScoped<ITeacherService, TeacherService>();
+        // Session Module (Module 2: sessions, groups, membership links)
+        services.AddScoped<ISessionService, SessionService>();
 
         #endregion
 
 
 
-        services.AddScoped<ITeacherService, TeacherService>();
+
 
         services.Configure<RequestLocalizationOptions>(options =>
         {

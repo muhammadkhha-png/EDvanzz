@@ -318,4 +318,101 @@
   <data name="CompleteYourProfile" xml:space="preserve">
     <value>complete your profile data to can use application</value>
   </data>
+
+  <!-- ════════════════════════════════════════════════ -->
+  <!-- SESSION MODULE (Module 2) — REQ-SES-001 onward  -->
+  <!-- ════════════════════════════════════════════════ -->
+  <data name="SessionCreatedSuccess" xml:space="preserve">
+    <value>Session created successfully</value>
+  </data>
+  <data name="SessionUpdatedSuccess" xml:space="preserve">
+    <value>Session updated successfully</value>
+  </data>
+  <data name="SessionDeletedSuccess" xml:space="preserve">
+    <value>Session deleted successfully</value>
+  </data>
+  <data name="SessionDuplicatedSuccess" xml:space="preserve">
+    <value>Session duplicated successfully</value>
+  </data>
+  <data name="SessionNotFound" xml:space="preserve">
+    <value>Session not found. It may have been deleted or does not belong to your account</value>
+  </data>
+  <data name="SessionNameDuplicate" xml:space="preserve">
+    <value>A session with this name already exists in your account. Please choose a different name</value>
+  </data>
+  <data name="SessionEndDateMustBeAfterStartDate" xml:space="preserve">
+    <value>The end date must be after the start date</value>
+  </data>
+  <data name="SessionOccurrenceNotEditable" xml:space="preserve">
+    <value>The occurrence type cannot be changed because this session has student assignments or membership links. Remove them first to change the occurrence type</value>
+  </data>
+  <data name="SessionSelectedDaysRequired" xml:space="preserve">
+    <value>Please select at least one day of the week for this session</value>
+  </data>
+  <data name="SessionSelectedDaysTooMany" xml:space="preserve">
+    <value>You can select a maximum of 7 days per week</value>
+  </data>
+  <data name="SessionSelectedDaysInvalid" xml:space="preserve">
+    <value>One or more selected days are invalid. Valid values are 0 (Saturday) through 6 (Friday)</value>
+  </data>
+  <data name="SessionSelectedDaysDuplicate" xml:space="preserve">
+    <value>Duplicate days are not allowed. Each day can only be selected once</value>
+  </data>
+  <data name="SessionMonthlyDayRequired" xml:space="preserve">
+    <value>Please specify the day of the month (1–31) for this monthly session</value>
+  </data>
+  <data name="SessionOccurrenceTypeInvalid" xml:space="preserve">
+    <value>Invalid occurrence type. Please select Weekly, Bi-Weekly, or Monthly</value>
+  </data>
+  <data name="SessionGroupCreatedSuccess" xml:space="preserve">
+    <value>Session group created successfully</value>
+  </data>
+  <data name="SessionGroupRenamedSuccess" xml:space="preserve">
+    <value>Session group renamed successfully</value>
+  </data>
+  <data name="SessionGroupDeletedSuccess" xml:space="preserve">
+    <value>Session group deleted successfully. Sessions in this group are now ungrouped</value>
+  </data>
+  <data name="SessionGroupNotFound" xml:space="preserve">
+    <value>Session group not found</value>
+  </data>
+  <data name="SessionGroupNameDuplicate" xml:space="preserve">
+    <value>A group with this name already exists in your account. Please choose a different name</value>
+  </data>
+  <data name="SessionLinkCreatedSuccess" xml:space="preserve">
+    <value>Sessions linked successfully</value>
+  </data>
+  <data name="SessionLinkRemovedSuccess" xml:space="preserve">
+    <value>Session link removed successfully</value>
+  </data>
+  <data name="SessionLinkNotFound" xml:space="preserve">
+    <value>No link found between these two sessions</value>
+  </data>
+  <data name="SessionLinkAlreadyExists" xml:space="preserve">
+    <value>These two sessions are already linked</value>
+  </data>
+  <data name="SessionLinkSameSession" xml:space="preserve">
+    <value>A session cannot be linked to itself</value>
+  </data>
+  <data name="SessionLinkOccurrenceMismatch" xml:space="preserve">
+    <value>Sessions can only be linked if they share the same occurrence type (e.g., both Weekly or both Monthly)</value>
+  </data>
+  <data name="SessionLinkDaysMismatch" xml:space="preserve">
+    <value>Sessions can only be linked if they share the same day-of-week configuration</value>
+  </data>
+  <data name="StudentsAssignedSuccess" xml:space="preserve">
+    <value>Students assigned to session successfully</value>
+  </data>
+  <data name="StudentsReassignedSuccess" xml:space="preserve">
+    <value>Students reassigned to the new session successfully</value>
+  </data>
+  <data name="StudentUnassignedSuccess" xml:space="preserve">
+    <value>Student removed from session successfully</value>
+  </data>
+  <data name="NoValidStudentsFound" xml:space="preserve">
+    <value>No valid students found for this operation. Please check the selected students and try again</value>
+  </data>
+  <data name="StudentNotInSession" xml:space="preserve">
+    <value>This student is not currently assigned to this session</value>
+  </data>
 </root>

@@ -1,6 +1,10 @@
-﻿using Edvanz.Domain.Interfaces;
+﻿using Edvanz.Application.ServiceContract;
+using Edvanz.Application.Services;
+using Edvanz.Domain.Entities;
+using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Services;
 using Microsoft.Extensions.DependencyInjection;
+using static Azure.Core.HttpHeader;
 
 namespace Edvanz.Infrastructure.Extensions;
 
@@ -20,5 +24,8 @@ public static class InfrastructureServiceExtensions
 
         // Student code generator (REQ-STU-007 — teacher-scoped A1→Z999 sequential codes)
         services.AddScoped<IStudentCodeGenerator, StudentCodeGeneratorService>();
+
+        // Session name generator(REQ-SES - 002 — teacher - scoped Session A1→Z999 sequential names)
+        services.AddScoped<ISessionNameGenerator, SessionNameGeneratorService>();
     }
 }

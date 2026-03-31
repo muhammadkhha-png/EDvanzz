@@ -318,4 +318,101 @@
   <data name="CompleteYourProfile" xml:space="preserve">
     <value>كمل باقي البيانات ضروري ع تقدر تسخدم الابليكشن</value>
   </data>
+
+  <!-- ════════════════════════════════════════════════ -->
+  <!-- SESSION MODULE (Module 2) — REQ-SES-001 onward  -->
+  <!-- ════════════════════════════════════════════════ -->
+  <data name="SessionCreatedSuccess" xml:space="preserve">
+    <value>تم إنشاء الحصة بنجاح</value>
+  </data>
+  <data name="SessionUpdatedSuccess" xml:space="preserve">
+    <value>تم تحديث الحصة بنجاح</value>
+  </data>
+  <data name="SessionDeletedSuccess" xml:space="preserve">
+    <value>تم حذف الحصة بنجاح</value>
+  </data>
+  <data name="SessionDuplicatedSuccess" xml:space="preserve">
+    <value>تم نسخ الحصة بنجاح</value>
+  </data>
+  <data name="SessionNotFound" xml:space="preserve">
+    <value>الحصة مش موجودة. ممكن تكون اتمسحت أو مش تابعة لحسابك</value>
+  </data>
+  <data name="SessionNameDuplicate" xml:space="preserve">
+    <value>في حصة بالاسم ده بالفعل في حسابك. من فضلك اختار اسم تاني</value>
+  </data>
+  <data name="SessionEndDateMustBeAfterStartDate" xml:space="preserve">
+    <value>تاريخ الانتهاء لازم يكون بعد تاريخ البداية</value>
+  </data>
+  <data name="SessionOccurrenceNotEditable" xml:space="preserve">
+    <value>مينفعش تغيّر نوع التكرار لأن الحصة دي فيها طلاب مسجلين أو روابط عضوية. شيلهم الأول عشان تقدر تغيّر نوع التكرار</value>
+  </data>
+  <data name="SessionSelectedDaysRequired" xml:space="preserve">
+    <value>من فضلك اختار يوم واحد على الأقل في الأسبوع للحصة دي</value>
+  </data>
+  <data name="SessionSelectedDaysTooMany" xml:space="preserve">
+    <value>تقدر تختار ٧ أيام كحد أقصى في الأسبوع</value>
+  </data>
+  <data name="SessionSelectedDaysInvalid" xml:space="preserve">
+    <value>في يوم أو أكتر مش صالح. القيم الصحيحة من ٠ (السبت) لحد ٦ (الجمعة)</value>
+  </data>
+  <data name="SessionSelectedDaysDuplicate" xml:space="preserve">
+    <value>مينفعش تكرر نفس اليوم. كل يوم يتختار مرة واحدة بس</value>
+  </data>
+  <data name="SessionMonthlyDayRequired" xml:space="preserve">
+    <value>من فضلك حدد يوم الشهر (١–٣١) للحصة الشهرية دي</value>
+  </data>
+  <data name="SessionOccurrenceTypeInvalid" xml:space="preserve">
+    <value>نوع التكرار مش صالح. من فضلك اختار أسبوعي أو نصف شهري أو شهري</value>
+  </data>
+  <data name="SessionGroupCreatedSuccess" xml:space="preserve">
+    <value>تم إنشاء مجموعة الحصص بنجاح</value>
+  </data>
+  <data name="SessionGroupRenamedSuccess" xml:space="preserve">
+    <value>تم تغيير اسم المجموعة بنجاح</value>
+  </data>
+  <data name="SessionGroupDeletedSuccess" xml:space="preserve">
+    <value>تم حذف المجموعة بنجاح. الحصص اللي كانت فيها بقت بدون مجموعة</value>
+  </data>
+  <data name="SessionGroupNotFound" xml:space="preserve">
+    <value>المجموعة مش موجودة</value>
+  </data>
+  <data name="SessionGroupNameDuplicate" xml:space="preserve">
+    <value>في مجموعة بالاسم ده بالفعل في حسابك. من فضلك اختار اسم تاني</value>
+  </data>
+  <data name="SessionLinkCreatedSuccess" xml:space="preserve">
+    <value>تم ربط الحصص بنجاح</value>
+  </data>
+  <data name="SessionLinkRemovedSuccess" xml:space="preserve">
+    <value>تم إزالة ربط الحصة بنجاح</value>
+  </data>
+  <data name="SessionLinkNotFound" xml:space="preserve">
+    <value>مفيش ربط بين الحصتين دول</value>
+  </data>
+  <data name="SessionLinkAlreadyExists" xml:space="preserve">
+    <value>الحصتين دول مربوطين بالفعل</value>
+  </data>
+  <data name="SessionLinkSameSession" xml:space="preserve">
+    <value>مينفعش تربط الحصة بنفسها</value>
+  </data>
+  <data name="SessionLinkOccurrenceMismatch" xml:space="preserve">
+    <value>الحصص تتربط بس لو عندها نفس نوع التكرار (يعني الاتنين أسبوعي أو الاتنين شهري)</value>
+  </data>
+  <data name="SessionLinkDaysMismatch" xml:space="preserve">
+    <value>الحصص تتربط بس لو عندها نفس أيام الأسبوع</value>
+  </data>
+  <data name="StudentsAssignedSuccess" xml:space="preserve">
+    <value>تم تسجيل الطلاب في الحصة بنجاح</value>
+  </data>
+  <data name="StudentsReassignedSuccess" xml:space="preserve">
+    <value>تم نقل الطلاب للحصة الجديدة بنجاح</value>
+  </data>
+  <data name="StudentUnassignedSuccess" xml:space="preserve">
+    <value>تم إزالة الطالب من الحصة بنجاح</value>
+  </data>
+  <data name="NoValidStudentsFound" xml:space="preserve">
+    <value>مفيش طلاب صالحين للعملية دي. من فضلك راجع الطلاب المحددين وحاول تاني</value>
+  </data>
+  <data name="StudentNotInSession" xml:space="preserve">
+    <value>الطالب ده مش مسجل في الحصة دي</value>
+  </data>
 </root>

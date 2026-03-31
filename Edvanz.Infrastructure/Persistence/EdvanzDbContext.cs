@@ -41,6 +41,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<ParentChild> ParentChildren { get; set; }
     public DbSet<ParentChildTeacherLink> ParentChildTeacherLinks { get; set; }
 
+    // ─── Session module tables (Module 2) ───
+    public DbSet<Session> Sessions { get; set; }
+    public DbSet<SessionGroup> SessionGroups { get; set; }
+    public DbSet<SessionLink> SessionLinks { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
@@ -314,11 +319,17 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(ts => ts.Barcode)
                 .HasMaxLength(50);
 
-            // SessionId: nullable long column, NO FK constraint yet.
-            // The FK relationship will be configured when the Session module is implemented.
+            // SessionId: nullable FK to Sessions table.
             // REQ-STU-004: "Assigned Session" is optional.
             // BR-SES-002: A student may only be assigned to one session at a time.
+            // REQ-SES-042: SetNull when the assigned session is deleted.
             entity.Property(ts => ts.SessionId);
+
+            // Session FK: SetNull when session is deleted — students become unassigned
+            entity.HasOne(ts => ts.Session)
+                .WithMany(s => s.TeacherStudents)
+                .HasForeignKey(ts => ts.SessionId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Teacher FK: cascade delete when teacher account is removed
             entity.HasOne(ts => ts.Teacher)
@@ -555,6 +566,132 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasDatabaseName("IX_ParentChildTeacherLinks_ChildId_LinkStatus");
         });
         #endregion
+
+        // ════════════════════════════════════════════════
+        // SESSION MODULE CONFIGURATION (Module 2)
+        // ════════════════════════════════════════════════
+
+        #region SessionGroup (REQ-SES-024/025)
+        modelBuilder.Entity<SessionGroup>(entity =>
+        {
+            entity.ToTable("SessionGroups");
+
+            entity.Property(g => g.GroupName)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            // Unique group name per teacher
+            entity.HasIndex(g => new { g.TeacherId, g.GroupName })
+                .IsUnique()
+                .HasDatabaseName("IX_SessionGroups_TeacherId_GroupName");
+
+            entity.HasIndex(g => g.TeacherId)
+                .HasDatabaseName("IX_SessionGroups_TeacherId");
+
+            entity.HasOne(g => g.Teacher)
+                .WithMany()
+                .HasForeignKey(g => g.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        #endregion
+
+        #region Session (REQ-SES-001 through REQ-SES-015)
+        modelBuilder.Entity<Session>(entity =>
+        {
+            entity.ToTable("Sessions");
+
+            // SessionName: mandatory, supports Arabic and English (REQ-SES-003)
+            entity.Property(s => s.SessionName)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            // BR-SES-001: Unique session name per teacher
+            entity.HasIndex(s => new { s.TeacherId, s.SessionName })
+                .IsUnique()
+                .HasDatabaseName("IX_Sessions_TeacherId_SessionName");
+
+            // SelectedDays: compact comma-separated string for weekly/biweekly day selection
+            entity.Property(s => s.SelectedDays)
+                .HasMaxLength(20)
+                .IsUnicode(false);
+
+            // SessionAmount: decimal(10,2) for EGP currency
+            entity.Property(s => s.SessionAmount)
+                .HasColumnType("decimal(10,2)");
+
+            // StartDate/EndDate: date-only columns
+            entity.Property(s => s.StartDate).HasColumnType("date");
+            entity.Property(s => s.EndDate).HasColumnType("date");
+
+            // StartTime: stored as time(7) in SQL Server
+            entity.Property(s => s.StartTime).IsRequired();
+
+            // DurationMinutes: smallint
+            entity.Property(s => s.DurationMinutes).IsRequired();
+
+            // Teacher FK: cascade delete when teacher account is removed
+            entity.HasOne(s => s.Teacher)
+                .WithMany()
+                .HasForeignKey(s => s.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // SessionGroup FK: SetNull when group is deleted (REQ-SES-031)
+            entity.HasOne(s => s.SessionGroup)
+                .WithMany(g => g.Sessions)
+                .HasForeignKey(s => s.SessionGroupId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── INDEXES ──
+
+            // Primary tenant-scoped index for all session list queries
+            entity.HasIndex(s => s.TeacherId)
+                .HasDatabaseName("IX_Sessions_TeacherId");
+
+            // Active/expired filtering (REQ-SES-015/045)
+            entity.HasIndex(s => new { s.TeacherId, s.EndDate })
+                .HasDatabaseName("IX_Sessions_TeacherId_EndDate");
+
+            // Group drill-down queries (REQ-SES-027)
+            entity.HasIndex(s => s.SessionGroupId)
+                .HasDatabaseName("IX_Sessions_SessionGroupId");
+
+            // Membership linking validation (BR-SES-003)
+            entity.HasIndex(s => new { s.TeacherId, s.OccurrenceType, s.SelectedDays })
+                .HasDatabaseName("IX_Sessions_TeacherId_OccurrenceType_SelectedDays");
+        });
+        #endregion
+
+        #region SessionLink (REQ-SES-032 through REQ-SES-038)
+        modelBuilder.Entity<SessionLink>(entity =>
+        {
+            entity.ToTable("SessionLinks");
+
+            // Canonical ordering: SessionId < LinkedSessionId
+            // One row per pair, symmetric lookup
+            entity.HasIndex(sl => new { sl.SessionId, sl.LinkedSessionId })
+                .IsUnique()
+                .HasDatabaseName("IX_SessionLinks_SessionId_LinkedSessionId");
+
+            // Reverse lookup index
+            entity.HasIndex(sl => sl.LinkedSessionId)
+                .HasDatabaseName("IX_SessionLinks_LinkedSessionId");
+
+            // Session FK (lower Id side): cascade delete
+            entity.HasOne(sl => sl.Session)
+                .WithMany(s => s.SessionLinksAsSource)
+                .HasForeignKey(sl => sl.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // LinkedSession FK (higher Id side): restrict to avoid multiple cascade paths
+            // Application code handles cleanup when deleting the higher-Id session
+            entity.HasOne(sl => sl.LinkedSession)
+                .WithMany(s => s.SessionLinksAsTarget)
+                .HasForeignKey(sl => sl.LinkedSessionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        #endregion
+
+       
 
         // ════════════════════════════════════════════════
         // SEED DATA
