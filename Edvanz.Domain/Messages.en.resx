@@ -318,10 +318,6 @@
   <data name="CompleteYourProfile" xml:space="preserve">
     <value>complete your profile data to can use application</value>
   </data>
-
-  <!-- ════════════════════════════════════════════════ -->
-  <!-- SESSION MODULE (Module 2) — REQ-SES-001 onward  -->
-  <!-- ════════════════════════════════════════════════ -->
   <data name="SessionCreatedSuccess" xml:space="preserve">
     <value>Session created successfully</value>
   </data>
@@ -414,5 +410,11 @@
   </data>
   <data name="StudentNotInSession" xml:space="preserve">
     <value>This student is not currently assigned to this session</value>
+  </data>
+  <data name="UserAlreadyDeactive" xml:space="preserve">
+    <value>بالفعل الحساب دا واقف</value>
+  </data>
+  <data name="String1" xml:space="preserve">
+    <value>this account has been blocked before </value>
   </data>
 </root>

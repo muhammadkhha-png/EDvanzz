@@ -25,11 +25,11 @@ namespace Edvanz.Application.Security
                 .Where(c => c.Type.Equals("Permission", System.StringComparison.OrdinalIgnoreCase))
                 .Select(c => c.Value)
                 .ToList();
-            //if (permissions.Contains("CompleteProfile", StringComparer.OrdinalIgnoreCase))
-            //{
-            //    context.Succeed(requirement);
-            //    return;
-            //}
+            if (permissions.Contains("CompleteProfile", StringComparer.OrdinalIgnoreCase))
+            {
+                context.Succeed(requirement);
+                return;
+            }
             var hasAnyRole = context.User.Claims.Any(c => c.Type == ClaimTypes.Role);
 
             var tokenStamp = context.User.Claims.FirstOrDefault(c => c.Type == "SecurityStamp")?.Value;
@@ -47,13 +47,14 @@ namespace Edvanz.Application.Security
 
             if (tokenStamp != user.SecurityStamp)
             {
+                context.Fail(); 
                 return;
             }
 
-            //if (permissions.Contains(requirement.RequiredPermission, System.StringComparer.OrdinalIgnoreCase) || hasAnyRole)
-            //{
-            //    context.Succeed(requirement);
-            //}
+            if (permissions.Contains(requirement.RequiredPermission, System.StringComparer.OrdinalIgnoreCase) || hasAnyRole)
+            {
+                context.Succeed(requirement);
+            }
 
         }
     }

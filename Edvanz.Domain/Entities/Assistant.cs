@@ -16,6 +16,6 @@ public class Assistant : BaseEntity
     [ForeignKey(nameof(Teacher))]
     public long TeacherAccountId { get; set; }
     public Teacher Teacher { get; set; } = null!;
-
     public bool IsActive { get; set; } = true;
+    public DateTime UpdatedAt { get; set; }
 }

@@ -12,5 +12,6 @@ namespace Edvanz.Domain.Entities
         [ForeignKey(nameof(module))]
         public long  ModuleId { get; set; }
         public Module module { get; set; }
+        public bool IsRestricted { get; set; }
     }
 }

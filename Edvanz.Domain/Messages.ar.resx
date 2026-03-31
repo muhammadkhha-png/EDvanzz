@@ -318,10 +318,6 @@
   <data name="CompleteYourProfile" xml:space="preserve">
     <value>كمل باقي البيانات ضروري ع تقدر تسخدم الابليكشن</value>
   </data>
-
-  <!-- ════════════════════════════════════════════════ -->
-  <!-- SESSION MODULE (Module 2) — REQ-SES-001 onward  -->
-  <!-- ════════════════════════════════════════════════ -->
   <data name="SessionCreatedSuccess" xml:space="preserve">
     <value>تم إنشاء الحصة بنجاح</value>
   </data>
@@ -414,5 +410,11 @@
   </data>
   <data name="StudentNotInSession" xml:space="preserve">
     <value>الطالب ده مش مسجل في الحصة دي</value>
+  </data>
+  <data name="UserAlreadyDeactive" xml:space="preserve">
+    <value>بالفعل الحساب دا واقف</value>
+  </data>
+  <data name="String1" xml:space="preserve">
+    <value>this account has been blocked before </value>
   </data>
 </root>

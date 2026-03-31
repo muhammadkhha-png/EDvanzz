@@ -28,5 +28,8 @@ namespace Edvanz.Application.ServiceContract
         /// <param name="user">Registration data including credentials and user type.</param>
         /// <returns>Result containing the registration data on success.</returns>
         Task<Result<string>> AddUser(SigupDto user);
+
+        //Task<Result<string>> DeactiveUser(long userId);
+
     }
 }

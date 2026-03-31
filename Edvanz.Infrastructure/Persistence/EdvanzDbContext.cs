@@ -9,7 +9,6 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 {
     // ─── Existing tables ───
     public DbSet<User> Users { get; set; }
-    public DbSet<Assistant> Assistants { get; set; }
     public DbSet<UsersTutor> UserTutor { get; set; }
     public DbSet<UsersPermission> UsersPermissions { get; set; }
     public DbSet<Permission> Permissions { get; set; }
@@ -46,6 +45,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<SessionGroup> SessionGroups { get; set; }
     public DbSet<SessionLink> SessionLinks { get; set; }
 
+
+    //  ─── Assistant  ───
+    public DbSet<Assistant> Assistants { get; set; }
+    public DbSet<LoginActivityAssistantLog> AssistantLoginActivity { get; set; }
+    public DbSet<AuditTrail> AuditTrial { get; set; }
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);

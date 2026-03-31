@@ -336,5 +336,17 @@ namespace Edvanz.Application.Services
                 throw;
             }
         }
+
+       
+
+        //public async Task<Result<string>> DeactiveUser(long userId)
+        //{
+        //    var user =await _unitOfWork.Users.GetByIdAsync(userId);
+        //    if (user == null)
+        //        return Result<string>.Failure(_localizer, "UserNotFound");
+        //    if(user.IsActive == false)
+        //        return Result<string>.Failure(_localizer, "UserAlreadyDeactive");
+
+        //}
     }
 }

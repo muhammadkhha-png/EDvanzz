@@ -106,25 +106,29 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("CompleteProfile", policy =>
-     policy.RequireAssertion(context =>
-     {
-         var permissions = context.User.Claims
-             .Where(c => c.Type == "Permission")
-             .Select(c => c.Value)
-             .ToList();
+    //options.AddPolicy("CompleteProfile", policy =>
+    // policy.RequireAssertion(context =>
+    // {
+    //     var permissions = context.User.Claims
+    //         .Where(c => c.Type == "Permission")
+    //         .Select(c => c.Value)
+    //         .ToList();
 
-        
-         return permissions.Contains("CompleteProfile");
-     }));
+
+    //     return permissions.Contains("CompleteProfile");
+    // }));
+    //options.AddPolicy("SuperAdmin", policy =>
+    //    policy.RequireAssertion(context =>
+    //        context.User.HasClaim(c => c.Type == "role") 
+
+    //    ));
+
     options.AddPolicy("SuperAdmin", policy =>
-        policy.RequireAssertion(context =>
-            context.User.HasClaim(c => c.Type == "role") 
-            
-        ));
-   
+    policy.Requirements.Add(new PermissionRequirement("SuperAdmin")));
 
-   
+    options.AddPolicy("CompleteProfile", policy =>
+        policy.Requirements.Add(new PermissionRequirement("CompleteProfile")));
+
 });
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 var app = builder.Build();

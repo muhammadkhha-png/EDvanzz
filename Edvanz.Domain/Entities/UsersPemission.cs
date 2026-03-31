@@ -10,7 +10,7 @@ public class UsersPermission
 {
     [ForeignKey(nameof(Assistant))]
     public long UserId { get; set; }
-    public User Assistant { get; set; } = null!;
+    public User User { get; set; } = null!;
 
     [ForeignKey(nameof(Permission))]
     public long PermissionId { get; set; }
