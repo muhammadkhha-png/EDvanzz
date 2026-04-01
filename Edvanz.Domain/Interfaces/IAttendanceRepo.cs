@@ -89,6 +89,38 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task<SessionOccurrence?> GetPreviousOccurrenceAsync(long sessionId, DateTime beforeDate);
 
+    /// <summary>
+    /// Gets the next occurrence for a session on or after a given date.
+    /// FIX 3.1: Used for cross-session attendance date remapping (REQ-ATT-018).
+    /// When a student from Session B attends Session A, the attendance date must be
+    /// remapped to Session B's next occurrence date.
+    /// </summary>
+    Task<SessionOccurrence?> GetNextOccurrenceAsync(long sessionId, DateTime onOrAfterDate);
+
+    /// <summary>
+    /// Gets the latest (most recent date) occurrence for a session.
+    /// Used to determine if new occurrences need to be generated.
+    /// </summary>
+    Task<SessionOccurrence?> GetLatestOccurrenceBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// FIX 6.2: Gets only the occurrence dates (not full entities) for a session.
+    /// More efficient than GetOccurrencesBySessionAsync when only dates are needed
+    /// (e.g., during GenerateOccurrencesAsync duplicate checking).
+    /// </summary>
+    Task<HashSet<DateTime>> GetExistingOccurrenceDatesAsync(long sessionId);
+
+    // ══════════════════════════════════════════════
+    // BATCH OCCURRENCE COUNTING (FIX 2.1)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX 2.1: Counts attendance records grouped by occurrence Id in a single query.
+    /// Replaces the N+1 pattern in GetOccurrenceCalendarAsync where each occurrence
+    /// was individually queried for its record count.
+    /// </summary>
+    Task<Dictionary<long, int>> CountRecordsByOccurrenceBatchAsync(IEnumerable<long> occurrenceIds);
+
     // ══════════════════════════════════════════════
     // STUDENT SESSION ASSIGNMENT QUERIES
     // ══════════════════════════════════════════════
@@ -127,22 +159,31 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<IReadOnlyList<StudentSessionAssignment>> GetActiveAssignmentsBySessionAsync(long sessionId);
 
     /// <summary>
-    /// Gets all currently active assignments for a teacher, scoped by teacher.
-    /// REQ-ATT-072: Student Attendance Timeline view — all students regardless of session.
-    /// </summary>
-    IQueryable<StudentSessionAssignment> BuildAssignmentListQuery(
-        long teacherId,
-        long? sessionId = null,
-        long? sessionGroupId = null,
-        string? studentName = null,
-        string? studentCode = null);
-
-    /// <summary>
     /// Deactivates all active assignments for a session.
     /// Called before session hard-delete.
     /// Sets IsActive = false and UnassignedAt = now, also nullifies SessionId on each record.
     /// </summary>
     Task DeactivateAssignmentsBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// FIX 1.1: Deactivates all active assignments for a student across all sessions.
+    /// Called during permanent student purge to close any open assignment periods.
+    /// Sets IsActive = false and UnassignedAt = now.
+    /// </summary>
+    Task DeactivateAssignmentsByStudentAsync(long teacherStudentId);
+
+    // ══════════════════════════════════════════════
+    // BATCH ASSIGNMENT QUERIES (FIX 2.2)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX 2.2: Gets active assignments for multiple students in a single query.
+    /// Used by BulkMarkAttendanceAsync to eliminate the N+1 pattern where each student's
+    /// assignment was individually looked up inside the loop.
+    /// Returns a dictionary keyed by TeacherStudentId for O(1) lookup.
+    /// </summary>
+    Task<Dictionary<long, StudentSessionAssignment>> GetActiveAssignmentsBatchAsync(
+        IEnumerable<long> teacherStudentIds);
 
     // ══════════════════════════════════════════════
     // ATTENDANCE RECORD QUERIES
@@ -191,6 +232,14 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task<AttendanceRecord?> GetExistingAttendanceByStudentAndDateAsync(
         long teacherStudentId, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds);
+
+    /// <summary>
+    /// FIX 2.2: Checks for existing attendance records for multiple students on a specific occurrence.
+    /// Returns a set of TeacherStudentIds that already have attendance for this occurrence.
+    /// Eliminates the N+1 pattern in BulkMarkAttendanceAsync.
+    /// </summary>
+    Task<HashSet<long>> GetExistingAttendanceBatchAsync(
+        IEnumerable<long> teacherStudentIds, long sessionOccurrenceId);
 
     /// <summary>
     /// Gets all attendance records for a session occurrence.
@@ -243,23 +292,20 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long teacherId, DateTime date);
 
     /// <summary>
-    /// Builds a queryable for attendance records filtered by teacher, session, and date range.
-    /// Used for paginated report generation (REQ-ATT-040).
-    /// </summary>
-    IQueryable<AttendanceRecord> BuildAttendanceReportQuery(
-        long teacherId,
-        long? sessionId = null,
-        long? sessionGroupId = null,
-        DateTime? startDate = null,
-        DateTime? endDate = null,
-        AttendanceStatus? status = null);
-
-    /// <summary>
     /// Nullifies SessionOccurrenceId on all records referencing occurrences of a session.
     /// Called before session deletion to preserve records with denormalized data intact.
     /// BR-ATT-005: Records retained after session hard-delete.
     /// </summary>
     Task NullifyOccurrenceReferencesForSessionAsync(long sessionId);
+
+    /// <summary>
+    /// FIX 1.4: Nullifies the denormalized SessionId on all AttendanceRecords for a session.
+    /// Called before session hard-delete. The denormalized SessionName and OccurrenceDate
+    /// remain intact so records are still self-describing after deletion.
+    /// Without this, AttendanceRecord.SessionId would point to a nonexistent session row,
+    /// causing silent JOIN failures in reporting queries.
+    /// </summary>
+    Task NullifySessionIdOnRecordsForSessionAsync(long sessionId);
 
     // ══════════════════════════════════════════════
     // ATTENDANCE EDIT LOG QUERIES
@@ -301,22 +347,18 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<StudentAbsenceCounter?> GetAbsenceCounterAsync(long teacherId, long teacherStudentId);
 
     /// <summary>
+    /// FIX 2.2: Gets absence counters for multiple students in a single query.
+    /// Eliminates the N+1 pattern in BulkMarkAttendanceAsync and GetAttendanceStudentListAsync.
+    /// Returns a dictionary keyed by TeacherStudentId for O(1) lookup.
+    /// </summary>
+    Task<Dictionary<long, StudentAbsenceCounter>> GetAbsenceCountersBatchAsync(
+        long teacherId, IEnumerable<long> teacherStudentIds);
+
+    /// <summary>
     /// Gets absence counters for all students in a session (via their active assignments).
     /// REQ-ATT-032: Absence Overview — all absent students with consecutive counts.
     /// </summary>
     Task<IReadOnlyList<StudentAbsenceCounter>> GetAbsenceCountersBySessionAsync(long sessionId);
-
-    /// <summary>
-    /// Builds a queryable for absence counters scoped to a teacher, for paginated absence overview.
-    /// REQ-ATT-032/067: Sorted by ConsecutiveAbsences DESC by default.
-    /// REQ-ATT-034: Supports search by student name/code and filters.
-    /// </summary>
-    IQueryable<StudentAbsenceCounter> BuildAbsenceOverviewQuery(
-        long teacherId,
-        long? sessionId = null,
-        string? search = null,
-        bool? missingStudentPhone = null,
-        bool? missingParentPhone = null);
 
     /// <summary>
     /// Recalculates ConsecutiveAbsences from the actual attendance records.
@@ -331,15 +373,12 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task DeleteAbsenceCounterAsync(StudentAbsenceCounter counter);
 
-    // ══════════════════════════════════════════════
-    // OCCURRENCE GENERATION SUPPORT
-    // ══════════════════════════════════════════════
-
     /// <summary>
-    /// Gets the latest (most recent date) occurrence for a session.
-    /// Used to determine if new occurrences need to be generated.
+    /// FIX 1.1: Deletes all absence counters for a student across all teachers.
+    /// Called during permanent student purge when the teacherId is not known
+    /// or when cleaning up counters across all teacher contexts.
     /// </summary>
-    Task<SessionOccurrence?> GetLatestOccurrenceBySessionAsync(long sessionId);
+    Task DeleteAbsenceCountersByStudentAsync(long teacherStudentId);
 
     // ══════════════════════════════════════════════
     // PAGED ABSENCE OVERVIEW (avoids EF Core in Application layer)
@@ -400,4 +439,54 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long? sessionGroupId = null,
         string? studentName = null,
         string? studentCode = null);
+
+    // ══════════════════════════════════════════════
+    // PAGED ATTENDANCE STUDENT LIST (FIX 1.2)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX 1.2: Retrieves the paginated student list for Take Attendance / Edit Attendance
+    /// entirely in the database (no in-memory loading of 50K students).
+    /// Combines primary session students and linked session students, applies search/filter,
+    /// orders by marked status (unmarked first per REQ-ATT-054), and applies SKIP/TAKE.
+    ///
+    /// REQ-ATT-008: Marked vs. unmarked display.
+    /// REQ-ATT-014/015: Includes linked session students.
+    /// REQ-ATT-036: Supports up to 50K students per session.
+    /// REQ-ATT-054: Unmarked students displayed first.
+    /// </summary>
+    /// <param name="teacherId">Teacher Id for tenant scoping.</param>
+    /// <param name="sessionId">The primary session Id.</param>
+    /// <param name="occurrenceDate">The occurrence date to check attendance for.</param>
+    /// <param name="linkedSessionIds">Ids of sessions linked to the primary session via membership.</param>
+    /// <param name="search">Optional search term for student name/code.</param>
+    /// <param name="unmarkedOnly">If true, only return students without attendance for this occurrence.</param>
+    /// <param name="page">Page number (1-based).</param>
+    /// <param name="pageSize">Number of records per page.</param>
+    /// <returns>Tuple of (paged student rows with attendance info, total count).</returns>
+    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount)> GetPagedAttendanceStudentListAsync(
+        long teacherId, long sessionId, DateTime occurrenceDate,
+        IEnumerable<long> linkedSessionIds,
+        string? search, bool unmarkedOnly,
+        int page, int pageSize);
+}
+
+/// <summary>
+/// FIX 1.2: Projection model returned by GetPagedAttendanceStudentListAsync.
+/// Contains all fields needed to build AttendanceStudentRowDto without additional queries.
+/// Lives in the Domain layer alongside the repo interface since it's a query projection.
+/// </summary>
+public class PagedAttendanceStudentRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public long? SessionId { get; set; }
+    public string? SessionName { get; set; }
+    public bool IsFromLinkedSession { get; set; }
+    public string? SourceSessionName { get; set; }
+    public bool IsMarked { get; set; }
+    public AttendanceStatus? CurrentStatus { get; set; }
+    public int ConsecutiveAbsences { get; set; }
+    public int TotalAbsences { get; set; }
 }

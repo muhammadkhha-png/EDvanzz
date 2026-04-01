@@ -34,15 +34,18 @@ public class AttendanceService : IAttendanceService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOccurrenceGeneratorService _occurrenceGenerator;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly ITimeZoneService _timeZoneService;
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
         IOccurrenceGeneratorService occurrenceGenerator,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        ITimeZoneService timeZoneService)
     {
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
         _localizer = localizer;
+        _timeZoneService = timeZoneService;
     }
 
     // ══════════════════════════════════════════════
@@ -62,8 +65,7 @@ public class AttendanceService : IAttendanceService
             return Result<int>.Success(0, _localizer, "AttendanceNoOccurrenceDates");
 
         // Check what already exists to avoid duplicates
-        var existingOccurrences = await _unitOfWork.AttendanceRepo.GetOccurrencesBySessionAsync(sessionId);
-        var existingDates = existingOccurrences.Select(o => o.OccurrenceDate.Date).ToHashSet();
+        var existingDates = await _unitOfWork.AttendanceRepo.GetExistingOccurrenceDatesAsync(sessionId);
 
         var newOccurrences = dates
             .Where(d => !existingDates.Contains(d.Date))
@@ -98,7 +100,7 @@ public class AttendanceService : IAttendanceService
         if (teacher is null)
             return Result<AttendanceDashboardDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        var date = request.Date?.Date ?? DateTime.UtcNow.Date;
+        var date = request.Date?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
 
         // REQ-ATT-049: Get all occurrences for today
         var todayOccurrences = await _unitOfWork.AttendanceRepo

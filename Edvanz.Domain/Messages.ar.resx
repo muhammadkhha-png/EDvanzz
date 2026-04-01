@@ -477,4 +477,19 @@
   <data name="AttendanceVisibilityDisabled" xml:space="preserve">
     <value>تتبع الحضور مش ظاهر في إعدادات المعلم الحالية</value>
   </data>
+  <data name="FeatureNotImplemented" xml:space="preserve">
+        <value>الميزة دي لسه مش متاحة. هتكون متاحة في تحديث قادم</value>
+    </data>
+    <data name="AttendanceStudentHeld" xml:space="preserve">
+        <value>الطالب اتحط في الانتظار. تقدر ترجعله بعدين في نفس الحصة</value>
+    </data>
+    <data name="AttendanceHoldReleased" xml:space="preserve">
+        <value>تم إزالة حالة الانتظار بنجاح</value>
+    </data>
+    <data name="AttendanceSyncComplete" xml:space="preserve">
+        <value>تم مزامنة سجلات الحضور بنجاح</value>
+    </data>
+    <data name="AttendanceSyncConflict" xml:space="preserve">
+        <value>بعض سجلات الحضور فيها تعارض ومحتاجة مراجعتك</value>
+    </data>
 </root>

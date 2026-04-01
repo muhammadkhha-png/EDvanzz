@@ -412,12 +412,11 @@
     <value>This student is not currently assigned to this session</value>
   </data>
   <data name="UserAlreadyDeactive" xml:space="preserve">
-    <value>بالفعل الحساب دا واقف</value>
+    <value>User Account is Deactivated</value>
   </data>
   <data name="String1" xml:space="preserve">
     <value>this account has been blocked before </value>
   </data>
-  <!-- Occurrence Generation -->
   <data name="AttendanceNoOccurrenceDates" xml:space="preserve">
     <value>No occurrence dates could be generated for this session's configuration</value>
   </data>
@@ -427,8 +426,6 @@
   <data name="AttendanceOccurrencesGenerated" xml:space="preserve">
     <value>Session occurrences have been generated successfully</value>
   </data>
-
-  <!-- Take Attendance -->
   <data name="AttendanceNoOccurrenceToday" xml:space="preserve">
     <value>Today is not a scheduled occurrence day for this session. Use Edit Attendance to record for other dates</value>
   </data>
@@ -450,8 +447,6 @@
   <data name="AttendanceStudentNotAssigned" xml:space="preserve">
     <value>This student is not currently assigned to any session</value>
   </data>
-
-  <!-- Edit Attendance -->
   <data name="AttendanceRecordNotFound" xml:space="preserve">
     <value>The attendance record was not found or does not belong to your account</value>
   </data>
@@ -464,17 +459,28 @@
   <data name="AttendanceDeletedSuccess" xml:space="preserve">
     <value>Attendance record removed successfully</value>
   </data>
-
-  <!-- Timeline & Reports -->
   <data name="AttendanceNoAssignmentHistory" xml:space="preserve">
     <value>This student has no session assignment history</value>
   </data>
   <data name="AttendanceReportGenerated" xml:space="preserve">
     <value>Attendance report generated successfully</value>
   </data>
-
-  <!-- Visibility -->
   <data name="AttendanceVisibilityDisabled" xml:space="preserve">
     <value>Attendance tracking is not visible in the current teacher configuration</value>
+  </data>
+  <data name="FeatureNotImplemented" xml:space="preserve">
+    <value>This feature is not yet available. It will be enabled in a future update</value>
+  </data>
+  <data name="AttendanceStudentHeld" xml:space="preserve">
+    <value>Student placed on hold. You can return to mark their attendance later in this session</value>
+  </data>
+  <data name="AttendanceHoldReleased" xml:space="preserve">
+    <value>Student hold released successfully</value>
+  </data>
+  <data name="AttendanceSyncComplete" xml:space="preserve">
+    <value>Attendance records synced successfully</value>
+  </data>
+  <data name="AttendanceSyncConflict" xml:space="preserve">
+    <value>Some attendance records have conflicts that require your review</value>
   </data>
 </root>

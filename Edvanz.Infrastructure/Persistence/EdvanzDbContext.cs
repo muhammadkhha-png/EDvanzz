@@ -832,11 +832,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .IsUnique()
                 .HasFilter("[SessionOccurrenceId] IS NOT NULL")
                 .HasDatabaseName("IX_AR_TeacherStudentId_SessionOccurrenceId");
-        
+
             // Backup unique guard for after session deletion
             entity.HasIndex(r => new { r.TeacherStudentId, r.OccurrenceDate, r.SessionId })
+                .IsUnique()
                 .HasDatabaseName("IX_AR_TeacherStudentId_OccurrenceDate_SessionId");
-        
+
             // Take Attendance / Edit Attendance: records for this session on this date
             entity.HasIndex(r => new { r.TeacherId, r.SessionId, r.OccurrenceDate })
                 .HasDatabaseName("IX_AR_TeacherId_SessionId_OccurrenceDate");

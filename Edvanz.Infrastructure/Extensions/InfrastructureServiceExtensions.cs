@@ -30,5 +30,16 @@ public static class InfrastructureServiceExtensions
 
         // Occurrence generator (REQ-ATT-001/002 — computes session occurrence dates from recurrence rules)
         services.AddScoped<IOccurrenceGeneratorService, OccurrenceGeneratorService>();
+
+        // FIX 1.5: Timezone service — provides teacher-local date/time for Egyptian tutors.
+        // Resolves the UTC midnight boundary bug where DateTime.UtcNow.Date returns the wrong
+        // "today" between midnight and 2 AM Cairo time.
+        services.AddScoped<ITimeZoneService, TimeZoneService>();
+
+        // FIX 4.2: Report export service — generates PDF/Excel files for attendance reports.
+        // REQ-ATT-041: Reports exportable as PDF or Excel.
+        // REQ-ATT-081: Timeline exportable as PDF or Excel.
+        // TODO: Uncomment when AttendanceReportExportService is implemented with ClosedXML/QuestPDF.
+        // services.AddScoped<IAttendanceReportExportService, AttendanceReportExportService>();
     }
 }

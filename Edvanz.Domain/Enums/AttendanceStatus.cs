@@ -27,5 +27,12 @@ public enum AttendanceStatus : byte
     /// Student attended a different linked session to fulfill this occurrence.
     /// REQ-ATT-017: Cross-session attendance event capturing both assigned and attended sessions.
     /// </summary>
-    CrossSessionPresent = 2
+    CrossSessionPresent = 2,
+
+    /// <summary>
+    ///     /// FIX 4.1: Student placed on "hold" during attendance taking.
+    ///     /// REQ-ATT-061: Distinguishes held students from marked and unmarked.
+    ///     /// REQ-ATT-058: "Hold" cancels attendance recording, deferring to later.
+    /// </summary>
+    Held = 3
 }

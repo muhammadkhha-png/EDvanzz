@@ -697,3 +697,182 @@ public class AttendanceEditLogDto
     public long? EditedByUserId { get; set; }
     public string? EditReason { get; set; }
 }
+
+/// <summary>
+/// FIX 4.1: Input DTO for placing a student on "hold" during attendance taking.
+/// REQ-ATT-061: Held students are visually distinguished from marked and unmarked students.
+/// REQ-ATT-058: "Hold" cancels the attendance action without recording anything.
+/// </summary>
+public class HoldStudentDto
+{
+    /// <summary>The owning teacher's Id.</summary>
+    [Required]
+    public long TeacherId { get; set; }
+
+    /// <summary>The session where attendance is being taken.</summary>
+    [Required]
+    public long SessionId { get; set; }
+
+    /// <summary>The student to place on hold.</summary>
+    [Required]
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>The occurrence date. Defaults to today.</summary>
+    public DateTime? OccurrenceDate { get; set; }
+
+    /// <summary>The user performing the action (teacher or assistant).</summary>
+    public long? RecordedByUserId { get; set; }
+}
+
+/// <summary>
+/// FIX 4.1: Input DTO for releasing a held student.
+/// REQ-ATT-061: Held students can be returned to and processed later in the same session.
+/// </summary>
+public class ReleaseHoldDto
+{
+    /// <summary>The owning teacher's Id.</summary>
+    [Required]
+    public long TeacherId { get; set; }
+
+    /// <summary>The session where the student is held.</summary>
+    [Required]
+    public long SessionId { get; set; }
+
+    /// <summary>The held student to release.</summary>
+    [Required]
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>The occurrence date.</summary>
+    public DateTime? OccurrenceDate { get; set; }
+
+    /// <summary>
+    /// True = mark as Present (confirm attendance).
+    /// False = discard the hold (return to unmarked).
+    /// </summary>
+    [Required]
+    public bool MarkAsPresent { get; set; }
+
+    /// <summary>The user performing the action.</summary>
+    public long? RecordedByUserId { get; set; }
+}
+
+// ══════════════════════════════════════════════
+// EXPORT DTOs (FIX 4.2 — REQ-ATT-041/081)
+// ══════════════════════════════════════════════
+
+/// <summary>
+/// FIX 4.2: Request DTO for exporting a student's attendance timeline.
+/// REQ-ATT-081: Exportable as PDF or Excel covering a date range or full history.
+/// </summary>
+public class ExportTimelineRequest
+{
+    /// <summary>Optional start of export date range. Null = from first assignment.</summary>
+    public DateTime? StartDate { get; set; }
+
+    /// <summary>Optional end of export date range. Null = to current date.</summary>
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>Export format: "xlsx" or "pdf".</summary>
+    [Required]
+    public string Format { get; set; } = "xlsx";
+}
+
+// ══════════════════════════════════════════════
+// OFFLINE SYNC DTOs (FIX 4.3 — REQ-ATT-084/085)
+// ══════════════════════════════════════════════
+
+/// <summary>
+/// FIX 4.3: A single offline-recorded attendance entry.
+/// REQ-ATT-082: Records stored locally and synced when connectivity is restored.
+/// </summary>
+ public class OfflineAttendanceEntryDto
+ {
+     /// <summary>The student to mark attendance for.</summary>
+     [Required]
+     public long TeacherStudentId { get; set; }
+ 
+     /// <summary>The session the attendance was taken for.</summary>
+     [Required]
+     public long SessionId { get; set; }
+ 
+     /// <summary>The attendance status recorded offline.</summary>
+     [Required]
+     public AttendanceStatus Status { get; set; }
+ 
+     /// <summary>The method used to record (ManualCode, MultiSelect, BarcodeScan).</summary>
+     [Required]
+     public AttendanceMethod AttendanceMethod { get; set; }
+ 
+     /// <summary>The occurrence date for this attendance entry.</summary>
+     [Required]
+     public DateTime OccurrenceDate { get; set; }
+ 
+     /// <summary>The client-side timestamp when the entry was recorded.</summary>
+     [Required]
+     public DateTime ClientRecordedAt { get; set; }
+ 
+     /// <summary>Client-generated unique Id for conflict detection.</summary>
+     [Required]
+     public string ClientEntryId { get; set; } = null!;
+ }
+
+/// <summary>
+/// FIX 4.3: Batch request for syncing offline attendance records.
+/// REQ-ATT-084: Automatic sync when connectivity is restored.
+/// </summary>
+ public class OfflineSyncRequestDto
+ {
+     /// <summary>The owning teacher's Id.</summary>
+     [Required]
+     public long TeacherId { get; set; }
+ 
+     /// <summary>The user who recorded the attendance offline.</summary>
+     public long? RecordedByUserId { get; set; }
+ 
+     /// <summary>The batch of offline entries to sync.</summary>
+     [Required]
+     public List<OfflineAttendanceEntryDto> Entries { get; set; } = new();
+ }
+
+/// <summary>
+/// FIX 4.3: Result of a sync operation for a single entry.
+/// </summary>
+public class SyncEntryResultDto
+{
+    /// <summary>The client-generated unique Id from the offline entry.</summary>
+    public string ClientEntryId { get; set; } = null!;
+
+    /// <summary>Whether this entry was successfully synced.</summary>
+    public bool Success { get; set; }
+
+    /// <summary>If not successful, whether this is a conflict requiring resolution.</summary>
+    public bool IsConflict { get; set; }
+
+    /// <summary>The server-side record if a conflict was detected.</summary>
+    public AttendanceRecordDto? ServerRecord { get; set; }
+
+    /// <summary>Error message if sync failed for non-conflict reasons.</summary>
+    public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// FIX 4.3: Batch result of the offline sync operation.
+/// REQ-ATT-085: Presents conflicts for tutor resolution.
+/// </summary>
+public class SyncResultDto
+{
+    /// <summary>Total entries submitted for sync.</summary>
+    public int TotalSubmitted { get; set; }
+
+    /// <summary>Entries successfully synced without conflicts.</summary>
+    public int SuccessCount { get; set; }
+
+    /// <summary>Entries with conflicts requiring resolution.</summary>
+    public int ConflictCount { get; set; }
+
+    /// <summary>Entries that failed for non-conflict reasons.</summary>
+    public int FailedCount { get; set; }
+
+    /// <summary>Detailed result per entry.</summary>
+    public List<SyncEntryResultDto> EntryResults { get; set; } = new();
+}

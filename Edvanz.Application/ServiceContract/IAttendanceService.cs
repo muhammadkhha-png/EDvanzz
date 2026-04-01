@@ -7,7 +7,7 @@ namespace Edvanz.Application.ServiceContract;
 /// Defines the contract for Attendance Module operations (Module 3).
 /// Covers: session occurrence management, attendance taking (all three methods),
 /// edit attendance, absence detection, cross-session attendance, absence overview,
-/// student attendance timeline, and reporting.
+/// student attendance timeline, reporting, hold status, export, and offline sync.
 ///
 /// All methods return Result&lt;T&gt; for consistent error handling.
 /// All methods are async per system architecture requirements.
@@ -85,6 +85,27 @@ public interface IAttendanceService
     /// </summary>
     /// <param name="dto">Bulk mark attendance input data.</param>
     Task<Result<BulkMarkAttendanceResultDto>> BulkMarkAttendanceAsync(BulkMarkAttendanceDto dto);
+
+    // ══════════════════════════════════════════════
+    // HOLD STATUS (FIX 4.1 — REQ-ATT-061)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX 4.1: Places a student on "hold" during attendance taking.
+    /// REQ-ATT-061: When the tutor selects "Hold" after an absence alert,
+    /// the student's row displays a visible held status indicator,
+    /// distinguishing them from both marked and fully unmarked students.
+    /// REQ-ATT-058: "Hold" cancels the action without recording attendance.
+    /// </summary>
+    /// <param name="dto">Hold student input data.</param>
+    Task<Result<MarkAttendanceResultDto>> HoldStudentAsync(HoldStudentDto dto);
+
+    /// <summary>
+    /// FIX 4.1: Releases a held student — either marks them as Present or discards the hold.
+    /// REQ-ATT-061: Held students can be returned to and processed later in the same session.
+    /// </summary>
+    /// <param name="dto">Release hold input data.</param>
+    Task<Result<MarkAttendanceResultDto>> ReleaseHoldAsync(ReleaseHoldDto dto);
 
     // ══════════════════════════════════════════════
     // EDIT ATTENDANCE (REQ-ATT-023 through 026)
@@ -195,13 +216,48 @@ public interface IAttendanceService
     /// <summary>
     /// Generates an attendance report based on the specified type and parameters.
     /// REQ-ATT-040: Six report types.
-    /// REQ-ATT-041: Exportable as PDF or Excel.
     /// REQ-ATT-042: Must complete within 5 seconds for up to 50K students.
     /// </summary>
     /// <param name="teacherId">The teacher's Id.</param>
     /// <param name="request">Report type and parameters.</param>
     Task<Result<List<AttendanceRecordDto>>> GenerateReportAsync(
         long teacherId, AttendanceReportRequest request);
+
+    /// <summary>
+    /// FIX 4.2: Exports an attendance report as a downloadable file (PDF or Excel).
+    /// REQ-ATT-041: All reports exportable as PDF or Excel (.xlsx).
+    /// REQ-ATT-042: Must complete within 5 seconds for up to 50K students.
+    /// </summary>
+    /// <param name="teacherId">The teacher's Id.</param>
+    /// <param name="request">Report type and parameters.</param>
+    /// <param name="format">Export format: "xlsx" or "pdf".</param>
+    Task<Result<byte[]>> ExportReportAsync(
+        long teacherId, AttendanceReportRequest request, string format);
+
+    /// <summary>
+    /// FIX 4.2: Exports a student's attendance timeline as a downloadable file (PDF or Excel).
+    /// REQ-ATT-081: Preserves month-by-month structure with summary totals.
+    /// </summary>
+    /// <param name="teacherId">The teacher's Id.</param>
+    /// <param name="teacherStudentId">The student's Id.</param>
+    /// <param name="startDate">Optional start of export range.</param>
+    /// <param name="endDate">Optional end of export range.</param>
+    /// <param name="format">Export format: "xlsx" or "pdf".</param>
+    Task<Result<byte[]>> ExportTimelineAsync(
+        long teacherId, long teacherStudentId,
+        DateTime? startDate, DateTime? endDate, string format);
+
+    // ══════════════════════════════════════════════
+    // OFFLINE SYNC (FIX 4.3 — REQ-ATT-084/085)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX 4.3: Syncs offline-recorded attendance records to the server.
+    /// REQ-ATT-084: Automatic background sync when connectivity is restored.
+    /// REQ-ATT-085: Detects conflicts and returns both versions for resolution.
+    /// </summary>
+    /// <param name="dto">Batch of offline attendance records with client timestamps.</param>
+    Task<Result<SyncResultDto>> SyncOfflineRecordsAsync(OfflineSyncRequestDto dto);
 
     // ══════════════════════════════════════════════
     // STUDENT/PARENT VIEW ACCESS
@@ -266,8 +322,8 @@ public interface IAttendanceService
 
     /// <summary>
     /// Called by TeacherStudentService during permanent student purge.
-    /// Cleans up StudentAbsenceCounter, StudentSessionAssignment records.
-    /// AttendanceRecords are preserved for historical integrity.
+    /// FIX 1.1: Properly cleans up StudentAbsenceCounter and StudentSessionAssignment records.
+    /// AttendanceRecords are preserved for historical integrity (BR-ATT-005).
     /// </summary>
     /// <param name="teacherStudentId">The student being permanently deleted.</param>
     Task<Result<bool>> OnStudentPermanentlyDeletedAsync(long teacherStudentId);
