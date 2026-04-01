@@ -24,23 +24,6 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
     {
     }
 
-    /// <inheritdoc />
-    public async Task<TeacherStudent?> GetActiveByCodeAndTeacherAsync(long teacherId, string studentCode)
-    {
-        // Global query filter already excludes IsDeleted == true
-        return await _context.TeacherStudents
-            .FirstOrDefaultAsync(ts => ts.TeacherId == teacherId
-                                    && ts.StudentCode.ToLower() == studentCode.ToLower());
-    }
-    
-    /// <inheritdoc />
-    public async Task<TeacherStudent?> GetActiveByBarcodeAndTeacherAsync(long teacherId, string barcodeData)
-    {
-        // Barcode data = student code per REQ-STU-047
-        return await _context.TeacherStudents
-            .FirstOrDefaultAsync(ts => ts.TeacherId == teacherId
-                                    && ts.Barcode == barcodeData);
-    }
     // ══════════════════════════════════════════════
     // SINGLE RECORD QUERIES
     // ══════════════════════════════════════════════

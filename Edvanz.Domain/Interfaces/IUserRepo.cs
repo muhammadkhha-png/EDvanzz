@@ -22,14 +22,6 @@ namespace Edvanz.Domain.Interfaces
     /// </summary>
     public interface IUserRepo : IGenericRepo<User, long>
     {
-
-        
-        /// <summary>
-        /// Retrieves the TeacherConfiguration for a specific teacher.
-        /// Used by the Attendance Module to check visibility settings.
-        /// </summary>
-        Task<TeacherConfiguration?> GetTeacherConfigurationAsync(long teacherId);
-        
         // ══════════════════════════════════════════════
         // USER ENTITY QUERIES
         // ══════════════════════════════════════════════

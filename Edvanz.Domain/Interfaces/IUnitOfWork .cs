@@ -44,14 +44,6 @@ namespace Edvanz.Domain.Interfaces
         ISessionRepo SessionsRepo { get; }
 
         /// <summary>
-        /// Extended repository for the Attendance Module (Module 3: attendance records, 
-        /// session occurrences, student assignments, absence counters, edit logs).
-        /// Handles attendance taking, editing, absence tracking, timeline queries,
-        /// and cross-session attendance operations.
-        /// </summary>
-        IAttendanceRepo AttendanceRepo { get; }
-
-        /// <summary>
         /// Returns true if a database transaction is currently active.
         /// 
         /// Used by type-specific services (Teacher, Student, Parent) to detect

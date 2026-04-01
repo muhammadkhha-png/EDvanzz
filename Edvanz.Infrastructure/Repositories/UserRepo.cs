@@ -35,13 +35,6 @@ namespace Edvanz.Infrastructure.Repositories
         {
         }
 
-        /// <inheritdoc />
-        public async Task<TeacherConfiguration?> GetTeacherConfigurationAsync(long teacherId)
-        {
-            return await _context.Set<TeacherConfiguration>()
-                .FirstOrDefaultAsync(c => c.TeacherId == teacherId);
-        }
-
         // ══════════════════════════════════════════════
         // USER ENTITY QUERIES
         // ══════════════════════════════════════════════
