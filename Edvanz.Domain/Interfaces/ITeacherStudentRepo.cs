@@ -20,6 +20,23 @@ namespace Edvanz.Domain.Interfaces;
 /// </summary>
 public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
 {
+
+    /// <summary>
+    /// Finds an active student by their student code, scoped to the teacher.
+    /// Case-insensitive matching per REQ-STU-CODE-003.
+    /// REQ-ATT-006 Method 1: Manual Code Entry attendance lookup.
+    /// REQ-ATT-039: Must support sub-500ms response time.
+    /// </summary>
+    Task<TeacherStudent?> GetActiveByCodeAndTeacherAsync(long teacherId, string studentCode);
+    
+    /// <summary>
+    /// Finds an active student by their barcode data, scoped to the teacher.
+    /// REQ-ATT-006 Method 3: Barcode Scanning attendance lookup.
+    /// REQ-ATT-009/012: Barcode encodes the student code.
+    /// </summary>
+    Task<TeacherStudent?> GetActiveByBarcodeAndTeacherAsync(long teacherId, string barcodeData);
+
+
     // ══════════════════════════════════════════════
     // SINGLE RECORD QUERIES
     // ══════════════════════════════════════════════

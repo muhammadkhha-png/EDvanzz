@@ -417,4 +417,52 @@
   <data name="String1" xml:space="preserve">
     <value>this account has been blocked before </value>
   </data>
+  <!-- ══════════════════════════════════════ -->
+  <!-- رسائل وحدة الحضور والغياب (الوحدة ٣)    -->
+  <!-- ══════════════════════════════════════ -->
+  <data name="OccurrencesGeneratedSuccess" xml:space="preserve">
+    <value>تم إنشاء مواعيد الحصص بنجاح</value>
+  </data>
+  <data name="OccurrenceNotFound" xml:space="preserve">
+    <value>مفيش حصة متجدولة في التاريخ ده</value>
+  </data>
+  <data name="AttendanceNotScheduledToday" xml:space="preserve">
+    <value>النهارده مش ميعاد حصة. ممكن تستخدم تعديل الحضور لو عايز تعدل تواريخ تانية</value>
+  </data>
+  <data name="AttendanceRecordedSuccess" xml:space="preserve">
+    <value>تم تسجيل الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceDuplicateDetected" xml:space="preserve">
+    <value>الطالب ده اتسجل حضوره بالفعل في الحصة دي</value>
+  </data>
+  <data name="AttendanceRecordNotFound" xml:space="preserve">
+    <value>مش لاقيين سجل الحضور ده</value>
+  </data>
+  <data name="AttendanceEditedSuccess" xml:space="preserve">
+    <value>تم تعديل سجلات الحضور بنجاح</value>
+  </data>
+  <data name="MarkAllPresentSuccess" xml:space="preserve">
+    <value>تم تسجيل كل الطلاب اللي مكانوش متسجلين كحاضرين</value>
+  </data>
+  <data name="StudentNotFoundByCode" xml:space="preserve">
+    <value>مفيش طالب بالكود ده. من فضلك راجع وحاول تاني</value>
+  </data>
+  <data name="BarcodeNotRecognized" xml:space="preserve">
+    <value>الباركود مش معروف. من فضلك راجع الباركود وحاول تاني</value>
+  </data>
+  <data name="StudentNotAssignedToAnySession" xml:space="preserve">
+    <value>الطالب ده مش مسجل في أي حصة حاليًا</value>
+  </data>
+  <data name="StudentNotInCurrentSession" xml:space="preserve">
+    <value>الطالب ده مش مسجل في الحصة دي</value>
+  </data>
+  <data name="AttendanceNotVisible" xml:space="preserve">
+    <value>معلومات الحضور مش متاحة للعرض من حساب المعلم ده</value>
+  </data>
+  <data name="CrossSessionNotLinked" xml:space="preserve">
+    <value>الحضور بين الحصص مسموح بس بين الحصص اللي ليها عضوية مشتركة</value>
+  </data>
+  <data name="AssignmentNotFound" xml:space="preserve">
+    <value>مفيش تسجيل نشط في حصة للطالب ده</value>
+  </data>
 </root>

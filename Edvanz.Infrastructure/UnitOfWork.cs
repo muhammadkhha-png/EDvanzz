@@ -24,6 +24,8 @@ namespace Edvanz.Infrastructure
         private ITeacherStudentRepo? _teacherStudentRepo;
         // Session Module repo (Module 2: sessions, groups, links)
         private ISessionRepo? _sessionRepo;
+        // Attendance Module repo (Module 3: attendance records, occurrences, counters)
+        private IAttendanceRepo? _attendanceRepo;
         private IUserPermissionRepo? _userPermissionRepo;
         private IRefreshTokenRepo? _refreshTokenRepo;
         private  IgoogleUserRepo? _googleUserRepo;
@@ -148,6 +150,12 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public ISessionRepo SessionsRepo
      => _sessionRepo ??= new SessionRepo(_Context);
+
+        /// <summary>
+        /// Attendance Module repo (Module 3: attendance records, occurrences, assignments, counters, edit logs).
+        /// </summary>
+        public IAttendanceRepo AttendanceRepo
+     => _attendanceRepo ??= new AttendanceRepo(_Context);
 
         public IUserPermissionRepo UsersPermissions => _userPermissionRepo ??= new UserPermissionRepo(_Context);
 
