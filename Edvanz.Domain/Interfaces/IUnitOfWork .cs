@@ -42,6 +42,7 @@ namespace Edvanz.Domain.Interfaces
         /// for Session, SessionGroup, and SessionLink records.
         /// </summary>
         ISessionRepo SessionsRepo { get; }
+        IAssitantRepo AssistantRepo { get; }
 
         /// <summary>
         /// Returns true if a database transaction is currently active.

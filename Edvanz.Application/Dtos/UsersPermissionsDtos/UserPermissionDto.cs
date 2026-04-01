@@ -7,10 +7,9 @@ namespace Edvanz.Application.Dtos.UsersPermissionsDtos
 {
     public class UserPermissionDto
     {
-        public int UserId { get; set; }
-        public string UserName { get; set; }
+        public int userId { get; set; }
+        public List<ModulePermissionsDto> UserPermissions { get; set; }
 
-        public List<ModulePermissionsDto> Modules { get; set; }
     }
   
 }

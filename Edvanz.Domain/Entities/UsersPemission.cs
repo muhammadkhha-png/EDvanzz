@@ -8,7 +8,7 @@ namespace Edvanz.Domain.Entities;
 /// </summary>
 public class UsersPermission
 {
-    [ForeignKey(nameof(Assistant))]
+    [ForeignKey(nameof(User))]
     public long UserId { get; set; }
     public User User { get; set; } = null!;
 

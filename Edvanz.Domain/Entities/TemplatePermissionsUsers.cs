@@ -5,14 +5,14 @@ using System.Text;
 
 namespace Edvanz.Domain.Entities
 {
-    public class TemplateAssistant
+    public class TemplatePermissionsUsers
     {
         [ForeignKey(nameof(template))]
         public long TemplateId { get; set; }
         
         public Template template { get; set; }
-        [ForeignKey(nameof(assistant))]
-        public long AssistantId { get; set; }
-        public User assistant { get; set; }
+        [ForeignKey(nameof(user))]
+        public long userId { get; set; }
+        public User user { get; set; }
     }
 }

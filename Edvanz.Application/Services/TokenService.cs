@@ -12,6 +12,7 @@ namespace Edvanz.Application.Services
 {
     public class TokenService : ITokenService
     {
+        
         public string GenerateJwtToken(User user, List<string> permissions)
         {
             var claims = new List<Claim>();

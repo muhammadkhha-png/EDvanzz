@@ -44,6 +44,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ITeacherService, TeacherService>();
         // Session Module (Module 2: sessions, groups, membership links)
         services.AddScoped<ISessionService, SessionService>();
+        services.AddScoped<IAssistantService, AssistantService>();
+        services.AddScoped<IUserPermissionService,UserPermissionService>();
 
         #endregion
 
