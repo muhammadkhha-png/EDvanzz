@@ -417,4 +417,64 @@
   <data name="String1" xml:space="preserve">
     <value>this account has been blocked before </value>
   </data>
+  <!-- Occurrence Generation -->
+  <data name="AttendanceNoOccurrenceDates" xml:space="preserve">
+    <value>No occurrence dates could be generated for this session's configuration</value>
+  </data>
+  <data name="AttendanceOccurrencesAlreadyGenerated" xml:space="preserve">
+    <value>All occurrence dates for this session have already been generated</value>
+  </data>
+  <data name="AttendanceOccurrencesGenerated" xml:space="preserve">
+    <value>Session occurrences have been generated successfully</value>
+  </data>
+
+  <!-- Take Attendance -->
+  <data name="AttendanceNoOccurrenceToday" xml:space="preserve">
+    <value>Today is not a scheduled occurrence day for this session. Use Edit Attendance to record for other dates</value>
+  </data>
+  <data name="AttendanceMarkedSuccess" xml:space="preserve">
+    <value>Attendance recorded successfully</value>
+  </data>
+  <data name="AttendanceBulkMarkedSuccess" xml:space="preserve">
+    <value>Attendance recorded for all selected students</value>
+  </data>
+  <data name="AttendanceDuplicateDetected" xml:space="preserve">
+    <value>This student has already been marked as present for this session occurrence</value>
+  </data>
+  <data name="AttendanceAbsenceAlertPending" xml:space="preserve">
+    <value>This student was absent in previous sessions. Please confirm to proceed</value>
+  </data>
+  <data name="AttendanceCrossSessionNotLinked" xml:space="preserve">
+    <value>Cross-session attendance is only allowed between sessions with an active membership link</value>
+  </data>
+  <data name="AttendanceStudentNotAssigned" xml:space="preserve">
+    <value>This student is not currently assigned to any session</value>
+  </data>
+
+  <!-- Edit Attendance -->
+  <data name="AttendanceRecordNotFound" xml:space="preserve">
+    <value>The attendance record was not found or does not belong to your account</value>
+  </data>
+  <data name="AttendanceEditedSuccess" xml:space="preserve">
+    <value>Attendance record updated successfully</value>
+  </data>
+  <data name="AttendanceAddedSuccess" xml:space="preserve">
+    <value>Attendance record added successfully</value>
+  </data>
+  <data name="AttendanceDeletedSuccess" xml:space="preserve">
+    <value>Attendance record removed successfully</value>
+  </data>
+
+  <!-- Timeline & Reports -->
+  <data name="AttendanceNoAssignmentHistory" xml:space="preserve">
+    <value>This student has no session assignment history</value>
+  </data>
+  <data name="AttendanceReportGenerated" xml:space="preserve">
+    <value>Attendance report generated successfully</value>
+  </data>
+
+  <!-- Visibility -->
+  <data name="AttendanceVisibilityDisabled" xml:space="preserve">
+    <value>Attendance tracking is not visible in the current teacher configuration</value>
+  </data>
 </root>

@@ -417,4 +417,64 @@
   <data name="String1" xml:space="preserve">
     <value>this account has been blocked before </value>
   </data>
+  <!-- إنشاء المواعيد -->
+  <data name="AttendanceNoOccurrenceDates" xml:space="preserve">
+    <value>مفيش مواعيد ممكن تتعمل لإعدادات الحصة دي</value>
+  </data>
+  <data name="AttendanceOccurrencesAlreadyGenerated" xml:space="preserve">
+    <value>كل مواعيد الحصة دي اتعملت قبل كده</value>
+  </data>
+  <data name="AttendanceOccurrencesGenerated" xml:space="preserve">
+    <value>تم إنشاء مواعيد الحصة بنجاح</value>
+  </data>
+
+  <!-- تسجيل الحضور -->
+  <data name="AttendanceNoOccurrenceToday" xml:space="preserve">
+    <value>النهارده مش ميعاد الحصة دي. استخدم تعديل الحضور لتسجيل تواريخ تانية</value>
+  </data>
+  <data name="AttendanceMarkedSuccess" xml:space="preserve">
+    <value>تم تسجيل الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceBulkMarkedSuccess" xml:space="preserve">
+    <value>تم تسجيل الحضور لكل الطلاب المختارين</value>
+  </data>
+  <data name="AttendanceDuplicateDetected" xml:space="preserve">
+    <value>الطالب ده اتسجل حضوره بالفعل في الحصة دي</value>
+  </data>
+  <data name="AttendanceAbsenceAlertPending" xml:space="preserve">
+    <value>الطالب ده كان غايب في الحصص اللي فاتت. من فضلك أكد لتسجيل حضوره</value>
+  </data>
+  <data name="AttendanceCrossSessionNotLinked" xml:space="preserve">
+    <value>تسجيل الحضور عبر الحصص مسموح بس بين الحصص المرتبطة ببعض</value>
+  </data>
+  <data name="AttendanceStudentNotAssigned" xml:space="preserve">
+    <value>الطالب ده مش مسجل في أي حصة حالياً</value>
+  </data>
+
+  <!-- تعديل الحضور -->
+  <data name="AttendanceRecordNotFound" xml:space="preserve">
+    <value>مش لاقيين سجل الحضور ده أو مش بتاع حسابك</value>
+  </data>
+  <data name="AttendanceEditedSuccess" xml:space="preserve">
+    <value>تم تعديل سجل الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceAddedSuccess" xml:space="preserve">
+    <value>تم إضافة سجل الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceDeletedSuccess" xml:space="preserve">
+    <value>تم حذف سجل الحضور بنجاح</value>
+  </data>
+
+  <!-- التايم لاين والتقارير -->
+  <data name="AttendanceNoAssignmentHistory" xml:space="preserve">
+    <value>الطالب ده مالوش تاريخ تعيين في حصص</value>
+  </data>
+  <data name="AttendanceReportGenerated" xml:space="preserve">
+    <value>تم إنشاء تقرير الحضور بنجاح</value>
+  </data>
+
+  <!-- الرؤية -->
+  <data name="AttendanceVisibilityDisabled" xml:space="preserve">
+    <value>تتبع الحضور مش ظاهر في إعدادات المعلم الحالية</value>
+  </data>
 </root>

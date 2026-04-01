@@ -29,11 +29,22 @@ namespace Edvanz.Application.Services;
 /// 
 /// HARD DELETE:
 /// REQ-SES-041: Sessions use hard delete — no soft-delete or recycle bin.
+/// 
+/// ATTENDANCE MODULE INTEGRATION (Module 3):
+/// Session lifecycle events are forwarded to IAttendanceService:
+/// - CreateSession → GenerateOccurrencesAsync (populate occurrence schedule)
+/// - UpdateSession → GenerateOccurrencesAsync (regenerate if dates changed)
+/// - DeleteSession → OnSessionDeletingAsync (preserve attendance records before hard delete)
+/// - DuplicateSession → GenerateOccurrencesAsync (populate for the duplicate)
+/// - AssignStudents → OnStudentAssignedToSessionAsync (create assignment + init counter)
+/// - ConfirmReassign → OnStudentUnassigned + OnStudentAssigned (close old, open new period)
+/// - UnassignStudent → OnStudentUnassignedFromSessionAsync (close assignment period)
 /// </summary>
 public class SessionService : ISessionService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISessionNameGenerator _nameGenerator;
+    private readonly IAttendanceService _attendanceService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -51,10 +62,12 @@ public class SessionService : ISessionService
     public SessionService(
         IUnitOfWork unitOfWork,
         ISessionNameGenerator nameGenerator,
+        IAttendanceService attendanceService,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _nameGenerator = nameGenerator;
+        _attendanceService = attendanceService;
         _localizer = localizer;
     }
 
@@ -127,6 +140,11 @@ public class SessionService : ISessionService
         await _unitOfWork.SessionsRepo.AddAsync(session);
         await _unitOfWork.SaveChangesAsync();
 
+        // ── ATTENDANCE INTEGRATION: Generate session occurrences (REQ-ATT-001/002) ──
+        // Populates SessionOccurrences table from the session's recurrence rules.
+        // This enables the attendance dashboard, Take Attendance, and all date-based queries.
+        await _attendanceService.GenerateOccurrencesAsync(dto.TeacherId, session.Id);
+
         var resultDto = await BuildSessionDtoAsync(session);
         return Result<SessionDto>.Success(resultDto, _localizer, "SessionCreatedSuccess", HttpStatusCode.Created);
     }
@@ -183,6 +201,12 @@ public class SessionService : ISessionService
                 return Result<SessionDto>.Failure(_localizer, "SessionGroupNotFound", HttpStatusCode.NotFound);
         }
 
+        // ── Track whether date range or recurrence changed for attendance regeneration ──
+        bool datesOrRecurrenceChanged = occurrenceChanged
+            || session.StartDate != dto.StartDate
+            || session.EndDate != dto.EndDate
+            || session.MonthlyDayOfMonth != dto.MonthlyDayOfMonth;
+
         // 7. Apply updates
         session.SessionName = trimmedName;
         session.OccurrenceType = dto.OccurrenceType;
@@ -198,6 +222,14 @@ public class SessionService : ISessionService
 
         await _unitOfWork.SessionsRepo.UpdateAsync(session);
         await _unitOfWork.SaveChangesAsync();
+
+        // ── ATTENDANCE INTEGRATION: Regenerate occurrences if dates/recurrence changed ──
+        // GenerateOccurrencesAsync is additive — only creates new dates that don't already exist.
+        // Existing occurrences (and their attendance records) are preserved.
+        if (datesOrRecurrenceChanged)
+        {
+            await _attendanceService.GenerateOccurrencesAsync(teacherId, sessionId);
+        }
 
         var resultDto = await BuildSessionDtoAsync(session);
         return Result<SessionDto>.Success(resultDto, _localizer, "SessionUpdatedSuccess");
@@ -244,6 +276,14 @@ public class SessionService : ISessionService
 
         try
         {
+            // ── ATTENDANCE INTEGRATION: Preserve attendance records before hard delete ──
+            // BR-ATT-005: Attendance records must be retained even after session deletion.
+            // This nullifies SessionOccurrenceId on AttendanceRecords (denormalized data preserved),
+            // deactivates all StudentSessionAssignments for this session,
+            // and deletes the SessionOccurrence rows (which are now unreferenced).
+            await _attendanceService.OnSessionDeletingAsync(teacherId, sessionId);
+            await _unitOfWork.SaveChangesAsync();
+
             // REQ-SES-043: Remove all links where this session is on the Restrict side
             // (the Cascade side is handled by the DB, but the Restrict side needs manual cleanup)
             var linksAsTarget = await _unitOfWork.SessionsRepo.GetLinksBySessionAsync(sessionId);
@@ -305,6 +345,9 @@ public class SessionService : ISessionService
 
         await _unitOfWork.SessionsRepo.AddAsync(duplicate);
         await _unitOfWork.SaveChangesAsync();
+
+        // ── ATTENDANCE INTEGRATION: Generate occurrences for the duplicate ──
+        await _attendanceService.GenerateOccurrencesAsync(teacherId, duplicate.Id);
 
         var dto = await BuildSessionDtoAsync(duplicate);
         return Result<SessionDto>.Success(dto, _localizer, "SessionDuplicatedSuccess", HttpStatusCode.Created);
@@ -568,42 +611,65 @@ public class SessionService : ISessionService
         var result = new AssignStudentsResultDto();
         int assignedCount = 0;
 
-        foreach (var student in students)
-        {
-            // REQ-SES-018: Check if student is already assigned to another session
-            if (student.SessionId.HasValue && student.SessionId.Value != dto.SessionId)
-            {
-                // Load the current session to get its name for the warning
-                var currentSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(student.SessionId.Value, dto.TeacherId);
-                string currentSessionName = currentSession?.SessionName ?? "Unknown";
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
-                result.Warnings.Add(new StudentReassignmentWarning
+        try
+        {
+            foreach (var student in students)
+            {
+                // REQ-SES-018: Check if student is already assigned to another session
+                if (student.SessionId.HasValue && student.SessionId.Value != dto.SessionId)
                 {
-                    StudentId = student.Id,
-                    StudentName = student.StudentName,
-                    StudentCode = student.StudentCode,
-                    CurrentSessionId = student.SessionId.Value,
-                    CurrentSessionName = currentSessionName,
-                    NewSessionId = dto.SessionId,
-                    NewSessionName = session.SessionName
-                });
+                    // Load the current session to get its name for the warning
+                    var currentSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(student.SessionId.Value, dto.TeacherId);
+                    string currentSessionName = currentSession?.SessionName ?? "Unknown";
+
+                    result.Warnings.Add(new StudentReassignmentWarning
+                    {
+                        StudentId = student.Id,
+                        StudentName = student.StudentName,
+                        StudentCode = student.StudentCode,
+                        CurrentSessionId = student.SessionId.Value,
+                        CurrentSessionName = currentSessionName,
+                        NewSessionId = dto.SessionId,
+                        NewSessionName = session.SessionName
+                    });
+                }
+                else
+                {
+                    // Assign directly — student has no current session or is already in this session
+                    student.SessionId = dto.SessionId;
+                    await _unitOfWork.Students.UpdateAsync(student);
+
+                    // ── ATTENDANCE INTEGRATION: Create assignment record + init counter ──
+                    // REQ-ATT-019: Attendance timeline starts from this assignment date.
+                    // Creates StudentSessionAssignment and initializes StudentAbsenceCounter.
+                    await _attendanceService.OnStudentAssignedToSessionAsync(
+                        dto.TeacherId, student.Id, dto.SessionId, session.SessionName);
+
+                    assignedCount++;
+                }
             }
-            else
+
+            if (assignedCount > 0)
             {
-                // Assign directly — student has no current session or is already in this session
-                student.SessionId = dto.SessionId;
-                await _unitOfWork.Students.UpdateAsync(student);
-                assignedCount++;
+                await _unitOfWork.SaveChangesAsync();
             }
-        }
 
-        if (assignedCount > 0)
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            result.AssignedCount = assignedCount;
+            return Result<AssignStudentsResultDto>.Success(result, _localizer, "StudentsAssignedSuccess");
+        }
+        catch
         {
-            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
         }
-
-        result.AssignedCount = assignedCount;
-        return Result<AssignStudentsResultDto>.Success(result, _localizer, "StudentsAssignedSuccess");
     }
 
     /// <inheritdoc />
@@ -619,15 +685,45 @@ public class SessionService : ISessionService
         if (students.Count == 0)
             return Result<int>.Failure(_localizer, "NoValidStudentsFound", HttpStatusCode.BadRequest);
 
-        // REQ-SES-019: Override previous session assignment
-        foreach (var student in students)
-        {
-            student.SessionId = sessionId;
-            await _unitOfWork.Students.UpdateAsync(student);
-        }
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
-        await _unitOfWork.SaveChangesAsync();
-        return Result<int>.Success(students.Count, _localizer, "StudentsReassignedSuccess");
+        try
+        {
+            // REQ-SES-019: Override previous session assignment
+            foreach (var student in students)
+            {
+                // ── ATTENDANCE INTEGRATION: Close old assignment period ──
+                // REQ-ATT-020: Preserve complete attendance history under previous session.
+                // Sets UnassignedAt on the current active StudentSessionAssignment.
+                await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
+
+                // Update the student's current session pointer
+                student.SessionId = sessionId;
+                await _unitOfWork.Students.UpdateAsync(student);
+
+                // ── ATTENDANCE INTEGRATION: Open new assignment period ──
+                // REQ-ATT-045: New attendance history starts from reassignment date.
+                // REQ-ATT-048: Even if re-assigned to a previously attended session,
+                //              this creates a NEW assignment period.
+                await _attendanceService.OnStudentAssignedToSessionAsync(
+                    teacherId, student.Id, sessionId, session.SessionName);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            return Result<int>.Success(students.Count, _localizer, "StudentsReassignedSuccess");
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -640,11 +736,31 @@ public class SessionService : ISessionService
         if (student.SessionId != sessionId)
             return Result<bool>.Failure(_localizer, "StudentNotInSession", HttpStatusCode.BadRequest);
 
-        student.SessionId = null;
-        await _unitOfWork.Students.UpdateAsync(student);
-        await _unitOfWork.SaveChangesAsync();
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
-        return Result<bool>.Success(true, _localizer, "StudentUnassignedSuccess");
+        try
+        {
+            // ── ATTENDANCE INTEGRATION: Close the active assignment period ──
+            // REQ-ATT-020: Preserve complete attendance history under this session.
+            await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, studentId);
+
+            student.SessionId = null;
+            await _unitOfWork.Students.UpdateAsync(student);
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            return Result<bool>.Success(true, _localizer, "StudentUnassignedSuccess");
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     // ══════════════════════════════════════════════

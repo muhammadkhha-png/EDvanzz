@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -44,6 +45,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<Session> Sessions { get; set; }
     public DbSet<SessionGroup> SessionGroups { get; set; }
     public DbSet<SessionLink> SessionLinks { get; set; }
+
+    // ─── Attendance Module (Module 3) ───
+    public DbSet<SessionOccurrence> SessionOccurrences { get; set; }
+    public DbSet<StudentSessionAssignment> StudentSessionAssignments { get; set; }
+    public DbSet<AttendanceRecord> AttendanceRecords { get; set; }
+    public DbSet<AttendanceEditLog> AttendanceEditLogs { get; set; }
+    public DbSet<StudentAbsenceCounter> StudentAbsenceCounters { get; set; }
 
 
     //  ─── Assistant  ───
@@ -695,7 +703,250 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         });
         #endregion
 
+        // ════════════════════════════════════════════════
+        // ATTENDANCE MODULE CONFIGURATION (Module 3)
+        // ════════════════════════════════════════════════
+
+        #region SessionOccurrence (REQ-ATT-001 through 005)
+        modelBuilder.Entity<SessionOccurrence>(entity =>
+        {
+            entity.ToTable("SessionOccurrences");
+        
+            entity.Property(o => o.OccurrenceDate)
+                .HasColumnType("date")
+                .IsRequired();
+        
+            entity.Property(o => o.Status)
+                .IsRequired()
+                .HasDefaultValue(OccurrenceStatus.Pending);
+        
+            // Unique: one occurrence per session per date
+            entity.HasIndex(o => new { o.SessionId, o.OccurrenceDate })
+                .IsUnique()
+                .HasDatabaseName("IX_SessionOccurrences_SessionId_OccurrenceDate");
+        
+            // Workhorse index: "which sessions occur today for this teacher?"
+            entity.HasIndex(o => new { o.TeacherId, o.OccurrenceDate })
+                .HasDatabaseName("IX_SessionOccurrences_TeacherId_OccurrenceDate");
+        
+            // Dashboard filtering: completed vs. pending
+            entity.HasIndex(o => new { o.TeacherId, o.Status })
+                .HasDatabaseName("IX_SessionOccurrences_TeacherId_Status");
+        
+            // Teacher FK: CASCADE — teacher deletion removes all occurrences
+            entity.HasOne(o => o.Teacher)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+        
+            // Session FK: CASCADE — session hard-delete removes occurrences
+            entity.HasOne(o => o.Session)
+                .WithMany()
+                .HasForeignKey(o => o.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        #endregion
+
+        #region StudentSessionAssignment (REQ-ATT-019/020/043-048)
+        modelBuilder.Entity<StudentSessionAssignment>(entity =>
+        {
+            entity.ToTable("StudentSessionAssignments");
+        
+            entity.Property(a => a.SessionName)
+                .HasMaxLength(200)
+                .IsRequired();
+        
+            entity.Property(a => a.AssignedAt)
+                .IsRequired();
+        
+            entity.Property(a => a.IsActive)
+                .IsRequired()
+                .HasDefaultValue(true);
+        
+            // Active assignment lookup: "what session is this student currently in?"
+            entity.HasIndex(a => new { a.TeacherStudentId, a.IsActive })
+                .HasDatabaseName("IX_SSA_TeacherStudentId_IsActive");
+        
+            // Session student list: "who is assigned to this session?"
+            entity.HasIndex(a => new { a.SessionId, a.IsActive })
+                .HasDatabaseName("IX_SSA_SessionId_IsActive");
+        
+            // Timeline queries: all assignments for a student
+            entity.HasIndex(a => new { a.TeacherId, a.TeacherStudentId })
+                .HasDatabaseName("IX_SSA_TeacherId_TeacherStudentId");
+        
+            // Teacher FK: CASCADE
+            entity.HasOne(a => a.Teacher)
+                .WithMany()
+                .HasForeignKey(a => a.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+        
+            // TeacherStudent FK: NO ACTION — preserved after student delete (BR-ATT-005)
+            entity.HasOne(a => a.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(a => a.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        
+            // Session FK: NO ACTION — app nullifies before session delete
+            entity.HasOne(a => a.Session)
+                .WithMany()
+                .HasForeignKey(a => a.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region AttendanceRecord (REQ-ATT-006/007/017/024/025, BR-ATT-002/005/006)
+        modelBuilder.Entity<AttendanceRecord>(entity =>
+        {
+            entity.ToTable("AttendanceRecords");
+        
+            entity.Property(r => r.SessionName)
+                .HasMaxLength(200)
+                .IsRequired();
+        
+            entity.Property(r => r.OccurrenceDate)
+                .HasColumnType("date")
+                .IsRequired();
+        
+            entity.Property(r => r.Status)
+                .IsRequired();
+        
+            entity.Property(r => r.AttendanceMethod)
+                .IsRequired();
+        
+            entity.Property(r => r.RecordedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+        
+            entity.Property(r => r.LastEditedAt)
+                .HasColumnType("datetime2(0)");
+        
+            entity.Property(r => r.CrossSessionName)
+                .HasMaxLength(200);
+        
+            entity.Property(r => r.CrossSessionOccurrenceDate)
+                .HasColumnType("date");
+        
+            // BR-ATT-002: One attendance per student per occurrence (duplicate prevention)
+            entity.HasIndex(r => new { r.TeacherStudentId, r.SessionOccurrenceId })
+                .IsUnique()
+                .HasFilter("[SessionOccurrenceId] IS NOT NULL")
+                .HasDatabaseName("IX_AR_TeacherStudentId_SessionOccurrenceId");
+        
+            // Backup unique guard for after session deletion
+            entity.HasIndex(r => new { r.TeacherStudentId, r.OccurrenceDate, r.SessionId })
+                .HasDatabaseName("IX_AR_TeacherStudentId_OccurrenceDate_SessionId");
+        
+            // Take Attendance / Edit Attendance: records for this session on this date
+            entity.HasIndex(r => new { r.TeacherId, r.SessionId, r.OccurrenceDate })
+                .HasDatabaseName("IX_AR_TeacherId_SessionId_OccurrenceDate");
+        
+            // Student timeline: all records for a student by date
+            entity.HasIndex(r => new { r.TeacherStudentId, r.OccurrenceDate })
+                .HasDatabaseName("IX_AR_TeacherStudentId_OccurrenceDate");
+        
+            // Consecutive absence calc: student + session + date + status
+            entity.HasIndex(r => new { r.TeacherStudentId, r.SessionId, r.OccurrenceDate, r.Status })
+                .HasDatabaseName("IX_AR_ConsecutiveAbsenceCalc");
+        
+            // Occurrence join
+            entity.HasIndex(r => r.SessionOccurrenceId)
+                .HasDatabaseName("IX_AR_SessionOccurrenceId");
+        
+            // Cross-teacher reporting
+            entity.HasIndex(r => new { r.TeacherId, r.OccurrenceDate, r.Status })
+                .HasDatabaseName("IX_AR_TeacherId_OccurrenceDate_Status");
+        
+            // Teacher FK: CASCADE
+            entity.HasOne(r => r.Teacher)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+        
+            // SessionOccurrence FK: SET NULL — preserves record after occurrence cleanup
+            entity.HasOne(r => r.SessionOccurrence)
+                .WithMany(o => o.AttendanceRecords)
+                .HasForeignKey(r => r.SessionOccurrenceId)
+                .OnDelete(DeleteBehavior.SetNull);
+        
+            // TeacherStudent FK: NO ACTION — preserved after student delete
+            entity.HasOne(r => r.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        
+            // StudentSessionAssignment FK: NO ACTION
+            entity.HasOne(r => r.StudentSessionAssignment)
+                .WithMany(a => a.AttendanceRecords)
+                .HasForeignKey(r => r.StudentSessionAssignmentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region AttendanceEditLog (REQ-ATT-025, BR-ATT-006)
+        modelBuilder.Entity<AttendanceEditLog>(entity =>
+        {
+            entity.ToTable("AttendanceEditLogs");
+        
+            entity.Property(l => l.EditedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+        
+            entity.Property(l => l.EditReason)
+                .HasMaxLength(500);
+        
+            // Audit trail: all edits for a record
+            entity.HasIndex(l => l.AttendanceRecordId)
+                .HasDatabaseName("IX_AEL_AttendanceRecordId");
+        
+            // CASCADE: edit logs deleted with parent record
+            entity.HasOne(l => l.AttendanceRecord)
+                .WithMany(r => r.EditLogs)
+                .HasForeignKey(l => l.AttendanceRecordId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        #endregion
+
+        #region StudentAbsenceCounter (REQ-ATT-021/029/030/031/047)
+        modelBuilder.Entity<StudentAbsenceCounter>(entity =>
+        {
+            entity.ToTable("StudentAbsenceCounters");
        
+            entity.Property(c => c.LastAbsenceDate)
+                .HasColumnType("date");
+       
+            entity.Property(c => c.LastAbsenceSessionName)
+                .HasMaxLength(200);
+       
+            entity.Property(c => c.LastAttendanceDate)
+                .HasColumnType("date");
+       
+            // Unique: one counter per student per teacher
+            entity.HasIndex(c => new { c.TeacherId, c.TeacherStudentId })
+                .IsUnique()
+                .HasDatabaseName("IX_SAC_TeacherId_TeacherStudentId");
+       
+            // Absence overview: sorted by consecutive absences
+            entity.HasIndex(c => new { c.TeacherId, c.ConsecutiveAbsences })
+                .HasDatabaseName("IX_SAC_TeacherId_ConsecutiveAbsences");
+       
+            // Fast lookup when marking attendance
+            entity.HasIndex(c => c.TeacherStudentId)
+                .HasDatabaseName("IX_SAC_TeacherStudentId");
+       
+            // Teacher FK: CASCADE
+            entity.HasOne(c => c.Teacher)
+                .WithMany()
+                .HasForeignKey(c => c.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+       
+            // TeacherStudent FK: NO ACTION — cleaned up via app logic on purge
+            entity.HasOne(c => c.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(c => c.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
 
         // ════════════════════════════════════════════════
         // SEED DATA

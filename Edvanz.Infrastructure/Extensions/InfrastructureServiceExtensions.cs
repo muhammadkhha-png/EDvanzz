@@ -27,5 +27,8 @@ public static class InfrastructureServiceExtensions
 
         // Session name generator(REQ-SES - 002 — teacher - scoped Session A1→Z999 sequential names)
         services.AddScoped<ISessionNameGenerator, SessionNameGeneratorService>();
+
+        // Occurrence generator (REQ-ATT-001/002 — computes session occurrence dates from recurrence rules)
+        services.AddScoped<IOccurrenceGeneratorService, OccurrenceGeneratorService>();
     }
 }

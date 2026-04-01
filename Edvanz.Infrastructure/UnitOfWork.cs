@@ -24,9 +24,11 @@ namespace Edvanz.Infrastructure
         private ITeacherStudentRepo? _teacherStudentRepo;
         // Session Module repo (Module 2: sessions, groups, links)
         private ISessionRepo? _sessionRepo;
+        // Attendance Module repo (Module 3: attendance records, occurrences, counters)
+        private IAttendanceRepo? _attendanceRepo;
         private IUserPermissionRepo? _userPermissionRepo;
         private IRefreshTokenRepo? _refreshTokenRepo;
-        private  IgoogleUserRepo? _googleUserRepo;
+        private IgoogleUserRepo? _googleUserRepo;
 
         public UnitOfWork(EdvanzDbContext _context)
         {
@@ -93,44 +95,6 @@ namespace Edvanz.Infrastructure
             }
         }
 
-        //public async Task LogError(Exception ex)
-        //{
-        //    string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
-        //    string logFile = Path.Combine(logDir, "errors.log");
-        //    string zipFile = Path.Combine(logDir, "errors.zip");
-        //    string password = "123456789";
-
-        //    if (!Directory.Exists(logDir))
-        //        Directory.CreateDirectory(logDir);
-
-        //    using (var writer = File.AppendText(logFile))
-        //    {
-        //        await writer.WriteLineAsync("----- ERROR -----");
-        //        await writer.WriteLineAsync(DateTime.Now.ToString());
-        //        await writer.WriteLineAsync(ex.Message);
-        //        await writer.WriteLineAsync(ex.StackTrace ?? "");
-        //        await writer.WriteLineAsync("-----------------");
-        //        await writer.WriteLineAsync();
-        //    }
-
-        //    using (var zipStream = new ZipOutputStream(File.Create(zipFile)))
-        //    {
-        //        zipStream.SetLevel(9);
-        //        zipStream.Password = password;
-
-        //        ZipEntry entry = new ZipEntry(Path.GetFileName(logFile));
-        //        entry.DateTime = DateTime.Now;
-
-        //        zipStream.PutNextEntry(entry);
-
-        //        byte[] buffer = File.ReadAllBytes(logFile);
-        //        zipStream.Write(buffer, 0, buffer.Length);
-
-        //        zipStream.Finish();
-        //        zipStream.Close();
-        //    }
-        //}
-
         /// <summary>
         /// User module ecosystem repo (User, Teacher, StudentUser, ParentUser, linking).
         /// </summary>
@@ -148,6 +112,13 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public ISessionRepo SessionsRepo
      => _sessionRepo ??= new SessionRepo(_Context);
+
+        /// <summary>
+        /// Attendance Module repo (Module 3: attendance records, session occurrences,
+        /// student session assignments, absence counters, edit logs).
+        /// </summary>
+        public IAttendanceRepo AttendanceRepo
+     => _attendanceRepo ??= new AttendanceRepo(_Context);
 
         public IUserPermissionRepo UsersPermissions => _userPermissionRepo ??= new UserPermissionRepo(_Context);
 
