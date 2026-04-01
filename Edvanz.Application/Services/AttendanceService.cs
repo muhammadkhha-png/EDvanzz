@@ -64,7 +64,7 @@ public class AttendanceService : IAttendanceService
         if (dates.Count == 0)
             return Result<int>.Success(0, _localizer, "AttendanceNoOccurrenceDates");
 
-        // Check what already exists to avoid duplicates
+        // FIX 6.2: Load only dates (not full entities) for efficient duplicate checking
         var existingDates = await _unitOfWork.AttendanceRepo.GetExistingOccurrenceDatesAsync(sessionId);
 
         var newOccurrences = dates
@@ -100,6 +100,7 @@ public class AttendanceService : IAttendanceService
         if (teacher is null)
             return Result<AttendanceDashboardDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
+        // FIX 1.5: Use teacher's local timezone instead of UTC
         var date = request.Date?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
 
         // REQ-ATT-049: Get all occurrences for today
@@ -167,6 +168,8 @@ public class AttendanceService : IAttendanceService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
+    /// FIX 1.2: Replaced in-memory pagination with database-side pagination.
+    /// FIX 1.5: Uses teacher timezone for default date.
     public async Task<Result<PaginatedResponse<List<AttendanceStudentRowDto>>>> GetAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime? occurrenceDate,
         AttendanceStudentListRequest request)
@@ -176,121 +179,35 @@ public class AttendanceService : IAttendanceService
             return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Failure(
                 _localizer, "SessionNotFound", HttpStatusCode.NotFound);
 
-        var date = occurrenceDate?.Date ?? DateTime.UtcNow.Date;
+        // FIX 1.5: Use teacher's local timezone for "today" default
+        var date = occurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
 
-        // Get or validate occurrence exists
-        var occurrence = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndDateAsync(sessionId, date);
-
-        // REQ-ATT-004: Warn if not a scheduled occurrence day
-        bool isScheduledDay = occurrence is not null;
-
-        // Get primary session students (active assignments)
-        var primaryAssignments = await _unitOfWork.AttendanceRepo
-            .GetActiveAssignmentsBySessionAsync(sessionId);
-
-        // REQ-ATT-014/015: Get linked session students
+        // Get linked session Ids for cross-session student display (REQ-ATT-014/015)
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
-        var linkedStudentRows = new List<AttendanceStudentRowDto>();
+        var linkedSessionIds = linkedSessions.Select(s => s.Id).ToList();
 
-        foreach (var linkedSession in linkedSessions)
+        // FIX 1.2: Database-side pagination — replaces in-memory loading of all students.
+        // Previously loaded ALL students (primary + linked) into memory, filtered/sorted in C#,
+        // then paginated. For REQ-ATT-036's target of 50,000 students, this caused OOM/timeout.
+        // Now pushes search, filter, sort, and pagination to SQL via GetPagedAttendanceStudentListAsync.
+        var (items, totalCount) = await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
+            teacherId, sessionId, date, linkedSessionIds,
+            request.Search, request.UnmarkedOnly,
+            request.Page, request.PageSize);
+
+        var dtos = items.Select(row => new AttendanceStudentRowDto
         {
-            var linkedAssignments = await _unitOfWork.AttendanceRepo
-                .GetActiveAssignmentsBySessionAsync(linkedSession.Id);
-
-            foreach (var la in linkedAssignments)
-            {
-                var counter = await _unitOfWork.AttendanceRepo
-                    .GetAbsenceCounterAsync(teacherId, la.TeacherStudentId);
-
-                linkedStudentRows.Add(new AttendanceStudentRowDto
-                {
-                    TeacherStudentId = la.TeacherStudentId,
-                    StudentName = la.TeacherStudent.StudentName,
-                    StudentCode = la.TeacherStudent.StudentCode,
-                    Barcode = la.TeacherStudent.Barcode,
-                    CurrentStatus = null,
-                    IsMarked = false,
-                    IsHeld = false,
-                    IsCrossSessionStudent = true,
-                    SourceSessionName = linkedSession.SessionName,
-                    ConsecutiveAbsences = counter?.ConsecutiveAbsences ?? 0,
-                    TotalAbsences = counter?.TotalAbsences ?? 0
-                });
-            }
-        }
-
-        // Get existing attendance records for this occurrence (if it exists)
-        var existingRecords = new List<AttendanceRecord>();
-        if (occurrence is not null)
-        {
-            existingRecords = (await _unitOfWork.AttendanceRepo
-                .GetRecordsByOccurrenceAsync(occurrence.Id)).ToList();
-        }
-
-        var markedStudentIds = existingRecords
-            .Select(r => r.TeacherStudentId)
-            .ToHashSet();
-
-        // Build student rows for primary session
-        var studentRows = new List<AttendanceStudentRowDto>();
-        foreach (var assignment in primaryAssignments)
-        {
-            var student = assignment.TeacherStudent;
-            var record = existingRecords.FirstOrDefault(r => r.TeacherStudentId == student.Id);
-            var counter = await _unitOfWork.AttendanceRepo
-                .GetAbsenceCounterAsync(teacherId, student.Id);
-
-            studentRows.Add(new AttendanceStudentRowDto
-            {
-                TeacherStudentId = student.Id,
-                StudentName = student.StudentName,
-                StudentCode = student.StudentCode,
-                Barcode = student.Barcode,
-                CurrentStatus = record?.Status,
-                IsMarked = record is not null,
-                IsHeld = false,
-                IsCrossSessionStudent = false,
-                SourceSessionName = null,
-                ConsecutiveAbsences = counter?.ConsecutiveAbsences ?? 0,
-                TotalAbsences = counter?.TotalAbsences ?? 0
-            });
-        }
-
-        // Update linked student rows with their attendance status if already marked
-        foreach (var row in linkedStudentRows)
-        {
-            var record = existingRecords.FirstOrDefault(r => r.TeacherStudentId == row.TeacherStudentId);
-            if (record is not null)
-            {
-                row.CurrentStatus = record.Status;
-                row.IsMarked = true;
-            }
-        }
-
-        // Combine: primary + linked
-        var allRows = studentRows.Concat(linkedStudentRows).ToList();
-
-        // Apply search filter
-        if (!string.IsNullOrWhiteSpace(request.Search))
-        {
-            string searchLower = request.Search.Trim().ToLower();
-            allRows = allRows.Where(r =>
-                r.StudentName.ToLower().Contains(searchLower)
-                || r.StudentCode.ToLower().Contains(searchLower)).ToList();
-        }
-
-        // REQ-ATT-054: Unmarked students first
-        if (request.UnmarkedOnly)
-            allRows = allRows.Where(r => !r.IsMarked).ToList();
-        else
-            allRows = allRows.OrderBy(r => r.IsMarked).ThenBy(r => r.StudentName).ToList();
-
-        // Paginate
-        int totalCount = allRows.Count;
-        var pagedRows = allRows
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .ToList();
+            TeacherStudentId = row.TeacherStudentId,
+            StudentName = row.StudentName,
+            StudentCode = row.StudentCode,
+            CurrentStatus = row.CurrentStatus,
+            IsMarked = row.IsMarked,
+            IsHeld = false,
+            IsCrossSessionStudent = row.IsFromLinkedSession,
+            SourceSessionName = row.SourceSessionName,
+            ConsecutiveAbsences = row.ConsecutiveAbsences,
+            TotalAbsences = row.TotalAbsences
+        }).ToList();
 
         var response = new PaginatedResponse<List<AttendanceStudentRowDto>>
         {
@@ -298,7 +215,7 @@ public class AttendanceService : IAttendanceService
             page = request.Page,
             pageSize = request.PageSize,
             totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
-            data = pagedRows
+            data = dtos
         };
 
         return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Success(response, _localizer, "Success");
@@ -322,7 +239,8 @@ public class AttendanceService : IAttendanceService
         if (student is null)
             return Result<MarkAttendanceResultDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
 
-        var date = dto.OccurrenceDate?.Date ?? DateTime.UtcNow.Date;
+        // FIX 1.5: Use teacher's local timezone instead of UTC
+        var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
 
         // 4. Get or validate occurrence
         var occurrence = await _unitOfWork.AttendanceRepo
@@ -346,9 +264,26 @@ public class AttendanceService : IAttendanceService
 
         // REQ-ATT-069: Check cross-session duplicates across linked sessions
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-        var linkedSessionIds = linkedSessions.Select(ls => ls.Id).Append(dto.SessionId).ToList();
+        // FIX 3.3: Include the student's own assigned session in the duplicate check set
+        var allLinkedSessionIds = linkedSessions.Select(ls => ls.Id).Append(dto.SessionId).ToList();
+
+        // 7. Determine if this is a cross-session attendance (check assignment BEFORE dup check)
+        var activeAssignment = await _unitOfWork.AttendanceRepo
+            .GetActiveAssignmentAsync(dto.TeacherStudentId);
+
+        bool isCrossSession = activeAssignment is not null
+            && activeAssignment.SessionId.HasValue
+            && activeAssignment.SessionId.Value != dto.SessionId;
+
+        // FIX 3.3: Also include the student's own assigned session in duplicate check
+        if (isCrossSession && activeAssignment!.SessionId.HasValue
+            && !allLinkedSessionIds.Contains(activeAssignment.SessionId.Value))
+        {
+            allLinkedSessionIds.Add(activeAssignment.SessionId.Value);
+        }
+
         var crossDuplicate = await _unitOfWork.AttendanceRepo
-            .GetExistingAttendanceByStudentAndDateAsync(dto.TeacherStudentId, date, linkedSessionIds);
+            .GetExistingAttendanceByStudentAndDateAsync(dto.TeacherStudentId, date, allLinkedSessionIds);
         if (crossDuplicate is not null)
         {
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
@@ -381,14 +316,6 @@ public class AttendanceService : IAttendanceService
                 return Result<MarkAttendanceResultDto>.Success(result, _localizer, "AttendanceAbsenceAlertPending");
             }
         }
-
-        // 7. Determine if this is a cross-session attendance
-        var activeAssignment = await _unitOfWork.AttendanceRepo
-            .GetActiveAssignmentAsync(dto.TeacherStudentId);
-
-        bool isCrossSession = activeAssignment is not null
-            && activeAssignment.SessionId.HasValue
-            && activeAssignment.SessionId.Value != dto.SessionId;
 
         // Validate cross-session: BR-ATT-003 — only allowed between linked sessions
         if (isCrossSession)
@@ -425,18 +352,36 @@ public class AttendanceService : IAttendanceService
                 ? AttendanceStatus.CrossSessionPresent
                 : dto.Status;
 
+            // FIX 3.1: Remap OccurrenceDate to student's own session's next occurrence (REQ-ATT-018).
+            // For cross-session: if student from Session B (Sunday) attends Session A (Saturday),
+            // the record should appear on Sunday's date slot in Session B's history.
+            var recordOccurrenceDate = date;
+            if (isCrossSession && activeAssignment is not null && activeAssignment.SessionId.HasValue)
+            {
+                var nextOcc = await _unitOfWork.AttendanceRepo
+                    .GetNextOccurrenceAsync(activeAssignment.SessionId.Value, date);
+                if (nextOcc is not null)
+                    recordOccurrenceDate = nextOcc.OccurrenceDate;
+            }
+
             var record = new AttendanceRecord
             {
                 TeacherId = dto.TeacherId,
                 SessionOccurrenceId = occurrence.Id,
                 TeacherStudentId = dto.TeacherStudentId,
                 StudentSessionAssignmentId = assignmentId,
-                SessionId = dto.SessionId,
-                SessionName = session.SessionName,
-                OccurrenceDate = date,
+                // FIX 3.1: For cross-session, store the student's ASSIGNED session (not the physical one)
+                // so timeline queries filtering by SessionId show this record correctly.
+                SessionId = isCrossSession && activeAssignment is not null
+                    ? activeAssignment.SessionId : dto.SessionId,
+                SessionName = isCrossSession && activeAssignment is not null
+                    ? activeAssignment.SessionName : session.SessionName,
+                // FIX 3.1: Use the remapped date (student's own session occurrence) not the physical date
+                OccurrenceDate = recordOccurrenceDate,
                 Status = attendanceStatus,
                 AttendanceMethod = dto.AttendanceMethod,
                 IsCrossSession = isCrossSession,
+                // Cross-session fields: the session the student PHYSICALLY attended
                 CrossSessionId = isCrossSession ? dto.SessionId : null,
                 CrossSessionName = isCrossSession ? session.SessionName : null,
                 CrossSessionOccurrenceDate = isCrossSession ? date : null,
@@ -483,7 +428,8 @@ public class AttendanceService : IAttendanceService
         if (session is null)
             return Result<BulkMarkAttendanceResultDto>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
 
-        var date = dto.OccurrenceDate?.Date ?? DateTime.UtcNow.Date;
+        // FIX 1.5: Use teacher's local timezone
+        var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
         var occurrence = await _unitOfWork.AttendanceRepo
             .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date);
         if (occurrence is null)
@@ -500,35 +446,45 @@ public class AttendanceService : IAttendanceService
             int skippedCount = 0;
             var absenceAlerts = new List<AbsenceAlertStudentDto>();
 
+            // FIX 2.2: Batch-load all data before the loop to eliminate N+1 queries.
+            // Previously each iteration made 4 DB calls (student, existing, assignment, counter).
+            // For "Mark All Present" with 500 students, that was 2000+ queries.
+            // Now: 4 batch queries total regardless of student count.
+            var allStudents = await _unitOfWork.Students
+                .GetActiveByIdsAndTeacherAsync(dto.TeacherId, dto.TeacherStudentIds);
+            var studentMap = allStudents.ToDictionary(s => s.Id);
+            var existingStudentIds = await _unitOfWork.AttendanceRepo
+                .GetExistingAttendanceBatchAsync(dto.TeacherStudentIds, occurrence.Id);
+            var assignmentMap = await _unitOfWork.AttendanceRepo
+                .GetActiveAssignmentsBatchAsync(dto.TeacherStudentIds);
+            var counterMap = await _unitOfWork.AttendanceRepo
+                .GetAbsenceCountersBatchAsync(dto.TeacherId, dto.TeacherStudentIds);
+
             foreach (var studentId in dto.TeacherStudentIds)
             {
-                var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, dto.TeacherId);
-                if (student is null)
+                // All lookups are O(1) dictionary hits — no DB calls inside the loop
+                if (!studentMap.TryGetValue(studentId, out var student))
                 {
                     skippedCount++;
                     continue;
                 }
 
                 // Check duplicate
-                var existing = await _unitOfWork.AttendanceRepo
-                    .GetExistingAttendanceAsync(studentId, occurrence.Id);
-                if (existing is not null)
+                if (existingStudentIds.Contains(studentId))
                 {
                     skippedCount++;
                     continue;
                 }
 
                 // Get assignment
-                var assignment = await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(studentId);
-                if (assignment is null)
+                if (!assignmentMap.TryGetValue(studentId, out var assignment))
                 {
                     skippedCount++;
                     continue;
                 }
 
-                // Check absence counter for alerts
-                var counter = await _unitOfWork.AttendanceRepo
-                    .GetAbsenceCounterAsync(dto.TeacherId, studentId);
+                // Check absence counter for alerts (from pre-loaded map)
+                counterMap.TryGetValue(studentId, out var counter);
                 if (counter is not null && counter.ConsecutiveAbsences > 0)
                 {
                     absenceAlerts.Add(new AbsenceAlertStudentDto
@@ -572,16 +528,18 @@ public class AttendanceService : IAttendanceService
             // Update occurrence status
             await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
 
+            // FIX 3.4: Count totals BEFORE commit to avoid race condition.
+            // Previously the query ran after CommitAsync, so another concurrent request
+            // could modify the data between commit and count.
             await _unitOfWork.SaveChangesAsync();
 
-            if (ownsTransaction)
-                await _unitOfWork.CommitAsync();
-
-            // Count totals for summary
             var allRecords = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
             int totalPresent = allRecords.Count(r => r.Status == AttendanceStatus.Present
                 || r.Status == AttendanceStatus.CrossSessionPresent);
             int totalAbsent = allRecords.Count(r => r.Status == AttendanceStatus.Absent);
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
 
             var resultDto = new BulkMarkAttendanceResultDto
             {
@@ -608,6 +566,7 @@ public class AttendanceService : IAttendanceService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
+    /// FIX 2.1: Replaced N+1 loop with single batch query for record counts.
     public async Task<Result<List<OccurrenceCalendarItemDto>>> GetOccurrenceCalendarAsync(
         long teacherId, long sessionId)
     {
@@ -619,19 +578,21 @@ public class AttendanceService : IAttendanceService
         var activeAssignments = await _unitOfWork.AttendanceRepo.GetActiveAssignmentsBySessionAsync(sessionId);
         int totalStudents = activeAssignments.Count;
 
-        var items = new List<OccurrenceCalendarItemDto>();
-        foreach (var occ in occurrences)
+        // FIX 2.1: Single batch query instead of N+1 per occurrence.
+        // Previously each occurrence was individually queried for its record count in a foreach loop.
+        // For a session with 52 weekly occurrences, that was 52 additional DB queries.
+        var occurrenceIds = occurrences.Select(o => o.Id).ToList();
+        var recordCounts = await _unitOfWork.AttendanceRepo
+            .CountRecordsByOccurrenceBatchAsync(occurrenceIds);
+
+        var items = occurrences.Select(occ => new OccurrenceCalendarItemDto
         {
-            var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occ.Id);
-            items.Add(new OccurrenceCalendarItemDto
-            {
-                OccurrenceId = occ.Id,
-                OccurrenceDate = occ.OccurrenceDate,
-                Status = occ.Status,
-                MarkedCount = records.Count,
-                TotalStudents = totalStudents
-            });
-        }
+            OccurrenceId = occ.Id,
+            OccurrenceDate = occ.OccurrenceDate,
+            Status = occ.Status,
+            MarkedCount = recordCounts.GetValueOrDefault(occ.Id, 0),
+            TotalStudents = totalStudents
+        }).ToList();
 
         return Result<List<OccurrenceCalendarItemDto>>.Success(items, _localizer, "Success");
     }
@@ -764,7 +725,11 @@ public class AttendanceService : IAttendanceService
             };
 
             await _unitOfWork.AttendanceRepo.AddAttendanceRecordAsync(record);
-            await UpdateAbsenceCounterForNewRecord(dto.TeacherId, dto.TeacherStudentId,
+
+            // FIX 3.2: Use recalculation instead of simple increment for Edit Attendance.
+            // Records added via Edit Attendance can be for past or future dates (out of chronological order).
+            // Simple increment of ConsecutiveAbsences would be wrong — must recalculate from actual records.
+            await UpdateAbsenceCounterForAddedRecord(dto.TeacherId, dto.TeacherStudentId,
                 dto.Status, dto.OccurrenceDate.Date, session.SessionName, dto.SessionId);
 
             await _unitOfWork.SaveChangesAsync();
@@ -1088,6 +1053,84 @@ public class AttendanceService : IAttendanceService
     }
 
     // ══════════════════════════════════════════════
+    // HOLD STATUS (FIX 4.1 — REQ-ATT-061)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<MarkAttendanceResultDto>> HoldStudentAsync(HoldStudentDto dto)
+    {
+        // TODO: FIX 4.1 — Full implementation pending
+        // 1. Validate teacher, session, student
+        // 2. Get or validate occurrence for the date
+        // 3. Check if student is already marked (if so, reject)
+        // 4. Create AttendanceRecord with Status = AttendanceStatus.Held
+        // 5. Do NOT update absence counter (held is not a final state)
+        // 6. Return result with hold confirmation
+        return Result<MarkAttendanceResultDto>.Failure(
+            _localizer, "FeatureNotImplemented", HttpStatusCode.NotImplemented);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<MarkAttendanceResultDto>> ReleaseHoldAsync(ReleaseHoldDto dto)
+    {
+        // TODO: FIX 4.1 — Full implementation pending
+        // 1. Find the held record for this student + session + occurrence
+        // 2. If MarkAsPresent: change status to Present, update absence counter
+        // 3. If not: delete the held record (return to unmarked)
+        // 4. Return result with release confirmation
+        return Result<MarkAttendanceResultDto>.Failure(
+            _localizer, "FeatureNotImplemented", HttpStatusCode.NotImplemented);
+    }
+
+    // ══════════════════════════════════════════════
+    // EXPORT (FIX 4.2 — REQ-ATT-041/081)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<byte[]>> ExportReportAsync(
+        long teacherId, AttendanceReportRequest request, string format)
+    {
+        // TODO: FIX 4.2 — Implement with IAttendanceReportExportService
+        // 1. Call GenerateReportAsync to get the data
+        // 2. Pass to IAttendanceReportExportService for PDF/Excel generation
+        // 3. Return byte array
+        return Result<byte[]>.Failure(
+            _localizer, "FeatureNotImplemented", HttpStatusCode.NotImplemented);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<byte[]>> ExportTimelineAsync(
+        long teacherId, long teacherStudentId,
+        DateTime? startDate, DateTime? endDate, string format)
+    {
+        // TODO: FIX 4.2 — Implement with IAttendanceReportExportService
+        // 1. Get student summary and monthly data for the date range
+        // 2. Pass to IAttendanceReportExportService for PDF/Excel generation
+        // 3. Return byte array
+        return Result<byte[]>.Failure(
+            _localizer, "FeatureNotImplemented", HttpStatusCode.NotImplemented);
+    }
+
+    // ══════════════════════════════════════════════
+    // OFFLINE SYNC (FIX 4.3 — REQ-ATT-084/085)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<SyncResultDto>> SyncOfflineRecordsAsync(OfflineSyncRequestDto dto)
+    {
+        // TODO: FIX 4.3 — Full implementation pending
+        // 1. For each entry in dto.Entries:
+        //    a. Get or create the SessionOccurrence for the entry's date
+        //    b. Check if a record already exists for this student + occurrence
+        //    c. If no existing record: create normally (call MarkAttendanceAsync logic)
+        //    d. If existing record with different status: return as conflict
+        //    e. If existing record with same status: skip (already synced)
+        // 2. Return SyncResultDto with per-entry results
+        return Result<SyncResultDto>.Failure(
+            _localizer, "FeatureNotImplemented", HttpStatusCode.NotImplemented);
+    }
+
+    // ══════════════════════════════════════════════
     // INTEGRATION HOOKS
     // ══════════════════════════════════════════════
 
@@ -1156,10 +1199,17 @@ public class AttendanceService : IAttendanceService
     }
 
     /// <inheritdoc />
+    /// FIX 1.4: Added NullifySessionIdOnRecordsForSessionAsync call.
     public async Task<Result<bool>> OnSessionDeletingAsync(long teacherId, long sessionId)
     {
         // BR-ATT-005: Nullify occurrence references but preserve records
         await _unitOfWork.AttendanceRepo.NullifyOccurrenceReferencesForSessionAsync(sessionId);
+
+        // FIX 1.4: Nullify the denormalized SessionId on AttendanceRecords.
+        // Without this, SessionId points to a nonexistent row after hard-delete,
+        // causing silent JOIN failures in reporting queries.
+        // SessionName and OccurrenceDate remain intact for historical display.
+        await _unitOfWork.AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync(sessionId);
 
         // Deactivate all student assignments for this session
         await _unitOfWork.AttendanceRepo.DeactivateAssignmentsBySessionAsync(sessionId);
@@ -1171,12 +1221,19 @@ public class AttendanceService : IAttendanceService
     }
 
     /// <inheritdoc />
+    /// FIX 1.1: Previously passed teacherId=0 to GetAbsenceCounterAsync which always returned null.
+    /// The entire method was a no-op. Now properly cleans up all student-related attendance metadata.
     public async Task<Result<bool>> OnStudentPermanentlyDeletedAsync(long teacherStudentId)
     {
-        // Clean up absence counter
-        var counters = await _unitOfWork.AttendanceRepo
-            .GetAbsenceCounterAsync(0, teacherStudentId); // TeacherId not needed for this lookup
-        // Note: We need to look up by teacherStudentId across all teachers — handled in repo
+        // FIX 1.1: Delete all absence counters for this student
+        await _unitOfWork.AttendanceRepo.DeleteAbsenceCountersByStudentAsync(teacherStudentId);
+
+        // FIX 1.1: Deactivate all session assignments for this student
+        await _unitOfWork.AttendanceRepo.DeactivateAssignmentsByStudentAsync(teacherStudentId);
+
+        // Note: AttendanceRecord rows are intentionally preserved (BR-ATT-005).
+        // They retain denormalized StudentName/StudentCode for historical display
+        // even after the TeacherStudent row is permanently deleted.
 
         return Result<bool>.Success(true, _localizer, "Success");
     }
@@ -1187,6 +1244,7 @@ public class AttendanceService : IAttendanceService
 
     /// <summary>
     /// Updates the StudentAbsenceCounter after a new attendance record is created.
+    /// Used during LIVE attendance taking where records are always in chronological order.
     /// REQ-ATT-029/030: Consecutive counter management.
     /// REQ-ATT-021/047: Cumulative total management.
     /// </summary>
@@ -1225,6 +1283,59 @@ public class AttendanceService : IAttendanceService
             counter.TotalPresent++;
             counter.LastAttendanceDate = date;
         }
+
+        await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
+    }
+
+    /// <summary>
+    /// FIX 3.2: Updates the StudentAbsenceCounter after a record is added via Edit Attendance.
+    /// Unlike UpdateAbsenceCounterForNewRecord (used during live attendance taking where records
+    /// are always in chronological order), this method recalculates ConsecutiveAbsences from
+    /// actual records because Edit Attendance can add records for past or future dates.
+    /// REQ-ATT-026: Pre-record attendance for future/past dates.
+    /// </summary>
+    private async Task UpdateAbsenceCounterForAddedRecord(
+        long teacherId, long teacherStudentId,
+        AttendanceStatus status, DateTime date, string sessionName, long sessionId)
+    {
+        var counter = await _unitOfWork.AttendanceRepo
+            .GetAbsenceCounterAsync(teacherId, teacherStudentId);
+
+        if (counter is null)
+        {
+            counter = new StudentAbsenceCounter
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = teacherStudentId,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.AttendanceRepo.AddAbsenceCounterAsync(counter);
+        }
+
+        // Update totals (these are always correct with simple increment)
+        counter.TotalOccurrences++;
+        if (status == AttendanceStatus.Absent)
+        {
+            counter.TotalAbsences++;
+            // Update LastAbsenceDate only if this record is more recent
+            if (!counter.LastAbsenceDate.HasValue || date > counter.LastAbsenceDate.Value)
+            {
+                counter.LastAbsenceDate = date;
+                counter.LastAbsenceSessionName = sessionName;
+                counter.LastAbsenceSessionId = sessionId;
+            }
+        }
+        else
+        {
+            counter.TotalPresent++;
+            if (!counter.LastAttendanceDate.HasValue || date > counter.LastAttendanceDate.Value)
+                counter.LastAttendanceDate = date;
+        }
+
+        // FIX 3.2: Recalculate consecutive from actual records (not simple increment)
+        // because the added record may be out of chronological order
+        counter.ConsecutiveAbsences = await _unitOfWork.AttendanceRepo
+            .RecalculateConsecutiveAbsencesAsync(teacherStudentId);
 
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
     }

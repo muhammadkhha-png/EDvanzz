@@ -192,7 +192,7 @@ public class AttendanceController : ApiBaseController
     //   Adds a new attendance record via Edit Attendance view.
     //   REQ-ATT-024: Add missed records. REQ-ATT-026: Pre-record future attendance.
     //
-    // TABLES WRITTEN: AttendanceRecords, SessionOccurrences, StudentAbsenceCounters
+    // TABLES WRITTEN: AttendanceRecords, StudentAbsenceCounters, SessionOccurrences
     // TABLES READ: Sessions, TeacherStudents, SessionOccurrences, StudentSessionAssignments
     //
     // ══════════════════════════════════════════════════════════════════════════
@@ -212,24 +212,17 @@ public class AttendanceController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Removes an erroneously recorded attendance entry. REQ-ATT-024.
+    //   Deletes an erroneously recorded attendance record. REQ-ATT-024.
     //
     // TABLES WRITTEN: AttendanceRecords, StudentAbsenceCounters
     // TABLES READ: AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpDelete("{teacherId:long}/records/{recordId:long}")]
+    [HttpDelete("delete")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteAttendanceRecord(
-        [FromRoute] long teacherId,
-        [FromRoute] long recordId)
+    public async Task<IActionResult> DeleteAttendanceRecord([FromBody] DeleteAttendanceRecordDto dto)
     {
-        var dto = new DeleteAttendanceRecordDto
-        {
-            TeacherId = teacherId,
-            AttendanceRecordId = recordId
-        };
         var result = await _attendanceService.DeleteAttendanceRecordAsync(dto);
         return ToResponse(result);
     }
@@ -239,7 +232,8 @@ public class AttendanceController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Returns the edit audit trail for an attendance record. REQ-ATT-025.
+    //   Returns the audit trail (edit logs) for an attendance record.
+    //   REQ-ATT-025.
     //
     // TABLES READ: AttendanceRecords, AttendanceEditLogs
     //
@@ -411,6 +405,142 @@ public class AttendanceController : ApiBaseController
         [FromQuery] StudentTimelineMonthRequest request)
     {
         var result = await _attendanceService.GetStudentViewAttendanceAsync(teacherId, studentId, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 18: HOLD STUDENT (FIX 4.1 — REQ-ATT-061)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Places a student on "hold" during attendance taking.
+    //   REQ-ATT-058: "Hold" cancels attendance recording, deferring to later.
+    //   REQ-ATT-061: Held students visually distinguished from marked/unmarked.
+    //
+    // TABLES WRITTEN: AttendanceRecords (Held status)
+    // TABLES READ: Sessions, TeacherStudents, SessionOccurrences
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("mark-hold")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> HoldStudent([FromBody] HoldStudentDto dto)
+    {
+        var result = await _attendanceService.HoldStudentAsync(dto);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 19: RELEASE HOLD (FIX 4.1 — REQ-ATT-061)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Releases a held student — marks as Present or discards the hold.
+    //   REQ-ATT-061: Held students can be returned to and processed later.
+    //
+    // TABLES WRITTEN: AttendanceRecords, StudentAbsenceCounters
+    // TABLES READ: AttendanceRecords
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("release-hold")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ReleaseHold([FromBody] ReleaseHoldDto dto)
+    {
+        var result = await _attendanceService.ReleaseHoldAsync(dto);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 20: EXPORT REPORT (FIX 4.2 — REQ-ATT-041)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Exports an attendance report as a downloadable PDF or Excel file.
+    //   REQ-ATT-041: All reports exportable as PDF or Excel (.xlsx).
+    //   REQ-ATT-042: Must complete within 5 seconds for up to 50K students.
+    //
+    // TABLES READ: AttendanceRecords, TeacherStudents, Sessions, SessionLinks
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("{teacherId:long}/reports/export")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportReport(
+        [FromRoute] long teacherId,
+        [FromBody] AttendanceReportRequest request,
+        [FromQuery] string format = "xlsx")
+    {
+        var result = await _attendanceService.ExportReportAsync(teacherId, request, format);
+        if (!result.IsSuccess)
+            return ToResponse(result);
+
+        string contentType = format.ToLower() == "pdf"
+            ? "application/pdf"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        string extension = format.ToLower() == "pdf" ? "pdf" : "xlsx";
+
+        return File(result.Data!, contentType, $"attendance_report.{extension}");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 21: EXPORT STUDENT TIMELINE (FIX 4.2 — REQ-ATT-081)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Exports a student's attendance timeline as a downloadable PDF or Excel file.
+    //   REQ-ATT-081: Preserves month-by-month structure with summary totals.
+    //
+    // TABLES READ: TeacherStudents, StudentAbsenceCounters, AttendanceRecords
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{teacherId:long}/timeline/students/{studentId:long}/export")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportTimeline(
+        [FromRoute] long teacherId,
+        [FromRoute] long studentId,
+        [FromQuery] DateTime? startDate,
+        [FromQuery] DateTime? endDate,
+        [FromQuery] string format = "xlsx")
+    {
+        var result = await _attendanceService.ExportTimelineAsync(
+            teacherId, studentId, startDate, endDate, format);
+        if (!result.IsSuccess)
+            return ToResponse(result);
+
+        string contentType = format.ToLower() == "pdf"
+            ? "application/pdf"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        string extension = format.ToLower() == "pdf" ? "pdf" : "xlsx";
+
+        return File(result.Data!, contentType, $"attendance_timeline.{extension}");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 22: SYNC OFFLINE RECORDS (FIX 4.3 — REQ-ATT-084/085)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Syncs offline-recorded attendance records to the server.
+    //   REQ-ATT-084: Automatic background sync when connectivity is restored.
+    //   REQ-ATT-085: Detects conflicts and returns both versions for resolution.
+    //
+    // TABLES WRITTEN: AttendanceRecords, StudentAbsenceCounters, SessionOccurrences
+    // TABLES READ: Sessions, TeacherStudents, SessionOccurrences, AttendanceRecords
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("{teacherId:long}/sync")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SyncOfflineRecords(
+        [FromRoute] long teacherId,
+        [FromBody] OfflineSyncRequestDto dto)
+    {
+        dto.TeacherId = teacherId;
+        var result = await _attendanceService.SyncOfflineRecordsAsync(dto);
         return ToResponse(result);
     }
 }
