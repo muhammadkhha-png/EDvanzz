@@ -36,8 +36,8 @@ public class ExceptionMiddleware
             NotFoundException => 404,
             UnauthorizedAccessException => 401,
             ArgumentException => 400,
-           DbUpdateException => 409, // Conflict
-       
+           DbUpdateException => 409, 
+            
             _ => 500
         };
 

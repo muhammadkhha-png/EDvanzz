@@ -7,6 +7,7 @@ namespace Edvanz.Domain.Interfaces
 {
     public interface IUserPermissionRepo : IGenericRepo<UsersPermission,(long,long) >
     {
-        public  Task<List<string>> GetUserPermissionsAsync(long userId);
+        //public  Task<List<string>> GetUserPermissionsAsync(long userId);
+        public Task<IReadOnlyList<UsersPermission>> GetUserPermissionsAsync(long userId);
     }
 }

@@ -14,14 +14,22 @@ namespace Edvanz.Infrastructure.Repositories
         {
         }
 
-        public async Task<List<string>> GetUserPermissionsAsync(long userId)
+        public async Task<IReadOnlyList<UsersPermission>> GetUserPermissionsAsync(long userId)
         {
             return await _context.Set<UsersPermission>()
             .Where(up => up.UserId == userId)
             .Include(up => up.Permission)
-                .ThenInclude(p => p.module)
-            .Select(up => $"{up.Permission.module.Name}.{up.Permission.Name}")
-            .ToListAsync();
+                .ThenInclude(p => p.module).ToListAsync();
         }
+
+        //public async Task<List<string>> GetUserPermissionsAsync(long userId)
+        //{
+        //    return await _context.Set<UsersPermission>()
+        //    .Where(up => up.UserId == userId)
+        //    .Include(up => up.Permission)
+        //        .ThenInclude(p => p.module)
+        //    .Select(up => $"{up.Permission.module.Name}.{up.Permission.Name}")
+        //    .ToListAsync();
+        //}
     }
 }

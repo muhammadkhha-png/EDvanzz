@@ -16,6 +16,14 @@ public class Assistant : BaseEntity
     [ForeignKey(nameof(Teacher))]
     public long TeacherAccountId { get; set; }
     public Teacher Teacher { get; set; } = null!;
-    public bool IsActive { get; set; } = true;
+    public string? LanguagePreference { get; set; }
+    public DateTime? DeactivatedAt { get; set; }
+
+    /// <summary>
+    /// Soft-delete timestamp. Null if account is not deleted.
+    /// REQ-ADM-020 through 024: Data preservation period before permanent removal.
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
     public DateTime UpdatedAt { get; set; }
 }

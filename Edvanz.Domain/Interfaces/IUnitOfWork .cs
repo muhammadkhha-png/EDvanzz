@@ -42,6 +42,7 @@ namespace Edvanz.Domain.Interfaces
         /// for Session, SessionGroup, and SessionLink records.
         /// </summary>
         ISessionRepo SessionsRepo { get; }
+        IAssitantRepo AssistantRepo { get; }
 
         /// <summary>
         /// Extended repository for the Attendance Module (Module 3: attendance records,

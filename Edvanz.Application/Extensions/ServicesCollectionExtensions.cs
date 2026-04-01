@@ -45,6 +45,8 @@ public static class ServicesCollectionExtensions
         // Session Module (Module 2: sessions, groups, membership links)
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<IAttendanceService, AttendanceService>();
+        services.AddScoped<IAssistantService, AssistantService>();
+        services.AddScoped<IUserPermissionService,UserPermissionService>();
 
         #endregion
 

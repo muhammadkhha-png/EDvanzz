@@ -30,6 +30,7 @@ namespace Edvanz.Infrastructure
         private IRefreshTokenRepo? _refreshTokenRepo;
         private IgoogleUserRepo? _googleUserRepo;
 
+        private IAssitantRepo? _assistantRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -125,5 +126,9 @@ namespace Edvanz.Infrastructure
         public IRefreshTokenRepo RefreshTokenRepo => _refreshTokenRepo ??= new RefreshTokenRepo(_Context);
 
         public IgoogleUserRepo googleUserRepo => _googleUserRepo ??= new GoogleUserRepo(_Context);
+
+        public IAssitantRepo AssistantRepo => _assistantRepo ??= new AssistantRepo(_Context);
     }
+
+   
 }

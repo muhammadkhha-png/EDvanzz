@@ -30,7 +30,7 @@ builder.Services.AddControllers()
     });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-
+var x = builder.Configuration.GetConnectionString("con");
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));

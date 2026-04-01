@@ -17,7 +17,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<GoogleUser> GoogleUsers { get; set; }
     public DbSet<Module> Models { get; set; }
     public DbSet<Template> Templates { get; set; }
-    public DbSet<TemplateAssistant> TemplatesOfAssistants { get; set; }
+    public DbSet<TemplatePermissionsUsers> TemplatesPermissionsOfUsers { get; set; }
     public DbSet<TemplatePermisions> TemplatesPermisions { get; set; }
 
 
@@ -79,8 +79,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
         modelBuilder.Entity<UsersTutor>()
             .HasKey(ut => new { ut.userId, ut.TutorId });
-        modelBuilder.Entity<TemplateAssistant>()
-           .HasKey(ur => new { ur.AssistantId, ur.TemplateId });
+        modelBuilder.Entity<TemplatePermissionsUsers>()
+           .HasKey(ur => new { ur.userId, ur.TemplateId });
         modelBuilder.Entity<TemplatePermisions>()
            .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
 

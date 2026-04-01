@@ -10,5 +10,6 @@ namespace Edvanz.Application.IservicesContract
         public string GenerateJwtToken(User user, List<string> permissions);
         public string GenerateRefreshToken();
        public string GenerateCompleteProfileToken(GoogleUser googleUser);
+       
     }
 }

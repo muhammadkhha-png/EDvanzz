@@ -29,6 +29,7 @@ namespace Edvanz.Application.Services
         private readonly IPasswordService _passwordService;
         private readonly ITokenService tokenService;
         private readonly ICurrentUserService _currentUser;
+        private readonly IUserPermissionService userPermissionService;
         private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
 
 
@@ -41,13 +42,14 @@ namespace Edvanz.Application.Services
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser)
+            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser,IUserPermissionService userPermissionService)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
             _passwordService = passwordService;
             this.tokenService = tokenService;
             this._currentUser = currentUser;
+            this.userPermissionService = userPermissionService;
         }
 
         /// <summary>
@@ -98,7 +100,7 @@ namespace Edvanz.Application.Services
             var IsPassMatched= _passwordService.VerifyPassword(user.PasswordHashed, req.password);
             if(!IsPassMatched)
                 return Result<AuthResponse>.Failure(_localizer, "PasswordError");
-            var permissions = await _unitOfWork.UsersPermissions.GetUserPermissionsAsync(user.Id);
+            var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
 
             var jwt = tokenService.GenerateJwtToken(user, permissions);
 
@@ -170,7 +172,7 @@ namespace Edvanz.Application.Services
                 return Result<AuthResponse>.Failure(_localizer, "notFoundToken");
             if (token.user == null || token.ExpiryDate <= DateTime.UtcNow)
                 return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
-            var permissions = await _unitOfWork.UsersPermissions.GetUserPermissionsAsync(token.UserId);
+            var permissions = await userPermissionService.GetUserPermissionsToToken(token.UserId);
 
 
             var newAccessToken = tokenService.GenerateJwtToken(token.user, permissions);
