@@ -89,5 +89,18 @@ public static class AttendanceConstants
 
         // Dashboard
         public const string NoOccurrenceRedirectToEdit = "NoOccurrenceRedirectToEdit";
+
+        // ══════════════════════════════════════════════
+        // AUDIT FIX — NEW MESSAGE KEYS
+        // ══════════════════════════════════════════════
+
+        /// <summary>BR-ATT-001: No retroactive attendance before student assignment date.</summary>
+        public const string AttendanceBeforeAssignmentDate = "AttendanceBeforeAssignmentDate";
+
+        /// <summary>Session was deleted while a student was on hold.</summary>
+        public const string AttendanceSessionDeletedWhileHeld = "AttendanceSessionDeletedWhileHeld";
+
+        /// <summary>Student is in recycle bin (soft-deleted) and cannot have attendance recorded.</summary>
+        public const string AttendanceStudentInRecycleBin = "AttendanceStudentInRecycleBin";
     }
 }

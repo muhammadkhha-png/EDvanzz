@@ -19,6 +19,12 @@ namespace Edvanz.Application.ServiceContract;
 /// </summary>
 public interface IAttendanceService
 {
+
+    /// <summary>
+    /// Returns the count of unmarked students for a session occurrence.
+    /// Audit Fix (REQ-ATT-055): Used for "Mark All Present" confirmation prompt.
+    /// </summary>
+    Task<Result<int>> GetUnmarkedCountAsync(long teacherId, long sessionId, DateTime? occurrenceDate);
     // ══════════════════════════════════════════════
     // SESSION OCCURRENCE MANAGEMENT
     // ══════════════════════════════════════════════

@@ -19,6 +19,29 @@ namespace Edvanz.Domain.Interfaces;
 /// </summary>
 public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
 {
+    /// <summary>
+    /// Checks if attendance already exists for a student in a specific session on a specific date.
+    /// Audit Fix: Used for cross-session remapped-date duplicate detection.
+    /// </summary>
+    Task<AttendanceRecord?> GetExistingAttendanceByStudentSessionAndDateAsync(
+        long teacherStudentId, long sessionId, DateTime occurrenceDate);
+
+    /// <summary>
+    /// Gets students who were absent on a specific occurrence date across given sessions.
+    /// Audit Fix (REQ-ATT-035): View absence history for a selected past date.
+    /// </summary>
+    Task<IReadOnlyList<AttendanceRecord>> GetAbsentStudentsByDateAsync(
+        long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
+        string? search, int page, int pageSize);
+
+    /// <summary>
+    /// Counts students who were absent on a specific date across given sessions.
+    /// Audit Fix (REQ-ATT-035): Count variant for date-specific absence overview.
+    /// </summary>
+    Task<int> CountAbsentStudentsByDateAsync(
+        long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
+        string? search);
+
     // ══════════════════════════════════════════════
     // SESSION OCCURRENCE QUERIES
     // ══════════════════════════════════════════════

@@ -756,6 +756,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasMaxLength(200)
                 .IsRequired();
 
+            // Audit Fix: Denormalized student fields for post-purge display
+            entity.Property(a => a.StudentName)
+                .HasMaxLength(200);
+
+            entity.Property(a => a.StudentCode)
+                .HasMaxLength(20);
+
             entity.Property(a => a.AssignedAt)
                 .IsRequired();
 
@@ -781,15 +788,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(a => a.TeacherId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Step 1.1: TeacherStudent FK: SET NULL — preserved after student permanent purge
-            // Changed from NoAction to SetNull. TeacherStudentId remains non-nullable in the entity
-            // because assignments are deactivated (not deleted) during student purge.
-            // However, if the TeacherStudent row is hard-deleted by the purge job,
-            // SET NULL prevents the FK violation crash.
+            // Audit Fix: TeacherStudent FK changed from NoAction to SetNull.
+            // TeacherStudentId is now nullable (long?).
+            // When the purge job hard-deletes the TeacherStudent row, SQL Server sets this to NULL.
+            // Denormalized StudentName/StudentCode preserve display data after purge.
             entity.HasOne(a => a.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherStudentId)
-                .OnDelete(DeleteBehavior.NoAction);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Session FK: NO ACTION — app nullifies before session delete
             entity.HasOne(a => a.Session)
@@ -876,6 +882,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(r => new { r.TeacherId, r.OccurrenceDate, r.Status })
                 .HasDatabaseName("IX_AR_TeacherId_OccurrenceDate_Status");
 
+            // Audit Fix: Cross-session query index
+            entity.HasIndex(r => new { r.TeacherId, r.TeacherStudentId, r.IsCrossSession })
+                .HasFilter("[IsCrossSession] = 1")
+                .HasDatabaseName("IX_AR_CrossSession");
+
             // Teacher FK: CASCADE
             entity.HasOne(r => r.Teacher)
                 .WithMany()
@@ -909,23 +920,26 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<AttendanceEditLog>(entity =>
         {
             entity.ToTable("AttendanceEditLogs");
-        
+
             entity.Property(l => l.EditedAt)
                 .HasColumnType("datetime2(0)")
                 .IsRequired();
-        
+
             entity.Property(l => l.EditReason)
                 .HasMaxLength(500);
-        
+
             // Audit trail: all edits for a record
             entity.HasIndex(l => l.AttendanceRecordId)
                 .HasDatabaseName("IX_AEL_AttendanceRecordId");
-        
-            // CASCADE: edit logs deleted with parent record
+
+            // Audit Fix: Changed from Cascade to SetNull.
+            // AttendanceRecordId is now nullable (long?).
+            // When parent AttendanceRecord is deleted (REQ-ATT-024),
+            // edit logs survive with null FK — preserving audit trail (BR-ATT-006).
             entity.HasOne(l => l.AttendanceRecord)
                 .WithMany(r => r.EditLogs)
                 .HasForeignKey(l => l.AttendanceRecordId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.SetNull);
         });
         #endregion
 
@@ -942,7 +956,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
        
             entity.Property(c => c.LastAttendanceDate)
                 .HasColumnType("date");
-       
+
+            // Audit Fix: Optimistic concurrency token for counter race condition prevention
+            entity.Property(c => c.RowVersion)
+                .IsRowVersion();
+
             // Unique: one counter per student per teacher
             entity.HasIndex(c => new { c.TeacherId, c.TeacherStudentId })
                 .IsUnique()

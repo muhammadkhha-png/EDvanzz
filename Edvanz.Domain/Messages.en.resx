@@ -492,4 +492,46 @@
   <data name="PermissionsFetchFailed" xml:space="preserve">
     <value>Permissions Fetch Failed</value>
   </data>
+  <data name="InvalidAttendanceStatus" xml:space="preserve">
+    <value>Invalid attendance status. Only Present or Absent can be specified for this operation</value>
+  </data>
+  <data name="CrossSessionNoFutureOccurrence" xml:space="preserve">
+    <value>Cannot record cross-session attendance: the student's assigned session has no upcoming occurrence to map this attendance to</value>
+  </data>
+  <data name="AttendanceRecordDeletedSuccess" xml:space="preserve">
+    <value>Attendance record removed successfully</value>
+  </data>
+  <data name="AttendanceHeldSuccess" xml:space="preserve">
+    <value>Student placed on hold. You can return to mark their attendance later in this session</value>
+  </data>
+  <data name="AttendanceHoldReleasedSuccess" xml:space="preserve">
+    <value>Student hold released successfully</value>
+  </data>
+  <data name="AttendanceHoldNotFound" xml:space="preserve">
+    <value>No held record found for this student on the specified occurrence</value>
+  </data>
+  <data name="AttendanceAlreadyMarked" xml:space="preserve">
+    <value>This student has already been marked for this session occurrence</value>
+  </data>
+  <data name="InvalidExportFormat" xml:space="preserve">
+    <value>Invalid export format. Supported formats are: xlsx, pdf</value>
+  </data>
+  <data name="ExportCompleted" xml:space="preserve">
+    <value>Export completed successfully</value>
+  </data>
+  <data name="SyncCompleted" xml:space="preserve">
+    <value>Offline attendance records synced successfully</value>
+  </data>
+  <data name="NoOccurrenceRedirectToEdit" xml:space="preserve">
+    <value>Today is not a scheduled occurrence day for this session. You can use Edit Attendance to record attendance for a different date</value>
+  </data>
+  <data name="AttendanceBeforeAssignmentDate" xml:space="preserve">
+    <value>Cannot record attendance for a date before the student was assigned to this session. Attendance history begins from the assignment date</value>
+  </data>
+  <data name="AttendanceSessionDeletedWhileHeld" xml:space="preserve">
+    <value>The session was deleted while this student was on hold. The hold has been discarded. Please refresh the attendance screen</value>
+  </data>
+  <data name="AttendanceStudentInRecycleBin" xml:space="preserve">
+    <value>This student is currently in the recycle bin and cannot have attendance recorded. Restore the student first to proceed</value>
+  </data>
 </root>

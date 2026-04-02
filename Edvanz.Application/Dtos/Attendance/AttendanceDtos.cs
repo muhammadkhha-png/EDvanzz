@@ -511,6 +511,16 @@ public class MarkAttendanceResultDto
 
     /// <summary>If duplicate: when the original attendance was recorded. REQ-ATT-070.</summary>
     public DateTime? DuplicateRecordedAt { get; set; }
+    /// <summary>
+    /// Audit Fix (REQ-ATT-013): The student's currently assigned session Id.
+    /// Populated when cross-session attendance is detected.
+    /// </summary>
+    public long? AssignedSessionId { get; set; }
+
+    /// <summary>
+    /// Audit Fix (REQ-ATT-013): The student's currently assigned session name.
+    /// </summary>
+    public string? AssignedSessionName { get; set; }
 }
 
 /// <summary>
@@ -853,6 +863,17 @@ public class SyncEntryResultDto
 
     /// <summary>Error message if sync failed for non-conflict reasons.</summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Audit Fix: True if this entry needs absence alert confirmation before sync.
+    /// REQ-ATT-057/058: Explicit tutor confirmation required.
+    /// </summary>
+    public bool RequiresAbsenceConfirmation { get; set; }
+
+    /// <summary>
+    /// Audit Fix: Absence alert details for entries requiring confirmation.
+    /// </summary>
+    public AbsenceAlertStudentDto? AbsenceAlertInfo { get; set; }
 }
 
 /// <summary>
@@ -872,6 +893,11 @@ public class SyncResultDto
 
     /// <summary>Entries that failed for non-conflict reasons.</summary>
     public int FailedCount { get; set; }
+
+    /// <summary>
+    /// Audit Fix: Number of entries that need absence alert confirmation.
+    /// </summary>
+    public int RequiresConfirmationCount { get; set; }
 
     /// <summary>Detailed result per entry.</summary>
     public List<SyncEntryResultDto> EntryResults { get; set; } = new();

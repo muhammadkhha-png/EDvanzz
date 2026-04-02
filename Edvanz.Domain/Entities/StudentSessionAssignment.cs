@@ -14,6 +14,12 @@ namespace Edvanz.Domain.Entities;
 /// BR-ATT-001: No retroactive attendance before AssignedAt.
 /// BR-ATT-005: SessionName denormalized so records survive session hard-delete.
 ///
+/// PURGE SAFETY (Audit Fix):
+/// TeacherStudentId is nullable (long?) with SetNull FK behavior.
+/// When a TeacherStudent row is permanently purged, SQL Server sets this to NULL.
+/// Denormalized StudentName/StudentCode preserve display data after purge,
+/// following the same pattern used by AttendanceRecord.
+///
 /// Multi-tenant isolation: TeacherId stored directly for tenant-scoped index performance.
 /// </summary>
 public class StudentSessionAssignment : BaseEntity
@@ -28,11 +34,17 @@ public class StudentSessionAssignment : BaseEntity
 
     /// <summary>
     /// Foreign key to the student record.
-    /// NO ACTION on delete: assignment history preserved after student soft/hard delete (BR-ATT-005).
+    /// Audit Fix: Changed from long to long? — SET NULL on student permanent purge.
+    /// BR-ATT-005: Assignment history preserved after student soft/hard delete.
+    /// Denormalized StudentName/StudentCode preserve display data after purge.
     /// </summary>
     [ForeignKey(nameof(TeacherStudent))]
-    public long TeacherStudentId { get; set; }
-    public TeacherStudent TeacherStudent { get; set; } = null!;
+    public long? TeacherStudentId { get; set; }
+
+    /// <summary>
+    /// Navigation to the student record. Nullable after student permanent purge.
+    /// </summary>
+    public TeacherStudent? TeacherStudent { get; set; }
 
     /// <summary>
     /// Foreign key to the session assigned to.
@@ -54,6 +66,24 @@ public class StudentSessionAssignment : BaseEntity
     /// REQ-ATT-044: Displayed as label on the student's attendance profile.
     /// </summary>
     public string SessionName { get; set; } = null!;
+
+    // ══════════════════════════════════════════════
+    // DENORMALIZED STUDENT CONTEXT (Audit Fix — BR-ATT-005)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Denormalized: snapshot of student name at assignment time.
+    /// BR-ATT-005: Enables display after student permanent purge.
+    /// Same pattern as AttendanceRecord.StudentName.
+    /// </summary>
+    public string? StudentName { get; set; }
+
+    /// <summary>
+    /// Denormalized: snapshot of student code at assignment time.
+    /// BR-ATT-005: Enables display after student permanent purge.
+    /// Same pattern as AttendanceRecord.StudentCode.
+    /// </summary>
+    public string? StudentCode { get; set; }
 
     /// <summary>
     /// When the student was assigned to this session.

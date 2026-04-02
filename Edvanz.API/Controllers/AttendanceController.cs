@@ -543,4 +543,27 @@ public class AttendanceController : ApiBaseController
         var result = await _attendanceService.SyncOfflineRecordsAsync(dto);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 23: GET UNMARKED COUNT (Audit Fix — REQ-ATT-055)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns the count of unmarked students for a session occurrence.
+    //   REQ-ATT-055: "Mark All Present" confirmation prompt shows affected count.
+    //
+    // TABLES READ: SessionOccurrences, StudentSessionAssignments, AttendanceRecords
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/unmarked-count")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUnmarkedCount(
+        [FromRoute] long teacherId,
+        [FromRoute] long sessionId,
+        [FromQuery] DateTime? occurrenceDate)
+    {
+        var result = await _attendanceService.GetUnmarkedCountAsync(teacherId, sessionId, occurrenceDate);
+        return ToResponse(result);
+    }
 }

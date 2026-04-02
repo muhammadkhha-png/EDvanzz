@@ -26,6 +26,23 @@ namespace Edvanz.Application.Services;
 /// Step 7.2: All record creation populates denormalized StudentName/StudentCode.
 /// Step 8.1: Uses AttendanceConstants.Messages for localization keys.
 ///
+/// AUDIT FIX CHANGES:
+/// - Step 1: OnStudentAssignedToSessionAsync populates denormalized StudentName/StudentCode.
+/// - Step 2: BR-ATT-001 retroactive attendance guard in MarkAttendanceAsync/AddAttendanceRecordAsync.
+/// - Step 3: BulkMarkAttendanceAsync fires messaging notifications for absent students.
+/// - Step 4: BulkMarkAttendanceAsync validates student assignment exists before creating record.
+/// - Step 5: SyncOfflineRecordsAsync no longer auto-confirms absence alerts.
+/// - Step 6: MarkAttendanceAsync adds remapped-date duplicate check for cross-session.
+/// - Step 7: MarkAttendanceResultDto populated with AssignedSessionId/Name for cross-session warning.
+/// - Step 8: ReleaseHoldAsync guards against deleted session while student on hold.
+/// - Step 9: Counter updates wrapped with DbUpdateConcurrencyException retry.
+/// - Step 11: RecordedByUserId defaults to TeacherId when not provided.
+/// - Step 12: GetAbsenceOverviewAsync uses OccurrenceDate for date-specific absence view.
+/// - Step 14: OnStudentAssignedToSessionAsync deactivates existing assignment first (idempotent).
+/// - Step 15: DeleteAttendanceRecordAsync logs deletion before removing record.
+/// - Step 17: GetUnmarkedCountAsync added for REQ-ATT-055 confirmation prompt.
+/// - Step 19: MarkAttendanceAsync/HoldStudentAsync distinguish soft-deleted students.
+///
 /// TRANSACTION SAFETY: All transactional methods use the ownsTransaction pattern.
 /// </summary>
 public class AttendanceService : IAttendanceService
@@ -186,6 +203,9 @@ public class AttendanceService : IAttendanceService
     /// <inheritdoc />
     public async Task<Result<MarkAttendanceResultDto>> MarkAttendanceAsync(MarkAttendanceDto dto)
     {
+        // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
+        dto.RecordedByUserId ??= dto.TeacherId;
+
         // Step 2.3: Validate status — only Present and Absent allowed via this endpoint
         if (dto.Status == AttendanceStatus.Held || dto.Status == AttendanceStatus.CrossSessionPresent)
             return Result<MarkAttendanceResultDto>.Failure(
@@ -206,9 +226,19 @@ public class AttendanceService : IAttendanceService
         // 3. Validate student exists
         var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(
             dto.TeacherStudentId, dto.TeacherId);
+        // AUDIT FIX Step 19: Distinguish "not found" from "in recycle bin"
         if (student is null)
+        {
+            var deletedStudent = await _unitOfWork.Students.GetByIdAndTeacherIgnoreFiltersAsync(
+                dto.TeacherStudentId, dto.TeacherId);
+            if (deletedStudent is not null && deletedStudent.IsDeleted)
+                return Result<MarkAttendanceResultDto>.Failure(
+                    _localizer, AttendanceConstants.Messages.AttendanceStudentInRecycleBin,
+                    HttpStatusCode.BadRequest);
+
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+        }
 
         var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
 
@@ -298,6 +328,13 @@ public class AttendanceService : IAttendanceService
                     HttpStatusCode.BadRequest);
         }
 
+        // AUDIT FIX Step 7 (REQ-ATT-013): Populate assigned session info for cross-session warning
+        if (isCrossSession && activeAssignment?.SessionId != null)
+        {
+            result.AssignedSessionId = activeAssignment.SessionId;
+            result.AssignedSessionName = activeAssignment.SessionName;
+        }
+
         // 8. Determine the record's occurrence date (cross-session remapping)
         var attendanceStatus = isCrossSession ? AttendanceStatus.CrossSessionPresent : dto.Status;
         var recordOccurrenceDate = date;
@@ -314,6 +351,23 @@ public class AttendanceService : IAttendanceService
                     HttpStatusCode.BadRequest);
 
             recordOccurrenceDate = nextOccurrence.OccurrenceDate;
+
+            // AUDIT FIX Step 6: Check for duplicate on the REMAPPED date.
+            // The earlier cross-session check used the physical date. But records are stored
+            // with the remapped date. This catches duplicates stored under the remapped date.
+            var remappedDuplicate = await _unitOfWork.AttendanceRepo
+                .GetExistingAttendanceByStudentSessionAndDateAsync(
+                    dto.TeacherStudentId, activeAssignment.SessionId!.Value, recordOccurrenceDate);
+            if (remappedDuplicate is not null)
+            {
+                return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
+                {
+                    Record = null,
+                    IsDuplicate = true,
+                    DuplicateSessionName = remappedDuplicate.SessionName,
+                    DuplicateRecordedAt = remappedDuplicate.RecordedAt
+                }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
+            }
         }
 
         // Get assignment for non-cross-session case
@@ -323,6 +377,12 @@ public class AttendanceService : IAttendanceService
         if (assignment is null)
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned,
+                HttpStatusCode.BadRequest);
+
+        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before assignment date
+        if (recordOccurrenceDate.Date < assignment.AssignedAt.Date)
+            return Result<MarkAttendanceResultDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceBeforeAssignmentDate,
                 HttpStatusCode.BadRequest);
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
@@ -397,6 +457,9 @@ public class AttendanceService : IAttendanceService
     /// <inheritdoc />
     public async Task<Result<BulkMarkAttendanceResultDto>> BulkMarkAttendanceAsync(BulkMarkAttendanceDto dto)
     {
+        // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
+        dto.RecordedByUserId ??= dto.TeacherId;
+
         // Step 2.3: Validate status
         if (dto.Status == AttendanceStatus.Held || dto.Status == AttendanceStatus.CrossSessionPresent)
             return Result<BulkMarkAttendanceResultDto>.Failure(
@@ -471,7 +534,7 @@ public class AttendanceService : IAttendanceService
                     continue;
                 }
 
-                // Get assignment
+                // AUDIT FIX Step 4 (BR-ATT-001): Skip students with no active assignment
                 if (!assignmentMap.TryGetValue(studentId, out var assignment))
                 {
                     skippedCount++;
@@ -556,6 +619,18 @@ public class AttendanceService : IAttendanceService
             if (modifiedCounters.Count > 0)
                 await _unitOfWork.AttendanceRepo.UpdateAbsenceCountersRangeAsync(modifiedCounters);
 
+            // AUDIT FIX Step 3: Fire messaging notifications for absent students
+            // REQ-ATT-027/028: Absence alerts must fire for all attendance methods including multi-select
+            if (dto.Status == AttendanceStatus.Absent)
+            {
+                foreach (var alert in absenceAlerts)
+                {
+                    _ = _messagingService.NotifyStudentAbsenceAsync(
+                        dto.TeacherId, alert.TeacherStudentId, alert.StudentName,
+                        alert.ConsecutiveAbsences, session.SessionName, date);
+                }
+            }
+
             // Update occurrence status
             await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
 
@@ -591,12 +666,49 @@ public class AttendanceService : IAttendanceService
     }
 
     // ══════════════════════════════════════════════
+    // UNMARKED COUNT (AUDIT FIX Step 17 — REQ-ATT-055)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<int>> GetUnmarkedCountAsync(
+        long teacherId, long sessionId, DateTime? occurrenceDate)
+    {
+        var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+        if (session is null)
+            return Result<int>.Failure(
+                _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
+
+        var date = occurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
+
+        var occurrence = await _unitOfWork.AttendanceRepo
+            .GetOccurrenceBySessionAndDateAsync(sessionId, date);
+        if (occurrence is null)
+            return Result<int>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
+
+        var assignments = await _unitOfWork.AttendanceRepo
+            .GetActiveAssignmentsBySessionAsync(sessionId);
+        int totalStudents = assignments.Count;
+
+        var records = await _unitOfWork.AttendanceRepo
+            .GetRecordsByOccurrenceAsync(occurrence.Id);
+        // Step 3.1: Exclude Held records from "marked" count
+        int markedCount = records.Count(r => r.Status != AttendanceStatus.Held);
+
+        int unmarkedCount = Math.Max(0, totalStudents - markedCount);
+        return Result<int>.Success(unmarkedCount, _localizer, AttendanceConstants.Messages.Success);
+    }
+
+    // ══════════════════════════════════════════════
     // HOLD STATUS (Step 3.1)
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
     public async Task<Result<MarkAttendanceResultDto>> HoldStudentAsync(HoldStudentDto dto)
     {
+        // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
+        dto.RecordedByUserId ??= dto.TeacherId;
+
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
         if (teacher is null)
             return Result<MarkAttendanceResultDto>.Failure(
@@ -609,9 +721,19 @@ public class AttendanceService : IAttendanceService
 
         var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(
             dto.TeacherStudentId, dto.TeacherId);
+        // AUDIT FIX Step 19: Distinguish "not found" from "in recycle bin"
         if (student is null)
+        {
+            var deletedStudent = await _unitOfWork.Students.GetByIdAndTeacherIgnoreFiltersAsync(
+                dto.TeacherStudentId, dto.TeacherId);
+            if (deletedStudent is not null && deletedStudent.IsDeleted)
+                return Result<MarkAttendanceResultDto>.Failure(
+                    _localizer, AttendanceConstants.Messages.AttendanceStudentInRecycleBin,
+                    HttpStatusCode.BadRequest);
+
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+        }
 
         var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
         var occurrence = await _unitOfWork.AttendanceRepo
@@ -695,6 +817,17 @@ public class AttendanceService : IAttendanceService
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceHoldNotFound, HttpStatusCode.NotFound);
 
+        // AUDIT FIX Step 8: Guard against session deleted while student on hold.
+        // If the session was deleted, the occurrence FK was set to null during cleanup.
+        if (heldRecord.SessionOccurrenceId is null)
+        {
+            await _unitOfWork.AttendanceRepo.DeleteAttendanceRecordAsync(heldRecord);
+            await _unitOfWork.SaveChangesAsync();
+            return Result<MarkAttendanceResultDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceSessionDeletedWhileHeld,
+                HttpStatusCode.Gone);
+        }
+
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
@@ -761,18 +894,7 @@ public class AttendanceService : IAttendanceService
     }
 
     // ══════════════════════════════════════════════
-    // EDIT ATTENDANCE — delegates to existing implementation
-    // (GetOccurrenceCalendarAsync, GetOccurrenceStudentsAsync,
-    //  EditAttendanceAsync, AddAttendanceRecordAsync,
-    //  DeleteAttendanceRecordAsync, GetEditHistoryAsync)
-    // These methods remain structurally the same as the original
-    // with Step 2.3 status validation added to AddAttendanceRecordAsync
-    // and Step 7.2 denormalized fields added to record creation.
-    // For brevity, see the EDIT ATTENDANCE section in the original file.
-    // The ONLY changes are:
-    // 1. AddAttendanceRecordAsync: Add status validation at top
-    // 2. AddAttendanceRecordAsync: Populate StudentName/StudentCode on new record
-    // 3. Use AttendanceConstants.Messages.* instead of raw strings
+    // EDIT ATTENDANCE
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
@@ -909,6 +1031,9 @@ public class AttendanceService : IAttendanceService
     /// <inheritdoc />
     public async Task<Result<AttendanceRecordDto>> AddAttendanceRecordAsync(AddAttendanceRecordDto dto)
     {
+        // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
+        dto.RecordedByUserId ??= dto.TeacherId;
+
         // Step 2.3: Validate status
         if (dto.Status == AttendanceStatus.Held || dto.Status == AttendanceStatus.CrossSessionPresent)
             return Result<AttendanceRecordDto>.Failure(
@@ -935,6 +1060,12 @@ public class AttendanceService : IAttendanceService
         if (assignment is null)
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned, HttpStatusCode.BadRequest);
+
+        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before assignment date
+        if (dto.OccurrenceDate.Date < assignment.AssignedAt.Date)
+            return Result<AttendanceRecordDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceBeforeAssignmentDate,
+                HttpStatusCode.BadRequest);
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -999,6 +1130,22 @@ public class AttendanceService : IAttendanceService
 
         try
         {
+            // AUDIT FIX Step 15 (BR-ATT-006): Log deletion before removing the record.
+            // With SetNull FK on AttendanceEditLog, the log survives with AttendanceRecordId = null.
+            var deletionLog = new AttendanceEditLog
+            {
+                AttendanceRecordId = record.Id,
+                PreviousStatus = record.Status,
+                NewStatus = record.Status, // Same — this is a deletion, not a status change
+                PreviousAttendanceMethod = record.AttendanceMethod,
+                NewAttendanceMethod = record.AttendanceMethod,
+                EditedAt = DateTime.UtcNow,
+                EditedByUserId = dto.TeacherId,
+                EditReason = "Record deleted via Edit Attendance (REQ-ATT-024)",
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.AttendanceRepo.AddEditLogAsync(deletionLog);
+
             await _unitOfWork.AttendanceRepo.DeleteAttendanceRecordAsync(record);
 
             if (record.TeacherStudentId.HasValue)
@@ -1066,6 +1213,44 @@ public class AttendanceService : IAttendanceService
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
         var allSessionIds = linkedSessions.Select(s => s.Id).Append(sessionId).ToList();
 
+        // AUDIT FIX Step 12 (REQ-ATT-035): If a specific date is requested,
+        // query AttendanceRecords for that date instead of global counters
+        if (request.OccurrenceDate.HasValue)
+        {
+            var dateRecordCount = await _unitOfWork.AttendanceRepo.CountAbsentStudentsByDateAsync(
+                teacherId, allSessionIds, request.OccurrenceDate.Value, request.Search);
+
+            var dateRecords = await _unitOfWork.AttendanceRepo.GetAbsentStudentsByDateAsync(
+                teacherId, allSessionIds, request.OccurrenceDate.Value,
+                request.Search, request.Page, request.PageSize);
+
+            var dateDtos = dateRecords.Select(r => new AbsenceOverviewStudentDto
+            {
+                TeacherStudentId = r.TeacherStudentId ?? 0,
+                StudentName = r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
+                StudentCode = r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "",
+                SessionId = r.SessionId,
+                SessionName = r.SessionName,
+                ConsecutiveAbsences = 0, // Not available from a single-date query
+                TotalAbsences = 0,
+                LastAbsenceDate = r.OccurrenceDate,
+                RecentStatuses = new List<AttendanceStatus> { AttendanceStatus.Absent }
+            }).ToList();
+
+            var dateResponse = new PaginatedResponse<List<AbsenceOverviewStudentDto>>
+            {
+                totalCount = dateRecordCount,
+                page = request.Page,
+                pageSize = request.PageSize,
+                totalPages = (int)Math.Ceiling(dateRecordCount / (double)request.PageSize),
+                data = dateDtos
+            };
+
+            return Result<PaginatedResponse<List<AbsenceOverviewStudentDto>>>.Success(
+                dateResponse, _localizer, AttendanceConstants.Messages.Success);
+        }
+
+        // Default path: latest occurrence — uses global absence counters
         int totalCount = await _unitOfWork.AttendanceRepo.CountAbsenceOverviewAsync(
             teacherId,
             sessionId: request.SessionId ?? sessionId,
@@ -1411,19 +1596,50 @@ public class AttendanceService : IAttendanceService
                     AttendanceMethod = entry.AttendanceMethod,
                     OccurrenceDate = entry.OccurrenceDate,
                     RecordedByUserId = dto.RecordedByUserId,
-                    AbsenceAlertConfirmed = true // Auto-confirm during sync
+                    // AUDIT FIX Step 5: Do NOT auto-confirm absence alerts during sync.
+                    // REQ-ATT-057/058: Tutor must explicitly confirm.
+                    AbsenceAlertConfirmed = false
                 };
 
                 var markResult = await MarkAttendanceAsync(markDto);
                 if (markResult.IsSuccess)
                 {
-                    successCount++;
-                    result.EntryResults.Add(new SyncEntryResultDto
+                    var markData = markResult.Data!;
+
+                    // AUDIT FIX Step 5: Detect absence-alert-pending returns.
+                    // When MarkAttendanceAsync returns success with HasAbsenceAlert=true
+                    // and Record=null, it means an absence alert is pending confirmation.
+                    if (markData.HasAbsenceAlert && markData.Record is null)
                     {
-                        ClientEntryId = entry.ClientEntryId,
-                        Success = true,
-                        IsConflict = false
-                    });
+                        result.RequiresConfirmationCount++;
+                        result.EntryResults.Add(new SyncEntryResultDto
+                        {
+                            ClientEntryId = entry.ClientEntryId,
+                            Success = false,
+                            IsConflict = false,
+                            RequiresAbsenceConfirmation = true,
+                            AbsenceAlertInfo = new AbsenceAlertStudentDto
+                            {
+                                TeacherStudentId = entry.TeacherStudentId,
+                                StudentName = markData.LastAbsenceSessionName ?? "Unknown",
+                                StudentCode = "",
+                                ConsecutiveAbsences = markData.ConsecutiveAbsences,
+                                LastAbsenceDate = markData.LastAbsenceDate,
+                                LastAbsenceSessionName = markData.LastAbsenceSessionName,
+                                WasCrossSession = markData.LastAbsenceWasCrossSession
+                            }
+                        });
+                    }
+                    else
+                    {
+                        successCount++;
+                        result.EntryResults.Add(new SyncEntryResultDto
+                        {
+                            ClientEntryId = entry.ClientEntryId,
+                            Success = true,
+                            IsConflict = false
+                        });
+                    }
                 }
                 else
                 {
@@ -1494,6 +1710,8 @@ public class AttendanceService : IAttendanceService
     public async Task<Result<bool>> OnStudentAssignedToSessionAsync(
         long teacherId, long teacherStudentId, long sessionId, string sessionName)
     {
+        // AUDIT FIX Step 14: Deactivate any existing active assignment first (idempotent).
+        // Prevents dual active assignments even if caller forgot to unassign (REQ-ATT-048 safety).
         var existingAssignment = await _unitOfWork.AttendanceRepo
             .GetActiveAssignmentAsync(teacherStudentId);
         if (existingAssignment is not null)
@@ -1503,12 +1721,18 @@ public class AttendanceService : IAttendanceService
             await _unitOfWork.AttendanceRepo.UpdateAssignmentAsync(existingAssignment);
         }
 
+        // AUDIT FIX Step 1: Fetch student to populate denormalized fields
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(teacherStudentId, teacherId);
+
         var assignment = new StudentSessionAssignment
         {
             TeacherId = teacherId,
             TeacherStudentId = teacherStudentId,
             SessionId = sessionId,
             SessionName = sessionName,
+            // AUDIT FIX Step 1: Denormalized student fields — survive student permanent purge
+            StudentName = student?.StudentName,
+            StudentCode = student?.StudentCode,
             AssignedAt = DateTime.UtcNow,
             IsActive = true,
             CreateAt = DateTime.UtcNow
