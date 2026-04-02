@@ -63,6 +63,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         base.OnConfiguring(optionsBuilder);
         optionsBuilder.ConfigureWarnings(warnings =>
             warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
+
+        optionsBuilder.UseSqlServer(opt => opt.CommandTimeout(300));
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -711,34 +713,34 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<SessionOccurrence>(entity =>
         {
             entity.ToTable("SessionOccurrences");
-        
+
             entity.Property(o => o.OccurrenceDate)
                 .HasColumnType("date")
                 .IsRequired();
-        
+
             entity.Property(o => o.Status)
                 .IsRequired()
                 .HasDefaultValue(OccurrenceStatus.Pending);
-        
+
             // Unique: one occurrence per session per date
             entity.HasIndex(o => new { o.SessionId, o.OccurrenceDate })
                 .IsUnique()
                 .HasDatabaseName("IX_SessionOccurrences_SessionId_OccurrenceDate");
-        
+
             // Workhorse index: "which sessions occur today for this teacher?"
             entity.HasIndex(o => new { o.TeacherId, o.OccurrenceDate })
                 .HasDatabaseName("IX_SessionOccurrences_TeacherId_OccurrenceDate");
-        
+
             // Dashboard filtering: completed vs. pending
             entity.HasIndex(o => new { o.TeacherId, o.Status })
                 .HasDatabaseName("IX_SessionOccurrences_TeacherId_Status");
-        
+
             // Teacher FK: CASCADE — teacher deletion removes all occurrences
             entity.HasOne(o => o.Teacher)
                 .WithMany()
                 .HasForeignKey(o => o.TeacherId)
                 .OnDelete(DeleteBehavior.Cascade);
-        
+
             // Session FK: CASCADE — session hard-delete removes occurrences
             entity.HasOne(o => o.Session)
                 .WithMany()
@@ -844,6 +846,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(r => r.StudentCode)
                 .HasMaxLength(20);
 
+            // FIX H3: Denormalized SessionGroupId for Report Type 5 (BR-ATT-005).
+            // Survives session hard-delete so SessionGroupAttendance reports include all records.
+            // Index enables efficient filtering for Report Type 5 queries.
+            entity.HasIndex(r => new { r.TeacherId, r.SessionGroupId })
+                .HasFilter("[SessionGroupId] IS NOT NULL")
+                .HasDatabaseName("IX_AR_TeacherId_SessionGroupId");
+
             // BR-ATT-002: One attendance per student per occurrence (duplicate prevention)
             entity.HasIndex(r => new { r.TeacherStudentId, r.SessionOccurrenceId })
                 .IsUnique()
@@ -947,13 +956,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<StudentAbsenceCounter>(entity =>
         {
             entity.ToTable("StudentAbsenceCounters");
-       
+
             entity.Property(c => c.LastAbsenceDate)
                 .HasColumnType("date");
-       
+
             entity.Property(c => c.LastAbsenceSessionName)
                 .HasMaxLength(200);
-       
+
             entity.Property(c => c.LastAttendanceDate)
                 .HasColumnType("date");
 
@@ -965,21 +974,21 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(c => new { c.TeacherId, c.TeacherStudentId })
                 .IsUnique()
                 .HasDatabaseName("IX_SAC_TeacherId_TeacherStudentId");
-       
+
             // Absence overview: sorted by consecutive absences
             entity.HasIndex(c => new { c.TeacherId, c.ConsecutiveAbsences })
                 .HasDatabaseName("IX_SAC_TeacherId_ConsecutiveAbsences");
-       
+
             // Fast lookup when marking attendance
             entity.HasIndex(c => c.TeacherStudentId)
                 .HasDatabaseName("IX_SAC_TeacherStudentId");
-       
+
             // Teacher FK: CASCADE
             entity.HasOne(c => c.Teacher)
                 .WithMany()
                 .HasForeignKey(c => c.TeacherId)
                 .OnDelete(DeleteBehavior.Cascade);
-       
+
             // TeacherStudent FK: NO ACTION — cleaned up via app logic on purge
             entity.HasOne(c => c.TeacherStudent)
                 .WithMany()

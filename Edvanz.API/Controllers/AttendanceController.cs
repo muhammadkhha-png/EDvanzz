@@ -164,6 +164,34 @@ public class AttendanceController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 6B: GET OCCURRENCE STUDENTS (FIX C2)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns the student attendance records for a specific past occurrence date.
+    //   REQ-ATT-023/024: Edit Attendance view — select any past/future date and
+    //   view/modify attendance records for that date.
+    //
+    //   FIX C2: This service method (GetOccurrenceStudentsAsync) existed in
+    //   IAttendanceService and AttendanceService but had NO controller endpoint,
+    //   making the Edit Attendance student list for past dates unreachable by frontend.
+    //
+    // TABLES READ: Sessions, SessionOccurrences, AttendanceRecords
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/occurrences/{occurrenceDate:datetime}/students")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOccurrenceStudents(
+        [FromRoute] long teacherId,
+        [FromRoute] long sessionId,
+        [FromRoute] DateTime occurrenceDate)
+    {
+        var result = await _attendanceService.GetOccurrenceStudentsAsync(teacherId, sessionId, occurrenceDate);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 7: EDIT ATTENDANCE RECORD
     // ══════════════════════════════════════════════════════════════════════════
     //

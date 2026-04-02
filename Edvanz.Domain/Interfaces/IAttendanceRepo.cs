@@ -29,18 +29,22 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// <summary>
     /// Gets students who were absent on a specific occurrence date across given sessions.
     /// Audit Fix (REQ-ATT-035): View absence history for a selected past date.
+    /// FIX H4: Added phone filter parameters for REQ-ATT-034 compliance.
     /// </summary>
     Task<IReadOnlyList<AttendanceRecord>> GetAbsentStudentsByDateAsync(
         long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
-        string? search, int page, int pageSize);
+        string? search, int page, int pageSize,
+        bool? missingStudentPhone = null, bool? missingParentPhone = null);
 
     /// <summary>
     /// Counts students who were absent on a specific date across given sessions.
     /// Audit Fix (REQ-ATT-035): Count variant for date-specific absence overview.
+    /// FIX H4: Added phone filter parameters for REQ-ATT-034 compliance.
     /// </summary>
     Task<int> CountAbsentStudentsByDateAsync(
         long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
-        string? search);
+        string? search,
+        bool? missingStudentPhone = null, bool? missingParentPhone = null);
 
     // ══════════════════════════════════════════════
     // SESSION OCCURRENCE QUERIES
@@ -457,6 +461,39 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         IEnumerable<long> linkedSessionIds,
         string? search, bool unmarkedOnly,
         int page, int pageSize);
+
+    // ══════════════════════════════════════════════
+    // V2 AUDIT FIX — NEW BATCH METHODS
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX C1 (REQ-ATT-050): Counts active student assignments per session in a single query.
+    /// Returns dictionary keyed by SessionId → count of active assignments.
+    /// Used by GetDashboardAsync to populate TotalStudents on each session card.
+    /// </summary>
+    Task<Dictionary<long, int>> CountActiveAssignmentsBySessionBatchAsync(IEnumerable<long> sessionIds);
+
+    /// <summary>
+    /// FIX M3 (REQ-ATT-068): Batch-loads recent attendance statuses for multiple students.
+    /// Returns dictionary keyed by TeacherStudentId → list of last N statuses.
+    /// Replaces N+1 GetRecentRecordsByStudentAsync calls in absence overview loop.
+    /// </summary>
+    Task<Dictionary<long, IReadOnlyList<AttendanceStatus>>> GetRecentRecordsByStudentsBatchAsync(
+        IEnumerable<long> teacherStudentIds, int count);
+
+    /// <summary>
+    /// FIX M4 (REQ-ATT-072): Returns paginated student IDs from assignments with DB-level Skip/Take.
+    /// Previously all distinct IDs were loaded into memory and paginated with LINQ.
+    /// Returns (pagedIds, totalCount) for efficient timeline pagination.
+    /// </summary>
+    Task<(IReadOnlyList<long> PagedIds, int TotalCount)> GetPagedTimelineStudentIdsAsync(
+        long teacherId,
+        int page,
+        int pageSize,
+        long? sessionId = null,
+        long? sessionGroupId = null,
+        string? studentName = null,
+        string? studentCode = null);
 }
 
 /// <summary>

@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <Folder Include="Middlewares\" />
+    <Folder Include="Resources\" />
   </ItemGroup>
 
 </Project>

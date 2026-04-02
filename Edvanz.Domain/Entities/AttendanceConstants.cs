@@ -39,6 +39,13 @@ public static class AttendanceConstants
     /// </summary>
     public const int EditReasonMaxLength = 500;
 
+    /// <summary>
+    /// Maximum number of retries for DbUpdateConcurrencyException on counter updates.
+    /// FIX H7: Prevents unhandled concurrency exceptions when two assistants mark
+    /// attendance for linked sessions simultaneously.
+    /// </summary>
+    public const int MaxConcurrencyRetries = 3;
+
     // ══════════════════════════════════════════════
     // LOCALIZATION KEYS — ATTENDANCE MODULE
     // ══════════════════════════════════════════════
@@ -102,5 +109,25 @@ public static class AttendanceConstants
 
         /// <summary>Student is in recycle bin (soft-deleted) and cannot have attendance recorded.</summary>
         public const string AttendanceStudentInRecycleBin = "AttendanceStudentInRecycleBin";
+
+        // ══════════════════════════════════════════════
+        // V2 AUDIT FIX — ADDITIONAL MESSAGE KEYS
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// FIX H5: Used when report generation fails in the export path.
+        /// Previously the export path incorrectly used AttendanceReportGenerated (a success key).
+        /// </summary>
+        public const string AttendanceReportGenerationFailed = "AttendanceReportGenerationFailed";
+
+        /// <summary>
+        /// FIX H7: Concurrency conflict on absence counter update — retry exhausted.
+        /// </summary>
+        public const string AttendanceConcurrencyConflict = "AttendanceConcurrencyConflict";
+
+        /// <summary>
+        /// FIX H1: Duplicate attendance record detected via Edit Attendance add path.
+        /// </summary>
+        public const string AttendanceDuplicateRecordExists = "AttendanceDuplicateRecordExists";
     }
 }

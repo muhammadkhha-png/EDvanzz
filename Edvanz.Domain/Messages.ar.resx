@@ -534,4 +534,13 @@
   <data name="AttendanceStudentInRecycleBin" xml:space="preserve">
     <value>الطالب ده موجود في سلة المحذوفات ومينفعش يتسجل له حضور. استعيد الطالب الأول عشان تكمل</value>
   </data>
+  <data name="AttendanceReportGenerationFailed" xml:space="preserve">
+    <value>فشل إنشاء تقرير الحضور. من فضلك راجع بيانات التقرير وحاول تاني.</value>
+  </data>
+  <data name="AttendanceConcurrencyConflict" xml:space="preserve">
+    <value>حصل تعارض أثناء تحديث بيانات الحضور. من فضلك حاول تاني.</value>
+  </data>
+  <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
+    <value>فيه سجل حضور موجود أصلاً للطالب ده في الحصة دي. مش مسموح بتسجيل حضور مكرر.</value>
+  </data>
 </root>

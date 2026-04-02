@@ -125,6 +125,16 @@ public class AttendanceRecord : BaseEntity
     [Column(TypeName = "date")]
     public DateTime OccurrenceDate { get; set; }
 
+    /// <summary>
+    /// FIX H3: Denormalized session group Id at recording time.
+    /// REQ-ATT-040 Type 5 (SessionGroupAttendance) requires filtering by session group.
+    /// After session hard-delete, SessionOccurrence is cascade-deleted and
+    /// the navigation path r.SessionOccurrence.Session.SessionGroupId becomes null.
+    /// This denormalized field enables Report Type 5 to include records from deleted sessions,
+    /// satisfying BR-ATT-005.
+    /// </summary>
+    public long? SessionGroupId { get; set; }
+
     // ══════════════════════════════════════════════
     // ATTENDANCE DATA
     // ══════════════════════════════════════════════

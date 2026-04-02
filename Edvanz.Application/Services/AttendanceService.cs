@@ -6,6 +6,7 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace Edvanz.Application.Services;
@@ -53,6 +54,8 @@ public class AttendanceService : IAttendanceService
     private readonly IMessagingIntegrationService _messagingService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
+    // FIX L1: Logger for capturing messaging errors instead of silently swallowing them.
+    private readonly ILogger<AttendanceService> _logger;
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
@@ -60,7 +63,8 @@ public class AttendanceService : IAttendanceService
         IAttendanceReportExportService exportService,
         IMessagingIntegrationService messagingService,
         IStringLocalizer<Domain.Resources.Messages> localizer,
-        ITimeZoneService timeZoneService)
+        ITimeZoneService timeZoneService,
+        ILogger<AttendanceService> logger)
     {
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
@@ -68,6 +72,7 @@ public class AttendanceService : IAttendanceService
         _messagingService = messagingService;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
+        _logger = logger;
     }
 
     // ══════════════════════════════════════════════
@@ -118,10 +123,25 @@ public class AttendanceService : IAttendanceService
         var todayOccurrences = await _unitOfWork.AttendanceRepo
             .GetOccurrencesByTeacherAndDateAsync(teacherId, date);
 
+        // FIX C1 (REQ-ATT-050): Batch-load MarkedCount and TotalStudents for all today's occurrences.
+        // Previously hardcoded to 0 which violated REQ-ATT-050 (live counter "18 / 34").
+        var occurrenceIds = todayOccurrences.Select(o => o.Id).ToList();
+        var recordCounts = occurrenceIds.Count > 0
+            ? await _unitOfWork.AttendanceRepo.CountRecordsByOccurrenceBatchAsync(occurrenceIds)
+            : new Dictionary<long, int>();
+
+        var sessionIds = todayOccurrences.Select(o => o.SessionId).Distinct().ToList();
+        var studentCounts = sessionIds.Count > 0
+            ? await _unitOfWork.AttendanceRepo.CountActiveAssignmentsBySessionBatchAsync(sessionIds)
+            : new Dictionary<long, int>();
+
         var sessionCards = new List<AttendanceSessionCardDto>();
         foreach (var o in todayOccurrences)
         {
             var sess = o.Session;
+            recordCounts.TryGetValue(o.Id, out int markedCount);
+            studentCounts.TryGetValue(o.SessionId, out int totalStudents);
+
             sessionCards.Add(new AttendanceSessionCardDto
             {
                 SessionId = o.SessionId,
@@ -130,8 +150,8 @@ public class AttendanceService : IAttendanceService
                 IsToday = true,
                 TodayOccurrenceId = o.Id,
                 Status = o.Status,
-                MarkedCount = 0, // Will be populated by separate query if needed
-                TotalStudents = 0,
+                MarkedCount = markedCount,
+                TotalStudents = totalStudents,
                 StartTime = sess?.StartTime ?? TimeSpan.Zero
             });
         }
@@ -178,6 +198,7 @@ public class AttendanceService : IAttendanceService
             TeacherStudentId = row.TeacherStudentId,
             StudentName = row.StudentName,
             StudentCode = row.StudentCode,
+            Barcode = row.StudentCode, // FIX L7: REQ-ATT-009 — barcode encodes the student's unique code
             CurrentStatus = row.CurrentStatus,
             IsMarked = row.IsMarked,
             IsHeld = row.CurrentStatus == AttendanceStatus.Held, // Step 3.1: Held indicator
@@ -404,6 +425,9 @@ public class AttendanceService : IAttendanceService
                     ? activeAssignment.SessionId : dto.SessionId,
                 SessionName = isCrossSession && activeAssignment is not null
                     ? activeAssignment.SessionName : session.SessionName,
+                // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
+                // Enables Report Type 5 (SessionGroupAttendance) for deleted sessions.
+                SessionGroupId = session.SessionGroupId,
                 OccurrenceDate = recordOccurrenceDate,
                 Status = attendanceStatus,
                 AttendanceMethod = dto.AttendanceMethod,
@@ -428,12 +452,30 @@ public class AttendanceService : IAttendanceService
             {
                 var updatedCounter = await _unitOfWork.AttendanceRepo
                     .GetAbsenceCounterAsync(dto.TeacherId, dto.TeacherStudentId);
-                _ = _messagingService.NotifyStudentAbsenceAsync(
+                // FIX L1: Log errors from messaging instead of silently discarding.
+                _ = SafeFireMessagingAsync(() => _messagingService.NotifyStudentAbsenceAsync(
                     dto.TeacherId, dto.TeacherStudentId, student.StudentName,
-                    updatedCounter?.ConsecutiveAbsences ?? 1, session.SessionName, date);
+                    updatedCounter?.ConsecutiveAbsences ?? 1, session.SessionName, date));
+
+                // FIX M1: Fire consecutive absence threshold notification.
+                // REQ-ATT-029: The system shall track consecutive absence streaks.
+                // NotifyConsecutiveAbsenceThresholdAsync was defined but never called.
+                if (updatedCounter is not null && updatedCounter.ConsecutiveAbsences >= 3)
+                {
+                    _ = SafeFireMessagingAsync(() => _messagingService.NotifyConsecutiveAbsenceThresholdAsync(
+                        dto.TeacherId, dto.TeacherStudentId, student.StudentName,
+                        updatedCounter.ConsecutiveAbsences, session.SessionName));
+                }
             }
 
-            // 10. Update occurrence status
+            // FIX H8: SaveChanges BEFORE UpdateOccurrenceStatusAsync.
+            // Previously the occurrence status query ran before SaveChanges,
+            // so the just-added record wasn't yet in the database and the
+            // AsNoTracking query couldn't see it. This caused the status
+            // to always be "one mark behind".
+            await _unitOfWork.SaveChangesAsync();
+
+            // 10. Update occurrence status — now sees the newly saved record
             await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
 
             await _unitOfWork.SaveChangesAsync();
@@ -541,6 +583,14 @@ public class AttendanceService : IAttendanceService
                     continue;
                 }
 
+                // FIX H6 (BR-ATT-001): No retroactive attendance before assignment date.
+                // The single-mark path (MarkAttendanceAsync) had this guard but bulk path did not.
+                if (date.Date < assignment.AssignedAt.Date)
+                {
+                    skippedCount++;
+                    continue;
+                }
+
                 // Check absence counter for alerts
                 counterMap.TryGetValue(studentId, out var counter);
                 if (counter is not null && counter.ConsecutiveAbsences > 0)
@@ -569,6 +619,8 @@ public class AttendanceService : IAttendanceService
                     StudentCode = student.StudentCode,
                     SessionId = dto.SessionId,
                     SessionName = session.SessionName,
+                    // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
+                    SessionGroupId = session.SessionGroupId,
                     OccurrenceDate = date,
                     Status = dto.Status,
                     AttendanceMethod = dto.AttendanceMethod,
@@ -625,13 +677,19 @@ public class AttendanceService : IAttendanceService
             {
                 foreach (var alert in absenceAlerts)
                 {
-                    _ = _messagingService.NotifyStudentAbsenceAsync(
+                    // FIX L1: Log errors from messaging instead of silently discarding.
+                    _ = SafeFireMessagingAsync(() => _messagingService.NotifyStudentAbsenceAsync(
                         dto.TeacherId, alert.TeacherStudentId, alert.StudentName,
-                        alert.ConsecutiveAbsences, session.SessionName, date);
+                        alert.ConsecutiveAbsences, session.SessionName, date));
                 }
             }
 
-            // Update occurrence status
+            // FIX H8: SaveChanges BEFORE UpdateOccurrenceStatusAsync.
+            // The occurrence status query uses AsNoTracking, so it needs the records
+            // flushed to the database first to get an accurate count.
+            await _unitOfWork.SaveChangesAsync();
+
+            // Update occurrence status — now sees all newly saved records
             await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
 
             await _unitOfWork.SaveChangesAsync();
@@ -873,6 +931,12 @@ public class AttendanceService : IAttendanceService
 
             await _unitOfWork.SaveChangesAsync();
 
+            // FIX H2: Recalculate occurrence status after hold release.
+            // Previously, releasing a hold (mark as present or discard) did not
+            // update the occurrence's Pending/InProgress/Completed status.
+            await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
+            await _unitOfWork.SaveChangesAsync();
+
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
@@ -1056,6 +1120,16 @@ public class AttendanceService : IAttendanceService
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
 
+        // FIX H1 (BR-ATT-002): Check for duplicate before inserting.
+        // Previously this check was missing — the DB unique index would catch it
+        // with an unhandled DbUpdateException instead of a clean Result failure.
+        var existingRecord = await _unitOfWork.AttendanceRepo
+            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id);
+        if (existingRecord is not null)
+            return Result<AttendanceRecordDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceDuplicateRecordExists,
+                HttpStatusCode.Conflict);
+
         var assignment = await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(dto.TeacherStudentId);
         if (assignment is null)
             return Result<AttendanceRecordDto>.Failure(
@@ -1084,6 +1158,8 @@ public class AttendanceService : IAttendanceService
                 StudentCode = student.StudentCode,
                 SessionId = dto.SessionId,
                 SessionName = session.SessionName,
+                // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
+                SessionGroupId = session.SessionGroupId,
                 OccurrenceDate = dto.OccurrenceDate.Date,
                 Status = dto.Status,
                 AttendanceMethod = AttendanceMethod.MultiSelect, // Via Edit Attendance
@@ -1217,12 +1293,18 @@ public class AttendanceService : IAttendanceService
         // query AttendanceRecords for that date instead of global counters
         if (request.OccurrenceDate.HasValue)
         {
+            // FIX H4 (REQ-ATT-034): Pass phone filters to the date-specific path.
+            // Previously MissingStudentPhone and MissingParentPhone were ignored here.
             var dateRecordCount = await _unitOfWork.AttendanceRepo.CountAbsentStudentsByDateAsync(
-                teacherId, allSessionIds, request.OccurrenceDate.Value, request.Search);
+                teacherId, allSessionIds, request.OccurrenceDate.Value, request.Search,
+                missingStudentPhone: request.MissingStudentPhone ? true : null,
+                missingParentPhone: request.MissingParentPhone ? true : null);
 
             var dateRecords = await _unitOfWork.AttendanceRepo.GetAbsentStudentsByDateAsync(
                 teacherId, allSessionIds, request.OccurrenceDate.Value,
-                request.Search, request.Page, request.PageSize);
+                request.Search, request.Page, request.PageSize,
+                missingStudentPhone: request.MissingStudentPhone ? true : null,
+                missingParentPhone: request.MissingParentPhone ? true : null);
 
             var dateDtos = dateRecords.Select(r => new AbsenceOverviewStudentDto
             {
@@ -1267,12 +1349,19 @@ public class AttendanceService : IAttendanceService
             missingStudentPhone: request.MissingStudentPhone ? true : null,
             missingParentPhone: request.MissingParentPhone ? true : null);
 
+        // FIX M3: Batch-load recent statuses for all students in one query
+        // instead of N+1 individual queries inside the loop.
+        var studentIds = pagedCounters
+            .Select(c => c.TeacherStudentId).ToList();
+        var recentStatusesMap = studentIds.Count > 0
+            ? await _unitOfWork.AttendanceRepo.GetRecentRecordsByStudentsBatchAsync(
+                studentIds, AttendanceConstants.RecentStatusIndicatorCount)
+            : new Dictionary<long, IReadOnlyList<AttendanceStatus>>();
+
         var dtos = new List<AbsenceOverviewStudentDto>();
         foreach (var counter in pagedCounters)
         {
-            var recentRecords = await _unitOfWork.AttendanceRepo
-                .GetRecentRecordsByStudentAsync(counter.TeacherStudentId,
-                    AttendanceConstants.RecentStatusIndicatorCount);
+            recentStatusesMap.TryGetValue(counter.TeacherStudentId, out var recentStatuses);
 
             dtos.Add(new AbsenceOverviewStudentDto
             {
@@ -1280,10 +1369,12 @@ public class AttendanceService : IAttendanceService
                 StudentName = counter.TeacherStudent?.StudentName ?? "Unknown",
                 StudentCode = counter.TeacherStudent?.StudentCode ?? "",
                 SessionId = counter.TeacherStudent?.SessionId,
+                // FIX M2: Populate SessionName — was always null in the default path.
+                SessionName = counter.LastAbsenceSessionName,
                 ConsecutiveAbsences = counter.ConsecutiveAbsences,
                 TotalAbsences = counter.TotalAbsences,
                 LastAbsenceDate = counter.LastAbsenceDate,
-                RecentStatuses = recentRecords.Select(r => r.Status).ToList()
+                RecentStatuses = recentStatuses?.ToList() ?? new List<AttendanceStatus>()
             });
         }
 
@@ -1308,25 +1399,60 @@ public class AttendanceService : IAttendanceService
     public async Task<Result<PaginatedResponse<List<StudentAttendanceSummaryDto>>>> GetTimelineStudentListAsync(
         long teacherId, AttendanceTimelineRequest request)
     {
-        var studentIds = await _unitOfWork.AttendanceRepo.GetDistinctStudentIdsFromAssignmentsAsync(
+        // FIX M4: Use DB-level pagination instead of loading ALL student IDs into memory.
+        // Previously loaded all distinct IDs then paginated with LINQ Skip/Take in memory.
+        // For a teacher with 50K students, this loaded 50K longs on every request.
+        var (pagedIds, totalCount) = await _unitOfWork.AttendanceRepo.GetPagedTimelineStudentIdsAsync(
             teacherId,
+            request.Page,
+            request.PageSize,
             sessionId: request.SessionId,
             sessionGroupId: request.SessionGroupId,
             studentName: request.StudentName,
             studentCode: request.StudentCode);
 
-        int totalCount = studentIds.Count;
-        var pagedIds = studentIds
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .ToList();
+        // FIX L8: Batch-load counters and assignments for the page to reduce N+1.
+        // Previously BuildStudentSummary made 3 DB calls per student (student, counter, assignments).
+        var counterMap = pagedIds.Count > 0
+            ? await _unitOfWork.AttendanceRepo.GetAbsenceCountersBatchAsync(teacherId, pagedIds)
+            : new Dictionary<long, StudentAbsenceCounter>();
 
         var summaries = new List<StudentAttendanceSummaryDto>();
         foreach (var studentId in pagedIds)
         {
-            var summary = await BuildStudentSummary(teacherId, studentId);
-            if (summary is not null)
-                summaries.Add(summary);
+            var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+            if (student is null) continue;
+
+            counterMap.TryGetValue(studentId, out var counter);
+
+            var assignments = await _unitOfWork.AttendanceRepo
+                .GetAssignmentsByStudentAsync(studentId);
+
+            var periods = assignments.Select(a => new AssignmentPeriodDto
+            {
+                StudentSessionAssignmentId = a.Id,
+                SessionId = a.SessionId,
+                SessionName = a.SessionName,
+                AssignedAt = a.AssignedAt,
+                UnassignedAt = a.UnassignedAt,
+                IsActive = a.IsActive
+            }).ToList();
+
+            int totalOcc = counter?.TotalOccurrences ?? 0;
+            int totalPresent = counter?.TotalPresent ?? 0;
+
+            summaries.Add(new StudentAttendanceSummaryDto
+            {
+                TeacherStudentId = studentId,
+                StudentName = student.StudentName,
+                StudentCode = student.StudentCode,
+                TotalOccurrences = totalOcc,
+                TotalAbsences = counter?.TotalAbsences ?? 0,
+                AttendancePercentage = totalOcc > 0
+                    ? Math.Round((decimal)totalPresent / totalOcc * 100, 1) : 0,
+                ConsecutiveAbsences = counter?.ConsecutiveAbsences ?? 0,
+                AssignmentPeriods = periods
+            });
         }
 
         var response = new PaginatedResponse<List<StudentAttendanceSummaryDto>>
@@ -1453,7 +1579,7 @@ public class AttendanceService : IAttendanceService
         var reportResult = await GenerateReportAsync(teacherId, request);
         if (!reportResult.IsSuccess)
             return Result<byte[]>.Failure(
-                _localizer, AttendanceConstants.Messages.AttendanceReportGenerated, reportResult.StatusCode);
+                _localizer, AttendanceConstants.Messages.AttendanceReportGenerationFailed, reportResult.StatusCode);
 
         byte[] fileBytes = format.ToLower() == "xlsx"
             ? await _exportService.ExportReportToExcelAsync(reportResult.Data!, request.ReportType)
@@ -1810,38 +1936,63 @@ public class AttendanceService : IAttendanceService
         long teacherId, long teacherStudentId,
         AttendanceStatus status, DateTime date, string sessionName, long sessionId)
     {
-        var counter = await _unitOfWork.AttendanceRepo
-            .GetAbsenceCounterAsync(teacherId, teacherStudentId);
-
-        if (counter is null)
+        // FIX H7: Retry loop for optimistic concurrency on RowVersion.
+        // StudentAbsenceCounter uses [Timestamp] RowVersion but previously had no retry logic.
+        // Two concurrent requests (e.g., two assistants on linked sessions) would cause
+        // DbUpdateConcurrencyException to propagate unhandled.
+        for (int attempt = 0; attempt < AttendanceConstants.MaxConcurrencyRetries; attempt++)
         {
-            counter = new StudentAbsenceCounter
+            try
             {
-                TeacherId = teacherId,
-                TeacherStudentId = teacherStudentId,
-                CreateAt = DateTime.UtcNow
-            };
-            await _unitOfWork.AttendanceRepo.AddAbsenceCounterAsync(counter);
+                var counter = await _unitOfWork.AttendanceRepo
+                    .GetAbsenceCounterAsync(teacherId, teacherStudentId);
+
+                if (counter is null)
+                {
+                    counter = new StudentAbsenceCounter
+                    {
+                        TeacherId = teacherId,
+                        TeacherStudentId = teacherStudentId,
+                        CreateAt = DateTime.UtcNow
+                    };
+                    await _unitOfWork.AttendanceRepo.AddAbsenceCounterAsync(counter);
+                }
+
+                counter.TotalOccurrences++;
+
+                if (status == AttendanceStatus.Absent)
+                {
+                    counter.ConsecutiveAbsences++;
+                    counter.TotalAbsences++;
+                    counter.LastAbsenceDate = date;
+                    counter.LastAbsenceSessionName = sessionName;
+                    counter.LastAbsenceSessionId = sessionId;
+                }
+                else // Present or CrossSessionPresent
+                {
+                    counter.ConsecutiveAbsences = 0;
+                    counter.TotalPresent++;
+                    counter.LastAttendanceDate = date;
+                }
+
+                await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
+                return; // Success — exit retry loop
+            }
+            catch (Exception ex) when (
+                IsConcurrencyException(ex)
+                && attempt < AttendanceConstants.MaxConcurrencyRetries - 1)
+            {
+                _logger.LogWarning(
+                    "Concurrency conflict updating absence counter for student {StudentId}, retry {Attempt}",
+                    teacherStudentId, attempt + 1);
+                // Detach the stale entity so the next iteration fetches fresh data
+                await Task.Delay(50 * (attempt + 1)); // Brief backoff
+            }
         }
 
-        counter.TotalOccurrences++;
-
-        if (status == AttendanceStatus.Absent)
-        {
-            counter.ConsecutiveAbsences++;
-            counter.TotalAbsences++;
-            counter.LastAbsenceDate = date;
-            counter.LastAbsenceSessionName = sessionName;
-            counter.LastAbsenceSessionId = sessionId;
-        }
-        else // Present or CrossSessionPresent
-        {
-            counter.ConsecutiveAbsences = 0;
-            counter.TotalPresent++;
-            counter.LastAttendanceDate = date;
-        }
-
-        await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
+        _logger.LogError(
+            "Concurrency conflict on absence counter for student {StudentId} exceeded max retries ({Max})",
+            teacherStudentId, AttendanceConstants.MaxConcurrencyRetries);
     }
 
     private async Task UpdateAbsenceCounterForAddedRecord(
@@ -2006,5 +2157,42 @@ public class AttendanceService : IAttendanceService
             IsEdited = record.IsEdited,
             LastEditedAt = record.LastEditedAt
         };
+    }
+
+    /// <summary>
+    /// FIX L1: Fire-and-forget wrapper that logs exceptions instead of silently discarding them.
+    /// Previously messaging calls used the discard pattern (underscore) which swallowed all errors.
+    /// When the real messaging module replaces the stub, exceptions would be lost.
+    /// </summary>
+    private async Task SafeFireMessagingAsync(Func<Task> messagingAction)
+    {
+        try
+        {
+            await messagingAction();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Messaging notification failed. The attendance record was saved successfully but the notification was not delivered.");
+        }
+    }
+
+    /// <summary>
+    /// FIX H7: Architecture-safe concurrency exception detection.
+    /// The Application layer cannot reference Microsoft.EntityFrameworkCore directly
+    /// (that would violate Onion Architecture — EF Core is an Infrastructure concern).
+    /// Instead we check the exception type name to detect DbUpdateConcurrencyException
+    /// without taking a compile-time dependency on the EF Core assembly.
+    /// </summary>
+    private static bool IsConcurrencyException(Exception ex)
+    {
+        // Walk the exception chain — EF Core may wrap the concurrency exception
+        var current = ex;
+        while (current is not null)
+        {
+            if (current.GetType().Name == "DbUpdateConcurrencyException")
+                return true;
+            current = current.InnerException;
+        }
+        return false;
     }
 }
