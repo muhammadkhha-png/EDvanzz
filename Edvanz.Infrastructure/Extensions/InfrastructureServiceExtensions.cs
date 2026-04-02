@@ -40,6 +40,6 @@ public static class InfrastructureServiceExtensions
         // REQ-ATT-041: Reports exportable as PDF or Excel.
         // REQ-ATT-081: Timeline exportable as PDF or Excel.
         // TODO: Uncomment when AttendanceReportExportService is implemented with ClosedXML/QuestPDF.
-        // services.AddScoped<IAttendanceReportExportService, AttendanceReportExportService>();
+        services.AddScoped<IAttendanceReportExportService, AttendanceReportExportService>();
     }
 }

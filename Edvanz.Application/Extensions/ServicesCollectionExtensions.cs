@@ -1,11 +1,12 @@
-﻿using Edvanz.Application.Services;
-using Edvanz.Domain.Interfaces;
+﻿using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Builder;
-using System.Globalization;
-using Edvanz.Application.IservicesContract;
+using Edvanz.Application.Services;
+using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.ServiceContract;
+using Edvanz.Infrastructure.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using System.Globalization;
 
 namespace Edvanz.Application.Extensions;
 
@@ -47,6 +48,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IAttendanceService, AttendanceService>();
         services.AddScoped<IAssistantService, AssistantService>();
         services.AddScoped<IUserPermissionService,UserPermissionService>();
+        services.AddScoped<IMessagingIntegrationService, StubMessagingIntegrationService>();
 
         #endregion
 

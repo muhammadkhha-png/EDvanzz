@@ -10,14 +10,16 @@ namespace Edvanz.Domain.Entities;
 /// REQ-ATT-017: Cross-session events captured via IsCrossSession and related fields.
 /// REQ-ATT-024/025: Editable with audit trail via IsEdited and AttendanceEditLogs.
 /// BR-ATT-002: Duplicate prevention via unique constraint (TeacherStudentId, SessionOccurrenceId).
-/// BR-ATT-005: Denormalized SessionId/SessionName/OccurrenceDate survive session hard-delete.
+/// BR-ATT-005: Denormalized SessionId/SessionName/OccurrenceDate AND StudentName/StudentCode
+///             survive both session hard-delete and student permanent purge.
 /// BR-ATT-006: Original RecordedAt never altered; edits logged separately.
 /// REQ-ATT-NFR-004: RecordedAt stored with datetime2(0) precision (to the second).
 ///
-/// DENORMALIZATION RATIONALE (SessionId, SessionName, OccurrenceDate):
-/// Sessions use hard delete (BR-SES-004). BR-ATT-005 mandates attendance records survive
-/// session deletion. These denormalized fields make every record self-describing after
-/// its parent session and occurrence are destroyed.
+/// DENORMALIZATION RATIONALE (SessionId, SessionName, OccurrenceDate, StudentName, StudentCode):
+/// Sessions use hard delete (BR-SES-004). Students use permanent purge after 10-day recycle bin.
+/// BR-ATT-005 mandates attendance records survive both session deletion and student purge.
+/// These denormalized fields make every record self-describing after its parent entities
+/// are destroyed.
 ///
 /// Multi-tenant isolation: TeacherId stored directly for tenant-scoped indexes.
 /// </summary>
@@ -53,25 +55,51 @@ public class AttendanceRecord : BaseEntity
     public SessionOccurrence? SessionOccurrence { get; set; }
 
     // ══════════════════════════════════════════════
-    // STUDENT REFERENCE
+    // STUDENT REFERENCE (Step 1.1: Nullable FK for purge safety)
     // ══════════════════════════════════════════════
 
     /// <summary>
     /// Foreign key to the student record.
-    /// NO ACTION on delete: records preserved after student soft/hard delete (BR-ATT-005).
+    /// Step 1.1: Changed from long to long? — SET NULL on student permanent purge.
+    /// BR-ATT-005: Records preserved after student soft/hard delete.
+    /// The denormalized StudentName and StudentCode fields preserve display data.
     /// </summary>
     [ForeignKey(nameof(TeacherStudent))]
-    public long TeacherStudentId { get; set; }
-    public TeacherStudent TeacherStudent { get; set; } = null!;
+    public long? TeacherStudentId { get; set; }
+
+    /// <summary>
+    /// Navigation to the student record. Nullable after student permanent purge.
+    /// </summary>
+    public TeacherStudent? TeacherStudent { get; set; }
 
     /// <summary>
     /// Links to the specific assignment period for this attendance record.
     /// REQ-ATT-020/046: Enables grouping records by assignment period in the timeline.
-    /// NO ACTION on delete.
+    /// Step 1.1: Changed from long to long? — SET NULL on assignment cleanup during purge.
     /// </summary>
     [ForeignKey(nameof(StudentSessionAssignment))]
-    public long StudentSessionAssignmentId { get; set; }
-    public StudentSessionAssignment StudentSessionAssignment { get; set; } = null!;
+    public long? StudentSessionAssignmentId { get; set; }
+
+    /// <summary>
+    /// Navigation to the assignment period. Nullable after student purge or session deletion.
+    /// </summary>
+    public StudentSessionAssignment? StudentSessionAssignment { get; set; }
+
+    // ══════════════════════════════════════════════
+    // DENORMALIZED STUDENT CONTEXT (Step 7.2 — BR-ATT-005)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Denormalized: snapshot of student name at recording time.
+    /// BR-ATT-005 / Step 7.2: Enables display after student permanent purge.
+    /// </summary>
+    public string? StudentName { get; set; }
+
+    /// <summary>
+    /// Denormalized: snapshot of student code at recording time.
+    /// BR-ATT-005 / Step 7.2: Enables display after student permanent purge.
+    /// </summary>
+    public string? StudentCode { get; set; }
 
     // ══════════════════════════════════════════════
     // DENORMALIZED SESSION CONTEXT (BR-ATT-005)
@@ -103,7 +131,7 @@ public class AttendanceRecord : BaseEntity
 
     /// <summary>
     /// The student's attendance status for this occurrence.
-    /// REQ-ATT-006: 0=Absent, 1=Present, 2=CrossSessionPresent.
+    /// REQ-ATT-006: 0=Absent, 1=Present, 2=CrossSessionPresent, 3=Held.
     /// REQ-ATT-024: Changeable via Edit Attendance (logged in AttendanceEditLogs).
     /// </summary>
     public AttendanceStatus Status { get; set; }

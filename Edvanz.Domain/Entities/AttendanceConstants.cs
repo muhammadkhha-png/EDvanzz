@@ -1,0 +1,93 @@
+﻿namespace Edvanz.Domain.Constants;
+
+/// <summary>
+/// Constants for the Attendance Module (Module 3).
+/// Centralizes magic numbers, limits, and localization keys
+/// so they are compile-time checked and single-sourced.
+/// </summary>
+public static class AttendanceConstants
+{
+    // ══════════════════════════════════════════════
+    // CONFIGURATION LIMITS
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Maximum depth when scanning recent records to recalculate consecutive absences.
+    /// Step 2.2: Replaces the hardcoded Take(100) in RecalculateConsecutiveAbsencesAsync.
+    /// Must be high enough to cover any realistic absence streak.
+    /// </summary>
+    public const int MaxConsecutiveAbsenceScanDepth = 1000;
+
+    /// <summary>
+    /// Number of recent attendance records to fetch for the compact visual indicator.
+    /// REQ-ATT-068: Last 5 session occurrence statuses.
+    /// </summary>
+    public const int RecentStatusIndicatorCount = 5;
+
+    /// <summary>
+    /// Maximum length for denormalized session and student name fields.
+    /// </summary>
+    public const int NameMaxLength = 200;
+
+    /// <summary>
+    /// Maximum length for student code fields.
+    /// </summary>
+    public const int StudentCodeMaxLength = 20;
+
+    /// <summary>
+    /// Maximum length for edit reason fields.
+    /// </summary>
+    public const int EditReasonMaxLength = 500;
+
+    // ══════════════════════════════════════════════
+    // LOCALIZATION KEYS — ATTENDANCE MODULE
+    // ══════════════════════════════════════════════
+
+    public static class Messages
+    {
+        public const string TeacherNotFound = "TeacherNotFound";
+        public const string SessionNotFound = "SessionNotFound";
+        public const string StudentNotFound = "StudentNotFound";
+        public const string Success = "Success";
+
+        // Take Attendance
+        public const string AttendanceMarkedSuccess = "AttendanceMarkedSuccess";
+        public const string AttendanceBulkMarkedSuccess = "AttendanceBulkMarkedSuccess";
+        public const string AttendanceNoOccurrenceToday = "AttendanceNoOccurrenceToday";
+        public const string AttendanceDuplicateDetected = "AttendanceDuplicateDetected";
+        public const string AttendanceAbsenceAlertPending = "AttendanceAbsenceAlertPending";
+        public const string AttendanceCrossSessionNotLinked = "AttendanceCrossSessionNotLinked";
+        public const string AttendanceStudentNotAssigned = "AttendanceStudentNotAssigned";
+        public const string InvalidAttendanceStatus = "InvalidAttendanceStatus";
+        public const string CrossSessionNoFutureOccurrence = "CrossSessionNoFutureOccurrence";
+
+        // Edit Attendance
+        public const string AttendanceAddedSuccess = "AttendanceAddedSuccess";
+        public const string AttendanceEditedSuccess = "AttendanceEditedSuccess";
+        public const string AttendanceRecordNotFound = "AttendanceRecordNotFound";
+        public const string AttendanceRecordDeletedSuccess = "AttendanceRecordDeletedSuccess";
+
+        // Hold
+        public const string AttendanceHeldSuccess = "AttendanceHeldSuccess";
+        public const string AttendanceHoldReleasedSuccess = "AttendanceHoldReleasedSuccess";
+        public const string AttendanceHoldNotFound = "AttendanceHoldNotFound";
+        public const string AttendanceAlreadyMarked = "AttendanceAlreadyMarked";
+
+        // Reporting
+        public const string AttendanceReportGenerated = "AttendanceReportGenerated";
+
+        // Export
+        public const string InvalidExportFormat = "InvalidExportFormat";
+        public const string ExportCompleted = "ExportCompleted";
+
+        // Offline Sync
+        public const string SyncCompleted = "SyncCompleted";
+        public const string FeatureNotImplemented = "FeatureNotImplemented";
+
+        // Visibility
+        public const string AttendanceVisibilityDisabled = "AttendanceVisibilityDisabled";
+
+        // Dashboard
+        public const string NoOccurrenceRedirectToEdit = "NoOccurrenceRedirectToEdit";
+    }
+}
