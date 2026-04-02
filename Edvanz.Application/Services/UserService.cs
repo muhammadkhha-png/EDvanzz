@@ -184,47 +184,47 @@ namespace Edvanz.Application.Services
             // Validate user type properties
             // =============================
 
-            switch (user.userType)
-            {
-                case UserType.Teacher:
+            //switch (user.userType)
+            //{
+            //    case UserType.Teacher:
 
-                    if ((user.subjectIds == null || user.subjectIds.Count == 0) &&
-                        string.IsNullOrWhiteSpace(user.customSubject))
-                        return Result<string?>.Failure(_localizer, "TeacherMustHaveSubject");
+            //        if ((user.subjectIds == null || user.subjectIds.Count == 0) &&
+            //            string.IsNullOrWhiteSpace(user.customSubject))
+            //            return Result<string?>.Failure(_localizer, "TeacherMustHaveSubject");
 
-                    if (user.studentCapacity == null || user.studentCapacity <= 0)
-                        return Result<string?>.Failure(_localizer, "StudentCapacityRequired");
-                    if (user.idImage == null)
-                        return Result<string?>.Failure(_localizer, "TeacherIdImageRequired");
-                    if (user.idImage.Length > 5 * 1024 * 1024)
-                        return Result<string?>.Failure(_localizer, "ImageSizeTooLarge");
+            //        if (user.studentCapacity == null || user.studentCapacity <= 0)
+            //            return Result<string?>.Failure(_localizer, "StudentCapacityRequired");
+            //        if (user.idImage == null)
+            //            return Result<string?>.Failure(_localizer, "TeacherIdImageRequired");
+            //        if (user.idImage.Length > 5 * 1024 * 1024)
+            //            return Result<string?>.Failure(_localizer, "ImageSizeTooLarge");
 
-                    var allowedTypes = new[] { "image/jpeg", "image/png" };
+            //        var allowedTypes = new[] { "image/jpeg", "image/png" };
 
-                    if (!allowedTypes.Contains(user.idImage.ContentType))
-                        return Result<string?>.Failure(_localizer, "InvalidImageType");
-                    break;
-
-
-                //case UserType.Student:
-
-                //    if (string.IsNullOrWhiteSpace(user.languagePreference))
-                //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
-
-                //    break;
+            //        if (!allowedTypes.Contains(user.idImage.ContentType))
+            //            return Result<string?>.Failure(_localizer, "InvalidImageType");
+            //        break;
 
 
-                //case UserType.Parent:
+            //    //case UserType.Student:
 
-                //    if (string.IsNullOrWhiteSpace(user.languagePreference))
-                //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
+            //    //    if (string.IsNullOrWhiteSpace(user.languagePreference))
+            //    //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
 
-                //    break;
+            //    //    break;
 
 
-                default:
-                    return Result<string?>.Failure(_localizer, "InvalidUserType");
-            }
+            //    //case UserType.Parent:
+
+            //    //    if (string.IsNullOrWhiteSpace(user.languagePreference))
+            //    //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
+
+            //    //    break;
+
+
+            //    default:
+            //        return Result<string?>.Failure(_localizer, "InvalidUserType");
+            //}
 
             // =============================
             // Hash password

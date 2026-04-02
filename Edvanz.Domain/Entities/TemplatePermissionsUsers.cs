@@ -11,8 +11,8 @@ namespace Edvanz.Domain.Entities
         public long TemplateId { get; set; }
         
         public Template template { get; set; }
-        [ForeignKey(nameof(user))]
-        public long userId { get; set; }
-        public User user { get; set; }
+        [ForeignKey(nameof(assissntat))]
+        public long AssisstantId { get; set; }
+        public Assistant assissntat { get; set; }
     }
 }

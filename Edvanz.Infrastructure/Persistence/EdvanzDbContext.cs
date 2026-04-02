@@ -80,7 +80,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<UsersTutor>()
             .HasKey(ut => new { ut.userId, ut.TutorId });
         modelBuilder.Entity<TemplatePermissionsUsers>()
-           .HasKey(ur => new { ur.userId, ur.TemplateId });
+           .HasKey(ur => new { ur.AssisstantId, ur.TemplateId });
         modelBuilder.Entity<TemplatePermisions>()
            .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
 

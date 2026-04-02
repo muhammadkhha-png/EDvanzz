@@ -9,7 +9,7 @@ using System.Text;
 
 namespace Edvanz.Infrastructure.Repositories
 {
-    public class AssistantRepo : GenericRepo<Session, long>, IAssitantRepo
+    public class AssistantRepo : GenericRepo<Assistant, long>, IAssitantRepo
     {
         public AssistantRepo(EdvanzDbContext context) : base(context)
         {
@@ -33,7 +33,7 @@ namespace Edvanz.Infrastructure.Repositories
             // Base query with includes
             IQueryable<Assistant> query = _context.Set<Assistant>()
                 .Include(a => a.User)
-                .Include(a => a.Teacher);
+                .Include(a => a.Teacher).ThenInclude(t=>t.User);
 
             // ── FILTERS ──
             if (teacherId.HasValue)
@@ -80,7 +80,22 @@ namespace Edvanz.Infrastructure.Repositories
 
             return (list, totalCount); ;
         }
+        public override async Task<Assistant?> GetByIdAsync(long id)
+        {
+           return await _context.Assistants.Include(a => a.User)
+                .Include(a => a.Teacher).ThenInclude(t => t.User).FirstOrDefaultAsync(a=>a.Id==id);
+        }
 
-
+        public async Task<Assistant?> GetAssistantWithPermissionsAsync(long id)
+        {
+            return await _context.Assistants
+                .Include(a => a.User)
+                    .ThenInclude(u => u.Permissions)
+                        .ThenInclude(up => up.Permission)
+                            .ThenInclude(p => p.module).Include(a => a.PermissionProfiles)
+                .Include(a => a.Teacher)
+                    .ThenInclude(t => t.User)
+                .FirstOrDefaultAsync(a => a.Id == id);
+        }
     }
 }

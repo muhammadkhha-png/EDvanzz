@@ -31,7 +31,7 @@ namespace Edvanz.Infrastructure.Repositories
             return _context.Set<T>().AsNoTracking().AsQueryable();
         }
         //----------------------------------------------------------------
-        public async Task<T?> GetByIdAsync(long id)
+        public virtual async Task<T?> GetByIdAsync(long id)
         {
             return await _context.Set<T>().FindAsync(id);
         }

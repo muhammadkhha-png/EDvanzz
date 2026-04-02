@@ -1,4 +1,5 @@
 ﻿using Edvanz.Domain.Entities.ShareProp;
+using Edvanz.Domain.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
@@ -18,6 +19,8 @@ public class Assistant : BaseEntity
     public Teacher Teacher { get; set; } = null!;
     public string? LanguagePreference { get; set; }
     public DateTime? DeactivatedAt { get; set; }
+    public AccountStatus AccountStatus { get; set; } = AccountStatus.Active;
+
 
     /// <summary>
     /// Soft-delete timestamp. Null if account is not deleted.
@@ -26,4 +29,7 @@ public class Assistant : BaseEntity
     public DateTime? DeletedAt { get; set; }
 
     public DateTime UpdatedAt { get; set; }
+    public virtual ICollection<TemplatePermissionsUsers> PermissionProfiles { get; set; } = new List<TemplatePermissionsUsers>();
+
+
 }

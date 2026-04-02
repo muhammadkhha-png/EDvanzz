@@ -417,7 +417,6 @@
   <data name="String1" xml:space="preserve">
     <value>this account has been blocked before </value>
   </data>
-  <!-- إنشاء المواعيد -->
   <data name="AttendanceNoOccurrenceDates" xml:space="preserve">
     <value>مفيش مواعيد ممكن تتعمل لإعدادات الحصة دي</value>
   </data>
@@ -427,8 +426,6 @@
   <data name="AttendanceOccurrencesGenerated" xml:space="preserve">
     <value>تم إنشاء مواعيد الحصة بنجاح</value>
   </data>
-
-  <!-- تسجيل الحضور -->
   <data name="AttendanceNoOccurrenceToday" xml:space="preserve">
     <value>النهارده مش ميعاد الحصة دي. استخدم تعديل الحضور لتسجيل تواريخ تانية</value>
   </data>
@@ -450,8 +447,6 @@
   <data name="AttendanceStudentNotAssigned" xml:space="preserve">
     <value>الطالب ده مش مسجل في أي حصة حالياً</value>
   </data>
-
-  <!-- تعديل الحضور -->
   <data name="AttendanceRecordNotFound" xml:space="preserve">
     <value>مش لاقيين سجل الحضور ده أو مش بتاع حسابك</value>
   </data>
@@ -464,32 +459,37 @@
   <data name="AttendanceDeletedSuccess" xml:space="preserve">
     <value>تم حذف سجل الحضور بنجاح</value>
   </data>
-
-  <!-- التايم لاين والتقارير -->
   <data name="AttendanceNoAssignmentHistory" xml:space="preserve">
     <value>الطالب ده مالوش تاريخ تعيين في حصص</value>
   </data>
   <data name="AttendanceReportGenerated" xml:space="preserve">
     <value>تم إنشاء تقرير الحضور بنجاح</value>
   </data>
-
-  <!-- الرؤية -->
   <data name="AttendanceVisibilityDisabled" xml:space="preserve">
     <value>تتبع الحضور مش ظاهر في إعدادات المعلم الحالية</value>
   </data>
   <data name="FeatureNotImplemented" xml:space="preserve">
-        <value>الميزة دي لسه مش متاحة. هتكون متاحة في تحديث قادم</value>
-    </data>
-    <data name="AttendanceStudentHeld" xml:space="preserve">
-        <value>الطالب اتحط في الانتظار. تقدر ترجعله بعدين في نفس الحصة</value>
-    </data>
-    <data name="AttendanceHoldReleased" xml:space="preserve">
-        <value>تم إزالة حالة الانتظار بنجاح</value>
-    </data>
-    <data name="AttendanceSyncComplete" xml:space="preserve">
-        <value>تم مزامنة سجلات الحضور بنجاح</value>
-    </data>
-    <data name="AttendanceSyncConflict" xml:space="preserve">
-        <value>بعض سجلات الحضور فيها تعارض ومحتاجة مراجعتك</value>
-    </data>
+    <value>الميزة دي لسه مش متاحة. هتكون متاحة في تحديث قادم</value>
+  </data>
+  <data name="AttendanceStudentHeld" xml:space="preserve">
+    <value>الطالب اتحط في الانتظار. تقدر ترجعله بعدين في نفس الحصة</value>
+  </data>
+  <data name="AttendanceHoldReleased" xml:space="preserve">
+    <value>تم إزالة حالة الانتظار بنجاح</value>
+  </data>
+  <data name="AttendanceSyncComplete" xml:space="preserve">
+    <value>تم مزامنة سجلات الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceSyncConflict" xml:space="preserve">
+    <value>بعض سجلات الحضور فيها تعارض ومحتاجة مراجعتك</value>
+  </data>
+  <data name="UserDataNotFound" xml:space="preserve">
+    <value>بيانات المستخدم مش موجوده</value>
+  </data>
+  <data name="TeacherDataNotFound" xml:space="preserve">
+    <value>بيانات المدرس مش موجوده </value>
+  </data>
+  <data name="PermissionsFetchFailed" xml:space="preserve">
+    <value>خطأ واحنا بنجيب الصلاحيات </value>
+  </data>
 </root>

@@ -15,6 +15,12 @@ namespace Edvanz.Application.Dtos.AssistantDtos
         public bool isActive { get; set; }
         public long teacherId { get; set; }
         public string teacherName { get; set; }
+        public DateTime createdAt { get; set; }
+        public string accountStatus { get; set; } = null!;
+        public DateTime? deletedAt { get; set; }
+
+        public DateTime updatedAt { get; set; }
+        public string? languagePreference { get; set; }
 
     }
 }

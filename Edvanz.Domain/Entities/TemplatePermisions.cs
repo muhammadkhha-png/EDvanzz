@@ -13,5 +13,7 @@ namespace Edvanz.Domain.Entities
         [ForeignKey(nameof(permision))]
         public long PermisionId { get; set; }
         public Permission permision { get; set; }
+        public virtual ICollection<TemplatePermissionsUsers> PermissionProfiles { get; set; } = new List<TemplatePermissionsUsers>();
+
     }
 }

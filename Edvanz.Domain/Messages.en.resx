@@ -483,4 +483,13 @@
   <data name="AttendanceSyncConflict" xml:space="preserve">
     <value>Some attendance records have conflicts that require your review</value>
   </data>
+  <data name="UserDataNotFound" xml:space="preserve">
+    <value>User Data Not Found</value>
+  </data>
+  <data name="TeacherDataNotFound" xml:space="preserve">
+    <value>Teacher Data Not Found</value>
+  </data>
+  <data name="PermissionsFetchFailed" xml:space="preserve">
+    <value>Permissions Fetch Failed</value>
+  </data>
 </root>

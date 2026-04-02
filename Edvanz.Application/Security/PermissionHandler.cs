@@ -44,14 +44,18 @@ namespace Edvanz.Application.Security
             var user = await _unitOfWork.Users.GetByIdAsync(userId);
             if (user == null)
                 return;
-
+            var userRoles = context.User.Claims
+            .Where(c => c.Type == ClaimTypes.Role)
+            .Select(c => c.Value)
+            .ToList();
             if (tokenStamp != user.SecurityStamp)
             {
                 context.Fail(); 
                 return;
             }
 
-            if (permissions.Contains(requirement.RequiredPermission, System.StringComparer.OrdinalIgnoreCase) || hasAnyRole)
+            if (permissions.Contains(requirement.RequiredPermission, StringComparer.OrdinalIgnoreCase)
+     || userRoles.Contains(requirement.RequiredPermission)) // اختياري إذا policy تتطابق مع role
             {
                 context.Succeed(requirement);
             }

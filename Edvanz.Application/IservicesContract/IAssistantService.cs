@@ -9,6 +9,6 @@ namespace Edvanz.Application.IservicesContract
     public interface IAssistantService
     {
         public Task<Result<PaginatedResponse<List<AssistantListDto>>>> GetAssistantListPerTeacher(AssistantPerTeacherFilterDto req);
-        //public Task<Result<>>
+        public Task<Result<AssistantDto>> GetByAssistantIdAsync(long id);
     }
 }
