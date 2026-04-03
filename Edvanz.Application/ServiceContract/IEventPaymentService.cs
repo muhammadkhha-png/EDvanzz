@@ -41,9 +41,10 @@ public interface IEventPaymentService
     /// <summary>
     /// Gets the detailed tracking view for a specific event.
     /// REQ-EVT-014/015: Full tracking view with paid/unpaid student lists.
+    /// REQ-EVT-016: Searchable by student name or student code.
     /// </summary>
     Task<Result<EventTrackingDto>> GetEventTrackingAsync(
-        long teacherId, long eventId, int page, int pageSize);
+        long teacherId, long eventId, string? search, int page, int pageSize);
 
     // ══════════════════════════════════════════════
     // EVENT MANAGEMENT (REQ-EVT-020 through 022)

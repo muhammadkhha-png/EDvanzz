@@ -7,8 +7,23 @@ namespace Edvanz.Application.Dtos.Payment;
 // ══════════════════════════════════════════════════════════════════════════
 
 /// <summary>
+/// Represents a single scope entry within an event's target definition.
+/// REQ-EVT-004: Multiple scopes can be combined within a single event.
+/// </summary>
+public class EventScopeEntry
+{
+    public EventTargetScopeType ScopeType { get; set; }
+    /// <summary>
+    /// IDs for this scope: student IDs for IndividualStudents, session ID for Session,
+    /// group ID for SessionGroup, empty for AllStudents.
+    /// </summary>
+    public List<long> ScopeIds { get; set; } = new();
+}
+
+/// <summary>
 /// Input DTO for creating a new payment event.
 /// REQ-EVT-002: All mandatory fields.
+/// REQ-EVT-004: Supports combining multiple scopes with automatic deduplication.
 /// </summary>
 public class CreateEventDto
 {
@@ -22,14 +37,11 @@ public class CreateEventDto
     /// </summary>
     public decimal EventAmount { get; set; }
     /// <summary>
-    /// REQ-EVT-002: How the target scope is defined.
+    /// REQ-EVT-004: One or more scope entries that can be combined.
+    /// Example: [{ ScopeType: Session, ScopeIds: [5] }, { ScopeType: IndividualStudents, ScopeIds: [101, 102] }]
+    /// The system deduplicates students appearing in multiple scopes.
     /// </summary>
-    public EventTargetScopeType TargetScopeType { get; set; }
-    /// <summary>
-    /// IDs of the target entities (student IDs, session ID, group ID, or empty for AllStudents).
-    /// REQ-EVT-003/004/005/006/007: Target scope selection.
-    /// </summary>
-    public List<long> TargetScopeIds { get; set; } = new();
+    public List<EventScopeEntry> TargetScopes { get; set; } = new();
     /// <summary>
     /// REQ-EVT-002: Mandatory event date.
     /// </summary>

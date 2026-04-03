@@ -681,6 +681,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         GetEventObligationsPagedAsync(
             long eventId, long teacherId,
             PaymentStatus? statusFilter,
+            string? search,
             int page, int pageSize)
     {
         var query = _context.EventStudentObligations
@@ -692,6 +693,15 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                 query = query.Where(o => o.PaymentStatus == PaymentStatus.Paid);
             else
                 query = query.Where(o => o.PaymentStatus != PaymentStatus.Paid);
+        }
+
+        // REQ-EVT-016: Search by student name or student code
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string searchLower = search.Trim().ToLower();
+            query = query.Where(o =>
+                (o.StudentName != null && o.StudentName.ToLower().Contains(searchLower))
+                || (o.StudentCode != null && o.StudentCode.ToLower().Contains(searchLower)));
         }
 
         int totalCount = await query.CountAsync();

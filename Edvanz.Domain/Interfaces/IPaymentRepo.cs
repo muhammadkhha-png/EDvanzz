@@ -345,12 +345,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<EventStudentObligation?> GetEventObligationAsync(long eventId, long teacherStudentId);
 
     /// <summary>
-    /// Gets all obligations for an event with paging and paid/unpaid separation.
+    /// Gets all obligations for an event with paging, paid/unpaid separation, and search.
     /// REQ-EVT-015: Paid and unpaid student lists.
+    /// REQ-EVT-016: Searchable by student name or student code.
     /// </summary>
     Task<(IReadOnlyList<EventStudentObligation> Items, int TotalCount)> GetEventObligationsPagedAsync(
         long eventId, long teacherId,
         PaymentStatus? statusFilter,
+        string? search,
         int page, int pageSize);
 
     /// <summary>

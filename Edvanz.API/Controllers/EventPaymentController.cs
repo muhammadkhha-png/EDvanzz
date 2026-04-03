@@ -94,10 +94,11 @@ public class EventPaymentController : ApiBaseController
     public async Task<IActionResult> GetEventTracking(
         [FromRoute] long teacherId,
         [FromRoute] long eventId,
+        [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var result = await _eventService.GetEventTrackingAsync(teacherId, eventId, page, pageSize);
+        var result = await _eventService.GetEventTrackingAsync(teacherId, eventId, search, page, pageSize);
         return ToResponse(result);
     }
 

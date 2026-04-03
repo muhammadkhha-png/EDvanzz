@@ -49,8 +49,12 @@ public class EventPaymentService : IEventPaymentService
             return Result<EventDto>.Failure(
                 _localizer, PaymentConstants.Messages.EventAmountInvalid, HttpStatusCode.BadRequest);
 
-        // Resolve target students based on scope type
-        var studentIds = await ResolveTargetStudentsAsync(dto.TeacherId, dto.TargetScopeType, dto.TargetScopeIds);
+        if (dto.TargetScopes.Count == 0)
+            return Result<EventDto>.Failure(
+                _localizer, PaymentConstants.Messages.EventTargetScopeEmpty, HttpStatusCode.BadRequest);
+
+        // REQ-EVT-004: Resolve and deduplicate students across all combined scopes
+        var studentIds = await ResolveAndDeduplicateTargetStudentsAsync(dto.TeacherId, dto.TargetScopes);
         if (studentIds.Count == 0)
             return Result<EventDto>.Failure(
                 _localizer, PaymentConstants.Messages.EventTargetScopeEmpty, HttpStatusCode.BadRequest);
@@ -61,14 +65,18 @@ public class EventPaymentService : IEventPaymentService
 
         try
         {
+            // Store the primary scope type (first entry) for display, and all scope IDs for reference
+            var primaryScope = dto.TargetScopes.First();
+
             var paymentEvent = new PaymentEvent
             {
                 TeacherId = dto.TeacherId,
                 EventName = dto.EventName,
                 EventAmount = dto.EventAmount,
                 Notes = dto.Notes,
-                TargetScopeType = dto.TargetScopeType,
-                TargetScopeIds = string.Join(",", dto.TargetScopeIds),
+                TargetScopeType = dto.TargetScopes.Count == 1
+                    ? primaryScope.ScopeType : EventTargetScopeType.IndividualStudents,
+                TargetScopeIds = string.Join(",", studentIds),
                 EventDate = dto.EventDate,
                 TotalStudents = studentIds.Count,
                 TotalExpectedRevenue = dto.EventAmount * studentIds.Count,
@@ -137,7 +145,7 @@ public class EventPaymentService : IEventPaymentService
 
     /// <inheritdoc />
     public async Task<Result<EventTrackingDto>> GetEventTrackingAsync(
-        long teacherId, long eventId, int page, int pageSize)
+        long teacherId, long eventId, string? search, int page, int pageSize)
     {
         var paymentEvent = await _unitOfWork.PaymentsRepo
             .GetPaymentEventByIdAndTeacherAsync(eventId, teacherId);
@@ -145,11 +153,12 @@ public class EventPaymentService : IEventPaymentService
             return Result<EventTrackingDto>.Failure(
                 _localizer, PaymentConstants.Messages.EventNotFound, HttpStatusCode.NotFound);
 
+        // REQ-EVT-016: Search by student name or student code within paid/unpaid lists
         var (paidItems, _) = await _unitOfWork.PaymentsRepo
-            .GetEventObligationsPagedAsync(eventId, teacherId, PaymentStatus.Paid, page, pageSize);
+            .GetEventObligationsPagedAsync(eventId, teacherId, PaymentStatus.Paid, search, page, pageSize);
 
         var (unpaidItems, _) = await _unitOfWork.PaymentsRepo
-            .GetEventObligationsPagedAsync(eventId, teacherId, PaymentStatus.Unpaid, page, pageSize);
+            .GetEventObligationsPagedAsync(eventId, teacherId, PaymentStatus.Unpaid, search, page, pageSize);
 
         var tracking = new EventTrackingDto
         {
@@ -187,7 +196,7 @@ public class EventPaymentService : IEventPaymentService
 
                 // Update unpaid obligations to the new amount
                 var (unpaidObligations, _) = await _unitOfWork.PaymentsRepo
-                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, PaymentStatus.Unpaid, 1, 50000);
+                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, PaymentStatus.Unpaid, null, 1, 50000);
                 foreach (var obligation in unpaidObligations)
                 {
                     obligation.AmountDue = dto.EventAmount.Value;
@@ -196,7 +205,7 @@ public class EventPaymentService : IEventPaymentService
 
                 // Recalculate expected revenue
                 var (allObligations, totalCount) = await _unitOfWork.PaymentsRepo
-                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, 1, 50000);
+                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, null, 1, 50000);
                 paymentEvent.TotalExpectedRevenue = allObligations.Sum(o => o.AmountDue);
             }
 
@@ -283,7 +292,7 @@ public class EventPaymentService : IEventPaymentService
         if (paymentEvent is not null)
         {
             var (allObligations, _) = await _unitOfWork.PaymentsRepo
-                .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, 1, 50000);
+                .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, null, 1, 50000);
             paymentEvent.TotalExpectedRevenue = allObligations.Sum(o => o.AmountDue);
             await _unitOfWork.PaymentsRepo.UpdatePaymentEventAsync(paymentEvent);
         }
@@ -442,9 +451,9 @@ public class EventPaymentService : IEventPaymentService
                     _localizer, PaymentConstants.Messages.EventNotFound, HttpStatusCode.NotFound);
 
             var (paidItems, _) = await _unitOfWork.PaymentsRepo
-                .GetEventObligationsPagedAsync(request.EventId.Value, teacherId, PaymentStatus.Paid, 1, 50000);
+                .GetEventObligationsPagedAsync(request.EventId.Value, teacherId, PaymentStatus.Paid, null, 1, 50000);
             var (unpaidItems, _) = await _unitOfWork.PaymentsRepo
-                .GetEventObligationsPagedAsync(request.EventId.Value, teacherId, PaymentStatus.Unpaid, 1, 50000);
+                .GetEventObligationsPagedAsync(request.EventId.Value, teacherId, PaymentStatus.Unpaid, null, 1, 50000);
 
             var report = new SingleEventReportDto
             {
@@ -511,20 +520,35 @@ public class EventPaymentService : IEventPaymentService
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════
 
-    private async Task<List<long>> ResolveTargetStudentsAsync(
-        long teacherId, EventTargetScopeType scopeType, List<long> scopeIds)
+    /// <summary>
+    /// REQ-EVT-004: Resolves all scope entries and deduplicates students across combined scopes.
+    /// "The system shall automatically deduplicate any students who appear in multiple selected scopes
+    /// so no student receives a duplicate payment obligation for the same event."
+    /// </summary>
+    private async Task<List<long>> ResolveAndDeduplicateTargetStudentsAsync(
+        long teacherId, List<EventScopeEntry> scopes)
     {
-        return scopeType switch
+        var allStudentIds = new HashSet<long>();
+
+        foreach (var scope in scopes)
         {
-            EventTargetScopeType.IndividualStudents => scopeIds,
-            EventTargetScopeType.Session => await _unitOfWork.PaymentsRepo
-                .GetStudentIdsBySessionAsync(teacherId, scopeIds.FirstOrDefault()),
-            EventTargetScopeType.SessionGroup => await _unitOfWork.PaymentsRepo
-                .GetStudentIdsByGroupAsync(teacherId, scopeIds.FirstOrDefault()),
-            EventTargetScopeType.AllStudents => await _unitOfWork.PaymentsRepo
-                .GetAllStudentIdsAsync(teacherId),
-            _ => new List<long>()
-        };
+            List<long> resolved = scope.ScopeType switch
+            {
+                EventTargetScopeType.IndividualStudents => scope.ScopeIds,
+                EventTargetScopeType.Session => await _unitOfWork.PaymentsRepo
+                    .GetStudentIdsBySessionAsync(teacherId, scope.ScopeIds.FirstOrDefault()),
+                EventTargetScopeType.SessionGroup => await _unitOfWork.PaymentsRepo
+                    .GetStudentIdsByGroupAsync(teacherId, scope.ScopeIds.FirstOrDefault()),
+                EventTargetScopeType.AllStudents => await _unitOfWork.PaymentsRepo
+                    .GetAllStudentIdsAsync(teacherId),
+                _ => new List<long>()
+            };
+
+            foreach (var id in resolved)
+                allStudentIds.Add(id); // HashSet automatically deduplicates
+        }
+
+        return allStudentIds.ToList();
     }
 
     private static EventDto MapToEventDto(PaymentEvent e) => new()
