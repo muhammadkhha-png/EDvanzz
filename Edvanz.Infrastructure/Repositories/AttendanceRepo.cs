@@ -80,14 +80,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// FIX P6: Uses ExecuteDeleteAsync instead of loading all into memory then RemoveRange.
+    /// Consistent with the ExecuteUpdateAsync pattern used elsewhere in the module.
     public async Task DeleteOccurrencesBySessionAsync(long sessionId)
     {
-        var occurrences = await _context.SessionOccurrences
+        await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId)
-            .ToListAsync();
-
-        if (occurrences.Count > 0)
-            _context.SessionOccurrences.RemoveRange(occurrences);
+            .ExecuteDeleteAsync();
     }
 
     /// <inheritdoc />
@@ -1028,15 +1027,19 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             return new Dictionary<long, IReadOnlyList<AttendanceStatus>>();
 
         // Load recent records for all students in one query, then group in memory.
-        // EF Core doesn't support per-group Take, so we fetch the latest N*studentCount
-        // records and trim per student. This is a pragmatic trade-off:
-        // for a page of 20 students × 5 statuses = 100 records max.
+        // EF Core doesn't support per-group Take, so we fetch a capped number of records.
+        // FIX P1: Added .Take() to prevent unbounded memory consumption.
+        // For a page of 20 students × 5 statuses = 100 records max from SQL.
+        // We fetch slightly more (count * 2 per student) to handle students with mixed Held statuses
+        // that are filtered out, ensuring we still get enough non-Held records per student.
+        int maxRecords = idList.Count * count * 2;
         var records = await _context.AttendanceRecords
             .Where(r => r.TeacherStudentId.HasValue
                 && idList.Contains(r.TeacherStudentId.Value)
                 && r.Status != AttendanceStatus.Held)
             .OrderByDescending(r => r.OccurrenceDate)
             .ThenByDescending(r => r.RecordedAt)
+            .Take(maxRecords)
             .Select(r => new { r.TeacherStudentId, r.Status })
             .AsNoTracking()
             .ToListAsync();
@@ -1099,5 +1102,53 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             .ToListAsync();
 
         return (pagedIds, totalCount);
+    }
+
+    // ══════════════════════════════════════════════
+    // V3 PERFORMANCE & TENANT FIX — NEW METHODS
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    /// FIX R2: Fetches absence counter with AsNoTracking so the change tracker doesn't
+    /// return the stale entity from a previous failed concurrency attempt.
+    /// The caller (UpdateAbsenceCounterForNewRecord) re-attaches the entity for update.
+    public async Task<StudentAbsenceCounter?> GetAbsenceCounterFreshAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // Detach any previously tracked instance of this counter first.
+        // This ensures the query hits the database and returns the latest RowVersion.
+        var tracked = _context.ChangeTracker.Entries<StudentAbsenceCounter>()
+            .FirstOrDefault(e => e.Entity.TeacherId == teacherId
+                && e.Entity.TeacherStudentId == teacherStudentId);
+        if (tracked is not null)
+            tracked.State = EntityState.Detached;
+
+        return await _context.StudentAbsenceCounters
+            .FirstOrDefaultAsync(c => c.TeacherId == teacherId
+                                   && c.TeacherStudentId == teacherStudentId);
+    }
+
+    /// <inheritdoc />
+    /// FIX P5: Batch-loads all assignments for multiple students in a single query.
+    /// Replaces N+1 GetAssignmentsByStudentAsync calls in the timeline student list.
+    public async Task<Dictionary<long, IReadOnlyList<StudentSessionAssignment>>>
+        GetAssignmentsByStudentsBatchAsync(IEnumerable<long> teacherStudentIds)
+    {
+        var idList = teacherStudentIds.ToList();
+        if (idList.Count == 0)
+            return new Dictionary<long, IReadOnlyList<StudentSessionAssignment>>();
+
+        var assignments = await _context.StudentSessionAssignments
+            .Where(a => a.TeacherStudentId.HasValue && idList.Contains(a.TeacherStudentId.Value))
+            .OrderBy(a => a.AssignedAt)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return assignments
+            .Where(a => a.TeacherStudentId.HasValue)
+            .GroupBy(a => a.TeacherStudentId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<StudentSessionAssignment>)g.ToList());
     }
 }

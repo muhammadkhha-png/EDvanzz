@@ -494,6 +494,25 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long? sessionGroupId = null,
         string? studentName = null,
         string? studentCode = null);
+
+    // ══════════════════════════════════════════════
+    // V3 PERFORMANCE & TENANT FIX — NEW METHODS
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// FIX R2: Fetches the absence counter bypassing the EF Core change tracker.
+    /// Used in the concurrency retry loop so each attempt gets a fresh RowVersion
+    /// instead of the stale tracked entity from the previous failed attempt.
+    /// </summary>
+    Task<StudentAbsenceCounter?> GetAbsenceCounterFreshAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// FIX P5: Batch-loads all assignments for multiple students in a single query.
+    /// Returns dictionary keyed by TeacherStudentId → list of assignments.
+    /// Replaces N+1 GetAssignmentsByStudentAsync calls in timeline student list.
+    /// </summary>
+    Task<Dictionary<long, IReadOnlyList<StudentSessionAssignment>>> GetAssignmentsByStudentsBatchAsync(
+        IEnumerable<long> teacherStudentIds);
 }
 
 /// <summary>

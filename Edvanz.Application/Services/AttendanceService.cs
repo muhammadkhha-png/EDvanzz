@@ -1417,18 +1417,28 @@ public class AttendanceService : IAttendanceService
             ? await _unitOfWork.AttendanceRepo.GetAbsenceCountersBatchAsync(teacherId, pagedIds)
             : new Dictionary<long, StudentAbsenceCounter>();
 
+        // FIX P5: Batch-load assignments for all paged students in one query.
+        // Previously called GetAssignmentsByStudentAsync per student = N extra DB queries.
+        var assignmentMap = pagedIds.Count > 0
+            ? await _unitOfWork.AttendanceRepo.GetAssignmentsByStudentsBatchAsync(pagedIds)
+            : new Dictionary<long, IReadOnlyList<StudentSessionAssignment>>();
+
+        // Batch-load students
+        var students = pagedIds.Count > 0
+            ? await _unitOfWork.Students.GetActiveByIdsAndTeacherAsync(teacherId, pagedIds)
+            : new List<TeacherStudent>();
+        var studentMap = students.ToDictionary(s => s.Id);
+
         var summaries = new List<StudentAttendanceSummaryDto>();
         foreach (var studentId in pagedIds)
         {
-            var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
-            if (student is null) continue;
+            if (!studentMap.TryGetValue(studentId, out var student))
+                continue;
 
             counterMap.TryGetValue(studentId, out var counter);
+            assignmentMap.TryGetValue(studentId, out var assignments);
 
-            var assignments = await _unitOfWork.AttendanceRepo
-                .GetAssignmentsByStudentAsync(studentId);
-
-            var periods = assignments.Select(a => new AssignmentPeriodDto
+            var periods = (assignments ?? Array.Empty<StudentSessionAssignment>()).Select(a => new AssignmentPeriodDto
             {
                 StudentSessionAssignmentId = a.Id,
                 SessionId = a.SessionId,
@@ -1604,21 +1614,54 @@ public class AttendanceService : IAttendanceService
                 _localizer, AttendanceConstants.Messages.StudentNotFound, summaryResult.StatusCode);
 
         // Determine date range
-        var effectiveStart = startDate ?? summaryResult.Data!.AssignmentPeriods
-            .OrderBy(p => p.AssignedAt).FirstOrDefault()?.AssignedAt ?? DateTime.UtcNow.AddYears(-1);
+        // FIX R3: When no assignments exist, skip querying empty range entirely.
+        var firstAssignment = summaryResult.Data!.AssignmentPeriods
+            .OrderBy(p => p.AssignedAt).FirstOrDefault();
+        if (firstAssignment is null && !startDate.HasValue)
+        {
+            // No assignments and no explicit start date — return empty export
+            byte[] emptyBytes = format.ToLower() == "xlsx"
+                ? await _exportService.ExportTimelineToExcelAsync(summaryResult.Data!, new List<MonthlyAttendanceSummaryDto>())
+                : await _exportService.ExportTimelineToPdfAsync(summaryResult.Data!, new List<MonthlyAttendanceSummaryDto>());
+            return Result<byte[]>.Success(emptyBytes, _localizer, AttendanceConstants.Messages.ExportCompleted);
+        }
+
+        var effectiveStart = startDate ?? firstAssignment!.AssignedAt;
         var effectiveEnd = endDate ?? DateTime.UtcNow;
 
-        // Load all months in range
-        var months = new List<MonthlyAttendanceSummaryDto>();
-        var current = new DateTime(effectiveStart.Year, effectiveStart.Month, 1);
-        while (current <= effectiveEnd)
-        {
-            var monthResult = await GetStudentTimelineMonthAsync(teacherId, teacherStudentId,
-                new StudentTimelineMonthRequest { Year = current.Year, Month = current.Month });
-            if (monthResult.IsSuccess && monthResult.Data!.TotalOccurrences > 0)
-                months.Add(monthResult.Data!);
-            current = current.AddMonths(1);
-        }
+        // FIX P4: Load ALL records in a single query then group by month in memory.
+        // Previously made N sequential GetStudentTimelineMonthAsync calls (one per month),
+        // each hitting the database. For 24 months = 24 DB round-trips.
+        var allRecords = await _unitOfWork.AttendanceRepo
+            .GetRecordsByStudentAndDateRangeAsync(teacherStudentId, effectiveStart, effectiveEnd);
+
+        var recordDtos = allRecords.Select(r => MapToRecordDto(r,
+            r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
+            r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "")).ToList();
+
+        // Group by Year-Month and build monthly summaries
+        var months = recordDtos
+            .GroupBy(r => new { r.OccurrenceDate.Year, r.OccurrenceDate.Month })
+            .Select(g =>
+            {
+                int totalOcc = g.Count();
+                int totalPresent = g.Count(r =>
+                    r.Status == AttendanceStatus.Present || r.Status == AttendanceStatus.CrossSessionPresent);
+                int totalAbsences = g.Count(r => r.Status == AttendanceStatus.Absent);
+                return new MonthlyAttendanceSummaryDto
+                {
+                    Year = g.Key.Year,
+                    Month = g.Key.Month,
+                    TotalOccurrences = totalOcc,
+                    TotalPresent = totalPresent,
+                    TotalAbsences = totalAbsences,
+                    AttendancePercentage = totalOcc > 0
+                        ? Math.Round((decimal)totalPresent / totalOcc * 100, 1) : 0,
+                    Records = g.ToList()
+                };
+            })
+            .Where(m => m.TotalOccurrences > 0)
+            .ToList();
 
         byte[] fileBytes = format.ToLower() == "xlsx"
             ? await _exportService.ExportTimelineToExcelAsync(summaryResult.Data!, months)
@@ -1737,6 +1780,12 @@ public class AttendanceService : IAttendanceService
                     // and Record=null, it means an absence alert is pending confirmation.
                     if (markData.HasAbsenceAlert && markData.Record is null)
                     {
+                        // FIX R1: Look up actual student name for the alert.
+                        // Previously used markData.LastAbsenceSessionName (a SESSION name)
+                        // as the StudentName field — clearly wrong.
+                        var alertStudent = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(
+                            entry.TeacherStudentId, dto.TeacherId);
+
                         result.RequiresConfirmationCount++;
                         result.EntryResults.Add(new SyncEntryResultDto
                         {
@@ -1747,8 +1796,8 @@ public class AttendanceService : IAttendanceService
                             AbsenceAlertInfo = new AbsenceAlertStudentDto
                             {
                                 TeacherStudentId = entry.TeacherStudentId,
-                                StudentName = markData.LastAbsenceSessionName ?? "Unknown",
-                                StudentCode = "",
+                                StudentName = alertStudent?.StudentName ?? "Unknown",
+                                StudentCode = alertStudent?.StudentCode ?? "",
                                 ConsecutiveAbsences = markData.ConsecutiveAbsences,
                                 LastAbsenceDate = markData.LastAbsenceDate,
                                 LastAbsenceSessionName = markData.LastAbsenceSessionName,
@@ -1944,8 +1993,11 @@ public class AttendanceService : IAttendanceService
         {
             try
             {
+                // FIX R2: Use AsNoTracking fetch then re-attach to avoid stale RowVersion.
+                // On retry, the previous attempt left the stale entity in the change tracker.
+                // GetAbsenceCounterFreshAsync bypasses the tracker to get the latest RowVersion.
                 var counter = await _unitOfWork.AttendanceRepo
-                    .GetAbsenceCounterAsync(teacherId, teacherStudentId);
+                    .GetAbsenceCounterFreshAsync(teacherId, teacherStudentId);
 
                 if (counter is null)
                 {
@@ -1978,21 +2030,22 @@ public class AttendanceService : IAttendanceService
                 await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
                 return; // Success — exit retry loop
             }
-            catch (Exception ex) when (
-                IsConcurrencyException(ex)
-                && attempt < AttendanceConstants.MaxConcurrencyRetries - 1)
+            catch (Exception ex) when (IsConcurrencyException(ex))
             {
+                if (attempt >= AttendanceConstants.MaxConcurrencyRetries - 1)
+                {
+                    _logger.LogError(ex,
+                        "Concurrency conflict on absence counter for student {StudentId} exceeded max retries ({Max})",
+                        teacherStudentId, AttendanceConstants.MaxConcurrencyRetries);
+                    throw; // Final attempt — propagate to caller
+                }
+
                 _logger.LogWarning(
                     "Concurrency conflict updating absence counter for student {StudentId}, retry {Attempt}",
                     teacherStudentId, attempt + 1);
-                // Detach the stale entity so the next iteration fetches fresh data
                 await Task.Delay(50 * (attempt + 1)); // Brief backoff
             }
         }
-
-        _logger.LogError(
-            "Concurrency conflict on absence counter for student {StudentId} exceeded max retries ({Max})",
-            teacherStudentId, AttendanceConstants.MaxConcurrencyRetries);
     }
 
     private async Task UpdateAbsenceCounterForAddedRecord(
