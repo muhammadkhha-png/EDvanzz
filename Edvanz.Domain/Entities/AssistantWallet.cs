@@ -24,7 +24,8 @@ public class AssistantWallet : BaseEntity
 
     /// <summary>
     /// Foreign key to the assistant whose wallet this tracks.
-    /// CASCADE: Wallet deleted when assistant is deleted.
+    /// NO ACTION: Wallet preserved for historical reset log integrity.
+    /// App logic handles cleanup when assistant is deactivated.
     /// </summary>
     [ForeignKey(nameof(Assistant))]
     public long AssistantId { get; set; }

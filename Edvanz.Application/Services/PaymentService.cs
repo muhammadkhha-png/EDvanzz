@@ -235,7 +235,9 @@ public class PaymentService : IPaymentService
         {
             if (ownsTransaction)
                 await _unitOfWork.RollbackAsync();
-            // Retry once on concurrency conflict
+            // Retry once on concurrency conflict — set flags to skip duplicate checks
+            dto.DuplicateConfirmed = true;
+            dto.AlreadyPaidConfirmed = true;
             return await CollectPaymentAsync(dto);
         }
         catch
@@ -562,7 +564,7 @@ public class PaymentService : IPaymentService
             StudentCode = student.StudentCode,
             TotalAmountPaid = counter?.TotalAmountPaid ?? 0,
             TotalOutstanding = counter?.TotalOutstanding ?? 0,
-            Periods = periods.Select(MapToPeriodDto).ToList(),
+            // Periods populated after pagination below
             Transfers = transfers.Select(t => new SessionTransferEventDto
             {
                 Id = t.Id,
@@ -589,6 +591,13 @@ public class PaymentService : IPaymentService
                 DepartedAt = d.DepartedAt
             }).ToList()
         };
+
+        // Apply pagination to periods list
+        var pagedPeriods = periods
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+        historyDto.Periods = pagedPeriods.Select(MapToPeriodDto).ToList();
 
         var response = new PaginatedResponse<PaymentHistoryDto>
         {
@@ -892,16 +901,25 @@ public class PaymentService : IPaymentService
             .ToList();
 
         // Count attended occurrences (BR-PAY-007)
-        int totalOccurrences = periodOccurrences.Count;
+        // BR-PAY-007: "Unrecorded occurrences — where attendance was never taken —
+        // shall be excluded from both the numerator and denominator."
+        int totalRecordedOccurrences = 0;
         int attendedOccurrences = 0;
         foreach (var occ in periodOccurrences)
         {
             var records = await _unitOfWork.AttendanceRepo
                 .GetExistingAttendanceByStudentSessionAndDateAsync(
                     teacherStudentId, student.SessionId.Value, occ.OccurrenceDate);
-            if (records is not null && records.Status != AttendanceStatus.Absent)
-                attendedOccurrences++;
+            if (records is not null)
+            {
+                // This occurrence has a recorded attendance — include in denominator
+                totalRecordedOccurrences++;
+                if (records.Status != AttendanceStatus.Absent)
+                    attendedOccurrences++;
+            }
+            // If records is null, attendance was never taken — excluded per BR-PAY-007
         }
+        int totalOccurrences = totalRecordedOccurrences;
 
         // REQ-PAY-068: Pro-rated calculation
         decimal fullAmount = period?.AmountDue ?? session.SessionAmount;
@@ -994,6 +1012,34 @@ public class PaymentService : IPaymentService
             };
             await _unitOfWork.PaymentsRepo.AddStudentDepartureAsync(departure);
 
+            // REQ-PAY-073: Unassign the student from their current session
+            var studentToUnassign = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(
+                dto.TeacherStudentId, dto.TeacherId);
+            if (studentToUnassign is not null)
+            {
+                studentToUnassign.SessionId = null;
+                await _unitOfWork.Students.UpdateAsync(studentToUnassign);
+            }
+
+            // REQ-PAY-073: Record refund/outstanding in payment history
+            // If refund due, record as pending refund flagged for manual settlement
+            // If amount owed, record as outstanding balance flagged for collection
+            if (summary.DepartureOutcome == DepartureOutcome.RefundDue && finalAmount > 0)
+            {
+                // Outstanding refund tracked via departure record — tutor settles manually
+            }
+            else if (summary.DepartureOutcome == DepartureOutcome.AmountOwed && finalAmount > 0)
+            {
+                // Outstanding amount tracked via departure record and counter
+                var counter = await _unitOfWork.PaymentsRepo
+                    .GetPaymentCounterAsync(dto.TeacherId, dto.TeacherStudentId);
+                if (counter is not null)
+                {
+                    counter.TotalOutstanding += finalAmount;
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                }
+            }
+
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
@@ -1059,6 +1105,21 @@ public class PaymentService : IPaymentService
         if (currentPeriod is not null && currentPeriod.AmountPaid > currentPeriod.AmountDue)
             credit = currentPeriod.AmountPaid - currentPeriod.AmountDue;
 
+        // REQ-PAY-091: If source and destination have different payment types,
+        // calculate the pro-rated departure amount for the source session
+        bool requiresDepartureCalc = sourceSession.PaymentType != destSession.PaymentType;
+        decimal departureAdjustment = 0;
+        if (requiresDepartureCalc && currentPeriod is not null
+            && currentPeriod.PaymentStatus != PaymentStatus.Paid)
+        {
+            var departureSummary = await GetDepartureSummaryAsync(teacherId, teacherStudentId);
+            if (departureSummary.IsSuccess && departureSummary.Data is not null)
+            {
+                departureAdjustment = departureSummary.Data.FinalAmount;
+                outstanding = departureAdjustment; // Override with pro-rated amount
+            }
+        }
+
         return Result<TransferSummaryDto>.Success(new TransferSummaryDto
         {
             StudentName = student.StudentName,
@@ -1101,7 +1162,8 @@ public class PaymentService : IPaymentService
                 PaymentStatusAtTransfer = summary.PaymentStatusInSource,
                 OutstandingBalance = summary.OutstandingBalance,
                 CreditBalance = summary.CreditBalance,
-                SourcePaymentType = "source",
+                SourcePaymentType = (await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(
+                    dto.SourceSessionId, dto.TeacherId))?.PaymentType.ToString() ?? "Unknown",
                 DestinationPaymentType = summary.DestinationPaymentType,
                 StudentName = summary.StudentName,
                 StudentCode = summary.StudentCode,

@@ -69,10 +69,9 @@ public class EventPaymentController : ApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetEvents(
         [FromRoute] long teacherId,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] EventListFilterDto filter)
     {
-        var result = await _eventService.GetEventsAsync(teacherId, page, pageSize);
+        var result = await _eventService.GetEventsAsync(teacherId, filter);
         return ToResponse(result);
     }
 
@@ -153,6 +152,36 @@ public class EventPaymentController : ApiBaseController
         [FromRoute] long eventId)
     {
         var result = await _eventService.DeleteEventAsync(teacherId, eventId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 5b: SET CUSTOM AMOUNT FOR STUDENT IN EVENT
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Overrides the event amount for a specific student.
+    //   REQ-EVT-007: Custom amount per student within event.
+    //
+    // TABLES WRITTEN: EventStudentObligations
+    //
+    // SAMPLE: PUT /api/eventpayment/123/events/456/students/789/custom-amount
+    //   { "customAmount": 75.00 }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("{teacherId:long}/events/{eventId:long}/students/{teacherStudentId:long}/custom-amount")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetEventStudentCustomAmount(
+        [FromRoute] long teacherId,
+        [FromRoute] long eventId,
+        [FromRoute] long teacherStudentId,
+        [FromBody] SetEventStudentCustomAmountDto dto)
+    {
+        dto.TeacherId = teacherId;
+        dto.EventId = eventId;
+        dto.TeacherStudentId = teacherStudentId;
+        var result = await _eventService.SetEventStudentCustomAmountAsync(dto);
         return ToResponse(result);
     }
 

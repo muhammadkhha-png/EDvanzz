@@ -160,6 +160,30 @@ public class PaymentController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 5b: PAYMENT EDIT HISTORY
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns the edit/modification history for a specific payment transaction.
+    //   REQ-PAY-027: Edit history accessible to tutor.
+    //
+    // TABLES READ: PaymentEditLogs
+    //
+    // SAMPLE: GET /api/payment/123/transactions/789/edit-logs
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{teacherId:long}/transactions/{transactionId:long}/edit-logs")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPaymentEditLogs(
+        [FromRoute] long teacherId,
+        [FromRoute] long transactionId)
+    {
+        var result = await _paymentService.GetPaymentEditHistoryAsync(teacherId, transactionId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 6: STUDENT PAYMENT HISTORY
     // ══════════════════════════════════════════════════════════════════════════
     //

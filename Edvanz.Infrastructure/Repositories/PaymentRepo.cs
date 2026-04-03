@@ -713,6 +713,56 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task DeleteEventObligationAsync(EventStudentObligation obligation)
+    {
+        _context.EventStudentObligations.Remove(obligation);
+        await Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<PaymentEvent> Items, int TotalCount)>
+        GetPaymentEventsFilteredPagedAsync(
+            long teacherId,
+            string? searchName,
+            EventTargetScopeType? scopeTypeFilter,
+            string? completionStatus,
+            int page, int pageSize)
+    {
+        var query = _context.PaymentEvents
+            .Where(e => e.TeacherId == teacherId && !e.IsDeleted);
+
+        if (!string.IsNullOrWhiteSpace(searchName))
+        {
+            string search = searchName.Trim().ToLower();
+            query = query.Where(e => e.EventName.ToLower().Contains(search));
+        }
+
+        if (scopeTypeFilter.HasValue)
+            query = query.Where(e => e.TargetScopeType == scopeTypeFilter.Value);
+
+        if (!string.IsNullOrWhiteSpace(completionStatus))
+        {
+            query = completionStatus switch
+            {
+                "FullyCollected" => query.Where(e => e.TotalCollectedRevenue >= e.TotalExpectedRevenue),
+                "PartiallyCollected" => query.Where(e => e.TotalCollectedRevenue > 0 && e.TotalCollectedRevenue < e.TotalExpectedRevenue),
+                "NotStarted" => query.Where(e => e.TotalCollectedRevenue == 0),
+                _ => query
+            };
+        }
+
+        int totalCount = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(e => e.EventDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
     public async Task AddEventPaymentTransactionAsync(EventPaymentTransaction transaction)
     {
         await _context.EventPaymentTransactions.AddAsync(transaction);

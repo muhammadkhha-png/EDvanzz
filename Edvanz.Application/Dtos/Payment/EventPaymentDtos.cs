@@ -34,6 +34,10 @@ public class CreateEventDto
     /// REQ-EVT-002: Mandatory event date.
     /// </summary>
     public DateTime EventDate { get; set; }
+    /// <summary>
+    /// REQ-EVT-002: Optional free-text notes.
+    /// </summary>
+    public string? Notes { get; set; }
 }
 
 /// <summary>
@@ -46,6 +50,7 @@ public class UpdateEventDto
     public long EventId { get; set; }
     public string? EventName { get; set; }
     public decimal? EventAmount { get; set; }
+    public string? Notes { get; set; }
     /// <summary>
     /// Student IDs to add to the event.
     /// REQ-EVT-020: Explicitly add students after creation.
@@ -70,6 +75,7 @@ public class EventDto
     public EventTargetScopeType TargetScopeType { get; set; }
     public DateTime EventDate { get; set; }
     public DateTime CreateAt { get; set; }
+    public string? Notes { get; set; }
     public int TotalStudents { get; set; }
     public int PaidStudents { get; set; }
     public int PartiallyPaidStudents { get; set; }
@@ -110,6 +116,10 @@ public class EventStudentObligationDto
     public PaymentStatus PaymentStatus { get; set; }
     public DateTime? LastPaymentDate { get; set; }
     public string? CollectingUserName { get; set; }
+    /// <summary>
+    /// REQ-EVT-007: Whether this student has a custom amount override.
+    /// </summary>
+    public bool HasCustomAmount { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -219,4 +229,39 @@ public class AllEventsSummaryReportDto
     public decimal GrandTotalExpected { get; set; }
     public decimal GrandTotalCollected { get; set; }
     public decimal GrandTotalOutstanding { get; set; }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// EVENT LIST FILTER DTO (REQ-EVT-017/018)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Filter criteria for the Event Overview list.
+/// REQ-EVT-017: Searchable by event name.
+/// REQ-EVT-018: Filterable by scope type and completion status.
+/// </summary>
+public class EventListFilterDto
+{
+    public string? SearchName { get; set; }
+    public EventTargetScopeType? ScopeTypeFilter { get; set; }
+    /// <summary>
+    /// Filter by completion: "FullyCollected", "PartiallyCollected", "NotStarted", or null for all.
+    /// REQ-EVT-018: Completion status filter.
+    /// </summary>
+    public string? CompletionStatus { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+/// <summary>
+/// DTO for setting a custom amount on a specific student within an event.
+/// REQ-EVT-007: Override default event amount for individual student.
+/// </summary>
+public class SetEventStudentCustomAmountDto
+{
+    public long TeacherId { get; set; }
+    public long EventId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public decimal CustomAmount { get; set; }
 }

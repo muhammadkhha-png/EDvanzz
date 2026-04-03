@@ -359,6 +359,23 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task UpdateEventObligationAsync(EventStudentObligation obligation);
 
     /// <summary>
+    /// Deletes an event student obligation.
+    /// REQ-EVT-021: Remove student from event if they haven't paid.
+    /// </summary>
+    Task DeleteEventObligationAsync(EventStudentObligation obligation);
+
+    /// <summary>
+    /// Gets filtered and paginated events for a teacher.
+    /// REQ-EVT-017/018: Searchable by name, filterable by scope and completion.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentEvent> Items, int TotalCount)> GetPaymentEventsFilteredPagedAsync(
+        long teacherId,
+        string? searchName,
+        EventTargetScopeType? scopeTypeFilter,
+        string? completionStatus,
+        int page, int pageSize);
+
+    /// <summary>
     /// Adds an event payment transaction.
     /// REQ-EVT-009: Collect event payment.
     /// </summary>

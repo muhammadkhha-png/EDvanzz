@@ -58,6 +58,12 @@ public class PaymentEvent : BaseEntity
     [Column(TypeName = "date")]
     public DateTime EventDate { get; set; }
 
+    /// <summary>
+    /// Optional free-text notes or description for the event.
+    /// REQ-EVT-002: "Notes is an optional free-text field for any additional description or context."
+    /// </summary>
+    public string? Notes { get; set; }
+
     // ══════════════════════════════════════════════
     // AGGREGATED COUNTERS (maintained by service layer)
     // ══════════════════════════════════════════════

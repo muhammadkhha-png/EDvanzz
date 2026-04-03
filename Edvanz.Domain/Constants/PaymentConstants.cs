@@ -59,6 +59,12 @@ public static class PaymentConstants
     public const int TargetScopeIdsMaxLength = 4000;
 
     /// <summary>
+    /// Maximum length for event notes field.
+    /// REQ-EVT-002: Optional free-text notes.
+    /// </summary>
+    public const int EventNotesMaxLength = 1000;
+
+    /// <summary>
     /// Default consecutive unpaid threshold for notifications.
     /// REQ-PAY-030: Default is 2 consecutive unpaid periods.
     /// </summary>
@@ -154,6 +160,8 @@ public static class PaymentConstants
         public const string EventNameRequired = "EventNameRequired";
         public const string EventAmountInvalid = "EventAmountInvalid";
         public const string EventTargetScopeEmpty = "EventTargetScopeEmpty";
+        public const string EventStudentAlreadyPaid = "EventStudentAlreadyPaid";
+        public const string EventStudentCustomAmountSet = "EventStudentCustomAmountSet";
 
         // Assistants
         public const string AssistantNotFound = "AssistantNotFound";

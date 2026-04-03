@@ -717,4 +717,10 @@
   <data name="EventTargetScopeEmpty" xml:space="preserve">
     <value>No students found in the selected target scope.</value>
   </data>
+  <data name="EventStudentAlreadyPaid" xml:space="preserve">
+    <value>This student has already paid for this event and cannot be removed.</value>
+  </data>
+  <data name="EventStudentCustomAmountSet" xml:space="preserve">
+    <value>Custom event amount set for student successfully.</value>
+  </data>
 </root>

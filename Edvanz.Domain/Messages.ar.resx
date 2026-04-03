@@ -717,4 +717,11 @@
   <data name="EventTargetScopeEmpty" xml:space="preserve">
     <value>مفيش طلاب في النطاق المحدد.</value>
   </data>
+  <data name="EventStudentAlreadyPaid" xml:space="preserve">
+    <value>الطالب ده دفع للحدث ده ومينفعش يتشال.</value>
+  </data>
+  <data name="EventStudentCustomAmountSet" xml:space="preserve">
+    <value>تم تحديد مبلغ مخصص للطالب في الحدث بنجاح.</value>
+  </data>
+
 </root>

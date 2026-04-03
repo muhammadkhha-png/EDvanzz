@@ -66,6 +66,7 @@ public class EventPaymentService : IEventPaymentService
                 TeacherId = dto.TeacherId,
                 EventName = dto.EventName,
                 EventAmount = dto.EventAmount,
+                Notes = dto.Notes,
                 TargetScopeType = dto.TargetScopeType,
                 TargetScopeIds = string.Join(",", dto.TargetScopeIds),
                 EventDate = dto.EventDate,
@@ -112,19 +113,21 @@ public class EventPaymentService : IEventPaymentService
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<EventDto>>>> GetEventsAsync(
-        long teacherId, int page, int pageSize)
+        long teacherId, EventListFilterDto filter)
     {
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
-            .GetPaymentEventsPagedAsync(teacherId, page, pageSize);
+            .GetPaymentEventsFilteredPagedAsync(teacherId,
+                filter.SearchName, filter.ScopeTypeFilter, filter.CompletionStatus,
+                filter.Page, filter.PageSize);
 
         var dtos = items.Select(MapToEventDto).ToList();
 
         var response = new PaginatedResponse<List<EventDto>>
         {
             totalCount = totalCount,
-            page = page,
-            pageSize = pageSize,
-            totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+            page = filter.Page,
+            pageSize = filter.PageSize,
+            totalPages = (int)Math.Ceiling(totalCount / (double)filter.PageSize),
             data = dtos
         };
 
@@ -174,7 +177,46 @@ public class EventPaymentService : IEventPaymentService
         try
         {
             if (dto.EventName is not null) paymentEvent.EventName = dto.EventName;
-            if (dto.EventAmount.HasValue) paymentEvent.EventAmount = dto.EventAmount.Value;
+            if (dto.Notes is not null) paymentEvent.Notes = dto.Notes;
+
+            // REQ-EVT-019: If amount changes, update only unpaid obligations
+            if (dto.EventAmount.HasValue && dto.EventAmount.Value != paymentEvent.EventAmount)
+            {
+                decimal oldAmount = paymentEvent.EventAmount;
+                paymentEvent.EventAmount = dto.EventAmount.Value;
+
+                // Update unpaid obligations to the new amount
+                var (unpaidObligations, _) = await _unitOfWork.PaymentsRepo
+                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, PaymentStatus.Unpaid, 1, 50000);
+                foreach (var obligation in unpaidObligations)
+                {
+                    obligation.AmountDue = dto.EventAmount.Value;
+                    await _unitOfWork.PaymentsRepo.UpdateEventObligationAsync(obligation);
+                }
+
+                // Recalculate expected revenue
+                var (allObligations, totalCount) = await _unitOfWork.PaymentsRepo
+                    .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, 1, 50000);
+                paymentEvent.TotalExpectedRevenue = allObligations.Sum(o => o.AmountDue);
+            }
+
+            // REQ-EVT-021: Remove students (only if not paid)
+            if (dto.StudentIdsToRemove?.Count > 0)
+            {
+                foreach (var studentId in dto.StudentIdsToRemove)
+                {
+                    var obligation = await _unitOfWork.PaymentsRepo
+                        .GetEventObligationAsync(dto.EventId, studentId);
+                    if (obligation is null) continue;
+
+                    // BR-EVT-003: Cannot remove if student has paid
+                    if (obligation.AmountPaid > 0) continue;
+
+                    await _unitOfWork.PaymentsRepo.DeleteEventObligationAsync(obligation);
+                    paymentEvent.TotalStudents--;
+                    paymentEvent.TotalExpectedRevenue -= obligation.AmountDue;
+                }
+            }
 
             // REQ-EVT-020: Add new students
             if (dto.StudentIdsToAdd?.Count > 0)
@@ -224,6 +266,33 @@ public class EventPaymentService : IEventPaymentService
     }
 
     /// <inheritdoc />
+    public async Task<Result<bool>> SetEventStudentCustomAmountAsync(SetEventStudentCustomAmountDto dto)
+    {
+        var obligation = await _unitOfWork.PaymentsRepo
+            .GetEventObligationAsync(dto.EventId, dto.TeacherStudentId);
+        if (obligation is null)
+            return Result<bool>.Failure(
+                _localizer, PaymentConstants.Messages.EventObligationNotFound, HttpStatusCode.NotFound);
+
+        obligation.AmountDue = dto.CustomAmount;
+        await _unitOfWork.PaymentsRepo.UpdateEventObligationAsync(obligation);
+
+        // Recalculate event expected revenue
+        var paymentEvent = await _unitOfWork.PaymentsRepo
+            .GetPaymentEventByIdAndTeacherAsync(dto.EventId, dto.TeacherId);
+        if (paymentEvent is not null)
+        {
+            var (allObligations, _) = await _unitOfWork.PaymentsRepo
+                .GetEventObligationsPagedAsync(dto.EventId, dto.TeacherId, null, 1, 50000);
+            paymentEvent.TotalExpectedRevenue = allObligations.Sum(o => o.AmountDue);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentEventAsync(paymentEvent);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.EventUpdatedSuccess);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<bool>> DeleteEventAsync(long teacherId, long eventId)
     {
         var paymentEvent = await _unitOfWork.PaymentsRepo
@@ -232,7 +301,7 @@ public class EventPaymentService : IEventPaymentService
             return Result<bool>.Failure(
                 _localizer, PaymentConstants.Messages.EventNotFound, HttpStatusCode.NotFound);
 
-        // REQ-EVT-022: Soft-delete flag; collected payments survive
+        // REQ-EVT-022: Soft-delete; collected EventPaymentTransactions survive via SET NULL FK
         paymentEvent.IsDeleted = true;
         paymentEvent.DeletedAt = DateTime.UtcNow;
         await _unitOfWork.PaymentsRepo.UpdatePaymentEventAsync(paymentEvent);
@@ -466,6 +535,7 @@ public class EventPaymentService : IEventPaymentService
         TargetScopeType = e.TargetScopeType,
         EventDate = e.EventDate,
         CreateAt = e.CreateAt,
+        Notes = e.Notes,
         TotalStudents = e.TotalStudents,
         TotalExpectedRevenue = e.TotalExpectedRevenue,
         TotalCollectedRevenue = e.TotalCollectedRevenue,

@@ -1047,6 +1047,9 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             // ── INDEXES ──
 
+            // Global query filter: soft-deleted transactions excluded by default
+            entity.HasQueryFilter(t => !t.IsDeleted);
+
             // Primary tenant-scoped query: all transactions for a teacher
             entity.HasIndex(t => new { t.TeacherId, t.IsDeleted })
                 .HasDatabaseName("IX_PT_TeacherId_IsDeleted");
@@ -1147,6 +1150,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(p => new { p.TeacherId, p.TeacherStudentId, p.PeriodSequence })
                 .HasDatabaseName("IX_PP_TeacherId_StudentId_Sequence");
 
+            // Dashboard aggregate queries: GROUP BY SessionId
+            entity.HasIndex(p => new { p.TeacherId, p.SessionId, p.PeriodStart, p.PeriodEnd })
+                .HasDatabaseName("IX_PP_TeacherId_SessionId_PeriodDates");
+
             // ── FOREIGN KEYS ──
 
             entity.HasOne(p => p.Teacher)
@@ -1240,7 +1247,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(w => w.TeacherId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Assistant FK: CASCADE — wallet deleted when assistant is deleted
+            // Assistant FK: NO ACTION — wallet preserved for historical wallet reset logs.
+            // App logic handles wallet cleanup when assistant is deactivated/deleted.
             entity.HasOne(w => w.Assistant)
                 .WithMany()
                 .HasForeignKey(w => w.AssistantId)
@@ -1385,6 +1393,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(e => e.EventDate).HasColumnType("date");
             entity.Property(e => e.DeletedAt).HasColumnType("datetime2(0)");
             entity.Property(e => e.TargetScopeIds).HasMaxLength(PaymentConstants.TargetScopeIdsMaxLength);
+            entity.Property(e => e.Notes).HasMaxLength(1000);
+
+            // Global query filter: soft-deleted events excluded by default
+            entity.HasQueryFilter(e => !e.IsDeleted);
 
             entity.HasIndex(e => new { e.TeacherId, e.IsDeleted })
                 .HasDatabaseName("IX_PE_TeacherId_IsDeleted");

@@ -36,7 +36,7 @@ public interface IEventPaymentService
     /// REQ-EVT-014: Event list with tracking summary.
     /// </summary>
     Task<Result<PaginatedResponse<List<EventDto>>>> GetEventsAsync(
-        long teacherId, int page, int pageSize);
+        long teacherId, EventListFilterDto filter);
 
     /// <summary>
     /// Gets the detailed tracking view for a specific event.
@@ -57,7 +57,13 @@ public interface IEventPaymentService
     Task<Result<EventDto>> UpdateEventAsync(UpdateEventDto dto);
 
     /// <summary>
-    /// Deletes an event (hard delete, no recovery).
+    /// Sets a custom amount for a specific student within an event.
+    /// REQ-EVT-007: Override default event amount for individual student.
+    /// </summary>
+    Task<Result<bool>> SetEventStudentCustomAmountAsync(SetEventStudentCustomAmountDto dto);
+
+    /// <summary>
+    /// Deletes an event (soft delete, no recovery).
     /// REQ-EVT-022: Confirmation required. Collected payments retained.
     /// BR-EVT-005: Deletion is irreversible.
     /// </summary>
