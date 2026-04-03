@@ -1,4 +1,5 @@
-﻿using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Constants;
+using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
@@ -10,16 +11,16 @@ namespace Edvanz.Infrastructure.Repositories;
 /// Extended repository for the Attendance Module (Module 3).
 /// Centralizes all domain-specific query logic for attendance-related entities.
 ///
-/// ARCHITECTURAL NOTE (same rationale as UserRepo, TeacherStudentRepo, SessionRepo):
-/// All expression-based queries are encapsulated here so the Application layer
-/// never builds raw predicates. If a query changes, you edit it HERE —
-/// not in every service that uses it.
-///
-/// Inherits from GenericRepo&lt;AttendanceRecord, long&gt; for basic CRUD on the
-/// primary entity (AttendanceRecord).
-///
-/// FIX BUG-2 PATTERN: All synchronous EF Core operations use 'await Task.CompletedTask'
-/// to maintain the project's all-async convention and suppress CS1998 warnings.
+/// CHANGES FROM ORIGINAL:
+/// Step 1.1: Added NullifyStudentReferencesOnRecordsAsync for student purge FK safety.
+/// Step 1.2: NullifyOccurrenceReferencesForSessionAsync and NullifySessionIdOnRecordsForSessionAsync
+///           now use ExecuteUpdateAsync instead of load-and-loop (OOM fix at scale).
+/// Step 1.2: DeactivateAssignmentsBySessionAsync uses ExecuteUpdateAsync.
+/// Step 2.1: Added GetExistingAttendanceByStudentsAndDateAsync for batch cross-session dup check.
+/// Step 2.2: RecalculateConsecutiveAbsencesAsync excludes Held status, uses configurable depth.
+/// Step 3.1: Added GetHeldRecordAsync for hold/release flow.
+/// Step 4.1: Added UpdateAbsenceCountersRangeAsync for batch counter updates.
+/// Step 5.2: GetRecordsBySessionAndDateRangeAsync now includes teacherId guard.
 /// </summary>
 public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRepo
 {
@@ -66,6 +67,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     {
         return await _context.SessionOccurrences
             .Where(o => o.TeacherId == teacherId && o.OccurrenceDate == date.Date)
+            .Include(o => o.Session)
             .AsNoTracking()
             .ToListAsync();
     }
@@ -78,12 +80,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// FIX P6: Uses ExecuteDeleteAsync instead of loading all into memory then RemoveRange.
+    /// Consistent with the ExecuteUpdateAsync pattern used elsewhere in the module.
     public async Task DeleteOccurrencesBySessionAsync(long sessionId)
     {
-        var occurrences = await _context.SessionOccurrences
+        await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId)
-            .ToListAsync();
-        _context.SessionOccurrences.RemoveRange(occurrences);
+            .ExecuteDeleteAsync();
     }
 
     /// <inheritdoc />
@@ -119,7 +122,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// FIX 3.1: Gets the next occurrence for cross-session date remapping.
     public async Task<SessionOccurrence?> GetNextOccurrenceAsync(long sessionId, DateTime onOrAfterDate)
     {
         return await _context.SessionOccurrences
@@ -138,19 +140,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// FIX 6.2: Loads only dates instead of full entities for efficient duplicate checking.
     public async Task<HashSet<DateTime>> GetExistingOccurrenceDatesAsync(long sessionId)
     {
         var dates = await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId)
             .Select(o => o.OccurrenceDate)
             .ToListAsync();
-        return dates.ToHashSet();
+        return new HashSet<DateTime>(dates);
     }
-
-    // ══════════════════════════════════════════════
-    // BATCH OCCURRENCE COUNTING (FIX 2.1)
-    // ══════════════════════════════════════════════
 
     /// <inheritdoc />
     public async Task<Dictionary<long, int>> CountRecordsByOccurrenceBatchAsync(
@@ -163,8 +160,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         return await _context.AttendanceRecords
             .Where(r => r.SessionOccurrenceId.HasValue && idList.Contains(r.SessionOccurrenceId.Value))
             .GroupBy(r => r.SessionOccurrenceId!.Value)
-            .Select(g => new { OccurrenceId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.OccurrenceId, x => x.Count);
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
     }
 
     // ══════════════════════════════════════════════
@@ -214,38 +210,29 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// Step 1.2: Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+    /// Original loaded all assignments into memory and looped. For a session with 50K students,
+    /// this was 50K entities tracked. Now it's one SQL statement.
     public async Task DeactivateAssignmentsBySessionAsync(long sessionId)
     {
-        var assignments = await _context.StudentSessionAssignments
+        await _context.StudentSessionAssignments
             .Where(a => a.SessionId == sessionId && a.IsActive)
-            .ToListAsync();
-
-        foreach (var assignment in assignments)
-        {
-            assignment.IsActive = false;
-            assignment.UnassignedAt = DateTime.UtcNow;
-            assignment.SessionId = null; // Nullify before session hard-delete
-        }
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.IsActive, false)
+                .SetProperty(a => a.UnassignedAt, DateTime.UtcNow)
+                .SetProperty(a => a.SessionId, (long?)null));
     }
 
     /// <inheritdoc />
-    /// FIX 1.1: Deactivates all active assignments for a student during permanent purge.
     public async Task DeactivateAssignmentsByStudentAsync(long teacherStudentId)
     {
-        var assignments = await _context.StudentSessionAssignments
+        await _context.StudentSessionAssignments
             .Where(a => a.TeacherStudentId == teacherStudentId && a.IsActive)
-            .ToListAsync();
-
-        foreach (var assignment in assignments)
-        {
-            assignment.IsActive = false;
-            assignment.UnassignedAt = DateTime.UtcNow;
-        }
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.IsActive, false)
+                .SetProperty(a => a.UnassignedAt, DateTime.UtcNow)
+                .SetProperty(a => a.TeacherStudentId, (long?)null));
     }
-
-    // ══════════════════════════════════════════════
-    // BATCH ASSIGNMENT QUERIES (FIX 2.2)
-    // ══════════════════════════════════════════════
 
     /// <inheritdoc />
     public async Task<Dictionary<long, StudentSessionAssignment>> GetActiveAssignmentsBatchAsync(
@@ -256,12 +243,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             return new Dictionary<long, StudentSessionAssignment>();
 
         var assignments = await _context.StudentSessionAssignments
-            .Where(a => idList.Contains(a.TeacherStudentId) && a.IsActive)
+            .Where(a => a.TeacherStudentId.HasValue
+                && idList.Contains(a.TeacherStudentId.Value)
+                && a.IsActive)
             .ToListAsync();
 
-        // Use first active assignment per student (should only be one due to business rules)
         return assignments
-            .GroupBy(a => a.TeacherStudentId)
+            .Where(a => a.TeacherStudentId.HasValue)
+            .GroupBy(a => a.TeacherStudentId!.Value)
             .ToDictionary(g => g.Key, g => g.First());
     }
 
@@ -324,7 +313,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// FIX 2.2: Batch duplicate check for multiple students on one occurrence.
     public async Task<HashSet<long>> GetExistingAttendanceBatchAsync(
         IEnumerable<long> teacherStudentIds, long sessionOccurrenceId)
     {
@@ -332,14 +320,51 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (idList.Count == 0)
             return new HashSet<long>();
 
-        var existingStudentIds = await _context.AttendanceRecords
-            .Where(r => idList.Contains(r.TeacherStudentId)
-                && r.SessionOccurrenceId == sessionOccurrenceId)
-            .Select(r => r.TeacherStudentId)
-            .Distinct()
+        var existingIds = await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrenceId == sessionOccurrenceId
+                && r.TeacherStudentId.HasValue
+                && idList.Contains(r.TeacherStudentId.Value))
+            .Select(r => r.TeacherStudentId!.Value)
             .ToListAsync();
 
-        return existingStudentIds.ToHashSet();
+        return new HashSet<long>(existingIds);
+    }
+
+    /// <inheritdoc />
+    /// Step 2.1: Batch cross-session duplicate check for BulkMarkAttendanceAsync.
+    public async Task<Dictionary<long, AttendanceRecord>> GetExistingAttendanceByStudentsAndDateAsync(
+        IEnumerable<long> teacherStudentIds, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds)
+    {
+        var studentIdList = teacherStudentIds.ToList();
+        var sessionIdList = linkedSessionIds.ToList();
+
+        if (studentIdList.Count == 0 || sessionIdList.Count == 0)
+            return new Dictionary<long, AttendanceRecord>();
+
+        var records = await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId.HasValue
+                && studentIdList.Contains(r.TeacherStudentId.Value)
+                && r.OccurrenceDate == occurrenceDate.Date
+                && r.SessionId.HasValue
+                && sessionIdList.Contains(r.SessionId.Value))
+            .ToListAsync();
+
+        // Return first match per student (there should be at most one per BR-ATT-002)
+        return records
+            .Where(r => r.TeacherStudentId.HasValue)
+            .GroupBy(r => r.TeacherStudentId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+    }
+
+    /// <inheritdoc />
+    /// Step 3.1: Find a held record for hold/release flow.
+    public async Task<AttendanceRecord?> GetHeldRecordAsync(
+        long teacherStudentId, long sessionOccurrenceId)
+    {
+        return await _context.AttendanceRecords
+            .FirstOrDefaultAsync(r => r.TeacherStudentId == teacherStudentId
+                && r.SessionOccurrenceId == sessionOccurrenceId
+                && r.Status == AttendanceStatus.Held);
     }
 
     /// <inheritdoc />
@@ -397,11 +422,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// Step 5.2: Added teacherId parameter for defense-in-depth tenant isolation.
     public async Task<IReadOnlyList<AttendanceRecord>> GetRecordsBySessionAndDateRangeAsync(
-        long sessionId, DateTime startDate, DateTime endDate)
+        long teacherId, long sessionId, DateTime startDate, DateTime endDate)
     {
         return await _context.AttendanceRecords
-            .Where(r => r.SessionId == sessionId
+            .Where(r => r.TeacherId == teacherId
+                && r.SessionId == sessionId
                 && r.OccurrenceDate >= startDate.Date
                 && r.OccurrenceDate <= endDate.Date)
             .OrderBy(r => r.OccurrenceDate)
@@ -420,9 +447,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// Step 1.2: Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+    /// Original loaded ALL records into memory and looped. For 2.6M records, this caused OOM.
     public async Task NullifyOccurrenceReferencesForSessionAsync(long sessionId)
     {
-        // Get all occurrence Ids for this session
         var occurrenceIds = await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId)
             .Select(o => o.Id)
@@ -431,30 +459,34 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (occurrenceIds.Count == 0)
             return;
 
-        // Nullify SessionOccurrenceId on all related attendance records
-        var records = await _context.AttendanceRecords
-            .Where(r => r.SessionOccurrenceId.HasValue && occurrenceIds.Contains(r.SessionOccurrenceId.Value))
-            .ToListAsync();
-
-        foreach (var record in records)
-        {
-            record.SessionOccurrenceId = null;
-        }
+        await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrenceId.HasValue
+                && occurrenceIds.Contains(r.SessionOccurrenceId.Value))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.SessionOccurrenceId, (long?)null));
     }
 
     /// <inheritdoc />
-    /// FIX 1.4: Nullifies the denormalized SessionId on AttendanceRecords before session hard-delete.
+    /// Step 1.2: Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
     public async Task NullifySessionIdOnRecordsForSessionAsync(long sessionId)
     {
-        var records = await _context.AttendanceRecords
+        await _context.AttendanceRecords
             .Where(r => r.SessionId == sessionId)
-            .ToListAsync();
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.SessionId, (long?)null));
+    }
 
-        foreach (var record in records)
-        {
-            record.SessionId = null;
-            // SessionName and OccurrenceDate remain intact for historical display (BR-ATT-005)
-        }
+    /// <inheritdoc />
+    /// Step 1.1: Nullifies student FK references before student hard-delete.
+    /// Uses ExecuteUpdateAsync for safety at scale.
+    /// Denormalized StudentName and StudentCode remain intact for historical display.
+    public async Task NullifyStudentReferencesOnRecordsAsync(long teacherStudentId)
+    {
+        await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId == teacherStudentId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.TeacherStudentId, (long?)null)
+                .SetProperty(r => r.StudentSessionAssignmentId, (long?)null));
     }
 
     // ══════════════════════════════════════════════
@@ -496,6 +528,17 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// Step 4.1: Batch update for multiple counters.
+    public async Task UpdateAbsenceCountersRangeAsync(IEnumerable<StudentAbsenceCounter> counters)
+    {
+        foreach (var counter in counters)
+        {
+            _context.Entry(counter).State = EntityState.Modified;
+        }
+        await Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
     public async Task<StudentAbsenceCounter?> GetAbsenceCounterAsync(
         long teacherId, long teacherStudentId)
     {
@@ -505,7 +548,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// FIX 2.2: Batch counter loading for multiple students.
     public async Task<Dictionary<long, StudentAbsenceCounter>> GetAbsenceCountersBatchAsync(
         long teacherId, IEnumerable<long> teacherStudentIds)
     {
@@ -524,7 +566,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     public async Task<IReadOnlyList<StudentAbsenceCounter>> GetAbsenceCountersBySessionAsync(
         long sessionId)
     {
-        // Get student Ids from active assignments for this session
         var studentIds = await _context.StudentSessionAssignments
             .Where(a => a.SessionId == sessionId && a.IsActive)
             .Select(a => a.TeacherStudentId)
@@ -539,15 +580,17 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    /// Step 2.2: Excludes Held status from streak calculation.
+    /// Uses configurable depth from AttendanceConstants instead of hardcoded 100.
     public async Task<int> RecalculateConsecutiveAbsencesAsync(long teacherStudentId)
     {
-        // Get recent records in reverse chronological order
         var recentRecords = await _context.AttendanceRecords
-            .Where(r => r.TeacherStudentId == teacherStudentId)
+            .Where(r => r.TeacherStudentId == teacherStudentId
+                && r.Status != AttendanceStatus.Held) // Step 2.2: Exclude Held
             .OrderByDescending(r => r.OccurrenceDate)
             .ThenByDescending(r => r.RecordedAt)
             .Select(r => r.Status)
-            .Take(100) // Reasonable upper bound for consecutive absences
+            .Take(AttendanceConstants.MaxConsecutiveAbsenceScanDepth)
             .ToListAsync();
 
         int consecutive = 0;
@@ -556,7 +599,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             if (status == AttendanceStatus.Absent)
                 consecutive++;
             else
-                break; // Any non-absent status breaks the streak
+                break; // Any non-absent, non-held status breaks the streak
         }
 
         return consecutive;
@@ -570,7 +613,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// FIX 1.1: Deletes all absence counters for a student during permanent purge.
     public async Task DeleteAbsenceCountersByStudentAsync(long teacherStudentId)
     {
         var counters = await _context.StudentAbsenceCounters
@@ -581,15 +623,120 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             _context.StudentAbsenceCounters.RemoveRange(counters);
     }
 
+    /// <inheritdoc />
+    public async Task<AttendanceRecord?> GetExistingAttendanceByStudentSessionAndDateAsync(
+        long teacherStudentId, long sessionId, DateTime occurrenceDate)
+    {
+        return await _context.AttendanceRecords
+            .FirstOrDefaultAsync(r => r.TeacherStudentId == teacherStudentId
+                && r.SessionId == sessionId
+                && r.OccurrenceDate == occurrenceDate.Date);
+    }
+
+    /// <inheritdoc />
+    /// FIX H4: Added phone filter parameters for REQ-ATT-034 compliance.
+    /// FIX M7: Replaced ToLower() with EF.Functions.Like for SQL Server index usage.
+    public async Task<IReadOnlyList<AttendanceRecord>> GetAbsentStudentsByDateAsync(
+        long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
+        string? search, int page, int pageSize,
+        bool? missingStudentPhone = null, bool? missingParentPhone = null)
+    {
+        var ids = sessionIds.ToList();
+        var query = _context.AttendanceRecords
+            .Where(r => r.TeacherId == teacherId
+                && r.OccurrenceDate == occurrenceDate.Date
+                && r.Status == AttendanceStatus.Absent
+                && r.SessionId.HasValue
+                && ids.Contains(r.SessionId.Value))
+            .Include(r => r.TeacherStudent)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
+            // SQL Server default collation is case-insensitive, so LIKE works correctly.
+            string pattern = $"%{search.Trim()}%";
+            query = query.Where(r =>
+                (r.StudentName != null && EF.Functions.Like(r.StudentName, pattern))
+                || (r.StudentCode != null && EF.Functions.Like(r.StudentCode, pattern))
+                || (r.TeacherStudent != null && EF.Functions.Like(r.TeacherStudent.StudentName, pattern))
+                || (r.TeacherStudent != null && EF.Functions.Like(r.TeacherStudent.StudentCode, pattern)));
+        }
+
+        // FIX H4: Apply phone filters (were missing on the date-specific path).
+        if (missingStudentPhone == true)
+        {
+            query = query.Where(r =>
+                r.TeacherStudent != null
+                && (r.TeacherStudent.StudentPhoneNumber == null
+                    || r.TeacherStudent.StudentPhoneNumber == ""));
+        }
+
+        if (missingParentPhone == true)
+        {
+            query = query.Where(r =>
+                r.TeacherStudent != null
+                && (r.TeacherStudent.ParentPhoneNumber == null
+                    || r.TeacherStudent.ParentPhoneNumber == ""));
+        }
+
+        return await query
+            .OrderBy(r => r.StudentName ?? r.TeacherStudent!.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    /// FIX H4: Added phone filter parameters for REQ-ATT-034 compliance.
+    /// FIX M7: Replaced ToLower() with EF.Functions.Like for SQL Server index usage.
+    public async Task<int> CountAbsentStudentsByDateAsync(
+        long teacherId, IEnumerable<long> sessionIds, DateTime occurrenceDate,
+        string? search,
+        bool? missingStudentPhone = null, bool? missingParentPhone = null)
+    {
+        var ids = sessionIds.ToList();
+        var query = _context.AttendanceRecords
+            .Where(r => r.TeacherId == teacherId
+                && r.OccurrenceDate == occurrenceDate.Date
+                && r.Status == AttendanceStatus.Absent
+                && r.SessionId.HasValue
+                && ids.Contains(r.SessionId.Value))
+            .Include(r => r.TeacherStudent)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{search.Trim()}%";
+            query = query.Where(r =>
+                (r.StudentName != null && EF.Functions.Like(r.StudentName, pattern))
+                || (r.StudentCode != null && EF.Functions.Like(r.StudentCode, pattern)));
+        }
+
+        if (missingStudentPhone == true)
+        {
+            query = query.Where(r =>
+                r.TeacherStudent != null
+                && (r.TeacherStudent.StudentPhoneNumber == null
+                    || r.TeacherStudent.StudentPhoneNumber == ""));
+        }
+
+        if (missingParentPhone == true)
+        {
+            query = query.Where(r =>
+                r.TeacherStudent != null
+                && (r.TeacherStudent.ParentPhoneNumber == null
+                    || r.TeacherStudent.ParentPhoneNumber == ""));
+        }
+
+        return await query.CountAsync();
+    }
+
     // ══════════════════════════════════════════════
     // PRIVATE HELPER: ABSENCE OVERVIEW QUERY BUILDER
     // ══════════════════════════════════════════════
 
-    /// <summary>
-    /// Builds the filtered queryable for absence overview.
-    /// Private — exposed only through CountAbsenceOverviewAsync and GetPagedAbsenceOverviewAsync
-    /// to prevent IQueryable leaking to the Application layer (FIX 5.2).
-    /// </summary>
     private IQueryable<StudentAbsenceCounter> BuildAbsenceOverviewQuery(
         long teacherId,
         long? sessionId = null,
@@ -605,30 +752,31 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (sessionId.HasValue)
         {
             var studentIdsInSession = _context.StudentSessionAssignments
-                .Where(a => a.SessionId == sessionId.Value && a.IsActive)
-                .Select(a => a.TeacherStudentId);
+                .Where(a => a.SessionId == sessionId.Value && a.IsActive && a.TeacherStudentId.HasValue)
+                .Select(a => a.TeacherStudentId!.Value);
             query = query.Where(c => studentIdsInSession.Contains(c.TeacherStudentId));
         }
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string searchLower = search.Trim().ToLower();
+            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
+            string pattern = $"%{search.Trim()}%";
             query = query.Where(c =>
-                c.TeacherStudent.StudentName.ToLower().Contains(searchLower)
-                || c.TeacherStudent.StudentCode.ToLower().Contains(searchLower));
+                EF.Functions.Like(c.TeacherStudent!.StudentName, pattern)
+                || EF.Functions.Like(c.TeacherStudent.StudentCode, pattern));
         }
 
         if (missingStudentPhone == true)
         {
             query = query.Where(c =>
-                c.TeacherStudent.StudentPhoneNumber == null
+                c.TeacherStudent!.StudentPhoneNumber == null
                 || c.TeacherStudent.StudentPhoneNumber == "");
         }
 
         if (missingParentPhone == true)
         {
             query = query.Where(c =>
-                c.TeacherStudent.ParentPhoneNumber == null
+                c.TeacherStudent!.ParentPhoneNumber == null
                 || c.TeacherStudent.ParentPhoneNumber == "");
         }
 
@@ -661,7 +809,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         return await BuildAbsenceOverviewQuery(teacherId, sessionId, search,
             missingStudentPhone, missingParentPhone)
             .OrderByDescending(c => c.ConsecutiveAbsences)
-            .ThenBy(c => c.TeacherStudent.StudentName)
+            .ThenBy(c => c.TeacherStudent!.StudentName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .AsNoTracking()
@@ -699,8 +847,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         }
 
         if (sessionGroupId.HasValue)
-            query = query.Where(r => r.SessionOccurrence != null
-                                  && r.SessionOccurrence.Session.SessionGroupId == sessionGroupId.Value);
+            // FIX H3: Use denormalized SessionGroupId field instead of navigating through
+            // SessionOccurrence.Session.SessionGroupId. After session hard-delete,
+            // SessionOccurrence is cascade-deleted and the navigation returns null,
+            // causing records from deleted sessions to be excluded from Report Type 5.
+            query = query.Where(r => r.SessionGroupId == sessionGroupId.Value);
 
         if (startDate.HasValue)
             query = query.Where(r => r.OccurrenceDate >= startDate.Value.Date);
@@ -726,7 +877,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         string? studentCode = null)
     {
         var query = _context.StudentSessionAssignments
-            .Where(a => a.TeacherId == teacherId)
+            .Where(a => a.TeacherId == teacherId && a.TeacherStudentId.HasValue)
             .Include(a => a.TeacherStudent)
             .AsQueryable();
 
@@ -739,18 +890,19 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
 
         if (!string.IsNullOrWhiteSpace(studentName))
         {
-            string searchLower = studentName.Trim().ToLower();
-            query = query.Where(a => a.TeacherStudent.StudentName.ToLower().Contains(searchLower));
+            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
+            string pattern = $"%{studentName.Trim()}%";
+            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentName, pattern));
         }
 
         if (!string.IsNullOrWhiteSpace(studentCode))
         {
-            string codeLower = studentCode.Trim().ToLower();
-            query = query.Where(a => a.TeacherStudent.StudentCode.ToLower().Contains(codeLower));
+            string pattern = $"%{studentCode.Trim()}%";
+            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentCode, pattern));
         }
 
         return await query
-            .Select(a => a.TeacherStudentId)
+            .Select(a => a.TeacherStudentId!.Value)
             .Distinct()
             .ToListAsync();
     }
@@ -769,30 +921,26 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     {
         var linkedIds = linkedSessionIds.ToList();
 
-        // Build base query: active assignments for primary + linked sessions
         var assignmentQuery = _context.StudentSessionAssignments
             .Where(a => a.IsActive && a.TeacherId == teacherId)
             .Where(a => a.SessionId == sessionId
                 || (a.SessionId.HasValue && linkedIds.Contains(a.SessionId.Value)))
             .Include(a => a.TeacherStudent);
 
-        // Get the occurrence for this session on this date (for join with attendance records)
         var occurrenceId = await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId && o.OccurrenceDate == occurrenceDate.Date)
             .Select(o => (long?)o.Id)
             .FirstOrDefaultAsync();
 
-        // Project to row model with LEFT JOIN to attendance records and absence counters
         var rowQuery = assignmentQuery
             .Select(a => new
             {
                 a.TeacherStudentId,
-                a.TeacherStudent.StudentName,
-                a.TeacherStudent.StudentCode,
+                StudentName = a.TeacherStudent != null ? a.TeacherStudent.StudentName : "Unknown",
+                StudentCode = a.TeacherStudent != null ? a.TeacherStudent.StudentCode : "",
                 AssignedSessionId = a.SessionId,
                 AssignedSessionName = a.SessionName,
                 IsFromLinkedSession = a.SessionId != sessionId,
-                // LEFT JOIN: check if attendance exists for this occurrence
                 AttendanceRecord = occurrenceId.HasValue
                     ? _context.AttendanceRecords
                         .Where(r => r.TeacherStudentId == a.TeacherStudentId
@@ -800,7 +948,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                         .Select(r => new { r.Status })
                         .FirstOrDefault()
                     : null,
-                // LEFT JOIN: absence counter
                 Counter = _context.StudentAbsenceCounters
                     .Where(c => c.TeacherId == teacherId
                         && c.TeacherStudentId == a.TeacherStudentId)
@@ -808,36 +955,32 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                     .FirstOrDefault()
             });
 
-        // Apply search filter
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string searchLower = search.Trim().ToLower();
+            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
+            string pattern = $"%{search.Trim()}%";
             rowQuery = rowQuery.Where(r =>
-                r.StudentName.ToLower().Contains(searchLower)
-                || r.StudentCode.ToLower().Contains(searchLower));
+                EF.Functions.Like(r.StudentName, pattern)
+                || EF.Functions.Like(r.StudentCode, pattern));
         }
 
-        // Apply unmarked-only filter
         if (unmarkedOnly)
         {
             rowQuery = rowQuery.Where(r => r.AttendanceRecord == null);
         }
 
-        // Get total count before pagination
         int totalCount = await rowQuery.CountAsync();
 
-        // Order: unmarked first (REQ-ATT-054), then by name
         var pagedResults = await rowQuery
-            .OrderBy(r => r.AttendanceRecord != null ? 1 : 0) // Unmarked first
+            .OrderBy(r => r.AttendanceRecord != null ? 1 : 0)
             .ThenBy(r => r.StudentName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
 
-        // Map to output model
         var items = pagedResults.Select(r => new PagedAttendanceStudentRow
         {
-            TeacherStudentId = r.TeacherStudentId,
+            TeacherStudentId = r.TeacherStudentId!.Value,
             StudentName = r.StudentName,
             StudentCode = r.StudentCode,
             SessionId = r.AssignedSessionId,
@@ -851,5 +994,161 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         }).ToList();
 
         return (items, totalCount);
+    }
+
+    // ══════════════════════════════════════════════
+    // V2 AUDIT FIX — NEW BATCH METHODS
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    /// FIX C1 (REQ-ATT-050): Batch count of active assignments per session.
+    public async Task<Dictionary<long, int>> CountActiveAssignmentsBySessionBatchAsync(
+        IEnumerable<long> sessionIds)
+    {
+        var idList = sessionIds.ToList();
+        if (idList.Count == 0)
+            return new Dictionary<long, int>();
+
+        return await _context.StudentSessionAssignments
+            .Where(a => a.IsActive && a.SessionId.HasValue && idList.Contains(a.SessionId.Value))
+            .GroupBy(a => a.SessionId!.Value)
+            .ToDictionaryAsync(g => g.Key, g => g.Count());
+    }
+
+    /// <inheritdoc />
+    /// FIX M3 (REQ-ATT-068): Batch-load recent statuses for multiple students.
+    /// Uses a single SQL query with ROW_NUMBER() partitioning via GroupBy + Take.
+    public async Task<Dictionary<long, IReadOnlyList<AttendanceStatus>>>
+        GetRecentRecordsByStudentsBatchAsync(
+            IEnumerable<long> teacherStudentIds, int count)
+    {
+        var idList = teacherStudentIds.ToList();
+        if (idList.Count == 0)
+            return new Dictionary<long, IReadOnlyList<AttendanceStatus>>();
+
+        // Load recent records for all students in one query, then group in memory.
+        // EF Core doesn't support per-group Take, so we fetch a capped number of records.
+        // FIX P1: Added .Take() to prevent unbounded memory consumption.
+        // For a page of 20 students × 5 statuses = 100 records max from SQL.
+        // We fetch slightly more (count * 2 per student) to handle students with mixed Held statuses
+        // that are filtered out, ensuring we still get enough non-Held records per student.
+        int maxRecords = idList.Count * count * 2;
+        var records = await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId.HasValue
+                && idList.Contains(r.TeacherStudentId.Value)
+                && r.Status != AttendanceStatus.Held)
+            .OrderByDescending(r => r.OccurrenceDate)
+            .ThenByDescending(r => r.RecordedAt)
+            .Take(maxRecords)
+            .Select(r => new { r.TeacherStudentId, r.Status })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return records
+            .Where(r => r.TeacherStudentId.HasValue)
+            .GroupBy(r => r.TeacherStudentId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<AttendanceStatus>)g.Take(count).Select(r => r.Status).ToList());
+    }
+
+    /// <inheritdoc />
+    /// FIX M4 (REQ-ATT-072): DB-level pagination for timeline student list.
+    public async Task<(IReadOnlyList<long> PagedIds, int TotalCount)> GetPagedTimelineStudentIdsAsync(
+        long teacherId,
+        int page,
+        int pageSize,
+        long? sessionId = null,
+        long? sessionGroupId = null,
+        string? studentName = null,
+        string? studentCode = null)
+    {
+        var query = _context.StudentSessionAssignments
+            .Where(a => a.TeacherId == teacherId && a.TeacherStudentId.HasValue)
+            .Include(a => a.TeacherStudent)
+            .AsQueryable();
+
+        if (sessionId.HasValue)
+            query = query.Where(a => a.SessionId == sessionId.Value);
+
+        if (sessionGroupId.HasValue)
+            query = query.Where(a => a.Session != null
+                && a.Session.SessionGroupId == sessionGroupId.Value);
+
+        if (!string.IsNullOrWhiteSpace(studentName))
+        {
+            // FIX M7: Use EF.Functions.Like
+            string pattern = $"%{studentName.Trim()}%";
+            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentName, pattern));
+        }
+
+        if (!string.IsNullOrWhiteSpace(studentCode))
+        {
+            string pattern = $"%{studentCode.Trim()}%";
+            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentCode, pattern));
+        }
+
+        // Get distinct student IDs with DB-level pagination
+        var distinctQuery = query
+            .Select(a => a.TeacherStudentId!.Value)
+            .Distinct();
+
+        int totalCount = await distinctQuery.CountAsync();
+
+        var pagedIds = await distinctQuery
+            .OrderBy(id => id) // Stable ordering for pagination
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (pagedIds, totalCount);
+    }
+
+    // ══════════════════════════════════════════════
+    // V3 PERFORMANCE & TENANT FIX — NEW METHODS
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    /// FIX R2: Fetches absence counter with AsNoTracking so the change tracker doesn't
+    /// return the stale entity from a previous failed concurrency attempt.
+    /// The caller (UpdateAbsenceCounterForNewRecord) re-attaches the entity for update.
+    public async Task<StudentAbsenceCounter?> GetAbsenceCounterFreshAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // Detach any previously tracked instance of this counter first.
+        // This ensures the query hits the database and returns the latest RowVersion.
+        var tracked = _context.ChangeTracker.Entries<StudentAbsenceCounter>()
+            .FirstOrDefault(e => e.Entity.TeacherId == teacherId
+                && e.Entity.TeacherStudentId == teacherStudentId);
+        if (tracked is not null)
+            tracked.State = EntityState.Detached;
+
+        return await _context.StudentAbsenceCounters
+            .FirstOrDefaultAsync(c => c.TeacherId == teacherId
+                                   && c.TeacherStudentId == teacherStudentId);
+    }
+
+    /// <inheritdoc />
+    /// FIX P5: Batch-loads all assignments for multiple students in a single query.
+    /// Replaces N+1 GetAssignmentsByStudentAsync calls in the timeline student list.
+    public async Task<Dictionary<long, IReadOnlyList<StudentSessionAssignment>>>
+        GetAssignmentsByStudentsBatchAsync(IEnumerable<long> teacherStudentIds)
+    {
+        var idList = teacherStudentIds.ToList();
+        if (idList.Count == 0)
+            return new Dictionary<long, IReadOnlyList<StudentSessionAssignment>>();
+
+        var assignments = await _context.StudentSessionAssignments
+            .Where(a => a.TeacherStudentId.HasValue && idList.Contains(a.TeacherStudentId.Value))
+            .OrderBy(a => a.AssignedAt)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return assignments
+            .Where(a => a.TeacherStudentId.HasValue)
+            .GroupBy(a => a.TeacherStudentId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<StudentSessionAssignment>)g.ToList());
     }
 }

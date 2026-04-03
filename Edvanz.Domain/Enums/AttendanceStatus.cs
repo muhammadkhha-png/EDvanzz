@@ -7,6 +7,11 @@ namespace Edvanz.Domain.Enums;
 /// REQ-ATT-006: Unified across all three attendance methods.
 /// REQ-ATT-017: CrossSessionPresent for cross-session attendance events.
 /// Stored as tinyint in the database.
+///
+/// IMPORTANT: Only Present and Absent are valid for MarkAttendance / BulkMarkAttendance /
+/// EditAttendance endpoints. Held is only created via HoldStudentAsync.
+/// CrossSessionPresent is only created internally when cross-session logic applies.
+/// Step 2.3: AttendanceService validates that callers do not pass Held or CrossSessionPresent directly.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AttendanceStatus : byte
@@ -30,9 +35,10 @@ public enum AttendanceStatus : byte
     CrossSessionPresent = 2,
 
     /// <summary>
-    ///     /// FIX 4.1: Student placed on "hold" during attendance taking.
-    ///     /// REQ-ATT-061: Distinguishes held students from marked and unmarked.
-    ///     /// REQ-ATT-058: "Hold" cancels attendance recording, deferring to later.
+    /// Student placed on "hold" during attendance taking.
+    /// REQ-ATT-061: Distinguishes held students from marked and unmarked.
+    /// REQ-ATT-058: "Hold" cancels attendance recording, deferring to later.
+    /// Step 3.1: Only created via HoldStudentAsync, never via MarkAttendance.
     /// </summary>
     Held = 3
 }

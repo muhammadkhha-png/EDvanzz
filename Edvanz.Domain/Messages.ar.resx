@@ -507,4 +507,55 @@
   <data name="OneOrMorePermissionsInvalid" xml:space="preserve">
     <value>صلاحيات غير صالحة </value>
   </data>
+  <data name="InvalidAttendanceStatus" xml:space="preserve">
+    <value>حالة الحضور مش صحيحة. المسموح بيه بس حاضر أو غايب في العملية دي</value>
+  </data>
+  <data name="CrossSessionNoFutureOccurrence" xml:space="preserve">
+    <value>مينفعش تسجل حضور عبر الحصص: الحصة اللي الطالب فيها مفيش ليها موعد قادم عشان يتربط بيه الحضور ده</value>
+  </data>
+  <data name="AttendanceRecordDeletedSuccess" xml:space="preserve">
+    <value>تم حذف سجل الحضور بنجاح</value>
+  </data>
+  <data name="AttendanceHeldSuccess" xml:space="preserve">
+    <value>الطالب اتحط في الانتظار. تقدر ترجعله بعدين في نفس الحصة</value>
+  </data>
+  <data name="AttendanceHoldReleasedSuccess" xml:space="preserve">
+    <value>تم إزالة حالة الانتظار بنجاح</value>
+  </data>
+  <data name="AttendanceHoldNotFound" xml:space="preserve">
+    <value>مفيش سجل انتظار للطالب ده في الموعد المحدد</value>
+  </data>
+  <data name="AttendanceAlreadyMarked" xml:space="preserve">
+    <value>الطالب ده اتسجل حضوره بالفعل في الموعد ده</value>
+  </data>
+  <data name="InvalidExportFormat" xml:space="preserve">
+    <value>صيغة التصدير مش صحيحة. الصيغ المدعومة هي: xlsx, pdf</value>
+  </data>
+  <data name="ExportCompleted" xml:space="preserve">
+    <value>تم التصدير بنجاح</value>
+  </data>
+  <data name="SyncCompleted" xml:space="preserve">
+    <value>تم مزامنة سجلات الحضور المحلية بنجاح</value>
+  </data>
+  <data name="NoOccurrenceRedirectToEdit" xml:space="preserve">
+    <value>النهارده مش موعد حصة للحصة دي. تقدر تستخدم تعديل الحضور عشان تسجل حضور لتاريخ تاني</value>
+  </data>
+  <data name="AttendanceBeforeAssignmentDate" xml:space="preserve">
+    <value>مينفعش تسجل حضور لتاريخ قبل ما الطالب يتم تعيينه في الحصة دي. سجل الحضور بيبدأ من تاريخ التعيين</value>
+  </data>
+  <data name="AttendanceSessionDeletedWhileHeld" xml:space="preserve">
+    <value>الحصة دي اتمسحت وأنت كنت محتفظ بالطالب في وضع الانتظار. الانتظار اتلغى. من فضلك حدث شاشة الحضور</value>
+  </data>
+  <data name="AttendanceStudentInRecycleBin" xml:space="preserve">
+    <value>الطالب ده موجود في سلة المحذوفات ومينفعش يتسجل له حضور. استعيد الطالب الأول عشان تكمل</value>
+  </data>
+  <data name="AttendanceReportGenerationFailed" xml:space="preserve">
+    <value>فشل إنشاء تقرير الحضور. من فضلك راجع بيانات التقرير وحاول تاني.</value>
+  </data>
+  <data name="AttendanceConcurrencyConflict" xml:space="preserve">
+    <value>حصل تعارض أثناء تحديث بيانات الحضور. من فضلك حاول تاني.</value>
+  </data>
+  <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
+    <value>فيه سجل حضور موجود أصلاً للطالب ده في الحصة دي. مش مسموح بتسجيل حضور مكرر.</value>
+  </data>
 </root>

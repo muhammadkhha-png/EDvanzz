@@ -1,4 +1,5 @@
 ﻿using Edvanz.Domain.Entities.ShareProp;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
@@ -96,4 +97,13 @@ public class StudentAbsenceCounter : BaseEntity
     /// </summary>
     [Column(TypeName = "date")]
     public DateTime? LastAttendanceDate { get; set; }
+
+    /// <summary>
+    /// Optimistic concurrency token. Prevents lost updates when multiple
+    /// concurrent requests modify the same counter (e.g., two assistants
+    /// taking attendance for linked sessions simultaneously).
+    /// Audit Fix: Added to prevent counter race conditions at scale.
+    /// </summary>
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = null!;
 }
