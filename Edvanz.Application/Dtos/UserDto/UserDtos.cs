@@ -39,8 +39,8 @@ namespace Edvanz.Application.Dtos.UserDto
         [Required]
         public string confirmedPassword { get; set; }
 
-        [Required]
-        public string phoneNumber { get; set; }
+        
+        public string? phoneNumber { get; set; }
 
         public IFormFile? idImage { get; set; }
     }

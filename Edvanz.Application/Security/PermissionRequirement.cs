@@ -5,13 +5,15 @@ using System.Text;
 
 namespace Edvanz.Application.Security
 {
-    public class PermissionRequirement: IAuthorizationRequirement
+    public class PermissionRequirement : IAuthorizationRequirement
     {
-        public string RequiredPermission { get; }
+        public string Module { get; }
+        public string? Permission { get; }
 
-        public PermissionRequirement(string requiredPermission)
+        public PermissionRequirement(string module, string? permission = null)
         {
-            RequiredPermission = requiredPermission;
+            Module = module;
+            Permission = permission;
         }
     }
 }

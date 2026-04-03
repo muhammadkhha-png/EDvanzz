@@ -16,12 +16,14 @@ namespace Edvanz.Application.Dtos.AssistantDtos
 
         [Required, MinLength(8)]
         public string password { get; set; } = string.Empty;
-
-
+        public string? email { get; set; }
+        public string? phoneNumber { get; set; }
 
         /// <summary>Zero or more profiles to assign immediately at creation</summary>
-        public List<Guid> PermissionProfileIds { get; set; } = new();
+        public List<long>? permissionProfileIds { get; set; } = new();
+        public List<long>? permissionIds { get; set; } = new();
 
+        public long teacherId { get; set; }
         /// <summary>Individual permission overrides on top of the assigned profiles</summary>
         //public List<PermissionKey> Permissions { get; set; } = new();
     }

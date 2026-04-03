@@ -70,25 +70,7 @@ builder.Services.AddSwaggerGen(c =>
     c.UseInlineDefinitionsForEnums();
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-//builder.Services.AddAuthentication(options =>
-//{
-//    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-//    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-//})
-//.AddJwtBearer(options =>
-//{
-//    options.TokenValidationParameters = new TokenValidationParameters
-//    {
-//        ValidateIssuer = false,
-//        ValidateAudience = false,
-//        ValidateLifetime = true,
-//        ValidateIssuerSigningKey = true,
-//        IssuerSigningKey = new SymmetricSecurityKey(System.Text.Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")),
-//        ClockSkew = TimeSpan.Zero,
-//        NameClaimType = ClaimTypes.Name,
-//        RoleClaimType = ClaimTypes.Role
-//    };
-//});
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -104,18 +86,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             RoleClaimType = ClaimTypes.Role
         };
     });
-builder.Services.AddAuthorization(options =>
-{
-   
-    options.AddPolicy("SuperAdmin", policy =>
-    policy.Requirements.Add(new PermissionRequirement("SuperAdmin")));
-    options.AddPolicy("Teacher", policy =>
-   policy.Requirements.Add(new PermissionRequirement("Teacher")));
+builder.Services.AddAuthorization(
+//    options =>
+//{
 
-    options.AddPolicy("CompleteProfile", policy =>
-        policy.Requirements.Add(new PermissionRequirement("CompleteProfile")));
+//    options.AddPolicy("SuperAdmin", policy =>
+//    policy.Requirements.Add(new PermissionRequirement("SuperAdmin")));
+//    options.AddPolicy("Teacher", policy =>
+//   policy.Requirements.Add(new PermissionRequirement("Teacher")));
 
-});
+//    options.AddPolicy("CompleteProfile", policy =>
+//        policy.Requirements.Add(new PermissionRequirement("CompleteProfile")));
+
+//}
+);
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 var app = builder.Build();
 

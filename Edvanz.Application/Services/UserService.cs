@@ -208,16 +208,13 @@ namespace Edvanz.Application.Services
 
             //    //case UserType.Student:
 
-            //    //    if (string.IsNullOrWhiteSpace(user.languagePreference))
-            //    //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
 
             //    //    break;
 
 
             //    //case UserType.Parent:
 
-            //    //    if (string.IsNullOrWhiteSpace(user.languagePreference))
-            //    //        return Result<AddUserDto?>.Failure(_localizer, "LanguagePreferenceRequired");
+         
 
             //    //    break;
 

@@ -10,56 +10,79 @@ namespace Edvanz.Application.Security
 {
     public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     {
-        private readonly IUnitOfWork _unitOfWork;
 
-        public PermissionHandler(IUnitOfWork unitOfWork)
+        public PermissionHandler()
         {
-            _unitOfWork = unitOfWork;
+           
         }
 
-        protected override async Task HandleRequirementAsync(
-            AuthorizationHandlerContext context,
-            PermissionRequirement requirement)
+      
+        protected override Task HandleRequirementAsync(
+       AuthorizationHandlerContext context,
+       PermissionRequirement requirement)
         {
-            var permissions = context.User.Claims
-                .Where(c => c.Type.Equals("Permission", System.StringComparison.OrdinalIgnoreCase))
+            var user = context.User;
+
+            if (user.IsInRole("SuperAdmin"))
+            {
+                context.Succeed(requirement);
+                return Task.CompletedTask;
+            }
+            else if (user.IsInRole("Student"))
+            {
+                context.Succeed(requirement);
+                return Task.CompletedTask;
+            }
+          else if (user.IsInRole("Parent"))
+            {
+                context.Succeed(requirement);
+                return Task.CompletedTask;
+            }
+
+            var permissions = user.Claims
+                .Where(c => c.Type == "Permission")
                 .Select(c => c.Value)
                 .ToList();
+
             if (permissions.Contains("CompleteProfile", StringComparer.OrdinalIgnoreCase))
             {
                 context.Succeed(requirement);
-                return;
+                return Task.CompletedTask;
             }
-            var hasAnyRole = context.User.Claims.Any(c => c.Type == ClaimTypes.Role);
 
-            var tokenStamp = context.User.Claims.FirstOrDefault(c => c.Type == "SecurityStamp")?.Value;
+           
+            var modules = user.Claims
+                .Where(c => c.Type == "module")
+                .Select(c => c.Value);
 
-            var userIdString = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var hasModule = modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase);
 
-            if (!long.TryParse(userIdString, out long userId))
+            if (!hasModule)
             {
-                return;
+                context.Fail();
+                return Task.CompletedTask;
             }
 
-            var user = await _unitOfWork.Users.GetByIdAsync(userId);
-            if (user == null)
-                return;
-            var userRoles = context.User.Claims
-            .Where(c => c.Type == ClaimTypes.Role)
-            .Select(c => c.Value)
-            .ToList();
-            if (tokenStamp != user.SecurityStamp)
+            // ✅ 4. لو مفيش permission → زي Teacher 
+            if (string.IsNullOrEmpty(requirement.Permission))
             {
-                context.Fail(); 
-                return;
+                context.Succeed(requirement);
+                return Task.CompletedTask;
             }
 
-            if (permissions.Contains(requirement.RequiredPermission, StringComparer.OrdinalIgnoreCase)
-     || userRoles.Contains(requirement.RequiredPermission)) // اختياري إذا policy تتطابق مع role
+            // ✅ 5. Check Permission (Assistant فقط)
+            var hasPermission = permissions.Contains(requirement.Permission, StringComparer.OrdinalIgnoreCase);
+
+            if (hasPermission)
             {
                 context.Succeed(requirement);
             }
+            else
+            {
+                context.Fail();
+            }
 
+            return Task.CompletedTask;
         }
     }
 }

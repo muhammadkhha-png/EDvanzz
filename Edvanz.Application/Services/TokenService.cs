@@ -13,7 +13,7 @@ namespace Edvanz.Application.Services
     public class TokenService : ITokenService
     {
         
-        public string GenerateJwtToken(User user, List<string> permissions)
+        public string GenerateJwtToken(User user, List<string>? permissions,List<string>? modules)
         {
             var claims = new List<Claim>();
 
@@ -28,7 +28,14 @@ namespace Edvanz.Application.Services
 
             if (!string.IsNullOrWhiteSpace(user.SecurityStamp))
                 claims.Add(new Claim("SecurityStamp", user.SecurityStamp));
-
+            if (modules != null && modules.Any())
+            {
+                claims.AddRange(
+                    modules
+                        .Where(m => !string.IsNullOrWhiteSpace(m))
+                        .Select(m => new Claim("module", m))
+                );
+            }
             if (permissions != null && permissions.Any())
             {
                 claims.AddRange(

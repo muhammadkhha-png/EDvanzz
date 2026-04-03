@@ -81,12 +81,12 @@ namespace Edvanz.API.Controllers
             var result = await _otpService.VerifyOtp(req);
             return ToResponse(result);
         }
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDto req)
-        {
-            var result = await authService.Login(req);
-            return ToResponse(result);
-        }
+        //[HttpPost("login")]
+        //public async Task<IActionResult> Login(LoginDto req)
+        //{
+        //    var result = await authService.Login(req);
+        //    return ToResponse(result);
+        //}
         [Authorize]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword(ChangePasswordDto req)
