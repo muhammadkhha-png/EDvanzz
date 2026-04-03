@@ -86,4 +86,7 @@ public class Teacher : BaseEntity
     public TeacherConfiguration? Configuration { get; set; }
     public ICollection<TeacherSubject> TeacherSubjects { get; set; } = new List<TeacherSubject>();
     public ICollection<TeacherSubscription> Subscriptions { get; set; } = new List<TeacherSubscription>();
+
+    public virtual ICollection<TutorModule> OpenModules { get; set; } = new List<TutorModule>();
+
 }

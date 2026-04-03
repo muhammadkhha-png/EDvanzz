@@ -111,7 +111,7 @@ namespace Edvanz.Infrastructure.Repositories
         public async Task<Teacher?> GetActiveTeacherByIdAsync(long teacherId)
         {
             return await _context.Set<Teacher>()
-                .FirstOrDefaultAsync(t => t.Id == teacherId && t.DeletedAt == null);
+                .FirstOrDefaultAsync(t => t.Id == teacherId && t.DeletedAt == null &&t.StudentCapacityPackageId != null  );
         }
 
         /// <inheritdoc />

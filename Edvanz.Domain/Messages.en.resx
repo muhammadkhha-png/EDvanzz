@@ -492,4 +492,19 @@
   <data name="PermissionsFetchFailed" xml:space="preserve">
     <value>Permissions Fetch Failed</value>
   </data>
+  <data name="repeatedPhoneNumber" xml:space="preserve">
+    <value>this phone number is repeated</value>
+  </data>
+  <data name="repeatedUserName" xml:space="preserve">
+    <value>this user name is used by another person</value>
+  </data>
+  <data name="repeatedEmail" xml:space="preserve">
+    <value>this mail is used by another person </value>
+  </data>
+  <data name="AssistantMustHaveAtLeastOnePermission" xml:space="preserve">
+    <value>Assistant must take one permission at least</value>
+  </data>
+  <data name="OneOrMorePermissionsInvalid" xml:space="preserve">
+    <value>One Or More Permissions Invalid</value>
+  </data>
 </root>

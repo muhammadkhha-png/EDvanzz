@@ -2,6 +2,7 @@
 using Edvanz.Application.Dtos.Auth;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
@@ -30,6 +31,7 @@ namespace Edvanz.Application.Services
         private readonly ITokenService tokenService;
         private readonly ICurrentUserService _currentUser;
         private readonly IUserPermissionService userPermissionService;
+        private readonly IModuleTeacherRepo moduleTeacherRepo;
         private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
 
 
@@ -50,6 +52,7 @@ namespace Edvanz.Application.Services
             this.tokenService = tokenService;
             this._currentUser = currentUser;
             this.userPermissionService = userPermissionService;
+            this.moduleTeacherRepo = moduleTeacherRepo;
         }
 
         /// <summary>
@@ -92,42 +95,50 @@ namespace Edvanz.Application.Services
             return Result<string>.Success(null, _localizer, "Account Verified");
         }
 
-        public async Task<Result<AuthResponse>> Login(LoginDto req)
-        {
-            var user = await _unitOfWork.Users.GetByUserName(req.userName);
-            if (user == null)
-                return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
-            var IsPassMatched= _passwordService.VerifyPassword(user.PasswordHashed, req.password);
-            if(!IsPassMatched)
-                return Result<AuthResponse>.Failure(_localizer, "PasswordError");
-            var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+        //public async Task<Result<AuthResponse>> Login(LoginDto req)
+        //{
+        //    var user = await _unitOfWork.Users.GetByUserName(req.userName);
+        //    if (user == null)
+        //        return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+        //    var IsPassMatched = _passwordService.VerifyPassword(user.PasswordHashed, req.password);
+        //    if (!IsPassMatched)
+        //        return Result<AuthResponse>.Failure(_localizer, "PasswordError");
+        //    var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+        //    string jwt = null;
+            
+        //    if (user.UserType == Domain.Enums.UserType.Student || user.UserType == Domain.Enums.UserType.Parent)
+        //        jwt = tokenService.GenerateJwtToken(user, permissions, null);
+           
+        //    if(user.UserType == Domain.Enums.UserType.Teacher || user.UserType==UserType.Assistant)
+        //    {
 
-            var jwt = tokenService.GenerateJwtToken(user, permissions);
+        //        //var teacher = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher();
+        //        jwt = tokenService.GenerateJwtToken(user, permissions, teacher?.Id);
+        //    }
+        //    var refreshToken = tokenService.GenerateRefreshToken();
 
-            var refreshToken = tokenService.GenerateRefreshToken();
-
-            var refreshTokenEntity = new RefreshToken
-            {
-                UserId = user.Id,
-                Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(7),
-                CreatedAt = DateTime.UtcNow,
-                SecurityStamp=user.SecurityStamp,
-                IsRevoked=false,
+        //    var refreshTokenEntity = new RefreshToken
+        //    {
+        //        UserId = user.Id,
+        //        Token = refreshToken,
+        //        ExpiryDate = DateTime.UtcNow.AddDays(7),
+        //        CreatedAt = DateTime.UtcNow,
+        //        SecurityStamp=user.SecurityStamp,
+        //        IsRevoked=false,
                 
-            };
+        //    };
 
-            await _unitOfWork.GetRepository<RefreshToken,long>().AddAsync(refreshTokenEntity);
-           var res= await _unitOfWork.SaveChangesAsync();
-            if (res <= 0)
-                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+        //    await _unitOfWork.GetRepository<RefreshToken,long>().AddAsync(refreshTokenEntity);
+        //   var res= await _unitOfWork.SaveChangesAsync();
+        //    if (res <= 0)
+        //        return Result<AuthResponse>.Failure(_localizer, "ServerError");
 
-             return Result<AuthResponse>.Success(new AuthResponse
-             {
-                 accessToken = jwt,
-                 refreshToken = refreshToken
-             },_localizer,"successlogin");
-        }
+        //     return Result<AuthResponse>.Success(new AuthResponse
+        //     {
+        //         accessToken = jwt,
+        //         refreshToken = refreshToken
+        //     },_localizer,"successlogin");
+        //}
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {
             if (  _currentUser.UserId == null)
@@ -175,7 +186,7 @@ namespace Edvanz.Application.Services
             var permissions = await userPermissionService.GetUserPermissionsToToken(token.UserId);
 
 
-            var newAccessToken = tokenService.GenerateJwtToken(token.user, permissions);
+            var newAccessToken = tokenService.GenerateJwtToken(token.user, permissions,null);
             var newRefreshToken = tokenService.GenerateRefreshToken();
 
             token.Token = newRefreshToken;

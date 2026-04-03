@@ -52,6 +52,7 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         IAttendanceRepo AttendanceRepo { get; }
 
+        IModuleTeacherRepo? ModuleTeacherRepo { get; }
         /// <summary>
         /// Returns true if a database transaction is currently active.
         /// 

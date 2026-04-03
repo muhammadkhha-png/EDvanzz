@@ -492,4 +492,19 @@
   <data name="PermissionsFetchFailed" xml:space="preserve">
     <value>خطأ واحنا بنجيب الصلاحيات </value>
   </data>
+  <data name="repeatedPhoneNumber" xml:space="preserve">
+    <value>رقم التليفون مربوط بحساب تاني </value>
+  </data>
+  <data name="repeatedUserName" xml:space="preserve">
+    <value>اسم مستخدم مستخدم لحد تاني </value>
+  </data>
+  <data name="repeatedEmail" xml:space="preserve">
+    <value>الايميل دا حد تاني مستخدمه</value>
+  </data>
+  <data name="AssistantMustHaveAtLeastOnePermission" xml:space="preserve">
+    <value>يجب أن يحصل علي صلاحية واحدة علي الأقل</value>
+  </data>
+  <data name="OneOrMorePermissionsInvalid" xml:space="preserve">
+    <value>صلاحيات غير صالحة </value>
+  </data>
 </root>

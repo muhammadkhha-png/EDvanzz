@@ -11,5 +11,6 @@ namespace Edvanz.Domain.Interfaces
         {
            public Task<(IReadOnlyList<Assistant> , int)> GetListAssistantsPerTeacher(long? teacherId, bool? isAcitve, string? fullName, string? username,bool? isAssignedToTeacher, AssistantSortBy? sortby,SortDirection? sortDirection, int page, int pageSize);
         public Task<Assistant?> GetAssistantWithPermissionsAsync(long id);
+        
     }
 }
