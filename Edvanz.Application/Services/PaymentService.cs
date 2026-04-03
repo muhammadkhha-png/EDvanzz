@@ -1151,6 +1151,11 @@ public class PaymentService : IPaymentService
 
         try
         {
+            // Resolve source session payment type before initializer (avoid await in initializer)
+            var sourceSessionForType = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(
+                dto.SourceSessionId, dto.TeacherId);
+            string sourcePaymentType = sourceSessionForType?.PaymentType.ToString() ?? "Unknown";
+
             var transferEvent = new SessionTransferEvent
             {
                 TeacherId = dto.TeacherId,
@@ -1162,8 +1167,7 @@ public class PaymentService : IPaymentService
                 PaymentStatusAtTransfer = summary.PaymentStatusInSource,
                 OutstandingBalance = summary.OutstandingBalance,
                 CreditBalance = summary.CreditBalance,
-                SourcePaymentType = (await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(
-                    dto.SourceSessionId, dto.TeacherId))?.PaymentType.ToString() ?? "Unknown",
+                SourcePaymentType = sourcePaymentType,
                 DestinationPaymentType = summary.DestinationPaymentType,
                 StudentName = summary.StudentName,
                 StudentCode = summary.StudentCode,
