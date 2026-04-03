@@ -33,6 +33,8 @@ namespace Edvanz.Infrastructure
         private IgoogleUserRepo? _googleUserRepo;
 
         private IAssitantRepo? _assistantRepo;
+        private IModuleTeacherRepo? _ModuleTeacherRepo;
+
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -137,6 +139,8 @@ namespace Edvanz.Infrastructure
         public IgoogleUserRepo googleUserRepo => _googleUserRepo ??= new GoogleUserRepo(_Context);
 
         public IAssitantRepo AssistantRepo => _assistantRepo ??= new AssistantRepo(_Context);
+
+        public IModuleTeacherRepo? ModuleTeacherRepo => _ModuleTeacherRepo??= new TeacherModuleRepo(_Context);
     }
 
 

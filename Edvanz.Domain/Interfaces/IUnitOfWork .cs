@@ -52,6 +52,7 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         IAttendanceRepo AttendanceRepo { get; }
 
+        IModuleTeacherRepo? ModuleTeacherRepo { get; }
         /// <summary>
         /// Extended repository for the Payment Module (Module 4) and Event Payment Module (Module 5).
         /// Handles payment collection, editing, deletion, unpaid overview, custom amounts,

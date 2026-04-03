@@ -19,6 +19,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<Template> Templates { get; set; }
     public DbSet<TemplatePermissionsUsers> TemplatesPermissionsOfUsers { get; set; }
     public DbSet<TemplatePermisions> TemplatesPermisions { get; set; }
+    public DbSet<TutorModule> TutorModuleAccess { get; set; }
+
 
 
 
@@ -100,7 +102,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
            .HasKey(ur => new { ur.AssisstantId, ur.TemplateId });
         modelBuilder.Entity<TemplatePermisions>()
            .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
-
+        modelBuilder.Entity<TutorModule>()
+        .HasKey(ur => new { ur.TutorId, ur.ModuleId });
         #endregion
 
         #region Existing unique constraints
@@ -109,8 +112,9 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             .IsUnique();
 
         modelBuilder.Entity<User>()
-            .HasIndex(u => u.PhoneNumber)
-            .IsUnique();
+              .HasIndex(u => u.PhoneNumber)
+              .HasDatabaseName("IX_User_Phnoe")
+                  .IsClustered(false); 
 
 
         #endregion
