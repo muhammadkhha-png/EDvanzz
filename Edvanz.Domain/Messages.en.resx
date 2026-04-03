@@ -558,4 +558,163 @@
   <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
     <value>An attendance record already exists for this student on this session occurrence. Duplicate records are not permitted.</value>
   </data>
+  <!-- ── Payment Collection ── -->
+  <data name="PaymentCollectedSuccess" xml:space="preserve">
+    <value>Payment collected successfully.</value>
+  </data>
+  <data name="PaymentStudentNotAssigned" xml:space="preserve">
+    <value>Student is not assigned to this session.</value>
+  </data>
+  <data name="PaymentNoUnpaidPeriod" xml:space="preserve">
+    <value>No unpaid payment period found for this student.</value>
+  </data>
+  <data name="PaymentDuplicateDetected" xml:space="preserve">
+    <value>A duplicate payment was detected for this student.</value>
+  </data>
+  <data name="PaymentAlreadyPaid" xml:space="preserve">
+    <value>This student has already paid for the current period. Do you want to proceed?</value>
+  </data>
+  <data name="PaymentSameDayWarning" xml:space="preserve">
+    <value>This student already has a payment recorded today. Do you want to add another?</value>
+  </data>
+  <data name="PaymentAmountInvalid" xml:space="preserve">
+    <value>Payment amount must be greater than zero.</value>
+  </data>
+  <data name="PaymentStudentInRecycleBin" xml:space="preserve">
+    <value>Cannot collect payment — student is in the recycle bin.</value>
+  </data>
+
+  <!-- ── Pro-rating ── -->
+  <data name="PaymentProRatedApplied" xml:space="preserve">
+    <value>A pro-rated amount has been applied for this student's first period.</value>
+  </data>
+
+  <!-- ── Edit/Delete ── -->
+  <data name="PaymentEditSuccess" xml:space="preserve">
+    <value>Payment record updated successfully.</value>
+  </data>
+  <data name="PaymentDeleteSuccess" xml:space="preserve">
+    <value>Payment record deleted successfully.</value>
+  </data>
+  <data name="PaymentNotFound" xml:space="preserve">
+    <value>Payment record not found.</value>
+  </data>
+  <data name="PaymentEditNotAuthorized" xml:space="preserve">
+    <value>Only the tutor can edit or delete payment records.</value>
+  </data>
+
+  <!-- ── Custom Amount ── -->
+  <data name="CustomAmountSetSuccess" xml:space="preserve">
+    <value>Custom payment amount updated successfully.</value>
+  </data>
+
+  <!-- ── Unpaid Overview ── -->
+  <data name="UnpaidStudentsLoaded" xml:space="preserve">
+    <value>Unpaid students loaded successfully.</value>
+  </data>
+
+  <!-- ── Wallet ── -->
+  <data name="WalletNotFound" xml:space="preserve">
+    <value>Assistant wallet not found.</value>
+  </data>
+  <data name="WalletResetSuccess" xml:space="preserve">
+    <value>Wallet has been reset to zero. Cash handover confirmed.</value>
+  </data>
+  <data name="WalletResetNotAuthorized" xml:space="preserve">
+    <value>Only the tutor can reset assistant wallets.</value>
+  </data>
+
+  <!-- ── Dashboard ── -->
+  <data name="DashboardLoaded" xml:space="preserve">
+    <value>Payment dashboard loaded successfully.</value>
+  </data>
+
+  <!-- ── Departure ── -->
+  <data name="DepartureSummaryLoaded" xml:space="preserve">
+    <value>Departure summary calculated successfully.</value>
+  </data>
+  <data name="DepartureConfirmedSuccess" xml:space="preserve">
+    <value>Student departure confirmed and recorded.</value>
+  </data>
+  <data name="DepartureStudentNotAssigned" xml:space="preserve">
+    <value>Student is not currently assigned to any session.</value>
+  </data>
+
+  <!-- ── Transfer ── -->
+  <data name="TransferSummaryLoaded" xml:space="preserve">
+    <value>Transfer summary calculated successfully.</value>
+  </data>
+  <data name="TransferConfirmedSuccess" xml:space="preserve">
+    <value>Session transfer confirmed. Payment history preserved.</value>
+  </data>
+  <data name="TransferSourceSessionNotFound" xml:space="preserve">
+    <value>Source session not found.</value>
+  </data>
+  <data name="TransferDestinationSessionNotFound" xml:space="preserve">
+    <value>Destination session not found.</value>
+  </data>
+
+  <!-- ── Offline Sync ── -->
+  <data name="SyncConflictsDetected" xml:space="preserve">
+    <value>Sync completed with conflicts. Please review and resolve.</value>
+  </data>
+
+  <!-- ── Reporting ── -->
+  <data name="ReportGenerated" xml:space="preserve">
+    <value>Report generated successfully.</value>
+  </data>
+  <data name="InvalidReportType" xml:space="preserve">
+    <value>Invalid report type specified.</value>
+  </data>
+
+  <!-- ── Visibility ── -->
+  <data name="PaymentVisibilityDisabled" xml:space="preserve">
+    <value>Payment visibility is disabled by the tutor for this account type.</value>
+  </data>
+
+  <!-- ── Assistants ── -->
+  <data name="AssistantNotFound" xml:space="preserve">
+    <value>Assistant not found.</value>
+  </data>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- EVENT PAYMENT MODULE (Module 5) — English Resource Entries                    -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+
+  <data name="EventCreatedSuccess" xml:space="preserve">
+    <value>Payment event created successfully.</value>
+  </data>
+  <data name="EventNotFound" xml:space="preserve">
+    <value>Payment event not found.</value>
+  </data>
+  <data name="EventUpdatedSuccess" xml:space="preserve">
+    <value>Payment event updated successfully.</value>
+  </data>
+  <data name="EventDeletedSuccess" xml:space="preserve">
+    <value>Payment event deleted successfully.</value>
+  </data>
+  <data name="EventPaymentCollectedSuccess" xml:space="preserve">
+    <value>Event payment collected successfully.</value>
+  </data>
+  <data name="EventPaymentAlreadyPaid" xml:space="preserve">
+    <value>This student has already paid for this event. Do you want to proceed?</value>
+  </data>
+  <data name="EventPaymentDuplicateWarning" xml:space="preserve">
+    <value>A duplicate event payment was detected.</value>
+  </data>
+  <data name="EventObligationNotFound" xml:space="preserve">
+    <value>This student does not have an obligation for this event.</value>
+  </data>
+  <data name="EventReportGenerated" xml:space="preserve">
+    <value>Event report generated successfully.</value>
+  </data>
+  <data name="EventNameRequired" xml:space="preserve">
+    <value>Event name is required.</value>
+  </data>
+  <data name="EventAmountInvalid" xml:space="preserve">
+    <value>Event amount must be greater than zero.</value>
+  </data>
+  <data name="EventTargetScopeEmpty" xml:space="preserve">
+    <value>No students found in the selected target scope.</value>
+  </data>
 </root>

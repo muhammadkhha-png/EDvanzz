@@ -36,11 +36,8 @@ public class TeacherStudentService : ITeacherStudentService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStudentCodeGenerator _codeGenerator;
+    private readonly IPaymentService _paymentService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
-    // FIX C4: IAttendanceService needed for OnStudentPermanentlyDeletedAsync hook.
-    // Without this, permanent student deletes cause FK violation on StudentAbsenceCounters
-    // (NoAction FK) because the attendance cleanup never runs.
-    private readonly IAttendanceService _attendanceService;
 
     /// <summary>
     /// Regex for manual student code format validation.
@@ -51,13 +48,13 @@ public class TeacherStudentService : ITeacherStudentService
     public TeacherStudentService(
         IUnitOfWork unitOfWork,
         IStudentCodeGenerator codeGenerator,
-        IStringLocalizer<Domain.Resources.Messages> localizer,
-        IAttendanceService attendanceService)
+        IPaymentService paymentService,
+        IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
+        _paymentService = paymentService;
         _localizer = localizer;
-        _attendanceService = attendanceService;
     }
 
     // ══════════════════════════════════════════════
@@ -434,12 +431,11 @@ public class TeacherStudentService : ITeacherStudentService
         if (student is null || !student.IsDeleted)
             return Result<bool>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
 
-        // FIX C4: Call attendance module cleanup BEFORE hard-deleting the student.
-        // This nullifies FK references on AttendanceRecords, deletes StudentAbsenceCounters,
-        // and deactivates StudentSessionAssignments.
-        // Without this call, the hard-delete throws SqlException: FK constraint violation
-        // because StudentAbsenceCounter.TeacherStudentId FK is NoAction (requires app cleanup).
-        await _attendanceService.OnStudentPermanentlyDeletedAsync(studentId);
+        // ── PAYMENT INTEGRATION: Nullify student FK references on all payment records ──
+        // Denormalized StudentName/StudentCode preserved on PaymentTransactions, PaymentPeriods,
+        // StudentDepartures, SessionTransferEvents, EventStudentObligations, EventPaymentTransactions.
+        // StudentPaymentCounter is deleted (no longer needed after purge).
+        await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
 
         // WARNING: This is irreversible
         await _unitOfWork.Students.DeleteAsync(student);
@@ -457,11 +453,10 @@ public class TeacherStudentService : ITeacherStudentService
         if (expiredRecords.Count == 0)
             return 0;
 
-        // FIX C4: Call attendance cleanup for EACH student before bulk hard-delete.
-        // Same rationale as PermanentDeleteStudentAsync — prevents FK violations.
+        // ── PAYMENT INTEGRATION: Nullify student FK references before bulk purge ──
         foreach (var student in expiredRecords)
         {
-            await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+            await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
         }
 
         await _unitOfWork.Students.DeleteRangeAsync(expiredRecords);

@@ -39,12 +39,20 @@ namespace Edvanz.Application.Services;
 /// - AssignStudents → OnStudentAssignedToSessionAsync (create assignment + init counter)
 /// - ConfirmReassign → OnStudentUnassigned + OnStudentAssigned (close old, open new period)
 /// - UnassignStudent → OnStudentUnassignedFromSessionAsync (close assignment period)
+///
+/// PAYMENT MODULE INTEGRATION (Module 4):
+/// Session lifecycle events are forwarded to IPaymentService:
+/// - AssignStudents → OnStudentAssignedToSessionAsync (generate payment periods + init counter)
+/// - ConfirmReassign → OnStudentUnassigned + OnStudentAssigned (preserve history, generate new periods)
+/// - UnassignStudent → OnStudentUnassignedFromSessionAsync (preserve payment history)
+/// - DeleteSession → OnSessionDeletingAsync (nullify SessionId on payment records before hard delete)
 /// </summary>
 public class SessionService : ISessionService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISessionNameGenerator _nameGenerator;
     private readonly IAttendanceService _attendanceService;
+    private readonly IPaymentService _paymentService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -63,11 +71,13 @@ public class SessionService : ISessionService
         IUnitOfWork unitOfWork,
         ISessionNameGenerator nameGenerator,
         IAttendanceService attendanceService,
+        IPaymentService paymentService,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _nameGenerator = nameGenerator;
         _attendanceService = attendanceService;
+        _paymentService = paymentService;
         _localizer = localizer;
     }
 
@@ -282,6 +292,12 @@ public class SessionService : ISessionService
             // deactivates all StudentSessionAssignments for this session,
             // and deletes the SessionOccurrence rows (which are now unreferenced).
             await _attendanceService.OnSessionDeletingAsync(teacherId, sessionId);
+
+            // ── PAYMENT INTEGRATION: Preserve payment records before hard delete ──
+            // Nullifies SessionId on PaymentTransactions, PaymentPeriods, StudentDepartures.
+            // Denormalized SessionName preserved on all records.
+            await _paymentService.OnSessionDeletingAsync(teacherId, sessionId);
+
             await _unitOfWork.SaveChangesAsync();
 
             // REQ-SES-043: Remove all links where this session is on the Restrict side
@@ -649,6 +665,12 @@ public class SessionService : ISessionService
                     await _attendanceService.OnStudentAssignedToSessionAsync(
                         dto.TeacherId, student.Id, dto.SessionId, session.SessionName);
 
+                    // ── PAYMENT INTEGRATION: Generate payment periods + init payment counter ──
+                    // REQ-PAY-018/019: Payment periods created from assignment date.
+                    // REQ-PAY-016: StudentPaymentCounter initialized for custom amount tracking.
+                    await _paymentService.OnStudentAssignedToSessionAsync(
+                        dto.TeacherId, student.Id, dto.SessionId, session.SessionName, DateTime.UtcNow);
+
                     assignedCount++;
                 }
             }
@@ -699,6 +721,9 @@ public class SessionService : ISessionService
                 // Sets UnassignedAt on the current active StudentSessionAssignment.
                 await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
 
+                // ── PAYMENT INTEGRATION: Preserve payment history for previous session ──
+                await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
+
                 // Update the student's current session pointer
                 student.SessionId = sessionId;
                 await _unitOfWork.Students.UpdateAsync(student);
@@ -709,6 +734,11 @@ public class SessionService : ISessionService
                 //              this creates a NEW assignment period.
                 await _attendanceService.OnStudentAssignedToSessionAsync(
                     teacherId, student.Id, sessionId, session.SessionName);
+
+                // ── PAYMENT INTEGRATION: Generate payment periods for new session ──
+                // REQ-PAY-085/086: Payment history preserved, new periods generated.
+                await _paymentService.OnStudentAssignedToSessionAsync(
+                    teacherId, student.Id, sessionId, session.SessionName, DateTime.UtcNow);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -745,6 +775,9 @@ public class SessionService : ISessionService
             // ── ATTENDANCE INTEGRATION: Close the active assignment period ──
             // REQ-ATT-020: Preserve complete attendance history under this session.
             await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, studentId);
+
+            // ── PAYMENT INTEGRATION: Preserve payment history ──
+            await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, studentId);
 
             student.SessionId = null;
             await _unitOfWork.Students.UpdateAsync(student);

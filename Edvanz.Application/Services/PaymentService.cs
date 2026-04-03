@@ -262,12 +262,21 @@ public class PaymentService : IPaymentService
         var period = await _unitOfWork.PaymentsRepo
             .GetEarliestUnpaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
 
+        // Session nav is not loaded by GetActiveByIdAndTeacherAsync — resolve separately
+        string? sessionName = null;
+        if (student.SessionId.HasValue)
+        {
+            var sessionForStatus = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(
+                student.SessionId.Value, teacherId);
+            sessionName = sessionForStatus?.SessionName;
+        }
+
         var statusDto = new PaymentStatusDto
         {
             TeacherStudentId = teacherStudentId,
             StudentName = student.StudentName,
             StudentCode = student.StudentCode,
-            SessionName = student.Session?.SessionName,
+            SessionName = sessionName,
             CurrentStatus = period?.PaymentStatus ?? PaymentStatus.Paid,
             AmountDue = period?.AmountDue ?? 0,
             AmountPaid = period?.AmountPaid ?? 0,
@@ -1200,8 +1209,7 @@ public class PaymentService : IPaymentService
         long teacherId, long teacherStudentId)
     {
         // Check visibility settings
-        var config = await _unitOfWork.GetRepository<TeacherConfiguration, long>()
-            .FindAsync(c => c.TeacherId == teacherId);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         if (config is null || (!config.StudentVisibilityPayment && !config.ParentVisibilityPayment))
             return Result<StudentPaymentViewDto>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentVisibilityDisabled, HttpStatusCode.Forbidden);
@@ -1274,13 +1282,11 @@ public class PaymentService : IPaymentService
             // Check pro-rating for first month
             bool applyProRate = false;
             decimal proRateFraction = 1.0m;
-            var config = await _unitOfWork.GetRepository<TeacherConfiguration, long>()
-                .FindAsync(c => c.TeacherId == teacherId);
+            var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
 
             if (config?.IsProratedPaymentEnabled == true)
             {
-                var tiers = await _unitOfWork.GetRepository<TeacherProratedTier, long>()
-                    .GetAsync(t => t.TeacherConfigurationId == config.Id);
+                var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
 
                 int joinDay = assignedAt.Day;
                 var matchingTier = tiers
@@ -1388,6 +1394,43 @@ public class PaymentService : IPaymentService
     {
         await _unitOfWork.PaymentsRepo.NullifyStudentReferencesOnPaymentRecordsAsync(teacherStudentId);
         await _unitOfWork.SaveChangesAsync();
+        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    // ══════════════════════════════════════════════
+    // ASSISTANT WALLET PROVISIONING
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Ensures an AssistantWallet record exists for the given assistant.
+    /// Should be called when an assistant is created (from AssistantService)
+    /// or as a safety check during payment collection.
+    /// Creates the wallet if it doesn't already exist.
+    ///
+    /// INTEGRATION NOTE: Call this from AssistantService.CreateAssistantAsync
+    /// after the Assistant entity is persisted and SaveChangesAsync is called.
+    ///
+    /// Example:
+    ///   await _paymentService.EnsureAssistantWalletExistsAsync(teacherId, assistant.Id, assistant.UserId);
+    /// </summary>
+    public async Task<Result<bool>> EnsureAssistantWalletExistsAsync(
+        long teacherId, long assistantId, long assistantUserId)
+    {
+        var existingWallet = await _unitOfWork.PaymentsRepo
+            .GetAssistantWalletAsync(teacherId, assistantId);
+        if (existingWallet is not null)
+            return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+
+        var wallet = new AssistantWallet
+        {
+            TeacherId = teacherId,
+            AssistantId = assistantId,
+            AssistantUserId = assistantUserId,
+            CreateAt = DateTime.UtcNow
+        };
+        await _unitOfWork.PaymentsRepo.AddAssistantWalletAsync(wallet);
+        await _unitOfWork.SaveChangesAsync();
+
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
     }
 

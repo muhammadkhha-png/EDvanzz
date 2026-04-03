@@ -253,4 +253,16 @@ public interface IPaymentService
     /// Nullifies TeacherStudentId on all payment records.
     /// </summary>
     Task<Result<bool>> OnStudentPermanentlyDeletedAsync(long teacherStudentId);
+
+    /// <summary>
+    /// Ensures an AssistantWallet record exists for the given assistant.
+    /// Should be called when an assistant is created (from AssistantService)
+    /// or as a safety check during payment collection.
+    /// Creates the wallet if it doesn't already exist.
+    /// </summary>
+    /// <param name="teacherId">The owning teacher's ID.</param>
+    /// <param name="assistantId">The Assistant entity's ID.</param>
+    /// <param name="assistantUserId">The assistant's User.Id for wallet lookup.</param>
+    Task<Result<bool>> EnsureAssistantWalletExistsAsync(
+        long teacherId, long assistantId, long assistantUserId);
 }

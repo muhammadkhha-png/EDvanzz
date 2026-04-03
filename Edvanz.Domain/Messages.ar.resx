@@ -558,4 +558,163 @@
   <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
     <value>فيه سجل حضور موجود أصلاً للطالب ده في الحصة دي. مش مسموح بتسجيل حضور مكرر.</value>
   </data>
+  <!-- ── Payment Collection ── -->
+  <data name="PaymentCollectedSuccess" xml:space="preserve">
+    <value>تم تحصيل المبلغ بنجاح.</value>
+  </data>
+  <data name="PaymentStudentNotAssigned" xml:space="preserve">
+    <value>الطالب مش مسجل في الحصة دي.</value>
+  </data>
+  <data name="PaymentNoUnpaidPeriod" xml:space="preserve">
+    <value>مفيش فترة دفع مستحقة للطالب ده.</value>
+  </data>
+  <data name="PaymentDuplicateDetected" xml:space="preserve">
+    <value>تم اكتشاف دفعة مكررة للطالب ده.</value>
+  </data>
+  <data name="PaymentAlreadyPaid" xml:space="preserve">
+    <value>الطالب ده دفع الفترة الحالية بالفعل. عايز تكمل؟</value>
+  </data>
+  <data name="PaymentSameDayWarning" xml:space="preserve">
+    <value>الطالب ده عنده دفعة النهارده بالفعل. عايز تضيف واحدة تانية؟</value>
+  </data>
+  <data name="PaymentAmountInvalid" xml:space="preserve">
+    <value>مبلغ الدفع لازم يكون أكبر من صفر.</value>
+  </data>
+  <data name="PaymentStudentInRecycleBin" xml:space="preserve">
+    <value>مينفعش تحصّل دفع — الطالب في سلة المحذوفات.</value>
+  </data>
+
+  <!-- ── Pro-rating ── -->
+  <data name="PaymentProRatedApplied" xml:space="preserve">
+    <value>تم تطبيق مبلغ نسبي لأول فترة دفع للطالب.</value>
+  </data>
+
+  <!-- ── Edit/Delete ── -->
+  <data name="PaymentEditSuccess" xml:space="preserve">
+    <value>تم تعديل سجل الدفع بنجاح.</value>
+  </data>
+  <data name="PaymentDeleteSuccess" xml:space="preserve">
+    <value>تم حذف سجل الدفع بنجاح.</value>
+  </data>
+  <data name="PaymentNotFound" xml:space="preserve">
+    <value>سجل الدفع مش موجود.</value>
+  </data>
+  <data name="PaymentEditNotAuthorized" xml:space="preserve">
+    <value>المدرس بس اللي يقدر يعدل أو يحذف سجلات الدفع.</value>
+  </data>
+
+  <!-- ── Custom Amount ── -->
+  <data name="CustomAmountSetSuccess" xml:space="preserve">
+    <value>تم تحديث المبلغ المخصص بنجاح.</value>
+  </data>
+
+  <!-- ── Unpaid Overview ── -->
+  <data name="UnpaidStudentsLoaded" xml:space="preserve">
+    <value>تم تحميل قائمة الطلاب اللي مدفعوش.</value>
+  </data>
+
+  <!-- ── Wallet ── -->
+  <data name="WalletNotFound" xml:space="preserve">
+    <value>محفظة المساعد مش موجودة.</value>
+  </data>
+  <data name="WalletResetSuccess" xml:space="preserve">
+    <value>تم تصفير المحفظة. تم تأكيد تسليم الفلوس.</value>
+  </data>
+  <data name="WalletResetNotAuthorized" xml:space="preserve">
+    <value>المدرس بس اللي يقدر يعمل تصفير لمحفظة المساعد.</value>
+  </data>
+
+  <!-- ── Dashboard ── -->
+  <data name="DashboardLoaded" xml:space="preserve">
+    <value>تم تحميل لوحة المدفوعات بنجاح.</value>
+  </data>
+
+  <!-- ── Departure ── -->
+  <data name="DepartureSummaryLoaded" xml:space="preserve">
+    <value>تم حساب ملخص المغادرة بنجاح.</value>
+  </data>
+  <data name="DepartureConfirmedSuccess" xml:space="preserve">
+    <value>تم تأكيد مغادرة الطالب وتسجيلها.</value>
+  </data>
+  <data name="DepartureStudentNotAssigned" xml:space="preserve">
+    <value>الطالب مش مسجل في أي حصة حاليًا.</value>
+  </data>
+
+  <!-- ── Transfer ── -->
+  <data name="TransferSummaryLoaded" xml:space="preserve">
+    <value>تم حساب ملخص النقل بنجاح.</value>
+  </data>
+  <data name="TransferConfirmedSuccess" xml:space="preserve">
+    <value>تم تأكيد نقل الحصة. سجل المدفوعات محفوظ.</value>
+  </data>
+  <data name="TransferSourceSessionNotFound" xml:space="preserve">
+    <value>الحصة الأصلية مش موجودة.</value>
+  </data>
+  <data name="TransferDestinationSessionNotFound" xml:space="preserve">
+    <value>الحصة المنقول إليها مش موجودة.</value>
+  </data>
+
+  <!-- ── Offline Sync ── -->
+  <data name="SyncConflictsDetected" xml:space="preserve">
+    <value>تمت المزامنة مع وجود تعارضات. برجاء المراجعة والحل.</value>
+  </data>
+
+  <!-- ── Reporting ── -->
+  <data name="ReportGenerated" xml:space="preserve">
+    <value>تم إنشاء التقرير بنجاح.</value>
+  </data>
+  <data name="InvalidReportType" xml:space="preserve">
+    <value>نوع التقرير المحدد غير صالح.</value>
+  </data>
+
+  <!-- ── Visibility ── -->
+  <data name="PaymentVisibilityDisabled" xml:space="preserve">
+    <value>المدرس عطّل عرض المدفوعات لنوع الحساب ده.</value>
+  </data>
+
+  <!-- ── Assistants ── -->
+  <data name="AssistantNotFound" xml:space="preserve">
+    <value>المساعد مش موجود.</value>
+  </data>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- EVENT PAYMENT MODULE (Module 5) — Arabic (Egyptian Dialect) Resource Entries  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
+
+  <data name="EventCreatedSuccess" xml:space="preserve">
+    <value>تم إنشاء حدث الدفع بنجاح.</value>
+  </data>
+  <data name="EventNotFound" xml:space="preserve">
+    <value>حدث الدفع مش موجود.</value>
+  </data>
+  <data name="EventUpdatedSuccess" xml:space="preserve">
+    <value>تم تحديث حدث الدفع بنجاح.</value>
+  </data>
+  <data name="EventDeletedSuccess" xml:space="preserve">
+    <value>تم حذف حدث الدفع بنجاح.</value>
+  </data>
+  <data name="EventPaymentCollectedSuccess" xml:space="preserve">
+    <value>تم تحصيل دفعة الحدث بنجاح.</value>
+  </data>
+  <data name="EventPaymentAlreadyPaid" xml:space="preserve">
+    <value>الطالب ده دفع للحدث ده بالفعل. عايز تكمل؟</value>
+  </data>
+  <data name="EventPaymentDuplicateWarning" xml:space="preserve">
+    <value>تم اكتشاف دفعة حدث مكررة.</value>
+  </data>
+  <data name="EventObligationNotFound" xml:space="preserve">
+    <value>الطالب ده مش مطلوب منه دفع للحدث ده.</value>
+  </data>
+  <data name="EventReportGenerated" xml:space="preserve">
+    <value>تم إنشاء تقرير الحدث بنجاح.</value>
+  </data>
+  <data name="EventNameRequired" xml:space="preserve">
+    <value>اسم الحدث مطلوب.</value>
+  </data>
+  <data name="EventAmountInvalid" xml:space="preserve">
+    <value>مبلغ الحدث لازم يكون أكبر من صفر.</value>
+  </data>
+  <data name="EventTargetScopeEmpty" xml:space="preserve">
+    <value>مفيش طلاب في النطاق المحدد.</value>
+  </data>
 </root>
