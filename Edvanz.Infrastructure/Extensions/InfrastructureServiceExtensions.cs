@@ -41,5 +41,11 @@ public static class InfrastructureServiceExtensions
         // REQ-ATT-081: Timeline exportable as PDF or Excel.
         // TODO: Uncomment when AttendanceReportExportService is implemented with ClosedXML/QuestPDF.
         services.AddScoped<IAttendanceReportExportService, AttendanceReportExportService>();
+
+        // Payment Module export service — generates PDF/Excel files for payment reports.
+        // REQ-PAY-050: Reports exportable as PDF or Excel.
+        // REQ-EVT-025: Event reports exportable as PDF or Excel.
+        // TODO: Replace stub with ClosedXML/QuestPDF implementation when packages are added.
+        services.AddScoped<IPaymentReportExportService, PaymentReportExportService>();
     }
 }

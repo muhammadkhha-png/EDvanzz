@@ -53,6 +53,21 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<AttendanceEditLog> AttendanceEditLogs { get; set; }
     public DbSet<StudentAbsenceCounter> StudentAbsenceCounters { get; set; }
 
+    // ─── Payment Module (Module 4) ───
+    public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+    public DbSet<PaymentPeriod> PaymentPeriods { get; set; }
+    public DbSet<StudentPaymentCounter> StudentPaymentCounters { get; set; }
+    public DbSet<AssistantWallet> AssistantWallets { get; set; }
+    public DbSet<WalletResetLog> WalletResetLogs { get; set; }
+    public DbSet<PaymentEditLog> PaymentEditLogs { get; set; }
+    public DbSet<StudentDeparture> StudentDepartures { get; set; }
+    public DbSet<SessionTransferEvent> SessionTransferEvents { get; set; }
+
+    // ─── Event Payment Module (Module 5) ───
+    public DbSet<PaymentEvent> PaymentEvents { get; set; }
+    public DbSet<EventStudentObligation> EventStudentObligations { get; set; }
+    public DbSet<EventPaymentTransaction> EventPaymentTransactions { get; set; }
+
 
     //  ─── Assistant  ───
     public DbSet<Assistant> Assistants { get; set; }
@@ -994,6 +1009,465 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(c => c.TeacherStudentId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // PAYMENT MODULE CONFIGURATION (Module 4)
+        // ════════════════════════════════════════════════
+
+        #region PaymentTransaction (REQ-PAY-001/002/012)
+        modelBuilder.Entity<PaymentTransaction>(entity =>
+        {
+            entity.ToTable("PaymentTransactions");
+
+            // Financial precision: decimal(10,2) for EGP currency
+            entity.Property(t => t.AmountDue).HasColumnType("decimal(10,2)");
+            entity.Property(t => t.AmountPaid).HasColumnType("decimal(10,2)");
+
+            // Timestamps: precision to the second
+            entity.Property(t => t.CollectedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(t => t.LocalCollectedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(t => t.DeletedAt).HasColumnType("datetime2(0)");
+
+            // String lengths
+            entity.Property(t => t.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(t => t.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(t => t.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(t => t.OnlineTransactionRef).HasMaxLength(PaymentConstants.OnlineTransactionRefMaxLength);
+            entity.Property(t => t.OfflineDeviceId).HasMaxLength(PaymentConstants.OfflineDeviceIdMaxLength);
+            entity.Property(t => t.ProRatedTierLabel).HasMaxLength(PaymentConstants.ProRatedTierLabelMaxLength);
+
+            // Optimistic concurrency
+            entity.Property(t => t.RowVersion).IsRowVersion();
+
+            // ── INDEXES ──
+
+            // Primary tenant-scoped query: all transactions for a teacher
+            entity.HasIndex(t => new { t.TeacherId, t.IsDeleted })
+                .HasDatabaseName("IX_PT_TeacherId_IsDeleted");
+
+            // Student payment history: teacher + student + date
+            entity.HasIndex(t => new { t.TeacherId, t.TeacherStudentId, t.CollectedAt })
+                .HasDatabaseName("IX_PT_TeacherId_StudentId_CollectedAt");
+
+            // Same-day duplicate detection: teacher + student + local date
+            entity.HasIndex(t => new { t.TeacherId, t.TeacherStudentId, t.LocalCollectedAt })
+                .HasDatabaseName("IX_PT_TeacherId_StudentId_LocalDate");
+
+            // Session payment report: teacher + session + date
+            entity.HasIndex(t => new { t.TeacherId, t.SessionId, t.CollectedAt })
+                .HasDatabaseName("IX_PT_TeacherId_SessionId_CollectedAt");
+
+            // Collector performance: teacher + collector + date
+            entity.HasIndex(t => new { t.TeacherId, t.CollectedByUserId, t.CollectedAt })
+                .HasDatabaseName("IX_PT_TeacherId_CollectorId_CollectedAt");
+
+            // Period lookup
+            entity.HasIndex(t => t.PaymentPeriodId)
+                .HasDatabaseName("IX_PT_PaymentPeriodId");
+
+            // ── FOREIGN KEYS ──
+
+            // Teacher FK: CASCADE — all payment data deleted with teacher account
+            entity.HasOne(t => t.Teacher)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TeacherStudent FK: SET NULL — record survives student permanent purge
+            // Denormalized StudentName/StudentCode preserve display data
+            entity.HasOne(t => t.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Session FK: NO ACTION — app nullifies before session hard-delete
+            entity.HasOne(t => t.Session)
+                .WithMany()
+                .HasForeignKey(t => t.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // SessionOccurrence FK: SET NULL
+            entity.HasOne(t => t.SessionOccurrence)
+                .WithMany()
+                .HasForeignKey(t => t.SessionOccurrenceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // PaymentPeriod FK: SET NULL
+            entity.HasOne(t => t.PaymentPeriod)
+                .WithMany(p => p.PaymentTransactions)
+                .HasForeignKey(t => t.PaymentPeriodId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // StudentSessionAssignment FK: SET NULL
+            entity.HasOne(t => t.StudentSessionAssignment)
+                .WithMany()
+                .HasForeignKey(t => t.StudentSessionAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region PaymentPeriod (BR-PAY-001: earliest unpaid period lookup)
+        modelBuilder.Entity<PaymentPeriod>(entity =>
+        {
+            entity.ToTable("PaymentPeriods");
+
+            // Financial precision
+            entity.Property(p => p.AmountDue).HasColumnType("decimal(10,2)");
+            entity.Property(p => p.AmountPaid).HasColumnType("decimal(10,2)");
+            entity.Property(p => p.ProRatedFraction).HasColumnType("decimal(5,4)");
+
+            // Date-only columns
+            entity.Property(p => p.PeriodStart).HasColumnType("date");
+            entity.Property(p => p.PeriodEnd).HasColumnType("date");
+
+            // String lengths
+            entity.Property(p => p.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(p => p.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(p => p.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(p => p.OriginSessionName).HasMaxLength(PaymentConstants.NameMaxLength);
+
+            // ── INDEXES ──
+
+            // HOT-PATH: "find earliest unpaid period" — O(1) via index scan
+            // BR-PAY-001: This is the single most performance-critical query in the module
+            entity.HasIndex(p => new { p.TeacherId, p.TeacherStudentId, p.PaymentStatus, p.PeriodSequence })
+                .HasDatabaseName("IX_PP_EarliestUnpaid");
+
+            // Session payment report and unpaid badge count
+            entity.HasIndex(p => new { p.TeacherId, p.SessionId, p.PaymentStatus })
+                .HasDatabaseName("IX_PP_TeacherId_SessionId_Status");
+
+            // Student timeline (all periods for a student)
+            entity.HasIndex(p => new { p.TeacherId, p.TeacherStudentId, p.PeriodSequence })
+                .HasDatabaseName("IX_PP_TeacherId_StudentId_Sequence");
+
+            // ── FOREIGN KEYS ──
+
+            entity.HasOne(p => p.Teacher)
+                .WithMany()
+                .HasForeignKey(p => p.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Session FK: NO ACTION — app nullifies before session hard-delete
+            entity.HasOne(p => p.Session)
+                .WithMany()
+                .HasForeignKey(p => p.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // TeacherStudent FK: SET NULL — period survives student purge
+            entity.HasOne(p => p.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(p => p.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // StudentSessionAssignment FK: SET NULL
+            entity.HasOne(p => p.StudentSessionAssignment)
+                .WithMany()
+                .HasForeignKey(p => p.StudentSessionAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region StudentPaymentCounter (REQ-PAY-029/016/031)
+        modelBuilder.Entity<StudentPaymentCounter>(entity =>
+        {
+            entity.ToTable("StudentPaymentCounters");
+
+            // Financial precision
+            entity.Property(c => c.TotalAmountPaid).HasColumnType("decimal(12,2)");
+            entity.Property(c => c.TotalOutstanding).HasColumnType("decimal(12,2)");
+            entity.Property(c => c.CustomPaymentAmount).HasColumnType("decimal(10,2)");
+            entity.Property(c => c.LastPaymentSessionName).HasMaxLength(PaymentConstants.NameMaxLength);
+
+            // Optimistic concurrency
+            entity.Property(c => c.RowVersion).IsRowVersion();
+
+            // Unique: one counter per student per teacher
+            entity.HasIndex(c => new { c.TeacherId, c.TeacherStudentId })
+                .IsUnique()
+                .HasDatabaseName("IX_SPC_TeacherId_StudentId");
+
+            // Unpaid overview: sorted by consecutive unpaid
+            entity.HasIndex(c => new { c.TeacherId, c.ConsecutiveUnpaid })
+                .HasDatabaseName("IX_SPC_TeacherId_ConsecutiveUnpaid");
+
+            // Outstanding amount queries
+            entity.HasIndex(c => new { c.TeacherId, c.TotalOutstanding })
+                .HasDatabaseName("IX_SPC_TeacherId_TotalOutstanding");
+
+            // Teacher FK: CASCADE
+            entity.HasOne(c => c.Teacher)
+                .WithMany()
+                .HasForeignKey(c => c.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TeacherStudent FK: NO ACTION — cleaned up via app logic on purge
+            entity.HasOne(c => c.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(c => c.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region AssistantWallet (REQ-PAY-034/035/036)
+        modelBuilder.Entity<AssistantWallet>(entity =>
+        {
+            entity.ToTable("AssistantWallets");
+
+            entity.Property(w => w.CurrentBalance).HasColumnType("decimal(12,2)");
+            entity.Property(w => w.TotalCollected).HasColumnType("decimal(14,2)");
+
+            // Optimistic concurrency
+            entity.Property(w => w.RowVersion).IsRowVersion();
+
+            // Unique: one wallet per assistant per teacher
+            entity.HasIndex(w => new { w.TeacherId, w.AssistantId })
+                .IsUnique()
+                .HasDatabaseName("IX_AW_TeacherId_AssistantId");
+
+            // Fast lookup by user ID during collection
+            entity.HasIndex(w => new { w.TeacherId, w.AssistantUserId })
+                .HasDatabaseName("IX_AW_TeacherId_AssistantUserId");
+
+            entity.HasOne(w => w.Teacher)
+                .WithMany()
+                .HasForeignKey(w => w.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Assistant FK: CASCADE — wallet deleted when assistant is deleted
+            entity.HasOne(w => w.Assistant)
+                .WithMany()
+                .HasForeignKey(w => w.AssistantId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region WalletResetLog (REQ-PAY-037: permanent ledger)
+        modelBuilder.Entity<WalletResetLog>(entity =>
+        {
+            entity.ToTable("WalletResetLogs");
+
+            entity.Property(l => l.AmountReset).HasColumnType("decimal(12,2)");
+            entity.Property(l => l.ResetAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(l => l.AssistantName).HasMaxLength(PaymentConstants.NameMaxLength);
+
+            entity.HasIndex(l => new { l.TeacherId, l.AssistantId })
+                .HasDatabaseName("IX_WRL_TeacherId_AssistantId");
+
+            entity.HasOne(l => l.Teacher)
+                .WithMany()
+                .HasForeignKey(l => l.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Assistant FK: NO ACTION — log survives assistant deletion for ledger permanence
+            entity.HasOne(l => l.Assistant)
+                .WithMany()
+                .HasForeignKey(l => l.AssistantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(l => l.AssistantWallet)
+                .WithMany()
+                .HasForeignKey(l => l.AssistantWalletId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region PaymentEditLog (BR-PAY-002 audit trail)
+        modelBuilder.Entity<PaymentEditLog>(entity =>
+        {
+            entity.ToTable("PaymentEditLogs");
+
+            entity.Property(l => l.PreviousAmount).HasColumnType("decimal(10,2)");
+            entity.Property(l => l.NewAmount).HasColumnType("decimal(10,2)");
+            entity.Property(l => l.EditedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(l => l.EditReason).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+
+            // Audit trail: all edits for a transaction
+            entity.HasIndex(l => l.PaymentTransactionId)
+                .HasDatabaseName("IX_PEL_PaymentTransactionId");
+
+            // PaymentTransaction FK: SET NULL — log survives parent deletion for audit
+            entity.HasOne(l => l.PaymentTransaction)
+                .WithMany(t => t.EditLogs)
+                .HasForeignKey(l => l.PaymentTransactionId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region StudentDeparture (REQ-PAY-066/073)
+        modelBuilder.Entity<StudentDeparture>(entity =>
+        {
+            entity.ToTable("StudentDepartures");
+
+            entity.Property(d => d.FullPeriodAmount).HasColumnType("decimal(10,2)");
+            entity.Property(d => d.ProRatedAmount).HasColumnType("decimal(10,2)");
+            entity.Property(d => d.FinalAmount).HasColumnType("decimal(10,2)");
+            entity.Property(d => d.OriginalCalculatedAmount).HasColumnType("decimal(10,2)");
+            entity.Property(d => d.DepartedAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.Property(d => d.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(d => d.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(d => d.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+
+            entity.HasIndex(d => new { d.TeacherId, d.TeacherStudentId })
+                .HasDatabaseName("IX_SD_TeacherId_StudentId");
+
+            entity.HasOne(d => d.Teacher)
+                .WithMany()
+                .HasForeignKey(d => d.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TeacherStudent FK: SET NULL — departure record survives student purge
+            entity.HasOne(d => d.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(d => d.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Session FK: NO ACTION — app nullifies before session hard-delete
+            entity.HasOne(d => d.Session)
+                .WithMany()
+                .HasForeignKey(d => d.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region SessionTransferEvent (REQ-PAY-089: permanently retained)
+        modelBuilder.Entity<SessionTransferEvent>(entity =>
+        {
+            entity.ToTable("SessionTransferEvents");
+
+            entity.Property(t => t.OutstandingBalance).HasColumnType("decimal(10,2)");
+            entity.Property(t => t.CreditBalance).HasColumnType("decimal(10,2)");
+            entity.Property(t => t.TransferredAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.Property(t => t.SourceSessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(t => t.DestinationSessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(t => t.SourcePaymentType).HasMaxLength(20).IsRequired();
+            entity.Property(t => t.DestinationPaymentType).HasMaxLength(20).IsRequired();
+            entity.Property(t => t.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(t => t.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+
+            entity.HasIndex(t => new { t.TeacherId, t.TeacherStudentId })
+                .HasDatabaseName("IX_STE_TeacherId_StudentId");
+
+            entity.HasOne(t => t.Teacher)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TeacherStudent FK: SET NULL — transfer event survives student purge
+            entity.HasOne(t => t.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // EVENT PAYMENT MODULE CONFIGURATION (Module 5)
+        // ════════════════════════════════════════════════
+
+        #region PaymentEvent (REQ-EVT-001/002)
+        modelBuilder.Entity<PaymentEvent>(entity =>
+        {
+            entity.ToTable("PaymentEvents");
+
+            entity.Property(e => e.EventName).HasMaxLength(PaymentConstants.EventNameMaxLength).IsRequired();
+            entity.Property(e => e.EventAmount).HasColumnType("decimal(10,2)");
+            entity.Property(e => e.TotalExpectedRevenue).HasColumnType("decimal(14,2)");
+            entity.Property(e => e.TotalCollectedRevenue).HasColumnType("decimal(14,2)");
+            entity.Property(e => e.EventDate).HasColumnType("date");
+            entity.Property(e => e.DeletedAt).HasColumnType("datetime2(0)");
+            entity.Property(e => e.TargetScopeIds).HasMaxLength(PaymentConstants.TargetScopeIdsMaxLength);
+
+            entity.HasIndex(e => new { e.TeacherId, e.IsDeleted })
+                .HasDatabaseName("IX_PE_TeacherId_IsDeleted");
+
+            entity.HasOne(e => e.Teacher)
+                .WithMany()
+                .HasForeignKey(e => e.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        #endregion
+
+        #region EventStudentObligation (BR-EVT-001/004)
+        modelBuilder.Entity<EventStudentObligation>(entity =>
+        {
+            entity.ToTable("EventStudentObligations");
+
+            entity.Property(o => o.AmountDue).HasColumnType("decimal(10,2)");
+            entity.Property(o => o.AmountPaid).HasColumnType("decimal(10,2)");
+            entity.Property(o => o.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(o => o.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+
+            // Unique: one obligation per student per event
+            entity.HasIndex(o => new { o.PaymentEventId, o.TeacherStudentId })
+                .IsUnique()
+                .HasFilter("[TeacherStudentId] IS NOT NULL")
+                .HasDatabaseName("IX_ESO_EventId_StudentId");
+
+            // Event tracking: all obligations for an event by status
+            entity.HasIndex(o => new { o.PaymentEventId, o.PaymentStatus })
+                .HasDatabaseName("IX_ESO_EventId_Status");
+
+            entity.HasOne(o => o.Teacher)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // PaymentEvent FK: CASCADE — obligation removed when event is deleted
+            entity.HasOne(o => o.PaymentEvent)
+                .WithMany(e => e.StudentObligations)
+                .HasForeignKey(o => o.PaymentEventId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // TeacherStudent FK: SET NULL — obligation survives student purge
+            entity.HasOne(o => o.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region EventPaymentTransaction (REQ-EVT-009/013/022)
+        modelBuilder.Entity<EventPaymentTransaction>(entity =>
+        {
+            entity.ToTable("EventPaymentTransactions");
+
+            entity.Property(t => t.AmountPaid).HasColumnType("decimal(10,2)");
+            entity.Property(t => t.CollectedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(t => t.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(t => t.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(t => t.EventName).HasMaxLength(PaymentConstants.EventNameMaxLength).IsRequired();
+            entity.Property(t => t.OnlineTransactionRef).HasMaxLength(PaymentConstants.OnlineTransactionRefMaxLength);
+
+            entity.HasIndex(t => new { t.TeacherId, t.PaymentEventId })
+                .HasDatabaseName("IX_EPT_TeacherId_EventId");
+
+            entity.HasOne(t => t.Teacher)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // PaymentEvent FK: SET NULL — transaction survives event deletion (REQ-EVT-022)
+            entity.HasOne(t => t.PaymentEvent)
+                .WithMany(e => e.PaymentTransactions)
+                .HasForeignKey(t => t.PaymentEventId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // EventStudentObligation FK: SET NULL
+            entity.HasOne(t => t.EventStudentObligation)
+                .WithMany(o => o.EventPaymentTransactions)
+                .HasForeignKey(t => t.EventStudentObligationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // TeacherStudent FK: SET NULL — transaction survives student purge
+            entity.HasOne(t => t.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(t => t.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
         #endregion
 

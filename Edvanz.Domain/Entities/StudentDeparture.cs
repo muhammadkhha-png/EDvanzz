@@ -1,0 +1,138 @@
+﻿using Edvanz.Domain.Entities.ShareProp;
+using Edvanz.Domain.Enums;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Edvanz.Domain.Entities;
+
+/// <summary>
+/// Records the full context of a student departure including pro-rated calculations.
+/// REQ-PAY-066: Student Departure feature for formal departure recording.
+/// REQ-PAY-068/069/070: Pro-rated obligation calculation and outcome.
+/// REQ-PAY-072: Departure summary displayed before confirmation.
+/// REQ-PAY-073: Departure event permanently recorded in payment history.
+/// REQ-PAY-075: Tutor override logged alongside original calculated amount.
+///
+/// Denormalized for post-delete/purge display. Never deleted.
+///
+/// Multi-tenant isolation: TeacherId stored directly.
+/// </summary>
+public class StudentDeparture : BaseEntity
+{
+    /// <summary>
+    /// Foreign key to the owning Teacher.
+    /// REQ-PAY-NFR-001: All payment data scoped to individual tutor account.
+    /// </summary>
+    [ForeignKey(nameof(Teacher))]
+    public long TeacherId { get; set; }
+    public Teacher Teacher { get; set; } = null!;
+
+    /// <summary>
+    /// Foreign key to the departing student.
+    /// SET NULL on permanent purge. Denormalized fields preserve display data.
+    /// </summary>
+    [ForeignKey(nameof(TeacherStudent))]
+    public long? TeacherStudentId { get; set; }
+    public TeacherStudent? TeacherStudent { get; set; }
+
+    /// <summary>
+    /// The session the student was assigned to at departure time.
+    /// Nullable: survives session hard-delete.
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    [ForeignKey(nameof(SessionId))]
+    public Session? Session { get; set; }
+
+    // ══════════════════════════════════════════════
+    // DENORMALIZED CONTEXT (REQ-PAY-072)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Denormalized: session name at departure time.
+    /// </summary>
+    public string SessionName { get; set; } = null!;
+
+    /// <summary>
+    /// Denormalized: student name at departure time.
+    /// </summary>
+    public string? StudentName { get; set; }
+
+    /// <summary>
+    /// Denormalized: student code at departure time.
+    /// </summary>
+    public string? StudentCode { get; set; }
+
+    // ══════════════════════════════════════════════
+    // DEPARTURE CALCULATION (REQ-PAY-068-074)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Payment status at the time of departure (Paid, PartiallyPaid, Unpaid).
+    /// REQ-PAY-072: Displayed on departure summary.
+    /// </summary>
+    public PaymentStatus PaymentStatusAtDeparture { get; set; }
+
+    /// <summary>
+    /// Total occurrences scheduled in the current payment period.
+    /// REQ-PAY-074: Based on session occurrence count, not calendar days.
+    /// </summary>
+    public int TotalOccurrencesInPeriod { get; set; }
+
+    /// <summary>
+    /// Number of occurrences the student actually attended.
+    /// BR-PAY-007: Unrecorded occurrences excluded from calculation.
+    /// </summary>
+    public int AttendedOccurrences { get; set; }
+
+    /// <summary>
+    /// Full period payment amount before pro-rating.
+    /// REQ-PAY-072: Displayed in departure summary.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal FullPeriodAmount { get; set; }
+
+    /// <summary>
+    /// System-calculated pro-rated amount.
+    /// REQ-PAY-068: (Attended ÷ Total) × Full Amount.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal ProRatedAmount { get; set; }
+
+    /// <summary>
+    /// Final amount applied (may differ from ProRatedAmount if tutor overrides).
+    /// REQ-PAY-075: Custom refund/charge amount.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal FinalAmount { get; set; }
+
+    /// <summary>
+    /// Whether the tutor overrode the system-calculated amount.
+    /// REQ-PAY-075: Override logged for transparency.
+    /// </summary>
+    public bool IsTutorOverride { get; set; } = false;
+
+    /// <summary>
+    /// The original system-calculated amount before override.
+    /// REQ-PAY-075: Stored alongside override for transparency.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal OriginalCalculatedAmount { get; set; }
+
+    /// <summary>
+    /// The financial outcome: RefundDue, AmountOwed, or NoObligation.
+    /// REQ-PAY-069/070/071: Determines what action follows departure.
+    /// </summary>
+    public DepartureOutcome DepartureOutcome { get; set; }
+
+    /// <summary>
+    /// The user who confirmed the departure.
+    /// REQ-PAY-066: Departure initiated from student profile or session detail.
+    /// </summary>
+    public long? ConfirmedByUserId { get; set; }
+
+    /// <summary>
+    /// UTC timestamp when the departure was confirmed.
+    /// REQ-PAY-073: Date recorded in student's payment history.
+    /// </summary>
+    public DateTime DepartedAt { get; set; }
+}

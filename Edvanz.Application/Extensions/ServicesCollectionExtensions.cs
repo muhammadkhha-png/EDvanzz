@@ -47,8 +47,14 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<IAttendanceService, AttendanceService>();
         services.AddScoped<IAssistantService, AssistantService>();
-        services.AddScoped<IUserPermissionService,UserPermissionService>();
+        services.AddScoped<IUserPermissionService, UserPermissionService>();
         services.AddScoped<IMessagingIntegrationService, StubMessagingIntegrationService>();
+
+        // Payment Module (Module 4: payment collection, editing, wallets, dashboard, reports)
+        services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<IPaymentReportService, PaymentReportService>();
+        // Event Payment Module (Module 5: one-time event payments)
+        services.AddScoped<IEventPaymentService, EventPaymentService>();
 
         #endregion
 

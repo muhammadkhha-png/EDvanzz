@@ -1,0 +1,424 @@
+﻿using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
+
+namespace Edvanz.Domain.Interfaces;
+
+/// <summary>
+/// Extended repository interface for the Payment Module (Module 4) and Event Payment Module (Module 5).
+/// Centralizes all domain-specific query methods for payment-related entities:
+/// PaymentTransaction, PaymentPeriod, StudentPaymentCounter, AssistantWallet,
+/// WalletResetLog, PaymentEditLog, StudentDeparture, SessionTransferEvent,
+/// PaymentEvent, EventStudentObligation, EventPaymentTransaction.
+///
+/// ARCHITECTURAL NOTE (same rationale as IUserRepo, ITeacherStudentRepo, IAttendanceRepo):
+/// All expression-based queries are encapsulated here in named methods.
+/// The Application layer never builds raw predicates. If a query changes,
+/// you edit ONE method here — not every service that uses it.
+///
+/// Inherits from IGenericRepo&lt;PaymentTransaction, long&gt; for basic CRUD on the
+/// primary entity. Other entities are accessed via named methods below.
+/// </summary>
+public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
+{
+    // ══════════════════════════════════════════════
+    // PAYMENT TRANSACTION QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets a payment transaction by ID scoped to a teacher.
+    /// Returns null if not found or belongs to different teacher.
+    /// </summary>
+    Task<PaymentTransaction?> GetTransactionByIdAndTeacherAsync(long transactionId, long teacherId);
+
+    /// <summary>
+    /// Gets a paginated list of payment transactions for a student across all sessions.
+    /// REQ-PAY-052: Student payment history with period grouping.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetStudentPaymentHistoryPagedAsync(
+        long teacherId, long teacherStudentId,
+        DateTime? startDate, DateTime? endDate,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Gets all transactions for a specific payment period.
+    /// Used for period balance calculation and display.
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransaction>> GetTransactionsByPeriodAsync(long paymentPeriodId);
+
+    /// <summary>
+    /// Gets transactions by a student on a specific local date.
+    /// REQ-PAY-020: Same-day duplicate detection.
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransaction>> GetSameDayTransactionsAsync(
+        long teacherId, long teacherStudentId, DateTime localDate);
+
+    /// <summary>
+    /// Gets transactions collected by a specific user in a date range.
+    /// REQ-PAY-013: Collector view. REQ-PAY-058: Collector performance report.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetCollectorTransactionsPagedAsync(
+        long teacherId, long collectedByUserId,
+        DateTime? startDate, DateTime? endDate,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Gets all transactions for a session in a date range.
+    /// REQ-PAY-053: Session payment report.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetSessionTransactionsPagedAsync(
+        long teacherId, long sessionId,
+        DateTime? startDate, DateTime? endDate,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Gets all transactions across all sessions for a date range.
+    /// REQ-PAY-060: Daily collection report. REQ-PAY-061: Period revenue report.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)> GetTransactionsByDateRangePagedAsync(
+        long teacherId,
+        DateTime startDate, DateTime endDate,
+        long? sessionId, long? collectedByUserId,
+        int page, int pageSize);
+
+    // ══════════════════════════════════════════════
+    // PAYMENT PERIOD QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets the earliest unpaid payment period for a student in a session.
+    /// BR-PAY-001: Core payment assignment logic.
+    /// Uses index on (TeacherId, TeacherStudentId, PaymentStatus, PeriodSequence).
+    /// </summary>
+    Task<PaymentPeriod?> GetEarliestUnpaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
+
+    /// <summary>
+    /// Gets a payment period by ID.
+    /// </summary>
+    Task<PaymentPeriod?> GetPaymentPeriodByIdAsync(long paymentPeriodId);
+
+    /// <summary>
+    /// Gets all payment periods for a student in a session, ordered by sequence.
+    /// REQ-PAY-052: Student payment history timeline.
+    /// </summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentAndSessionAsync(
+        long teacherId, long teacherStudentId, long? sessionId);
+
+    /// <summary>
+    /// Gets all payment periods for a student across all sessions.
+    /// REQ-PAY-092: Unified timeline across all sessions.
+    /// </summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetAllPaymentPeriodsByStudentAsync(
+        long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// Gets unpaid payment periods for a specific session.
+    /// REQ-PAY-028: Unpaid badge count per session.
+    /// </summary>
+    Task<int> CountUnpaidStudentsBySessionAsync(long teacherId, long sessionId);
+
+    /// <summary>
+    /// Gets the maximum period sequence for a student in a session.
+    /// Used when generating new periods to determine the next sequence number.
+    /// </summary>
+    Task<int> GetMaxPeriodSequenceAsync(long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>
+    /// Adds a new payment period.
+    /// </summary>
+    Task AddPaymentPeriodAsync(PaymentPeriod period);
+
+    /// <summary>
+    /// Adds multiple payment periods in bulk.
+    /// Used when generating all periods for a newly assigned student.
+    /// </summary>
+    Task AddPaymentPeriodsRangeAsync(IEnumerable<PaymentPeriod> periods);
+
+    /// <summary>
+    /// Updates an existing payment period.
+    /// </summary>
+    Task UpdatePaymentPeriodAsync(PaymentPeriod period);
+
+    // ══════════════════════════════════════════════
+    // STUDENT PAYMENT COUNTER QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets the payment counter for a student under a teacher.
+    /// O(1) lookup via unique index.
+    /// </summary>
+    Task<StudentPaymentCounter?> GetPaymentCounterAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// Adds a new payment counter.
+    /// </summary>
+    Task AddPaymentCounterAsync(StudentPaymentCounter counter);
+
+    /// <summary>
+    /// Updates an existing payment counter.
+    /// Uses RowVersion for optimistic concurrency.
+    /// </summary>
+    Task UpdatePaymentCounterAsync(StudentPaymentCounter counter);
+
+    /// <summary>
+    /// Gets unpaid students with counters for the Unpaid Students Overview.
+    /// REQ-PAY-031/032/033: Filterable by session, group, payment type, consecutive count.
+    /// </summary>
+    Task<(IReadOnlyList<StudentPaymentCounter> Items, int TotalCount)> GetUnpaidStudentsPagedAsync(
+        long teacherId,
+        long? sessionId, long? sessionGroupId,
+        PaymentType? paymentType,
+        int? minConsecutiveUnpaid,
+        string? search,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Gets the sum of total outstanding across all students for a teacher.
+    /// REQ-PAY-NFR-008: Live total outstanding in Unpaid Students View.
+    /// </summary>
+    Task<decimal> GetTotalOutstandingAmountAsync(long teacherId, long? sessionId);
+
+    // ══════════════════════════════════════════════
+    // ASSISTANT WALLET QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets the wallet for an assistant under a teacher.
+    /// </summary>
+    Task<AssistantWallet?> GetAssistantWalletAsync(long teacherId, long assistantId);
+
+    /// <summary>
+    /// Gets the wallet by assistant user ID.
+    /// Used during payment collection to find the collector's wallet.
+    /// </summary>
+    Task<AssistantWallet?> GetAssistantWalletByUserIdAsync(long teacherId, long assistantUserId);
+
+    /// <summary>
+    /// Gets all assistant wallets for a teacher.
+    /// REQ-PAY-035: View current wallet balance of each assistant.
+    /// </summary>
+    Task<IReadOnlyList<AssistantWallet>> GetAllAssistantWalletsAsync(long teacherId);
+
+    /// <summary>
+    /// Adds a new assistant wallet.
+    /// </summary>
+    Task AddAssistantWalletAsync(AssistantWallet wallet);
+
+    /// <summary>
+    /// Updates an existing assistant wallet.
+    /// Uses RowVersion for optimistic concurrency.
+    /// </summary>
+    Task UpdateAssistantWalletAsync(AssistantWallet wallet);
+
+    // ══════════════════════════════════════════════
+    // WALLET RESET LOG QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new wallet reset log entry.
+    /// REQ-PAY-037: Permanent ledger event — never deleted.
+    /// </summary>
+    Task AddWalletResetLogAsync(WalletResetLog log);
+
+    /// <summary>
+    /// Gets all wallet reset logs for an assistant.
+    /// REQ-PAY-059: Assistant Wallet History Report.
+    /// </summary>
+    Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsAsync(long teacherId, long assistantId);
+
+    // ══════════════════════════════════════════════
+    // PAYMENT EDIT LOG QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new payment edit log entry.
+    /// </summary>
+    Task AddPaymentEditLogAsync(PaymentEditLog log);
+
+    /// <summary>
+    /// Gets all edit logs for a payment transaction.
+    /// </summary>
+    Task<IReadOnlyList<PaymentEditLog>> GetPaymentEditLogsAsync(long paymentTransactionId);
+
+    // ══════════════════════════════════════════════
+    // DEPARTURE QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new student departure record.
+    /// REQ-PAY-073: Departure event recorded permanently.
+    /// </summary>
+    Task AddStudentDepartureAsync(StudentDeparture departure);
+
+    /// <summary>
+    /// Gets departure records for a student.
+    /// </summary>
+    Task<IReadOnlyList<StudentDeparture>> GetStudentDeparturesAsync(long teacherId, long teacherStudentId);
+
+    // ══════════════════════════════════════════════
+    // SESSION TRANSFER QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new session transfer event.
+    /// REQ-PAY-089: Permanently retained, never deleted.
+    /// </summary>
+    Task AddSessionTransferEventAsync(SessionTransferEvent transferEvent);
+
+    /// <summary>
+    /// Gets transfer events for a student.
+    /// REQ-PAY-092: Unified timeline display.
+    /// </summary>
+    Task<IReadOnlyList<SessionTransferEvent>> GetStudentTransferEventsAsync(
+        long teacherId, long teacherStudentId);
+
+    // ══════════════════════════════════════════════
+    // DASHBOARD AGGREGATES (REQ-PAY-039 through 044)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets the expected, collected, and remaining revenue for a teacher.
+    /// REQ-PAY-040/041/042: Dashboard views.
+    /// Filterable by session, session group, payment type, date range.
+    /// </summary>
+    Task<(decimal Expected, decimal Collected, decimal Remaining)> GetDashboardAggregatesAsync(
+        long teacherId,
+        long? sessionId, long? sessionGroupId,
+        PaymentType? paymentType,
+        DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
+    /// Gets per-session breakdown of expected/collected/remaining.
+    /// REQ-PAY-043: Filterable by session for drill-down.
+    /// </summary>
+    Task<IReadOnlyList<(long SessionId, string SessionName, decimal Expected, decimal Collected, decimal Remaining)>>
+        GetDashboardPerSessionAsync(
+            long teacherId,
+            long? sessionGroupId,
+            PaymentType? paymentType,
+            DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
+    /// Gets per-collector breakdown of collected amounts.
+    /// REQ-PAY-041: Collected revenue broken down by collecting users.
+    /// </summary>
+    Task<IReadOnlyList<(long UserId, string? UserName, decimal Collected, int TransactionCount)>>
+        GetDashboardPerCollectorAsync(
+            long teacherId,
+            DateTime? startDate, DateTime? endDate);
+
+    // ══════════════════════════════════════════════
+    // EVENT QUERIES (Module 5)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new payment event.
+    /// REQ-EVT-001: Create one-time payment events.
+    /// </summary>
+    Task AddPaymentEventAsync(PaymentEvent paymentEvent);
+
+    /// <summary>
+    /// Gets a payment event by ID scoped to a teacher.
+    /// </summary>
+    Task<PaymentEvent?> GetPaymentEventByIdAndTeacherAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// Gets all active (non-deleted) events for a teacher.
+    /// REQ-EVT-014: Event list display.
+    /// </summary>
+    Task<(IReadOnlyList<PaymentEvent> Items, int TotalCount)> GetPaymentEventsPagedAsync(
+        long teacherId, int page, int pageSize);
+
+    /// <summary>
+    /// Updates an existing payment event.
+    /// </summary>
+    Task UpdatePaymentEventAsync(PaymentEvent paymentEvent);
+
+    /// <summary>
+    /// Adds event student obligations in bulk.
+    /// BR-EVT-001: Created at event creation time for target scope.
+    /// </summary>
+    Task AddEventObligationsRangeAsync(IEnumerable<EventStudentObligation> obligations);
+
+    /// <summary>
+    /// Gets a specific event obligation for a student.
+    /// </summary>
+    Task<EventStudentObligation?> GetEventObligationAsync(long eventId, long teacherStudentId);
+
+    /// <summary>
+    /// Gets all obligations for an event with paging and paid/unpaid separation.
+    /// REQ-EVT-015: Paid and unpaid student lists.
+    /// </summary>
+    Task<(IReadOnlyList<EventStudentObligation> Items, int TotalCount)> GetEventObligationsPagedAsync(
+        long eventId, long teacherId,
+        PaymentStatus? statusFilter,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Updates an event student obligation (e.g., after payment collection).
+    /// </summary>
+    Task UpdateEventObligationAsync(EventStudentObligation obligation);
+
+    /// <summary>
+    /// Adds an event payment transaction.
+    /// REQ-EVT-009: Collect event payment.
+    /// </summary>
+    Task AddEventPaymentTransactionAsync(EventPaymentTransaction transaction);
+
+    /// <summary>
+    /// Gets event payment transactions for reporting.
+    /// REQ-EVT-023: Single Event Payment Report.
+    /// </summary>
+    Task<IReadOnlyList<EventPaymentTransaction>> GetEventPaymentTransactionsAsync(
+        long eventId, long teacherId);
+
+    // ══════════════════════════════════════════════
+    // INTEGRATION HOOKS (called before delete/purge)
+    // ══════════════════════════════════════════════
+
+    // ══════════════════════════════════════════════
+    // TARGET SCOPE RESOLUTION (Module 5 event creation)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Gets all active (non-deleted) student IDs assigned to a specific session.
+    /// REQ-EVT-004: Session-scoped event target resolution.
+    /// </summary>
+    Task<List<long>> GetStudentIdsBySessionAsync(long teacherId, long sessionId);
+
+    /// <summary>
+    /// Gets all active (non-deleted) student IDs across all sessions in a session group.
+    /// REQ-EVT-005: Session group-scoped event target resolution.
+    /// </summary>
+    Task<List<long>> GetStudentIdsByGroupAsync(long teacherId, long sessionGroupId);
+
+    /// <summary>
+    /// Gets all active (non-deleted) student IDs under a teacher's account.
+    /// REQ-EVT-006: All students scope event target resolution.
+    /// </summary>
+    Task<List<long>> GetAllStudentIdsAsync(long teacherId);
+
+    // ══════════════════════════════════════════════
+    // INTEGRATION HOOKS (called before delete/purge)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Nullifies SessionId on all payment transactions and periods for a session
+    /// before the session is hard-deleted. Uses ExecuteUpdateAsync for bulk operation.
+    /// Same pattern as AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync.
+    /// </summary>
+    Task NullifySessionIdOnPaymentRecordsAsync(long sessionId);
+
+    /// <summary>
+    /// Nullifies TeacherStudentId on all payment records for a student
+    /// during permanent purge. Denormalized fields survive.
+    /// Same pattern as AttendanceRepo.NullifyStudentReferencesOnRecordsAsync.
+    /// </summary>
+    Task NullifyStudentReferencesOnPaymentRecordsAsync(long teacherStudentId);
+
+    /// <summary>
+    /// Recalculates the consecutive unpaid count from payment period records.
+    /// BR-PAY-006: Based on sequential unpaid periods with no paid period in between.
+    /// Called after payment edits/deletions where simple increment/decrement won't work.
+    /// </summary>
+    Task<int> RecalculateConsecutiveUnpaidAsync(long teacherId, long teacherStudentId);
+}

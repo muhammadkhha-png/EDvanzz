@@ -26,6 +26,8 @@ namespace Edvanz.Infrastructure
         private ISessionRepo? _sessionRepo;
         // Attendance Module repo (Module 3: attendance records, occurrences, counters)
         private IAttendanceRepo? _attendanceRepo;
+        // Payment Module repo (Module 4 + Module 5: payments, events, wallets, counters)
+        private IPaymentRepo? _paymentRepo;
         private IUserPermissionRepo? _userPermissionRepo;
         private IRefreshTokenRepo? _refreshTokenRepo;
         private IgoogleUserRepo? _googleUserRepo;
@@ -121,6 +123,13 @@ namespace Edvanz.Infrastructure
         public IAttendanceRepo AttendanceRepo
      => _attendanceRepo ??= new AttendanceRepo(_Context);
 
+        /// <summary>
+        /// Payment Module repo (Module 4: payment transactions, periods, counters, wallets;
+        /// Module 5: event payments, obligations, event transactions).
+        /// </summary>
+        public IPaymentRepo PaymentsRepo
+     => _paymentRepo ??= new PaymentRepo(_Context);
+
         public IUserPermissionRepo UsersPermissions => _userPermissionRepo ??= new UserPermissionRepo(_Context);
 
         public IRefreshTokenRepo RefreshTokenRepo => _refreshTokenRepo ??= new RefreshTokenRepo(_Context);
@@ -130,5 +139,5 @@ namespace Edvanz.Infrastructure
         public IAssitantRepo AssistantRepo => _assistantRepo ??= new AssistantRepo(_Context);
     }
 
-   
+
 }

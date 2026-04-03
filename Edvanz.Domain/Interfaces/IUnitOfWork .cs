@@ -53,6 +53,14 @@ namespace Edvanz.Domain.Interfaces
         IAttendanceRepo AttendanceRepo { get; }
 
         /// <summary>
+        /// Extended repository for the Payment Module (Module 4) and Event Payment Module (Module 5).
+        /// Handles payment collection, editing, deletion, unpaid overview, custom amounts,
+        /// assistant wallets, dashboard, departure, transfer, offline sync, event payments,
+        /// and all payment reporting queries.
+        /// </summary>
+        IPaymentRepo PaymentsRepo { get; }
+
+        /// <summary>
         /// Returns true if a database transaction is currently active.
         /// 
         /// Used by type-specific services (Teacher, Student, Parent) to detect
