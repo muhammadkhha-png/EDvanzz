@@ -12,7 +12,12 @@ namespace Edvanz.API.Attributes
             string? role = null)
             : base(typeof(ModulePermissionFilter))
         {
-            Arguments = new object[] { module, permission, role };
+            Arguments = new object[]
+            {
+            module ?? "",
+            permission ?? "",
+            role ?? ""
+            };
         }
     }
 }

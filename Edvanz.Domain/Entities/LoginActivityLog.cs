@@ -12,5 +12,8 @@ namespace Edvanz.Domain.Entities
         public Assistant assistant { get; set; }
         public LoginAcitvityActionType ActionType { get; set; }
         public DateTime CreateAt { get; set; } = DateTime.UtcNow;
+        public string? DeviceOrBrowser { get; set; }
+
+        public string? IpAddress { get; set; }
     }
 }

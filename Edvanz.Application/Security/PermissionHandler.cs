@@ -2,9 +2,10 @@
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using System.Data;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using System.Linq;
 
 namespace Edvanz.Application.Security
 {
@@ -16,29 +17,21 @@ namespace Edvanz.Application.Security
            
         }
 
-      
+
         protected override Task HandleRequirementAsync(
-       AuthorizationHandlerContext context,
-       PermissionRequirement requirement)
+      AuthorizationHandlerContext context,
+      PermissionRequirement requirement)
         {
             var user = context.User;
 
-            if (user.IsInRole("SuperAdmin"))
-            {
-                context.Succeed(requirement);
-                return Task.CompletedTask;
-            }
-            else if (user.IsInRole("Student"))
-            {
-                context.Succeed(requirement);
-                return Task.CompletedTask;
-            }
-          else if (user.IsInRole("Parent"))
+            // ── SuperAdmin → bypass كامل ──────────────────────────────────
+            if (user.IsInRole("SuperAdmin")|| user.IsInRole("Student") || user.IsInRole("Parent"))
             {
                 context.Succeed(requirement);
                 return Task.CompletedTask;
             }
 
+            // ── CompleteProfile → endpoint محدد بس، مش bypass كامل ────────
             var permissions = user.Claims
                 .Where(c => c.Type == "Permission")
                 .Select(c => c.Value)
@@ -46,41 +39,47 @@ namespace Edvanz.Application.Security
 
             if (permissions.Contains("CompleteProfile", StringComparer.OrdinalIgnoreCase))
             {
-                context.Succeed(requirement);
+                // ✅ يعدي بس لو الـ endpoint نفسه هو CompleteProfile
+                if (requirement.Permission == "CompleteProfile")
+                {
+                    context.Succeed(requirement);
+                    return Task.CompletedTask;
+                }
+                context.Fail();
                 return Task.CompletedTask;
             }
 
            
+
+            // ── Teacher / Assistant → لازم module ────────────────────────
             var modules = user.Claims
                 .Where(c => c.Type == "module")
                 .Select(c => c.Value);
 
-            var hasModule = modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase);
-
-            if (!hasModule)
+            if (!modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase))
             {
                 context.Fail();
                 return Task.CompletedTask;
             }
 
-            // ✅ 4. لو مفيش permission → زي Teacher 
+            // ── Teacher → module كافي ─────────────────────────────────────
+            if (user.IsInRole("Teacher"))
+            {
+                context.Succeed(requirement); // 🔥 ده اللي ناقص
+                return Task.CompletedTask;
+            }
+
+            // ── Assistant → module + permission ──────────────────────────
             if (string.IsNullOrEmpty(requirement.Permission))
             {
-                context.Succeed(requirement);
+                context.Fail();
                 return Task.CompletedTask;
             }
 
-            // ✅ 5. Check Permission (Assistant فقط)
-            var hasPermission = permissions.Contains(requirement.Permission, StringComparer.OrdinalIgnoreCase);
-
-            if (hasPermission)
-            {
+            if (permissions.Contains(requirement.Permission, StringComparer.OrdinalIgnoreCase))
                 context.Succeed(requirement);
-            }
             else
-            {
                 context.Fail();
-            }
 
             return Task.CompletedTask;
         }

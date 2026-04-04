@@ -558,7 +558,6 @@
   <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
     <value>An attendance record already exists for this student on this session occurrence. Duplicate records are not permitted.</value>
   </data>
-  <!-- ── Payment Collection ── -->
   <data name="PaymentCollectedSuccess" xml:space="preserve">
     <value>Payment collected successfully.</value>
   </data>
@@ -583,13 +582,9 @@
   <data name="PaymentStudentInRecycleBin" xml:space="preserve">
     <value>Cannot collect payment — student is in the recycle bin.</value>
   </data>
-
-  <!-- ── Pro-rating ── -->
   <data name="PaymentProRatedApplied" xml:space="preserve">
     <value>A pro-rated amount has been applied for this student's first period.</value>
   </data>
-
-  <!-- ── Edit/Delete ── -->
   <data name="PaymentEditSuccess" xml:space="preserve">
     <value>Payment record updated successfully.</value>
   </data>
@@ -602,18 +597,12 @@
   <data name="PaymentEditNotAuthorized" xml:space="preserve">
     <value>Only the tutor can edit or delete payment records.</value>
   </data>
-
-  <!-- ── Custom Amount ── -->
   <data name="CustomAmountSetSuccess" xml:space="preserve">
     <value>Custom payment amount updated successfully.</value>
   </data>
-
-  <!-- ── Unpaid Overview ── -->
   <data name="UnpaidStudentsLoaded" xml:space="preserve">
     <value>Unpaid students loaded successfully.</value>
   </data>
-
-  <!-- ── Wallet ── -->
   <data name="WalletNotFound" xml:space="preserve">
     <value>Assistant wallet not found.</value>
   </data>
@@ -623,13 +612,9 @@
   <data name="WalletResetNotAuthorized" xml:space="preserve">
     <value>Only the tutor can reset assistant wallets.</value>
   </data>
-
-  <!-- ── Dashboard ── -->
   <data name="DashboardLoaded" xml:space="preserve">
     <value>Payment dashboard loaded successfully.</value>
   </data>
-
-  <!-- ── Departure ── -->
   <data name="DepartureSummaryLoaded" xml:space="preserve">
     <value>Departure summary calculated successfully.</value>
   </data>
@@ -639,8 +624,6 @@
   <data name="DepartureStudentNotAssigned" xml:space="preserve">
     <value>Student is not currently assigned to any session.</value>
   </data>
-
-  <!-- ── Transfer ── -->
   <data name="TransferSummaryLoaded" xml:space="preserve">
     <value>Transfer summary calculated successfully.</value>
   </data>
@@ -653,34 +636,21 @@
   <data name="TransferDestinationSessionNotFound" xml:space="preserve">
     <value>Destination session not found.</value>
   </data>
-
-  <!-- ── Offline Sync ── -->
   <data name="SyncConflictsDetected" xml:space="preserve">
     <value>Sync completed with conflicts. Please review and resolve.</value>
   </data>
-
-  <!-- ── Reporting ── -->
   <data name="ReportGenerated" xml:space="preserve">
     <value>Report generated successfully.</value>
   </data>
   <data name="InvalidReportType" xml:space="preserve">
     <value>Invalid report type specified.</value>
   </data>
-
-  <!-- ── Visibility ── -->
   <data name="PaymentVisibilityDisabled" xml:space="preserve">
     <value>Payment visibility is disabled by the tutor for this account type.</value>
   </data>
-
-  <!-- ── Assistants ── -->
   <data name="AssistantNotFound" xml:space="preserve">
     <value>Assistant not found.</value>
   </data>
-
-<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
-<!-- EVENT PAYMENT MODULE (Module 5) — English Resource Entries                    -->
-<!-- ═══════════════════════════════════════════════════════════════════════════════ -->
-
   <data name="EventCreatedSuccess" xml:space="preserve">
     <value>Payment event created successfully.</value>
   </data>
@@ -722,5 +692,20 @@
   </data>
   <data name="EventStudentCustomAmountSet" xml:space="preserve">
     <value>Custom event amount set for student successfully.</value>
+  </data>
+  <data name="StatusUpdated" xml:space="preserve">
+    <value>Status Updated</value>
+  </data>
+  <data name="AssistantSuspended" xml:space="preserve">
+    <value>Assistant Suspended</value>
+  </data>
+  <data name="Assistant Deactivated" xml:space="preserve">
+    <value>Assistant Account Moved To Recycle Bin </value>
+  </data>
+  <data name="AssistantActivated" xml:space="preserve">
+    <value>Account Actived</value>
+  </data>
+  <data name="AssistantAlreadyInThisStatus" xml:space="preserve">
+    <value>Assistant Already In This Status</value>
   </data>
 </root>

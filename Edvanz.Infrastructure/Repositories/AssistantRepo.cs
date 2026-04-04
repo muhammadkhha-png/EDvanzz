@@ -97,5 +97,11 @@ namespace Edvanz.Infrastructure.Repositories
                     .ThenInclude(t => t.User)
                 .FirstOrDefaultAsync(a => a.Id == id);
         }
+
+        public Task<Assistant?> GetAssistantWithUserIdAsync(long userId)
+        {
+            return _context.Assistants
+                .FirstOrDefaultAsync(a => a.UserId == userId);
+        }
     }
 }

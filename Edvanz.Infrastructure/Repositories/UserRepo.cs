@@ -91,7 +91,7 @@ namespace Edvanz.Infrastructure.Repositories
         {
             return await _context.Users
                 .FirstOrDefaultAsync(u =>
-                    u.PhoneNumber == phoneNumber ||
+                   (!string.IsNullOrEmpty(phoneNumber) && u.PhoneNumber == phoneNumber) ||
                     u.Username == username ||
                     (!string.IsNullOrEmpty(email) && u.Email == email));
         }
@@ -111,7 +111,7 @@ namespace Edvanz.Infrastructure.Repositories
         public async Task<Teacher?> GetActiveTeacherByIdAsync(long teacherId)
         {
             return await _context.Set<Teacher>()
-                .FirstOrDefaultAsync(t => t.Id == teacherId && t.DeletedAt == null &&t.StudentCapacityPackageId != null  );
+                .FirstOrDefaultAsync(t => t.Id == teacherId && t.DeletedAt == null   );
         }
 
         /// <inheritdoc />
@@ -639,6 +639,11 @@ namespace Edvanz.Infrastructure.Repositories
                 Subjects = subjects.ToDictionary(s => s.Id),
                 Configurations = configs.ToDictionary(c => c.TeacherId)
             };
+        }
+
+        public async Task<Teacher?> GetTeacherByUserIdAsync(long userId)
+        {
+            return await  _context.Teachers.FirstOrDefaultAsync(t => t.UserId == userId && t.DeletedAt==null );
         }
     }
 }

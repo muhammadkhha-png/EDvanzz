@@ -83,6 +83,8 @@ namespace Edvanz.Domain.Interfaces
         /// Finds a teacher by Id (respects global soft-delete query filter).
         /// </summary>
         Task<Teacher?> GetTeacherByIdAsync(long teacherId);
+        Task<Teacher?> GetTeacherByUserIdAsync(long teacherId);
+
 
         /// <summary>
         /// Finds an active (non-deleted) teacher by Id.

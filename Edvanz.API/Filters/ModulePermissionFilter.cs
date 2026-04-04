@@ -13,36 +13,52 @@ namespace Edvanz.API.Filters
         private readonly IAuthorizationService _authService;
 
         public ModulePermissionFilter(
-            string module,
-            string? permission,
-            string? role,
-            IAuthorizationService authService)
+    string module,
+    string permission,
+    string role,
+    IAuthorizationService authService)
         {
             _module = module;
-            _permission = permission;
-            _role = role;
+            _permission = string.IsNullOrWhiteSpace(permission) ? null : permission;
+            _role = string.IsNullOrWhiteSpace(role) ? null : role;
             _authService = authService;
         }
-
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
 
-            // Role check (optional)
             if (!string.IsNullOrEmpty(_role) && !user.IsInRole(_role))
             {
                 context.Result = new ForbidResult();
                 return;
             }
 
-            // Module + Permission check via PermissionRequirement
-            var requirement = new PermissionRequirement(_permission, _module);
+            // ✅ الترتيب الصح: module الأول
+            var requirement = new PermissionRequirement(_module, _permission);
             var result = await _authService.AuthorizeAsync(user, null, requirement);
 
             if (!result.Succeeded)
-            {
                 context.Result = new ForbidResult();
-            }
         }
+        //public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
+        //{
+        //    var user = context.HttpContext.User;
+
+        //    // Role check (optional)
+        //    if (!string.IsNullOrEmpty(_role) && !user.IsInRole(_role))
+        //    {
+        //        context.Result = new ForbidResult();
+        //        return;
+        //    }
+
+        //    // Module + Permission check via PermissionRequirement
+        //    var requirement = new PermissionRequirement(_permission, _module);
+        //    var result = await _authService.AuthorizeAsync(user, null, requirement);
+
+        //    if (!result.Succeeded)
+        //    {
+        //        context.Result = new ForbidResult();
+        //    }
+        //}
     }
 }
