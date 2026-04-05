@@ -128,43 +128,7 @@ namespace Edvanz.API.Controllers
        
        
 
-        // ── PUT /api/assistant/{id}/permissions ───────────────────────────────
-        // Replace the full permission set with individual permission IDs (REQ-USR-010, USR-013)
-        // Access: Teacher | SuperAdmin
-        [HttpPut("{id:long}/permissions")]
-        [ModulePermission("Assistants")]
-        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> UpdatePermissions(long id, [FromBody] List<long> permissionIds)
-        {
-            var result = await assistantService.UpdateAssistantPermissionsAsync(
-                new UpdateAssistantPermissionsRequest
-                {
-                    assistantId = id,
-                    PermissionIds = permissionIds
-                });
-            return ToResponse(result);
-        }
-
-        // ── POST /api/assistant/{id}/apply-profile ────────────────────────────
-        // Apply permission templates — resolved to UsersPermission rows (REQ-USR-014)
-        // Access: Teacher | SuperAdmin
-        [HttpPost("{id:long}/apply-profile")]
-        [ModulePermission("Assistants")]
-        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> ApplyProfile(long id, [FromBody] List<long> profileIds)
-        {
-            var result = await assistantService.UpdateAssistantPermissionsAsync(
-                new UpdateAssistantPermissionsRequest
-                {
-                    assistantId = id,
-                    PermissionProfileIds = profileIds
-                });
-            return ToResponse(result);
-        }
+       
 
         // ── GET /api/assistant/{id}/login-activity ────────────────────────────
         // View login/logout history for a specific assistant (REQ-USR-028)

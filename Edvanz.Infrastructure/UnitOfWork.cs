@@ -34,6 +34,13 @@ namespace Edvanz.Infrastructure
 
         private IAssitantRepo? _assistantRepo;
         private IModuleTeacherRepo? _ModuleTeacherRepo;
+        private ITemplateRepo? _templateRepo;
+        private ITemplatePermissionRepo? _templatePermissionRepo;
+        private ITemplateAssistantsRepo? _templateAssistantsRepo;
+        private IPermissionRepo? _permissionRepo;
+
+
+
 
         public UnitOfWork(EdvanzDbContext _context)
         {
@@ -141,6 +148,14 @@ namespace Edvanz.Infrastructure
         public IAssitantRepo AssistantRepo => _assistantRepo ??= new AssistantRepo(_Context);
 
         public IModuleTeacherRepo? ModuleTeacherRepo => _ModuleTeacherRepo??= new TeacherModuleRepo(_Context);
+
+        public ITemplateRepo templateRepo => _templateRepo ??= new TemplateRepo(_Context);
+
+        public ITemplatePermissionRepo templatePermissionsRepo => _templatePermissionRepo ?? new TemplatePermissionRepo(_Context);
+
+        public ITemplateAssistantsRepo templateAssistantsRepo => _templateAssistantsRepo ?? new templateAssistantRepo(_Context);
+
+        public IPermissionRepo permissionRepo => _permissionRepo??new PermissionRepo(_Context);
     }
 
 

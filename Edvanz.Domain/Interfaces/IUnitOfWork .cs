@@ -76,5 +76,14 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         bool HasActiveTransaction { get; }
 
+
+
+        ITemplateRepo templateRepo { get; }
+        ITemplatePermissionRepo templatePermissionsRepo { get; }
+        ITemplateAssistantsRepo templateAssistantsRepo { get; }
+        IPermissionRepo permissionRepo { get; }
+
+
+
     }
 }

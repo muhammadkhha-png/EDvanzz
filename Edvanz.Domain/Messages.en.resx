@@ -708,4 +708,13 @@
   <data name="AssistantAlreadyInThisStatus" xml:space="preserve">
     <value>Assistant Already In This Status</value>
   </data>
+  <data name="ProfileMustHaveAtLeastOnePermission" xml:space="preserve">
+    <value>Profile Must Have At Least One Permission</value>
+  </data>
+  <data name="TemplateNameAlreadyExists" xml:space="preserve">
+    <value>Template Name Already Exists</value>
+  </data>
+  <data name="ProfileCreated" xml:space="preserve">
+    <value>Profile Created</value>
+  </data>
 </root>

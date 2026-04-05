@@ -55,6 +55,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IPaymentReportService, PaymentReportService>();
         // Event Payment Module (Module 5: one-time event payments)
         services.AddScoped<IEventPaymentService, EventPaymentService>();
+        // Profile Permission Module 
+        services.AddScoped<IProfileService, ProfileService>();
 
         #endregion
 

@@ -14,5 +14,7 @@ namespace Edvanz.Domain.Entities
         public Module module { get; set; }
         public bool IsRestricted { get; set; }
         public virtual ICollection<UsersPermission> Permissions { get; set; } = new List<UsersPermission>();
+        public virtual ICollection<TemplatePermisions> Profiles { get; set; } = new List<TemplatePermisions>();
+
     }
 }

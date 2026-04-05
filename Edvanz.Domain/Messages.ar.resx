@@ -708,4 +708,13 @@
   <data name="AssistantAlreadyInThisStatus" xml:space="preserve">
     <value>بالفعل في هذه الحالة </value>
   </data>
+  <data name="ProfileMustHaveAtLeastOnePermission" xml:space="preserve">
+    <value>القالب يجب أن يحتوي علي صلاحية واحدة علي الاقل </value>
+  </data>
+  <data name="TemplateNameAlreadyExists" xml:space="preserve">
+    <value>الاسم دا موجود قبل كدا</value>
+  </data>
+  <data name="ProfileCreated" xml:space="preserve">
+    <value>تم الانشاء بنجاح</value>
+  </data>
 </root>
