@@ -1,4 +1,6 @@
 ﻿using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Entities;
+using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
@@ -10,10 +12,14 @@ namespace Edvanz.Application.Services
     public class CurrentUserService:ICurrentUserService
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IUnitOfWork unitOfWork;
+        private Assistant? _assistant; 
+        private bool _teacherIdLoaded = false;
 
-        public CurrentUserService(IHttpContextAccessor httpContextAccessor)
+        public CurrentUserService(IHttpContextAccessor httpContextAccessor,IUnitOfWork unitOfWork)
         {
             _httpContextAccessor = httpContextAccessor;
+            this.unitOfWork = unitOfWork;
         }
 
         public long? UserId
@@ -40,5 +46,19 @@ namespace Edvanz.Application.Services
                 .Where(c => c.Type == "Permission")
                 .Select(c => c.Value)
                 .ToList() ?? new List<string>();
+
+        public async Task<Assistant?> GetAssistantDataAsync()
+        {
+            if (_teacherIdLoaded)
+                return _assistant;
+
+            _teacherIdLoaded = true;
+
+            if (Role != "Assistant" || UserId == null)
+                return null;
+
+            return await unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(UserId.Value);
+             
+        }
     }
 }

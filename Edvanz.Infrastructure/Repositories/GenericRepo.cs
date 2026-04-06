@@ -21,7 +21,7 @@ namespace Edvanz.Infrastructure.Repositories
         protected readonly EdvanzDbContext _context;
         public GenericRepo(EdvanzDbContext context) => _context = context;
         //----------------------------------------------------------------
-        public async Task<IReadOnlyList<T>> GetAllAsync()
+        public  async Task<IReadOnlyList<T>> GetAllAsync()
         {
             return await _context.Set<T>().AsNoTracking().ToListAsync();
         }

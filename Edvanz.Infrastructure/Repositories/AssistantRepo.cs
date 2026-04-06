@@ -101,6 +101,7 @@ namespace Edvanz.Infrastructure.Repositories
         public Task<Assistant?> GetAssistantWithUserIdAsync(long userId)
         {
             return _context.Assistants
+                .Include(a => a.Teacher)
                 .FirstOrDefaultAsync(a => a.UserId == userId);
         }
     }

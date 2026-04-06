@@ -1,6 +1,8 @@
-﻿using Edvanz.Application.Dtos;
+﻿using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.StudentUser;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
@@ -164,6 +166,7 @@ public class StudentUserController : ApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+
     public async Task<IActionResult> UpdateStudentUserProfile(
         [FromRoute] long studentUserId,
         [FromBody] UpdateStudentUserProfileDto dto)

@@ -38,7 +38,7 @@ namespace Edvanz.Infrastructure
         private ITemplatePermissionRepo? _templatePermissionRepo;
         private ITemplateAssistantsRepo? _templateAssistantsRepo;
         private IPermissionRepo? _permissionRepo;
-
+        private IAuditTrialRepo? _auditTrialRepo;
 
 
 
@@ -156,6 +156,8 @@ namespace Edvanz.Infrastructure
         public ITemplateAssistantsRepo templateAssistantsRepo => _templateAssistantsRepo ?? new templateAssistantRepo(_Context);
 
         public IPermissionRepo permissionRepo => _permissionRepo??new PermissionRepo(_Context);
+
+        public IAuditTrialRepo auditTrialRepo => _auditTrialRepo ?? new AuditTrialRepo(_Context);
     }
 
 

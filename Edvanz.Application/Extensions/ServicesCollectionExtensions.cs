@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.IservicesContract;
+﻿using Edvanz.Application.Excel;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Application.Services;
 using Edvanz.Domain.Interfaces;
@@ -57,6 +58,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IEventPaymentService, EventPaymentService>();
         // Profile Permission Module 
         services.AddScoped<IProfileService, ProfileService>();
+        services.AddScoped<IAudittrialService,AuditTrialService>();
+        services.AddScoped<ExcelService>();
+
 
         #endregion
 

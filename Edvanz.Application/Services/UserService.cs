@@ -14,6 +14,7 @@ using Edvanz.Domain.ServiceContract;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Text;
 
 namespace Edvanz.Application.Services
@@ -179,49 +180,11 @@ namespace Edvanz.Application.Services
                 if (!string.IsNullOrEmpty(user.email) && existingUser.Email == user.email)
                     return Result<string?>.Failure(_localizer, "repeatedEmail");
             }
-
-            // =============================
-            // Validate user type properties
-            // =============================
-
-            //switch (user.userType)
-            //{
-            //    case UserType.Teacher:
-
-            //        if ((user.subjectIds == null || user.subjectIds.Count == 0) &&
-            //            string.IsNullOrWhiteSpace(user.customSubject))
-            //            return Result<string?>.Failure(_localizer, "TeacherMustHaveSubject");
-
-            //        if (user.studentCapacity == null || user.studentCapacity <= 0)
-            //            return Result<string?>.Failure(_localizer, "StudentCapacityRequired");
-            //        if (user.idImage == null)
-            //            return Result<string?>.Failure(_localizer, "TeacherIdImageRequired");
-            //        if (user.idImage.Length > 5 * 1024 * 1024)
-            //            return Result<string?>.Failure(_localizer, "ImageSizeTooLarge");
-
-            //        var allowedTypes = new[] { "image/jpeg", "image/png" };
-
-            //        if (!allowedTypes.Contains(user.idImage.ContentType))
-            //            return Result<string?>.Failure(_localizer, "InvalidImageType");
-            //        break;
-
-
-            //    //case UserType.Student:
-
-
-            //    //    break;
-
-
-            //    //case UserType.Parent:
-
-         
-
-            //    //    break;
-
-
-            //    default:
-            //        return Result<string?>.Failure(_localizer, "InvalidUserType");
-            //}
+            if(user.userType==UserType.Teacher && (user.subjectIds == null || user.subjectIds.Count == 0) )
+            {
+                return Result<string>.Failure(_localizer, "SubjectRequired");
+            }
+               
 
             // =============================
             // Hash password
@@ -270,7 +233,7 @@ namespace Edvanz.Application.Services
                             CreatedByUserId = currentUserService.UserId,
                             LanguagePreference = user.languagePreference,
                             CustomSubject = user.customSubject,
-                            StudentCapacity = user.studentCapacity!.Value,
+                            StudentCapacity = user.studentCapacity ?? 50,
                             SubjectIds = user.subjectIds ?? new List<long>()
                         };
 

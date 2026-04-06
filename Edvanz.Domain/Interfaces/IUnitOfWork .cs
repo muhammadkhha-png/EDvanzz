@@ -83,7 +83,7 @@ namespace Edvanz.Domain.Interfaces
         ITemplateAssistantsRepo templateAssistantsRepo { get; }
         IPermissionRepo permissionRepo { get; }
 
-
+        IAuditTrialRepo auditTrialRepo { get; }
 
     }
 }

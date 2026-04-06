@@ -9,7 +9,7 @@ namespace Edvanz.Application.Dtos.Auth
     {
         #region teacher
         public List<long>? subjectIds { get; set; } = new();
-        public int? studentCapacity { get; set; }
+        public int? studentCapacity { get; set; } = 500;
         public string? customSubject { get; set; }
 
         #endregion

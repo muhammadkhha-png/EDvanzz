@@ -1,0 +1,27 @@
+﻿using Edvanz.Application.Excel;
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Edvanz.Application.Dtos.AuditTrial
+{
+    public class AuditTrialExcelDto
+    {
+        public long Id { get; set; }
+
+        [ExcelColumn("Assistant Name", 1)]
+        public string AssistantName { get; set; }
+
+        [ExcelColumn("Module", 2)]
+        public string ModuleName { get; set; }
+
+        [ExcelColumn("Action", 3)]
+        public string ActionType { get; set; }
+
+        [ExcelColumn("Description", 4)]
+        public string Desc { get; set; }
+
+        [ExcelColumn("Created At", 5)]
+        public DateTime CreatedAt { get; set; }
+    }
+}
