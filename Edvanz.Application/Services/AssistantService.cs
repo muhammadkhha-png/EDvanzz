@@ -75,7 +75,7 @@ namespace Edvanz.Application.Services
                 
                 var response = new PaginatedResponse<List<AssistantListDto>>
                 {
-                    totalCount = dtoList.Count, 
+                    totalCount = totalCount, 
                     page = req.Page,
                     pageSize = req.PageSize,
                     totalPages = (int)Math.Ceiling((double)dtoList.Count / req.PageSize),
@@ -504,7 +504,7 @@ namespace Edvanz.Application.Services
             catch
             {
                 await _unitOfWork.RollbackAsync();
-                throw new Exception();
+                throw;
             }
         }
       

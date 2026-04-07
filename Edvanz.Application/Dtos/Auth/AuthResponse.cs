@@ -8,5 +8,6 @@ namespace Edvanz.Application.Dtos.Auth
     {
         public string? refreshToken { get; set; }
         public string accessToken { get; set; }
+        public UserLoginDto userAccountData { get; set; }
     }
 }

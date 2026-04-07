@@ -84,6 +84,7 @@ namespace Edvanz.Domain.Interfaces
         IPermissionRepo permissionRepo { get; }
 
         IAuditTrialRepo auditTrialRepo { get; }
+        IStudentTeacherLinkRepo studentTeacherLinkRepo { get; }
 
-    }
+        }
 }

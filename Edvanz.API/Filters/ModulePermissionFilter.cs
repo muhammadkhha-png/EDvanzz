@@ -9,26 +9,35 @@ namespace Edvanz.API.Filters
     {
         private readonly string _module;
         private readonly string? _permission;
-        private readonly string? _role;
         private readonly IAuthorizationService _authService;
+        private readonly bool _roleOnly;
+        private readonly string[] _roles;
 
         public ModulePermissionFilter(
     string module,
     string permission,
-    string role,
-    IAuthorizationService authService)
+    string[] roles,
+    IAuthorizationService authService, bool roleOnly = false)
         {
             _module = module;
             _permission = string.IsNullOrWhiteSpace(permission) ? null : permission;
-            _role = string.IsNullOrWhiteSpace(role) ? null : role;
+            _roles = roles ?? Array.Empty<string>();
+
             _authService = authService;
+            _roleOnly = roleOnly;
+            
+
         }
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
 
-            if (!string.IsNullOrEmpty(_role) && !user.IsInRole(_role))
+            if (_roleOnly)
             {
+                if (_roles.Any(r => user.IsInRole(r)))
+                {
+                    return; 
+                }
                 context.Result = new ForbidResult();
                 return;
             }

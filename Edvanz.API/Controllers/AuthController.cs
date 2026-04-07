@@ -2,6 +2,7 @@
 using Edvanz.Application.Dtos.UserDto;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,17 +30,19 @@ namespace Edvanz.API.Controllers
         private readonly IUserService _userService;
         private readonly IOtpService _otpService;
         private readonly IAuthService authService;
+        private readonly IUnitOfWork _unitOfWork;
 
         /// <summary>
         /// Initializes a new instance of AuthController with required service dependencies.
         /// </summary>
         /// <param name="userService">User registration service.</param>
         /// <param name="otpService">OTP generation and verification service.</param>
-        public AuthController(IUserService userService, IOtpService otpService,IAuthService _authService)
+        public AuthController(IUserService userService, IOtpService otpService,IAuthService _authService ,IUnitOfWork unitOfWork)
         {
             _userService = userService;
             _otpService = otpService;
             authService = _authService;
+            this._unitOfWork = unitOfWork;
         }
 
         /// <summary>
@@ -104,6 +107,13 @@ namespace Edvanz.API.Controllers
         public async Task<IActionResult> GoogleSignUp(RefeshDto req)
         {
             var result = await authService.SigUpByGoogle(req.token);
+            return ToResponse(result);
+        }
+
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout([FromBody] RefeshDto req)
+        {
+            var result = await authService.Logout(req.token);
             return ToResponse(result);
         }
 

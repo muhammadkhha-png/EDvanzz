@@ -717,4 +717,7 @@
   <data name="ProfileCreated" xml:space="preserve">
     <value>تم الانشاء بنجاح</value>
   </data>
+  <data name="LoggedOut" xml:space="preserve">
+    <value>تم تسجيل الخروج بنجاح</value>
+  </data>
 </root>

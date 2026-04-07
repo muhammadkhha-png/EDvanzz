@@ -13,5 +13,6 @@ namespace Edvanz.Application.Dtos.Auth
         public string newPassword { get; set; }
         [Required]
         public string confirmPassword { get; set; }
+        public bool logOutFromAllDevices { get; set; }
     }
 }

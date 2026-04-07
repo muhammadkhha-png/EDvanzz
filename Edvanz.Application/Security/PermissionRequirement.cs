@@ -9,11 +9,13 @@ namespace Edvanz.Application.Security
     {
         public string Module { get; }
         public string? Permission { get; }
+        public string? RoleOnly { get; } 
 
-        public PermissionRequirement(string module, string? permission = null)
+        public PermissionRequirement(string module, string? permission = null, string? roleOnly = null)
         {
             Module = module;
             Permission = permission;
+            RoleOnly = roleOnly; 
         }
     }
 }

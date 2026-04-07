@@ -27,8 +27,10 @@ namespace Edvanz.API.Controllers
         // Paginated list of assistants per teacher (REQ-USR-009)
         // Access: Teacher | SuperAdmin
         [HttpGet]
-        [ModulePermission("Assistants")]
-        [ProducesResponseType(typeof(PaginatedResponse<List<AssistantListDto>>), StatusCodes.Status200OK)]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+        
+
+        [ProducesResponseType(typeof(Result<PaginatedResponse<List<AssistantListDto>>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAssistantPerTeacher([FromQuery] AssistantPerTeacherFilterDto req)
         {
             var res = await assistantService.GetAssistantListPerTeacher(req);
@@ -53,7 +55,7 @@ namespace Edvanz.API.Controllers
         // teacherId resolved from JWT — client never sends it
         // Access: Teacher | SuperAdmin
         [HttpPost]
-        [ModulePermission("Assistants",null,"Teacher")]
+        //[ModulePermission("Assistants",null,"Teacher")]
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]

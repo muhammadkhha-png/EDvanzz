@@ -1,4 +1,5 @@
-﻿using Edvanz.Domain.Entities;
+﻿using Edvanz.Application.Dtos.Auth;
+using Edvanz.Domain.Entities;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -9,7 +10,9 @@ namespace Edvanz.Application.IservicesContract
     {
         public string GenerateJwtToken(User user, List<string>? permissions, List<string>? modules);
         public string GenerateRefreshToken();
-       public string GenerateCompleteProfileToken(GoogleUser googleUser);
+        public string GenerateCompleteProfileToken(GoogleUser googleUser);
+        public  Task<(string jwt, UserLoginDto userDto)> BuildUserTokenData(User user);
        
-    }
+
+        }
 }

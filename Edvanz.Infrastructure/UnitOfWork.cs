@@ -40,7 +40,7 @@ namespace Edvanz.Infrastructure
         private IPermissionRepo? _permissionRepo;
         private IAuditTrialRepo? _auditTrialRepo;
 
-
+        private IStudentTeacherLinkRepo? _studentTeacherLinkRepo;
 
         public UnitOfWork(EdvanzDbContext _context)
         {
@@ -158,6 +158,8 @@ namespace Edvanz.Infrastructure
         public IPermissionRepo permissionRepo => _permissionRepo??new PermissionRepo(_Context);
 
         public IAuditTrialRepo auditTrialRepo => _auditTrialRepo ?? new AuditTrialRepo(_Context);
+
+        public IStudentTeacherLinkRepo studentTeacherLinkRepo => _studentTeacherLinkRepo ?? new StudentTeacherLinkRepo(_Context);
     }
 
 

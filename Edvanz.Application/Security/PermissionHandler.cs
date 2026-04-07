@@ -23,7 +23,16 @@ namespace Edvanz.Application.Security
       PermissionRequirement requirement)
         {
             var user = context.User;
-
+            if (!string.IsNullOrEmpty(requirement.RoleOnly))
+            {
+                if (user.IsInRole(requirement.RoleOnly))
+                {
+                    context.Succeed(requirement);
+                    return Task.CompletedTask;
+                }
+                context.Fail();
+                return Task.CompletedTask;
+            }
             // ── SuperAdmin → bypass كامل ──────────────────────────────────
             if (user.IsInRole("SuperAdmin")|| user.IsInRole("Student") || user.IsInRole("Parent"))
             {
@@ -56,10 +65,13 @@ namespace Edvanz.Application.Security
                 .Where(c => c.Type == "module")
                 .Select(c => c.Value);
 
-            if (!modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(requirement.Module)) // 🔹 تحقق بس لو فيه module محدد
             {
-                context.Fail();
-                return Task.CompletedTask;
+                if (modules == null || !modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase))
+                {
+                    context.Fail();
+                    return Task.CompletedTask;
+                }
             }
 
             // ── Teacher → module كافي ─────────────────────────────────────

@@ -91,4 +91,6 @@ public interface IStudentUserService
     /// <param name="accountCode">The unique student account code.</param>
     /// <returns>Result containing basic student info if found.</returns>
     Task<Result<StudentUserProfileDto>> GetStudentUserByAccountCodeAsync(string accountCode);
+
+
 }

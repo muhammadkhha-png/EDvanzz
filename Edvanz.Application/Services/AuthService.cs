@@ -33,7 +33,6 @@ namespace Edvanz.Application.Services
         private readonly ICurrentUserService _currentUser;
         private readonly IUserPermissionService userPermissionService;
         private readonly IAssistantService assistantService;
-        private readonly IModuleTeacherRepo moduleTeacherRepo;
         private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -56,7 +55,7 @@ namespace Edvanz.Application.Services
             this._currentUser = currentUser;
             this.userPermissionService = userPermissionService;
             this.assistantService = assistantService;
-            this.moduleTeacherRepo = moduleTeacherRepo;
+     
             _httpContextAccessor = httpContextAccessor;
         }
 
@@ -100,50 +99,168 @@ namespace Edvanz.Application.Services
             return Result<string>.Success(null, _localizer, "Account Verified");
         }
 
+        //public async Task<Result<AuthResponse>> Login(LoginDto req)
+        //{
+        //    var user = await _unitOfWork.Users.GetByUserName(req.userName);
+        //    if (user == null)
+        //        return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+        //    var IsPassMatched = _passwordService.VerifyPassword(user.PasswordHashed, req.password);
+        //    if (!IsPassMatched)
+        //        return Result<AuthResponse>.Failure(_localizer, "PasswordError");
+        //    var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+        //    string jwt = null;
+        //    List<string> modules = new List<string>();
+        //    if (user.UserType == Domain.Enums.UserType.Student || user.UserType == Domain.Enums.UserType.Parent)
+        //        jwt = tokenService.GenerateJwtToken(user, permissions, null);
+
+        //    else if (user.UserType == Domain.Enums.UserType.Teacher)
+        //    {
+
+        //        var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
+        //        var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
+        //        modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+        //        jwt = tokenService.GenerateJwtToken(user, permissions, modules);
+        //    }
+        //    else if (user.UserType == Domain.Enums.UserType.Assistant)
+        //    {
+        //        var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+        //        if (assistant == null)
+        //            return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+
+
+        //        if (assistant.TeacherAccountId == null)
+        //        {
+        //            jwt = tokenService.GenerateJwtToken(user, null, null);
+        //        }
+        //        else
+        //        {
+        //            var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
+        //                .GetModulesPerTeacher(assistant.TeacherAccountId);
+        //            modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+        //            jwt = tokenService.GenerateJwtToken(user, permissions, modules);
+        //        }
+        //        await assistantService.RecordLoginActivityAsync(assistant.Id, LoginAcitvityActionType.login, _httpContextAccessor.HttpContext!);
+
+
+        //    }
+        //    var refreshToken = tokenService.GenerateRefreshToken();
+
+        //    var refreshTokenEntity = new RefreshToken
+        //    {
+        //        UserId = user.Id,
+        //        Token = refreshToken,
+        //        ExpiryDate = DateTime.UtcNow.AddDays(7),
+        //        CreatedAt = DateTime.UtcNow,
+        //        SecurityStamp = user.SecurityStamp,
+        //        IsRevoked = false,
+
+        //    };
+
+        //    await _unitOfWork.GetRepository<RefreshToken, long>().AddAsync(refreshTokenEntity);
+
+        //    var res = await _unitOfWork.SaveChangesAsync();
+        //    if (res <= 0)
+        //        return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+        //    return Result<AuthResponse>.Success(new AuthResponse
+        //    {
+        //        accessToken = jwt,
+        //        refreshToken = refreshToken
+        //    }, _localizer, "successlogin");
+        //}
         public async Task<Result<AuthResponse>> Login(LoginDto req)
         {
             var user = await _unitOfWork.Users.GetByUserName(req.userName);
             if (user == null)
                 return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
-            var IsPassMatched = _passwordService.VerifyPassword(user.PasswordHashed, req.password);
-            if (!IsPassMatched)
+
+            var isPassMatched = _passwordService.VerifyPassword(user.PasswordHashed, req.password);
+            if (!isPassMatched)
                 return Result<AuthResponse>.Failure(_localizer, "PasswordError");
+
             var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+
             string jwt = null;
-            List<string> modules = new List<string>();
-            if (user.UserType == Domain.Enums.UserType.Student || user.UserType == Domain.Enums.UserType.Parent)
-                jwt = tokenService.GenerateJwtToken(user, permissions, null);
+            List<string> modules = new();
+            List<long> teacherIds = new();
 
-           else if (user.UserType == Domain.Enums.UserType.Teacher )
+            var userDto = new UserLoginDto
             {
+                accountId = user.Id,
+                userName = user.Username,
+                fullName = user.FullName,
+                accountType = user.UserType.ToString()
+            };
 
+            #region Handle User Types
+
+            if (user.UserType == Domain.Enums.UserType.Student)
+            {
+                // 🔹 get teacherIds
+                (long userId, teacherIds) = await _unitOfWork.studentTeacherLinkRepo
+                     .GetSudentAccountLinkedTeacherIdsByUserId(user.Id);
+
+                userDto.teacherIds = teacherIds;
+
+                jwt = tokenService.GenerateJwtToken(user, null, null);
+            }
+            else if (user.UserType == Domain.Enums.UserType.Parent)
+            {
+                // 🔹 ignore models / permissions / teacherIds
+                jwt = tokenService.GenerateJwtToken(user, null, null);
+
+                userDto.models = null;
+                userDto.permissions = null;
+                userDto.teacherIds = null;
+            }
+            else if (user.UserType == Domain.Enums.UserType.Teacher)
+            {
                 var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
-                var modulesPerTeacher=await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
-                    modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+
+                var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
+                    .GetModulesPerTeacher(teacher.Id);
+
+                modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+
+                userDto.models = modules;
+                userDto.permissions = permissions;
+
                 jwt = tokenService.GenerateJwtToken(user, permissions, modules);
             }
             else if (user.UserType == Domain.Enums.UserType.Assistant)
             {
-                var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+                var assistant = await _unitOfWork.AssistantRepo
+                    .GetAssistantWithUserIdAsync(user.Id);
+
                 if (assistant == null)
                     return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
 
-                
-                if (assistant.TeacherAccountId == null)
+                if (assistant.TeacherAccountId != null)
                 {
-                    jwt = tokenService.GenerateJwtToken(user, permissions, null);
-                }
-                else
-                {
+                    teacherIds.Add(assistant.TeacherAccountId);
+
                     var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
                         .GetModulesPerTeacher(assistant.TeacherAccountId);
+
                     modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
-                    jwt = tokenService.GenerateJwtToken(user, permissions, modules);
+
+                    userDto.models = modules;
                 }
-                await assistantService.RecordLoginActivityAsync(assistant.Id, LoginAcitvityActionType.login, _httpContextAccessor.HttpContext!);
 
+                userDto.teacherIds = teacherIds;
+                userDto.permissions = permissions;
 
+                jwt = tokenService.GenerateJwtToken(user, permissions, modules);
+
+                await assistantService.RecordLoginActivityAsync(
+                    assistant.Id,
+                    LoginAcitvityActionType.login,
+                    _httpContextAccessor.HttpContext!
+                );
             }
+
+            #endregion
+
             var refreshToken = tokenService.GenerateRefreshToken();
 
             var refreshTokenEntity = new RefreshToken
@@ -154,11 +271,11 @@ namespace Edvanz.Application.Services
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
-
             };
 
-            await _unitOfWork.GetRepository<RefreshToken, long>().AddAsync(refreshTokenEntity);
-          
+            await _unitOfWork.GetRepository<RefreshToken, long>()
+                .AddAsync(refreshTokenEntity);
+
             var res = await _unitOfWork.SaveChangesAsync();
             if (res <= 0)
                 return Result<AuthResponse>.Failure(_localizer, "ServerError");
@@ -166,12 +283,51 @@ namespace Edvanz.Application.Services
             return Result<AuthResponse>.Success(new AuthResponse
             {
                 accessToken = jwt,
-                refreshToken = refreshToken
+                refreshToken = refreshToken,
+                userAccountData = userDto
             }, _localizer, "successlogin");
         }
+
+        //public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
+        //{
+        //    if (  _currentUser.UserId == null)
+        //        return Result<string>.Failure(_localizer, "UserNotFound");
+
+        //    var userId = _currentUser.UserId.Value;
+
+        //    var user = await _unitOfWork.Users.GetByIdAsync(userId);
+        //    if (user == null)
+        //        return Result<string>.Failure(_localizer, "UserNotFound");
+
+        //    var isOldPasswordVerified = _passwordService.VerifyPassword(user.PasswordHashed, req.oldPassword);
+        //    if (!isOldPasswordVerified)
+        //        return Result<string>.Failure(_localizer, "oldPassNotMatched");
+
+        //    var newHashedPassword = _passwordService.HashPassword(req.newPassword);
+
+        //    await _unitOfWork.BeginTransactionAsync();
+
+        //    user.PasswordHashed = newHashedPassword;
+
+        //    user.SecurityStamp = Guid.NewGuid().ToString();
+
+        //    var entities = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+        //    await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(entities);
+
+        //    var res = await _unitOfWork.SaveChangesAsync();
+        //    if(res <= 0)
+        //    {
+        //        await _unitOfWork.RollbackAsync();
+        //        return Result<string>.Failure(_localizer, "ServerError");
+
+        //    }
+        //    await _unitOfWork.CommitAsync();
+        //    return Result<string>.Success(null,_localizer, "PasswordChangedSuccessfully");
+        //}
+
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {
-            if (  _currentUser.UserId == null)
+            if (_currentUser.UserId == null)
                 return Result<string>.Failure(_localizer, "UserNotFound");
 
             var userId = _currentUser.UserId.Value;
@@ -189,49 +345,83 @@ namespace Edvanz.Application.Services
             await _unitOfWork.BeginTransactionAsync();
 
             user.PasswordHashed = newHashedPassword;
+            user.SecurityStamp = Guid.NewGuid().ToString(); 
 
-            user.SecurityStamp = Guid.NewGuid().ToString();
-
-            var entities = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
-            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(entities);
+            if (req.logOutFromAllDevices)
+            {
+                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+                await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
+            }
+            else
+            {
+                var currentToken = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].ToString()?.Replace("Bearer ", "");
+                if (!string.IsNullOrEmpty(currentToken))
+                {
+                    var tokenEntity = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(currentToken);
+                    if (tokenEntity != null)
+                    {
+                        tokenEntity.IsRevoked = true;
+                        await _unitOfWork.RefreshTokenRepo.UpdateAsync(tokenEntity);
+                    }
+                }
+            }
 
             var res = await _unitOfWork.SaveChangesAsync();
-            if(res <= 0)
+            if (res <= 0)
             {
                 await _unitOfWork.RollbackAsync();
                 return Result<string>.Failure(_localizer, "ServerError");
-
             }
-            await _unitOfWork.CommitAsync();
-            return Result<string>.Success(null,_localizer, "PasswordChangedSuccessfully");
-        }
 
+            await _unitOfWork.CommitAsync();
+            return Result<string>.Success(null, _localizer, "PasswordChangedSuccessfully");
+        }
         public async Task<Result<AuthResponse>> Refresh(string refreshToken)
         {
-            var token =await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
-            if (token == null )
+            var token = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
+
+            if (token == null)
                 return Result<AuthResponse>.Failure(_localizer, "notFoundToken");
-            if (token.user == null || token.ExpiryDate <= DateTime.UtcNow)
+
+            if (token.user == null || token.ExpiryDate <= DateTime.UtcNow || token.IsRevoked)
                 return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
-            var permissions = await userPermissionService.GetUserPermissionsToToken(token.UserId);
+            if (token.IsRevoked)
+            {
+                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(token.UserId);
+
+                await _unitOfWork.GetRepository<RefreshToken, long>()
+                    .DeleteRangeAsync(allTokens);
+
+                await _unitOfWork.SaveChangesAsync();
+
+                return Result<AuthResponse>.Failure(_localizer, "TokenReuseDetected");
+            }
 
 
-            var newAccessToken = tokenService.GenerateJwtToken(token.user, permissions,null);
+            var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
+            if (user == null)
+                return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+
+            var (newAccessToken, userDto) = await tokenService.BuildUserTokenData(user);
+
             var newRefreshToken = tokenService.GenerateRefreshToken();
 
             token.Token = newRefreshToken;
             token.ExpiryDate = DateTime.UtcNow.AddDays(7);
+            token.SecurityStamp = user.SecurityStamp;
+
             await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
-          var res=  await _unitOfWork.SaveChangesAsync();
+
+            var res = await _unitOfWork.SaveChangesAsync();
             if (res <= 0)
                 return Result<AuthResponse>.Failure(_localizer, "ServerError");
 
-            var result = new AuthResponse
+            return Result<AuthResponse>.Success(new AuthResponse
             {
                 accessToken = newAccessToken,
-                refreshToken = newRefreshToken
-            };
-            return Result<AuthResponse>.Success(result, _localizer, "TokenRefreshedSuccessfully");
+                refreshToken = newRefreshToken,
+                userAccountData = userDto
+            }, _localizer, "TokenRefreshedSuccessfully");
         }
 
         public async Task<Result<AuthResponse>> SigUpByGoogle(string idToken)
@@ -287,6 +477,47 @@ namespace Edvanz.Application.Services
 
             return Result<AuthResponse>.Success(result, _localizer, "CompleteYourProfile");
         }
+        public async Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false)
+        {
+            var token = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
+
+            if (token == null)
+                return Result<string>.Success(null, _localizer, "LoggedOut"); // لو مش موجود اصلاً، اعتبره logout
+
+            // 2️⃣ جلب كل التوكنز لو requested
+            if (logoutAllSessions)
+            {
+                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(token.UserId);
+                foreach (var t in allTokens)
+                {
+                    t.IsRevoked = true;
+                }
+            }
+            else
+            {
+                token.IsRevoked = true;
+            }
+
+            await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
+            await _unitOfWork.SaveChangesAsync();
+
+            var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
+            if (user != null && user.UserType == UserType.Assistant)
+            {
+                var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+                if (assistant != null)
+                {
+                    await assistantService.RecordLoginActivityAsync(
+                        assistant.Id,
+                        LoginAcitvityActionType.logOut,
+                        _httpContextAccessor.HttpContext!
+                    );
+                }
+            }
+
+            return Result<string>.Success(null, _localizer, "LoggedOut");
+        }
+
 
     }
 }

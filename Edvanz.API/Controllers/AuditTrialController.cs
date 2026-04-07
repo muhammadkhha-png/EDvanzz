@@ -20,7 +20,7 @@ namespace Edvanz.API.Controllers
             this.auditTrialService = auditTrialService;
         }
         [HttpGet]
-        [ModulePermission("Assistants",null,"Teacher")]
+        //[ModulePermission("Assistants",null,"Teacher")]
      
         public async Task<IActionResult> GetAssisstantsAudits([FromQuery] AuditTrailQueryRequest req)
         {
@@ -28,7 +28,7 @@ namespace Edvanz.API.Controllers
             return ToResponse(res);
         }
         [HttpGet("export")]
-        [ModulePermission("Assistants", null, "Teacher")]
+        //[ModulePermission("Assistants", null, "Teacher")]
         public async Task<IActionResult> ExportAssistantsAudits([FromQuery] AuditTrialExcelFilterQuery req)
         {
             var result = await auditTrialService.ExportToExcel(req);

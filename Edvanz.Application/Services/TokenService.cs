@@ -1,5 +1,10 @@
-﻿using Edvanz.Application.IservicesContract;
+﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Auth;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Interfaces;
+using Edvanz.Domain.Resources;
+using Microsoft.Extensions.Localization;
 using Microsoft.IdentityModel.Tokens;
 using System;
 using System.Collections.Generic;
@@ -12,7 +17,17 @@ namespace Edvanz.Application.Services
 {
     public class TokenService : ITokenService
     {
-        
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly IStringLocalizer<Messages> _localizer;
+        private readonly IUserPermissionService userPermissionService;
+
+        public TokenService( IUnitOfWork _unitOfWork,IStringLocalizer<Messages> _localizer,IUserPermissionService userPermissionService)
+        {
+            this._unitOfWork = _unitOfWork;
+            this._localizer = _localizer;
+            this.userPermissionService = userPermissionService;
+        }
+
         public string GenerateJwtToken(User user, List<string>? permissions,List<string>? modules)
         {
             var claims = new List<Claim>();
@@ -91,5 +106,85 @@ namespace Edvanz.Application.Services
 
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
+        public async Task<(string jwt, UserLoginDto userDto)> BuildUserTokenData(User user)
+        {
+            var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+
+            string jwt = null;
+            List<string> modules = new();
+            List<long> teacherIds = new();
+
+            var userDto = new UserLoginDto
+            {
+                accountId = user.Id,
+                userName = user.Username,
+                fullName = user.FullName,
+                accountType = user.UserType.ToString()
+            };
+
+            #region Handle User Types
+
+            if (user.UserType == Domain.Enums.UserType.Student)
+            {
+                (_, teacherIds) = await _unitOfWork.studentTeacherLinkRepo
+                    .GetSudentAccountLinkedTeacherIdsByUserId(user.Id);
+
+                userDto.teacherIds = teacherIds;
+
+                jwt = GenerateJwtToken(user, null, null);
+            }
+            else if (user.UserType == Domain.Enums.UserType.Parent)
+            {
+                jwt = GenerateJwtToken(user, null, null);
+
+                userDto.models = null;
+                userDto.permissions = null;
+                userDto.teacherIds = null;
+            }
+            else if (user.UserType == Domain.Enums.UserType.Teacher)
+            {
+                var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
+
+                var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
+                    .GetModulesPerTeacher(teacher.Id);
+
+                modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+
+                userDto.models = modules;
+                userDto.permissions = permissions;
+
+                jwt = GenerateJwtToken(user, permissions, modules);
+            }
+            else if (user.UserType == Domain.Enums.UserType.Assistant)
+            {
+                var assistant = await _unitOfWork.AssistantRepo
+                    .GetAssistantWithUserIdAsync(user.Id);
+
+                if (assistant == null)
+                    throw new Exception("Assistant not found");
+
+                if (assistant.TeacherAccountId != null)
+                {
+                    teacherIds.Add(assistant.TeacherAccountId);
+
+                    var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
+                        .GetModulesPerTeacher(assistant.TeacherAccountId);
+
+                    modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+
+                    userDto.models = modules;
+                }
+
+                userDto.teacherIds = teacherIds;
+                userDto.permissions = permissions;
+
+                jwt = GenerateJwtToken(user, permissions, modules);
+            }
+
+            #endregion
+
+            return (jwt, userDto);
+        }
+
     }
 }

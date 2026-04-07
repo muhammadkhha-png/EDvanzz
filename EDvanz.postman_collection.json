@@ -1,0 +1,421 @@
+{
+  "info": {
+    "_postman_id": "88fe67ce-305f-47da-be0d-0f47d23605a4",
+    "name": "EDvanz",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "38834137"
+  },
+  "item": [
+    {
+      "name": "Assistant",
+      "item": [
+        {
+          "name": "CreateAssitant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "GetTeacherAssistantPaginatedList",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Sigup",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "SignIn",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": [
+            {
+              "name": "AssitantSignIn",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"userName\": \"y.adel\",\r\n  \"password\": \"12345678Ss+\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/login",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "login"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 18:38:52 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"successlogin\",\n    \"data\": {\n        \"refreshToken\": \"qS16Vub3eaB/fV3wRtZyt3c5UlJy7q+0f1rY5EAFgQVJGEfqJeKqSWXt8SGAT15nz5i7rQDT4uq7R0MGK4Tdww==\",\n        \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoieS5hZGVsIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQXNzaXN0YW50IiwiU2VjdXJpdHlTdGFtcCI6ImFlOTEyMmNlLTE0MjgtNGJlYi04ZGQ2LTViYzFiYWJiYjZhOCIsIm1vZHVsZSI6WyJBc3Npc3RhbnRzIiwiUGF5bWVudCJdLCJQZXJtaXNzaW9uIjpbIlBheW1lbnQuUGF5bWVudF9Db2xsZWN0IiwiUGF5bWVudC5QYXltZW50X0VkaXRIaXN0b3J5Il0sImV4cCI6MTc3NTU4NzM5N30.0HCBjq29WJ-SxXGIgkag8y2HONiSEi-RAxmVIgMlfxY\",\n        \"userAccountData\": {\n            \"accountId\": 3,\n            \"userName\": \"y.adel\",\n            \"fullName\": \"Yahya Adel\",\n            \"accountType\": \"Assistant\",\n            \"models\": [\n                \"Assistants\",\n                \"Payment\"\n            ],\n            \"permissions\": [\n                \"Payment.Payment_Collect\",\n                \"Payment.Payment_EditHistory\"\n            ],\n            \"teacherIds\": [\n                1\n            ]\n        }\n    }\n}"
+            },
+            {
+              "name": "TeacherSignIn",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"userName\": \"m.atef\",\r\n  \"password\": \"12345678Ss+\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/login",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "login"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 18:57:27 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"successlogin\",\n    \"data\": {\n        \"refreshToken\": \"FBNnUnqQh5ghpSIrNSlTz8roniuX2AeH2HuzvLXXiqaBkee76CUmQ47onQ+T6ZlrNOX9krG7CQSqdTfX3zI3bA==\",\n        \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoibS5hdGVmIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiVGVhY2hlciIsIlNlY3VyaXR5U3RhbXAiOiI5MjJmOTg5Zi1lYTZiLTQ3MDktOTQ2Mi04MTY4ZWI1ODA2ZDciLCJtb2R1bGUiOlsiQXNzaXN0YW50cyIsIlBheW1lbnQiXSwiZXhwIjoxNzc1NTg4NTQ3fQ.YERG6OSBVKfX3L2I5sZ1B8ehrXjWR60iR2aU_6SbLq4\",\n        \"userAccountData\": {\n            \"accountId\": 1,\n            \"userName\": \"m.atef\",\n            \"fullName\": \"Mohamed Atef\",\n            \"accountType\": \"Teacher\",\n            \"models\": [\n                \"Assistants\",\n                \"Payment\"\n            ],\n            \"permissions\": [],\n            \"teacherIds\": null\n        }\n    }\n}"
+            },
+            {
+              "name": "StudentSignIn",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"userName\": \"bara.basal\",\r\n  \"password\": \"12345678Ss+\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/login",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "login"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 18:58:21 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"successlogin\",\n    \"data\": {\n        \"refreshToken\": \"ufeR3IgJcjgieWLCqft7hAdX4bpGQ6/+8p9jJxa7+MH+6sRhnY/HS4zIHxuFOV9KkVWrglumrmGycYJ/mRWwaA==\",\n        \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjExIiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6ImJhcmEuYmFzYWwiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJTdHVkZW50IiwiU2VjdXJpdHlTdGFtcCI6ImIyOTlmOTAzLTRiMjAtNGJjYS04ZmQwLTgyODg4YmVmOGQ3YyIsImV4cCI6MTc3NTU4ODYwMX0.DOti7EV8qRLALwJCLu6IcjFc67Idy-UDi7t3k89lHjY\",\n        \"userAccountData\": {\n            \"accountId\": 11,\n            \"userName\": \"bara.basal\",\n            \"fullName\": \"Baraa Basal\",\n            \"accountType\": \"Student\",\n            \"models\": null,\n            \"permissions\": null,\n            \"teacherIds\": []\n        }\n    }\n}"
+            },
+            {
+              "name": "ParentSignIn",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"userName\": \"mo.basal\",\r\n  \"password\": \"12345678Ss+\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/login",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "login"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 18:59:13 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"successlogin\",\n    \"data\": {\n        \"refreshToken\": \"I1bvNOKgLOMgcOrSeXY1wYeHV5jm9iijCPtz9P7wNwDskn6uwdiOksqfIeisphp0d1l3TtSAHyn5n6/PgmUAfw==\",\n        \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEyIiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6Im1vLmJhc2FsIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiU3R1ZGVudCIsIlNlY3VyaXR5U3RhbXAiOiI3OTdmNDdhYy0yMDU1LTQwNmYtOTJlNC0yZmZhZTYwMmI2ZDMiLCJleHAiOjE3NzU1ODg2NTN9.8W9cUT3pTwDxkNJHfD36JFLe1Kpua9cnNFYVU4DKPmM\",\n        \"userAccountData\": {\n            \"accountId\": 12,\n            \"userName\": \"mo.basal\",\n            \"fullName\": \"Mohamed Basal\",\n            \"accountType\": \"Student\",\n            \"models\": null,\n            \"permissions\": null,\n            \"teacherIds\": []\n        }\n    }\n}"
+            }
+          ]
+        },
+        {
+          "name": "RefreshToken",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": [
+            {
+              "name": "AssitantRefreshToken",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"token\": \"GkNV5DV5dXNm2eIGLdg5l6grLthG/VNOVzPWEQBb63jBz31rUA5isqZwv38Ep6QXf8uIlsZ04FL9m1o7jmQDYw==\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/refresh",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "refresh"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 19:03:12 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"TokenRefreshedSuccessfully\",\n    \"data\": {\n        \"refreshToken\": \"sgmiMKvviPEDklkYdMzoDreaxE1X7GgHx+mCJYhPIIAI53ZkJkfNRt7QQZR25P8sGpbRFqXV0XzeUpNYYWlGGQ==\",\n        \"accessToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoieS5hZGVsIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQXNzaXN0YW50IiwiU2VjdXJpdHlTdGFtcCI6ImFlOTEyMmNlLTE0MjgtNGJlYi04ZGQ2LTViYzFiYWJiYjZhOCIsIm1vZHVsZSI6WyJBc3Npc3RhbnRzIiwiUGF5bWVudCJdLCJQZXJtaXNzaW9uIjpbIlBheW1lbnQuUGF5bWVudF9Db2xsZWN0IiwiUGF5bWVudC5QYXltZW50X0VkaXRIaXN0b3J5Il0sImV4cCI6MTc3NTU4ODg5Mn0.D3Bj38SP7cVAC5WrIs3hIol_rhv2tI8B1gQ75Avh-TU\",\n        \"userAccountData\": {\n            \"accountId\": 3,\n            \"userName\": \"y.adel\",\n            \"fullName\": \"Yahya Adel\",\n            \"accountType\": \"Assistant\",\n            \"models\": [\n                \"Assistants\",\n                \"Payment\"\n            ],\n            \"permissions\": [\n                \"Payment.Payment_Collect\",\n                \"Payment.Payment_EditHistory\"\n            ],\n            \"teacherIds\": [\n                1\n            ]\n        }\n    }\n}"
+            }
+          ]
+        },
+        {
+          "name": "ChangePassword",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "Log Out",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": [
+            {
+              "name": "Log Out",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"token\": \"eomrnVbgfkgePouJjakBsm2vWohNGoIMF3iR9rzQtkgoOdXS/ldt0m5PaxoYnk5Xrt1eMuBvMHLbzCBRNQDAPw==\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{BaseUrl}}Auth/logout",
+                  "host": [
+                    "{{BaseUrl}}Auth"
+                  ],
+                  "path": [
+                    "logout"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": ":status",
+                  "value": 200
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "server",
+                  "value": "Microsoft-IIS/10.0"
+                },
+                {
+                  "key": "x-powered-by",
+                  "value": "ASP.NET"
+                },
+                {
+                  "key": "date",
+                  "value": "Tue, 07 Apr 2026 19:58:51 GMT"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"message\": \"log out \",\n    \"data\": null\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "BaseUrl",
+      "value": ""
+    }
+  ]
+}
