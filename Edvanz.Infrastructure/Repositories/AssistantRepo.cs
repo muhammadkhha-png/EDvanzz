@@ -92,9 +92,9 @@ namespace Edvanz.Infrastructure.Repositories
                 .Include(a => a.User)
                     .ThenInclude(u => u.Permissions)
                         .ThenInclude(up => up.Permission)
-                            .ThenInclude(p => p.module).Include(a => a.PermissionProfiles)
+                            .ThenInclude(p => p.module)
                 .Include(a => a.Teacher)
-                    .ThenInclude(t => t.User)
+                    .ThenInclude(t => t.User).Include(a=>a.PermissionProfiles).ThenInclude(p=>p.template)
                 .FirstOrDefaultAsync(a => a.Id == id);
         }
 

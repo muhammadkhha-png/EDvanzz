@@ -80,5 +80,10 @@ public static class ServicesCollectionExtensions
             new Microsoft.AspNetCore.Localization.AcceptLanguageHeaderRequestCultureProvider()
         };
         });
+
+
+        #region delete assistant Assign back ground service 
+        
+        #endregion  
     }
 }

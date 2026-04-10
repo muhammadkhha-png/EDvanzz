@@ -19,5 +19,21 @@ namespace Edvanz.Infrastructure.Repositories
                 .Where(p => moduleIds.Contains(p.ModuleId))
                 .ToListAsync();
         }
+
+
+        public async Task<HashSet<long>> GetPermissionIdsByModuleIdsAsync(IEnumerable<long> moduleIds)
+        {
+            return await _context.Permissions
+                .Where(p => moduleIds.Contains(p.ModuleId))
+                .Select(p => p.Id)
+                .ToHashSetAsync();
+        }
+        public async Task<Permission?> GetByPermissionNameAndModuleNameAsync(string name,string moduleName)
+        {
+            return await _context.Permissions
+                .AsNoTracking()
+                .Include(p => p.module)
+                .FirstOrDefaultAsync(p => p.Name == name && p.module.Name == moduleName);
+        }
     }
 }

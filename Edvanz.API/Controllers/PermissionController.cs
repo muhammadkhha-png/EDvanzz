@@ -43,7 +43,7 @@ namespace Edvanz.API.Controllers
                 new UpdateAssistantPermissionsRequest
                 {
                     assistantId = id,
-                    PermissionProfileIds = profileIds
+                    permissionProfileIds = profileIds
                 });
             return ToResponse(result);
         }

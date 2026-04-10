@@ -720,4 +720,10 @@
   <data name="LoggedOut" xml:space="preserve">
     <value>log out </value>
   </data>
+  <data name="TeacherHaven'tAnyOpenModules" xml:space="preserve">
+    <value>Teacher Haven't Any Open Modules</value>
+  </data>
+  <data name="AssisstantPermissionsOutOfTeacherScopePermissions" xml:space="preserve">
+    <value>Assisstant Permissions Out Of Teacher Scope Permissions</value>
+  </data>
 </root>

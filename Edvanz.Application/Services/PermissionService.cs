@@ -77,8 +77,8 @@ namespace Edvanz.Application.Services
 
 
             // -- 3. At least one source -----------------------------------------------
-            var hasIndividualPerms = dto.PermissionIds is { Count: > 0 };
-            var hasTemplates = dto.PermissionProfileIds is { Count: > 0 };
+            var hasIndividualPerms = dto.permissionIds is { Count: > 0 };
+            var hasTemplates = dto.permissionProfileIds is { Count: > 0 };
 
             if (!hasIndividualPerms && !hasTemplates)
                 return Result<string>.Failure(localizer, "AssistantMustHaveAtLeastOnePermission");
@@ -88,7 +88,7 @@ namespace Edvanz.Application.Services
 
             if (hasIndividualPerms)
             {
-                var distinctPermIds = dto.PermissionIds!.Distinct().ToList();
+                var distinctPermIds = dto.permissionIds!.Distinct().ToList();
 
                 var validCount = await unitOfWork.GetRepository<Permission, long>()
                     .CountAsync(p => distinctPermIds.Contains(p.Id));
@@ -101,7 +101,7 @@ namespace Edvanz.Application.Services
 
             if (hasTemplates)
             {
-                var distinctTemplateIds = dto.PermissionProfileIds!.Distinct().ToList();
+                var distinctTemplateIds = dto.permissionProfileIds!.Distinct().ToList();
 
                 var templatePermissions = await unitOfWork.GetRepository<TemplatePermisions, long>()
                     .GetAsync(tp => distinctTemplateIds.Contains(tp.TemplateId));

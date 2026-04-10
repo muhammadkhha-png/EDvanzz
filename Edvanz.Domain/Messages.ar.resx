@@ -720,4 +720,10 @@
   <data name="LoggedOut" xml:space="preserve">
     <value>تم تسجيل الخروج بنجاح</value>
   </data>
+  <data name="TeacherHaven'tAnyOpenModules" xml:space="preserve">
+    <value>المدرس ملوش صلاحيات علي اي حاجة لسا</value>
+  </data>
+  <data name="AssisstantPermissionsOutOfTeacherScopePermissions" xml:space="preserve">
+    <value>لا يمكن إضافة صلاحيات خارج نطاق صلاحيات المدرس </value>
+  </data>
 </root>

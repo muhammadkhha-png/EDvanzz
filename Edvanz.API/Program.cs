@@ -3,8 +3,10 @@ using Edvanz.Application.Extensions;
 using Edvanz.Application.Security;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
+using Edvanz.Infrastructure.BackGroundJobs;
 using Edvanz.Infrastructure.Extensions;
 using Edvanz.Infrastructure.Persistence;
+using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -70,7 +72,13 @@ builder.Services.AddSwaggerGen(c =>
     c.UseInlineDefinitionsForEnums();
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+builder.Services.AddHangfire(config =>
+{
+    config.UseSqlServerStorage(
+        builder.Configuration.GetConnectionString("con"));
+});
 
+builder.Services.AddHangfireServer();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -101,7 +109,9 @@ builder.Services.AddAuthorization(
 //}
 );
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
+
 var app = builder.Build();
+await app.SeedDatabaseAsync();
 
 // Use localization middleware
 var locOptions = app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>();
@@ -114,7 +124,11 @@ app.UseSwagger();
         {
             c.SwaggerEndpoint("v1/swagger.json", "Edvanz v1");
         });
-
+app.UseHangfireDashboard("/hangfire");
+RecurringJob.AddOrUpdate<AssistantCleanupJob>(
+    "assistant-cleanup-job",
+    job => job.ExecuteAsync(),
+   Cron.Daily);
 
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");

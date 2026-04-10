@@ -13,7 +13,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+    //[Authorize]
     public class AssistantController : ApiBaseController
     {
         private readonly IAssistantService assistantService;
@@ -28,8 +28,6 @@ namespace Edvanz.API.Controllers
         // Access: Teacher | SuperAdmin
         [HttpGet]
         [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-        
-
         [ProducesResponseType(typeof(Result<PaginatedResponse<List<AssistantListDto>>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAssistantPerTeacher([FromQuery] AssistantPerTeacherFilterDto req)
         {
@@ -41,7 +39,7 @@ namespace Edvanz.API.Controllers
         // Get full detail for a single assistant (REQ-USR-006)
         // Access: Teacher | SuperAdmin
         [HttpGet("{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(AssistantDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(long id)
@@ -55,7 +53,7 @@ namespace Edvanz.API.Controllers
         // teacherId resolved from JWT — client never sends it
         // Access: Teacher | SuperAdmin
         [HttpPost]
-        //[ModulePermission("Assistants",null,"Teacher")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -69,7 +67,7 @@ namespace Edvanz.API.Controllers
         // Edit any field of an assistant account (REQ-USR-006)
         // Access: Teacher | SuperAdmin
         [HttpPut("{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -97,7 +95,7 @@ namespace Edvanz.API.Controllers
         // Deactivate without deleting (REQ-USR-008)
         // Access: Teacher | SuperAdmin
         [HttpPatch("{id:long}/deactivate")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Deactivate(long id)
@@ -114,7 +112,7 @@ namespace Edvanz.API.Controllers
         // Reactivate a deactivated assistant (REQ-USR-008)
         // Access: Teacher | SuperAdmin
         [HttpPatch("{id:long}/activate")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Activate(long id)
@@ -127,16 +125,30 @@ namespace Edvanz.API.Controllers
             return ToResponse(result);
         }
 
-       
-       
 
-       
+
+        [HttpPatch("{id:long}/delete")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+
+        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Delete(long id)
+        {
+            var result = await assistantService.ToggleStatus(new ToggleAccountStatus
+            {
+                accountId = id,
+                targetStatus = AccountStatus.Suspended
+            });
+
+            return ToResponse(result);
+        }
+
 
         // ── GET /api/assistant/{id}/login-activity ────────────────────────────
         // View login/logout history for a specific assistant (REQ-USR-028)
         // Access: Teacher | SuperAdmin
         [HttpGet("{id:long}/login-activity")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(List<LoginActivityDto>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetLoginActivity(long id)

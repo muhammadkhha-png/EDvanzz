@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.Security;
-using System.Text;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace Edvanz.Application.Dtos.AssistantDtos
 {
@@ -20,8 +16,9 @@ namespace Edvanz.Application.Dtos.AssistantDtos
         [EmailAddress]
         public string? email { get; set; }
 
-        public List<long>? PermissionProfileIds { get; set; }
 
-        public List<long>? PermissionsId { get; set; }
+        public List<long>? permissionProfileIds { get; set; }
+
+        public List<long>? permissionIds { get; set; } = new List<long>();
     }
 }
