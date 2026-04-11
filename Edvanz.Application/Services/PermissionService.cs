@@ -19,12 +19,16 @@ namespace Edvanz.Application.Services
         private readonly ITeacherService teacherService;
         private readonly IStringLocalizer<Messages> localizer;
         private readonly IUnitOfWork unitOfWork;
+        private readonly IAssistantService assisstantService;
+        private readonly IPaymentService _paymentService;
 
-        public PermissionService(ITeacherService teacherService , IStringLocalizer<Messages> localizer,IUnitOfWork unitOfWork)
+        public PermissionService(ITeacherService teacherService , IStringLocalizer<Messages> localizer,IUnitOfWork unitOfWork,IAssistantService _assisstantService,IPaymentService paymentService)
         {
             this.teacherService = teacherService;
             this.localizer = localizer;
             this.unitOfWork = unitOfWork;
+            assisstantService = _assisstantService;
+            this._paymentService = paymentService;
         }
         public async Task<Result<List<ModulePermissionsDto>>> GetAvailableTeacherPermissionCatalogue(long teacherId)
         {
@@ -68,83 +72,192 @@ namespace Edvanz.Application.Services
 
             return Result<List<ModulePermissionsDto>>.Success(result, localizer);
         }
+        //public async Task<Result<string>> UpdateAssistantPermissionsAsync(UpdateAssistantPermissionsRequest dto)
+        //{
+        //    // -- 1. Fetch assistant ---------------------------------------------------
+        //    var assistant = await unitOfWork.AssistantRepo.GetByIdAsync(dto.assistantId);
+        //    if (assistant is null)
+        //        return Result<string>.Failure(localizer, "AssistantNotFound");
+
+
+        //    // -- 3. At least one source -----------------------------------------------
+        //    var hasIndividualPerms = dto.permissionIds is { Count: > 0 };
+        //    var hasTemplates = dto.permissionProfileIds is { Count: > 0 };
+
+        //    if (!hasIndividualPerms && !hasTemplates)
+        //        return Result<string>.Failure(localizer, "AssistantMustHaveAtLeastOnePermission");
+
+        //    // -- 4. Resolve all permission IDs ----------------------------------------
+        //    var allPermissionIds = new HashSet<long>();
+
+        //    if (hasIndividualPerms)
+        //    {
+        //        var distinctPermIds = dto.permissionIds!.Distinct().ToList();
+
+        //        var validCount = await unitOfWork.GetRepository<Permission, long>()
+        //            .CountAsync(p => distinctPermIds.Contains(p.Id));
+
+        //        if (validCount != distinctPermIds.Count)
+        //            return Result<string>.Failure(localizer, "OneOrMorePermissionsInvalid");
+
+        //        allPermissionIds.UnionWith(distinctPermIds);
+        //    }
+
+        //    if (hasTemplates)
+        //    {
+        //        var distinctTemplateIds = dto.permissionProfileIds!.Distinct().ToList();
+
+        //        var templatePermissions = await unitOfWork.GetRepository<TemplatePermisions, long>()
+        //            .GetAsync(tp => distinctTemplateIds.Contains(tp.TemplateId));
+
+        //        var foundTemplateIds = templatePermissions
+        //            .Select(tp => tp.TemplateId)
+        //            .Distinct()
+        //            .ToList();
+
+        //        if (foundTemplateIds.Count != distinctTemplateIds.Count)
+        //            return Result<string>.Failure(localizer, "OneOrMorePermissionsInvalid");
+
+        //        allPermissionIds.UnionWith(
+        //            templatePermissions.Select(tp => tp.PermisionId));
+        //    }
+
+        //    // -- 5. Replace UsersPermission rows --------------------------------------
+        //    await unitOfWork.BeginTransactionAsync();
+
+        //    try
+        //    {
+        //        var existing = await unitOfWork.GetRepository<UsersPermission, long>()
+        //            .GetAsync(up => up.UserId == assistant.UserId);
+
+        //        if (existing.Any())
+        //            await unitOfWork.GetRepository<UsersPermission, long>()
+        //                .DeleteRangeAsync(existing);
+
+        //        var newPermissions = allPermissionIds
+        //            .Select(pid => new UsersPermission
+        //            {
+        //                UserId = assistant.UserId,
+        //                PermissionId = pid,
+        //            })
+        //            .ToList();
+
+        //        await unitOfWork.GetRepository<UsersPermission, long>()
+        //            .AddRangeAsync(newPermissions);
+
+        //        await unitOfWork.SaveChangesAsync();
+        //        await unitOfWork.CommitAsync();
+
+        //        return Result<string>.Success("PermissionsUpdated", localizer);
+        //    }
+        //    catch
+        //    {
+        //        await unitOfWork.RollbackAsync();
+        //        throw;
+        //    }
+        //}
         public async Task<Result<string>> UpdateAssistantPermissionsAsync(UpdateAssistantPermissionsRequest dto)
         {
-            // -- 1. Fetch assistant ---------------------------------------------------
             var assistant = await unitOfWork.AssistantRepo.GetByIdAsync(dto.assistantId);
             if (assistant is null)
                 return Result<string>.Failure(localizer, "AssistantNotFound");
 
+            var user = await unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
+            if (user is null)
+                return Result<string>.Failure(localizer, "UserNotFound");
 
-            // -- 3. At least one source -----------------------------------------------
-            var hasIndividualPerms = dto.permissionIds is { Count: > 0 };
-            var hasTemplates = dto.permissionProfileIds is { Count: > 0 };
-
-            if (!hasIndividualPerms && !hasTemplates)
+            if ((dto.permissionIds is not { Count: > 0 }) &&
+                (dto.permissionProfileIds is not { Count: > 0 }))
+            {
                 return Result<string>.Failure(localizer, "AssistantMustHaveAtLeastOnePermission");
-
-            // -- 4. Resolve all permission IDs ----------------------------------------
-            var allPermissionIds = new HashSet<long>();
-
-            if (hasIndividualPerms)
-            {
-                var distinctPermIds = dto.permissionIds!.Distinct().ToList();
-
-                var validCount = await unitOfWork.GetRepository<Permission, long>()
-                    .CountAsync(p => distinctPermIds.Contains(p.Id));
-
-                if (validCount != distinctPermIds.Count)
-                    return Result<string>.Failure(localizer, "OneOrMorePermissionsInvalid");
-
-                allPermissionIds.UnionWith(distinctPermIds);
             }
 
-            if (hasTemplates)
+            HashSet<long> newPermissionIds;
+
+            try
             {
-                var distinctTemplateIds = dto.permissionProfileIds!.Distinct().ToList();
-
-                var templatePermissions = await unitOfWork.GetRepository<TemplatePermisions, long>()
-                    .GetAsync(tp => distinctTemplateIds.Contains(tp.TemplateId));
-
-                var foundTemplateIds = templatePermissions
-                    .Select(tp => tp.TemplateId)
-                    .Distinct()
-                    .ToList();
-
-                if (foundTemplateIds.Count != distinctTemplateIds.Count)
-                    return Result<string>.Failure(localizer, "OneOrMorePermissionsInvalid");
-
-                allPermissionIds.UnionWith(
-                    templatePermissions.Select(tp => tp.PermisionId));
+                newPermissionIds = await assisstantService.ResolveAssistantPermissionsAsync(
+                    dto.permissionIds,
+                    dto.permissionProfileIds);
+            }
+            catch
+            {
+                return Result<string>.Failure(localizer, "InvalidPermissions");
             }
 
-            // -- 5. Replace UsersPermission rows --------------------------------------
+            // validate scope
+            await assisstantService.ValidateTeacherScopeAsync(assistant.TeacherAccountId, newPermissionIds);
+
             await unitOfWork.BeginTransactionAsync();
 
             try
             {
-                var existing = await unitOfWork.GetRepository<UsersPermission, long>()
-                    .GetAsync(up => up.UserId == assistant.UserId);
+                // =======================
+                // 1. Update Permissions
+                // =======================
+                var permRepo = unitOfWork.GetRepository<UsersPermission, long>();
 
-                if (existing.Any())
-                    await unitOfWork.GetRepository<UsersPermission, long>()
-                        .DeleteRangeAsync(existing);
+                var existingPerms = await permRepo.GetAsync(x => x.UserId == user.Id);
 
-                var newPermissions = allPermissionIds
-                    .Select(pid => new UsersPermission
-                    {
-                        UserId = assistant.UserId,
-                        PermissionId = pid,
-                    })
-                    .ToList();
+                if (existingPerms.Any())
+                    await permRepo.DeleteRangeAsync(existingPerms);
 
-                await unitOfWork.GetRepository<UsersPermission, long>()
-                    .AddRangeAsync(newPermissions);
+                var newPerms = newPermissionIds.Select(pid => new UsersPermission
+                {
+                    UserId = user.Id,
+                    PermissionId = pid
+                });
+
+                await permRepo.AddRangeAsync(newPerms);
+
+                // =======================
+                // 2. Wallet Logic 🔥
+                // =======================
+                var collectPermission = await unitOfWork.permissionRepo
+                    .GetByPermissionNameAndModuleNameAsync("Collect", "Payment");
+
+                if (collectPermission != null &&
+                    newPermissionIds.Contains(collectPermission.Id))
+                {
+                    await _paymentService.EnsureAssistantWalletExistsAsync(
+                        assistant.TeacherAccountId,
+                        assistant.Id,
+                        user.Id);
+                }
+
+                // =======================
+                // 3. Templates Update
+                // =======================
+                var templateRepo = unitOfWork.GetRepository<TemplatePermissionsUsers, long>();
+
+                var existingTemplates = await templateRepo
+                    .GetAsync(x => x.AssisstantId == assistant.Id);
+
+                if (existingTemplates.Any())
+                    await templateRepo.DeleteRangeAsync(existingTemplates);
+
+                if (dto.permissionProfileIds is { Count: > 0 })
+                {
+                    var newTemplates = dto.permissionProfileIds
+                        .Distinct()
+                        .Select(tid => new TemplatePermissionsUsers
+                        {
+                            TemplateId = tid,
+                            AssisstantId = assistant.Id,
+                        });
+
+                    await templateRepo.AddRangeAsync(newTemplates);
+                }
+
+                // =======================
+                // 4. Update timestamp
+                // =======================
+                assistant.UpdatedAt = DateTime.UtcNow;
 
                 await unitOfWork.SaveChangesAsync();
                 await unitOfWork.CommitAsync();
 
-                return Result<string>.Success("PermissionsUpdated", localizer);
+                return Result<string>.Success("Success", localizer);
             }
             catch
             {

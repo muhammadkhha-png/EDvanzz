@@ -1,7 +1,10 @@
-﻿using Edvanz.Application.Dtos.exceptions;
-using System.Text.Json;
-using Microsoft.Extensions.Localization;
+﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.exceptions;
+using Edvanz.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Localization;
+using System.Net;
+using System.Text.Json;
 
 public class ExceptionMiddleware
 {
@@ -33,6 +36,7 @@ public class ExceptionMiddleware
 
         var statusCode = ex switch
         {
+            BusinessException be => (int)be.StatusCode,
             NotFoundException => 404,
             UnauthorizedAccessException => 401,
             ArgumentException => 400,
@@ -43,6 +47,7 @@ public class ExceptionMiddleware
 
         string messageKey = ex switch
         {
+            BusinessException be => be.MessageKey,
             UnauthorizedAccessException uae when uae.Message.Contains("Google token") => "InvalidGoogletoken",
             NotFoundException => "NotFound",
             UnauthorizedAccessException => "Unauthorized",
@@ -51,14 +56,11 @@ public class ExceptionMiddleware
             _ => "ServerError"
         };
 
-        var result = new
-        {
-            success = false,
-            message = _localizer[messageKey], 
-            #if DEBUG
-            details = ex.StackTrace 
-            #endif
-        };
+        var result = Result<string>.Failure(
+     _localizer,
+     messageKey,
+     (HttpStatusCode)statusCode
+ );
 
         response.StatusCode = statusCode;
 

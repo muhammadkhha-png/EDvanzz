@@ -7,6 +7,7 @@ using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Exceptions;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
@@ -15,9 +16,9 @@ using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Linq;
 using System.Net;
 using System.Text;
-using System.Linq;
 
 namespace Edvanz.Application.Services
 {
@@ -559,7 +560,7 @@ namespace Edvanz.Application.Services
 
 
 
-        private async Task<HashSet<long>> ResolveAssistantPermissionsAsync(
+        public async Task<HashSet<long>> ResolveAssistantPermissionsAsync(
     IEnumerable<long>? permissionIds,
     IEnumerable<long>? templateIds)
         {
@@ -575,7 +576,7 @@ namespace Edvanz.Application.Services
                     .CountAsync(p => distinct.Contains(p.Id));
 
                 if (validCount != distinct.Count)
-                    throw new Exception("InvalidPermissions");
+                    throw new InvalidPermissionsException();
 
                 result.UnionWith(distinct);
             }
@@ -595,7 +596,7 @@ namespace Edvanz.Application.Services
                     .ToList();
 
                 if (foundTemplates.Count != distinctTemplates.Count)
-                    throw new Exception("InvalidTemplates");
+                    throw new InvalidTemplatesException();
 
                 result.UnionWith(templatePermissions.Select(t => t.PermisionId));
             }
@@ -603,8 +604,8 @@ namespace Edvanz.Application.Services
             return result;
         }
 
-        private async Task ValidateTeacherScopeAsync(long teacherId, HashSet<long> permissionIds)
-        {
+        public async Task ValidateTeacherScopeAsync(long teacherId, HashSet<long> permissionIds)
+            {
             var modules = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacherId);
 
             var moduleIds = modules.Select(m => m.Id);
@@ -617,7 +618,7 @@ namespace Edvanz.Application.Services
                 .ToList();
 
             if (outOfScope.Any())
-                throw new Exception("AssistantPermissionsOutOfTeacherScope");
+                throw new AssistantPermissionsOutOfScopeException();
         }
     }
 }

@@ -726,4 +726,10 @@
   <data name="AssisstantPermissionsOutOfTeacherScopePermissions" xml:space="preserve">
     <value>Assisstant Permissions Out Of Teacher Scope Permissions</value>
   </data>
+  <data name="InvalidPermissions" xml:space="preserve">
+    <value>Invalid Permissions</value>
+  </data>
+  <data name="InvalidTemplates" xml:space="preserve">
+    <value>Invalid Templates</value>
+  </data>
 </root>

@@ -13,7 +13,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    //[Authorize]
+    [Authorize]
     public class AssistantController : ApiBaseController
     {
         private readonly IAssistantService assistantService;

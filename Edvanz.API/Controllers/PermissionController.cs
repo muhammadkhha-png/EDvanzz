@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.AssistantDtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,6 +11,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class PermissionController : ApiBaseController
     {
         private readonly IPermissionService _permissionService;
@@ -21,7 +23,7 @@ namespace Edvanz.API.Controllers
 
        
         [HttpPut("assitant/update-permissions/{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -33,7 +35,7 @@ namespace Edvanz.API.Controllers
 
         
         [HttpPost("{id:long}/apply-profile")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -52,9 +54,8 @@ namespace Edvanz.API.Controllers
 
        
         [HttpGet("teacher/{id}")]
-        [ModulePermission("Assistants")]
-        [ProducesResponseType(typeof(PaginatedResponse<List<AssistantListDto>>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetAssistantPerTeacher(long id)
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+        public async Task<IActionResult> GetAvailablePermissionsPerTeacher(long id)
         {
             var res = await _permissionService.GetAvailableTeacherPermissionCatalogue(id);
             return ToResponse(res);

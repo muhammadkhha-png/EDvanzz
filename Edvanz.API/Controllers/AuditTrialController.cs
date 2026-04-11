@@ -4,6 +4,7 @@ using Edvanz.Application.Dtos.AssistantDtos;
 using Edvanz.Application.Dtos.AuditTrial;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,6 +12,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class AuditTrialController : ApiBaseController
     {
         private readonly IAudittrialService auditTrialService;
@@ -19,16 +21,15 @@ namespace Edvanz.API.Controllers
         {
             this.auditTrialService = auditTrialService;
         }
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [HttpGet]
-        //[ModulePermission("Assistants",null,"Teacher")]
-     
         public async Task<IActionResult> GetAssisstantsAudits([FromQuery] AuditTrailQueryRequest req)
         {
             var res = await auditTrialService.GetAssistantsAuditTrialsPerTeacher(req);
             return ToResponse(res);
         }
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [HttpGet("export")]
-        //[ModulePermission("Assistants", null, "Teacher")]
         public async Task<IActionResult> ExportAssistantsAudits([FromQuery] AuditTrialExcelFilterQuery req)
         {
             var result = await auditTrialService.ExportToExcel(req);

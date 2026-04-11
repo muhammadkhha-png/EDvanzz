@@ -726,4 +726,10 @@
   <data name="AssisstantPermissionsOutOfTeacherScopePermissions" xml:space="preserve">
     <value>لا يمكن إضافة صلاحيات خارج نطاق صلاحيات المدرس </value>
   </data>
+  <data name="InvalidPermissions" xml:space="preserve">
+    <value>صلاحيات غير صالحة </value>
+  </data>
+  <data name="InvalidTemplates" xml:space="preserve">
+    <value>قوالب غير صالحة</value>
+  </data>
 </root>
