@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -75,6 +76,19 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<Assistant> Assistants { get; set; }
     public DbSet<LoginActivityAssistantLog> AssistantLoginActivity { get; set; }
     public DbSet<AuditTrail> AuditTrial { get; set; }
+
+
+
+    //  ─── Messaging  ───
+    public DbSet<MessagingChannel> MessagingChannels => Set<MessagingChannel>();
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+    public DbSet<MessageBlock> MessageBlocks => Set<MessageBlock>();
+    public DbSet<AutomatedTrigger> AutomatedTriggers => Set<AutomatedTrigger>();
+    public DbSet<MessageLog> MessageLogs => Set<MessageLog>();
+    public DbSet<MessageQueueItem> MessageQueue => Set<MessageQueueItem>();
+
+
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         base.OnConfiguring(optionsBuilder);
