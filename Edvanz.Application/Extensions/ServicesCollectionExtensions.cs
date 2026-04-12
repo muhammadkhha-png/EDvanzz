@@ -35,6 +35,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IEncryptionService, EncryptionService>();
 
         // FIX I1/I3: Renamed from IuserService to IUserService
         // FIX I1: Interface moved from Edvanz.Domain.ServiceContract to Edvanz.Application.ServiceContract
@@ -61,7 +62,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IProfileService, ProfileService>();
         services.AddScoped<IAudittrialService,AuditTrialService>();
         services.AddScoped<ExcelService>();
-
+        
 
         #endregion
 

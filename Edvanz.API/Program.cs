@@ -109,6 +109,7 @@ builder.Services.AddAuthorization(
 //}
 );
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
+builder.Configuration.AddEnvironmentVariables();
 
 var app = builder.Build();
 await app.SeedDatabaseAsync();

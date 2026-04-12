@@ -41,7 +41,9 @@ namespace Edvanz.Infrastructure
         private IAuditTrialRepo? _auditTrialRepo;
 
         private IStudentTeacherLinkRepo? _studentTeacherLinkRepo;
-
+        private IMessagingChannelRepo? _messagingChannelRepo;
+        private IMessageTemplateRepo? _messageTemplateRepo;
+        private IAutomatedTriggerRepo? _automatedTriggerRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -160,6 +162,12 @@ namespace Edvanz.Infrastructure
         public IAuditTrialRepo auditTrialRepo => _auditTrialRepo ?? new AuditTrialRepo(_Context);
 
         public IStudentTeacherLinkRepo studentTeacherLinkRepo => _studentTeacherLinkRepo ?? new StudentTeacherLinkRepo(_Context);
+
+        public IMessagingChannelRepo messagingChannelRepo => _messagingChannelRepo ?? new MessagingChannelRepo(_Context);
+
+        public IMessageTemplateRepo messageTemplateRepo => _messageTemplateRepo?? new MessageTemplateRepo(_Context);
+
+        public IAutomatedTriggerRepo automatedTriggerRepo => _automatedTriggerRepo?? new AutomatedTriggerRepo(_Context);
     }
 
 

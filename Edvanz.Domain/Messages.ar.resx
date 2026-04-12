@@ -732,4 +732,52 @@
   <data name="InvalidTemplates" xml:space="preserve">
     <value>قوالب غير صالحة</value>
   </data>
+  <data name="TemplateNotFound" xml:space="preserve">
+    <value>قالب الرسالة غير متوفر </value>
+  </data>
+  <data name="TemplateCreated" xml:space="preserve">
+    <value>تم انشاء القالب </value>
+  </data>
+  <data name="TemplateUpdated" xml:space="preserve">
+    <value>تم تعديل القالب بنجاح</value>
+  </data>
+  <data name="CannotDeleteTemplateWithActiveTriggers" xml:space="preserve">
+    <value>لا يمكن حذف قالب رسالة ممربوط بحدث يجب تغير القالب في الحدث نفسه اولا </value>
+  </data>
+  <data name="TriggerNotFound" xml:space="preserve">
+    <value>مش لاقيين التريجر ده</value>
+  </data>
+  <data name="ScheduledTimeRequiredForScheduledTrigger" xml:space="preserve">
+    <value>لازم تحدد وقت للجدولة</value>
+  </data>
+  <data name="ThresholdValueRequired" xml:space="preserve">
+    <value>لازم تحدد قيمة الحد الأدنى/الأقصى علشان الـ trigger يشتغل</value>
+  </data>
+  <data name="SessionIdRequiredForSessionScope" xml:space="preserve">
+    <value>أنت اخترت نطاق يعتمد على Session، لكن نسيت تحدد الـ Session نفسه</value>
+  </data>
+  <data name="SessionGroupIdRequiredForSessionGroupScope" xml:space="preserve">
+    <value>أنت اخترت إرسال على مستوى مجموعة حصص، لكن لم تحدد المجموعة نفسها</value>
+  </data>
+  <data name="TriggerCreated" xml:space="preserve">
+    <value>تم إنشاء التريجر</value>
+  </data>
+  <data name="TriggerUpdated" xml:space="preserve">
+    <value>تم تحديث التريجر</value>
+  </data>
+  <data name="TriggerDeleted" xml:space="preserve">
+    <value>تم حذف التريجر</value>
+  </data>
+  <data name="TriggerAlreadyActive" xml:space="preserve">
+    <value>بالفعل نشط</value>
+  </data>
+  <data name="TriggerAlreadyInactive" xml:space="preserve">
+    <value>بالفعل غير نشط</value>
+  </data>
+  <data name="TriggerActivated" xml:space="preserve">
+    <value>تم التنشيط</value>
+  </data>
+  <data name="TriggerDeactivated" xml:space="preserve">
+    <value>تم إلغاء التفعيل</value>
+  </data>
 </root>

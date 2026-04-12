@@ -732,4 +732,52 @@
   <data name="InvalidTemplates" xml:space="preserve">
     <value>Invalid Templates</value>
   </data>
+  <data name="TemplateNotFound" xml:space="preserve">
+    <value>Template Not Found</value>
+  </data>
+  <data name="TemplateCreated" xml:space="preserve">
+    <value>Template Created</value>
+  </data>
+  <data name="TemplateUpdated" xml:space="preserve">
+    <value>Template Updated</value>
+  </data>
+  <data name="CannotDeleteTemplateWithActiveTriggers" xml:space="preserve">
+    <value>Cannot Delete Template With Active Triggers</value>
+  </data>
+  <data name="TriggerNotFound" xml:space="preserve">
+    <value>Trigger Not Found</value>
+  </data>
+  <data name="ScheduledTimeRequiredForScheduledTrigger" xml:space="preserve">
+    <value>Scheduled Time Required For Scheduled Trigger</value>
+  </data>
+  <data name="ThresholdValueRequired" xml:space="preserve">
+    <value>Threshold Value Required</value>
+  </data>
+  <data name="SessionIdRequiredForSessionScope" xml:space="preserve">
+    <value>Session Id Required For Session Scope</value>
+  </data>
+  <data name="SessionGroupIdRequiredForSessionGroupScope" xml:space="preserve">
+    <value>Session Group Id Required For Session Group Scope</value>
+  </data>
+  <data name="TriggerCreated" xml:space="preserve">
+    <value>Trigger Created</value>
+  </data>
+  <data name="TriggerUpdated" xml:space="preserve">
+    <value>Trigger Updated</value>
+  </data>
+  <data name="TriggerDeleted" xml:space="preserve">
+    <value>Trigger Deleted</value>
+  </data>
+  <data name="TriggerAlreadyActive" xml:space="preserve">
+    <value>Trigger Already Active</value>
+  </data>
+  <data name="TriggerAlreadyInactive" xml:space="preserve">
+    <value>Trigger Already Inactive</value>
+  </data>
+  <data name="TriggerActivated" xml:space="preserve">
+    <value>Trigger Activated</value>
+  </data>
+  <data name="TriggerDeactivated" xml:space="preserve">
+    <value>TriggerDeactivated</value>
+  </data>
 </root>

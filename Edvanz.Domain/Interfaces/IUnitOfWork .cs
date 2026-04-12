@@ -86,5 +86,8 @@ namespace Edvanz.Domain.Interfaces
         IAuditTrialRepo auditTrialRepo { get; }
         IStudentTeacherLinkRepo studentTeacherLinkRepo { get; }
 
+        IMessagingChannelRepo messagingChannelRepo { get; }
+        IMessageTemplateRepo messageTemplateRepo { get; }
+        IAutomatedTriggerRepo automatedTriggerRepo { get; }
         }
 }

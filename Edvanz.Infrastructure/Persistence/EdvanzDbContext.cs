@@ -85,7 +85,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<MessageBlock> MessageBlocks => Set<MessageBlock>();
     public DbSet<AutomatedTrigger> AutomatedTriggers => Set<AutomatedTrigger>();
     public DbSet<MessageLog> MessageLogs => Set<MessageLog>();
-    public DbSet<MessageQueueItem> MessageQueue => Set<MessageQueueItem>();
+   
 
 
 
@@ -1499,6 +1499,19 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(t => t.TeacherStudentId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
+        #endregion
+        // ════════════════════════════════════════════════
+        // Mesaging 
+        // ════════════════════════════════════════════════
+        #region messging Template 
+        modelBuilder.Entity<MessageTemplate>()
+       .HasIndex(t => t.Name).IsClustered(false);
+        modelBuilder.Entity<MessageTemplate>()
+      .HasIndex(t => t.TeacherId).IsClustered(false);
+        modelBuilder.Entity<MessageTemplate>()
+        .HasIndex(t => new { t.TeacherId, t.Name }).IsUnique()
+        .HasDatabaseName("IX_MessageTemplate_TeacherId_Name");
+
         #endregion
 
         // ════════════════════════════════════════════════
