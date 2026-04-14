@@ -137,7 +137,7 @@ namespace Edvanz.Application.Services
 
             
 
-            // -- 3. Name uniqueness (excluding current template) ---------------------
+            // -- 3. name uniqueness (excluding current template) ---------------------
             if (!string.IsNullOrWhiteSpace(dto.profileName) &&
                 dto.profileName.Trim() != template.Name)
             {

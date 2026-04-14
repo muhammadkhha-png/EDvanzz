@@ -15,6 +15,7 @@ namespace Edvanz.Domain.Entities.Messaging
         public Teacher Teacher { get; set; } = null!;
 
         public long StudentId { get; set; }
+        public string StudentCode { get; set; }
         public string StudentName { get; set; } = string.Empty;
         public string RecipientPhone { get; set; } = string.Empty;
         public RecipientTarget RecipientType { get; set; }  // Student | Parent

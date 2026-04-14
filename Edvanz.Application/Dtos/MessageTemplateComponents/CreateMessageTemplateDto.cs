@@ -8,13 +8,14 @@ namespace Edvanz.Application.Dtos.MessageTemplateComponents
 {
     public class CreateMessageTemplateDto
     {
+        public long teacherID { get; set; }
         [Required, MaxLength(100)]
-        public string Name { get; set; } = string.Empty;
+        public string name { get; set; } = string.Empty;
 
-        public ChannelType Channel { get; set; }
-        public RecipientTarget RecipientTarget { get; set; }
+        public ChannelType channel { get; set; }
+        public RecipientTarget recipientTarget { get; set; }
 
         [Required]
-        public List<MessageBlockDto> Blocks { get; set; } = new();
+        public List<MessageBlockDto> blocks { get; set; } = new();
     }
 }

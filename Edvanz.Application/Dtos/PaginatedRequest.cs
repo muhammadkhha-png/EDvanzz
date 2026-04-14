@@ -53,7 +53,7 @@ public class PaginatedRequest
     public string? Search { get; set; }
 
     /// <summary>
-    /// Column to sort by: CreatedAt, Name, Capacity, Code.
+    /// Column to sort by: CreatedAt, name, Capacity, Code.
     /// Defaults to CreatedAt.
     /// </summary>
     public TeacherSortBy SortBy { get; set; } = TeacherSortBy.CreatedAt;

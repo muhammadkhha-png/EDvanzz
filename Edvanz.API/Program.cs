@@ -1,6 +1,8 @@
 using Edvanz.API.Filters;
 using Edvanz.Application.Extensions;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Security;
+using Edvanz.Application.Services;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure;
 using Edvanz.Infrastructure.BackGroundJobs;
@@ -110,7 +112,7 @@ builder.Services.AddAuthorization(
 );
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 builder.Configuration.AddEnvironmentVariables();
-
+builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
 var app = builder.Build();
 await app.SeedDatabaseAsync();
 

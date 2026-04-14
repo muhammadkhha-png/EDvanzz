@@ -62,7 +62,16 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IProfileService, ProfileService>();
         services.AddScoped<IAudittrialService,AuditTrialService>();
         services.AddScoped<ExcelService>();
-        
+        //messaging
+         services.AddScoped<IMessagingChannelService, MessagingChannelService>();
+        services.AddScoped<IMessageTemplateService, MessageTemplateService>();
+        services.AddScoped<IAutomatedTriggerService, AutomatedTriggerService>();
+        services.AddScoped<IMessageDispatcher, MessageDispatcher>();
+        services.AddScoped<IMessageLogService, MessageLogService>();
+        services.AddScoped<IBlockResolver, BlockResolver>();
+        services.AddScoped<ISmsSender,SmsSender>();             
+        services.AddScoped<IEncryptionService, EncryptionService>();
+
 
         #endregion
 

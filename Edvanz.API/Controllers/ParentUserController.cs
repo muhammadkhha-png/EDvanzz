@@ -52,7 +52,7 @@ public class ParentUserController : ApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 3: UPDATE PARENT USER PROFILE
-    // Updates language preference. Name/phone/password go through User module.
+    // Updates language preference. name/phone/password go through User module.
     // PUT /api/parentuser/{parentUserId}/profile
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{parentUserId:long}/profile")]

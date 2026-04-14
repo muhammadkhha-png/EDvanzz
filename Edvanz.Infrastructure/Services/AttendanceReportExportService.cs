@@ -26,14 +26,14 @@ public class AttendanceReportExportService : IAttendanceReportExportService
 
         // Header row
         int col = 1;
-        worksheet.Cell(1, col++).Value = "Student Name";
+        worksheet.Cell(1, col++).Value = "Student name";
         worksheet.Cell(1, col++).Value = "Student Code";
-        worksheet.Cell(1, col++).Value = "Session Name";
+        worksheet.Cell(1, col++).Value = "Session name";
         worksheet.Cell(1, col++).Value = "Occurrence Date";
         worksheet.Cell(1, col++).Value = "Status";
         worksheet.Cell(1, col++).Value = "Method";
         worksheet.Cell(1, col++).Value = "Is Cross-Session";
-        worksheet.Cell(1, col++).Value = "Cross-Session Name";
+        worksheet.Cell(1, col++).Value = "Cross-Session name";
         worksheet.Cell(1, col++).Value = "Recorded At";
         worksheet.Cell(1, col++).Value = "Is Edited";
 

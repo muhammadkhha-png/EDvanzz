@@ -44,6 +44,7 @@ namespace Edvanz.Infrastructure
         private IMessagingChannelRepo? _messagingChannelRepo;
         private IMessageTemplateRepo? _messageTemplateRepo;
         private IAutomatedTriggerRepo? _automatedTriggerRepo;
+        private IMessageLogRepository? _messageLogRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -168,6 +169,8 @@ namespace Edvanz.Infrastructure
         public IMessageTemplateRepo messageTemplateRepo => _messageTemplateRepo?? new MessageTemplateRepo(_Context);
 
         public IAutomatedTriggerRepo automatedTriggerRepo => _automatedTriggerRepo?? new AutomatedTriggerRepo(_Context);
+
+        public IMessageLogRepository messageLogRepo => _messageLogRepo?? new MessageLogRepository(_Context);
     }
 
 

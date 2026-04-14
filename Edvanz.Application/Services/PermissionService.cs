@@ -108,10 +108,10 @@ namespace Edvanz.Application.Services
         //        var distinctTemplateIds = dto.permissionProfileIds!.Distinct().ToList();
 
         //        var templatePermissions = await unitOfWork.GetRepository<TemplatePermisions, long>()
-        //            .GetAsync(tp => distinctTemplateIds.Contains(tp.TemplateId));
+        //            .GetAsync(tp => distinctTemplateIds.Contains(tp.templateId));
 
         //        var foundTemplateIds = templatePermissions
-        //            .Select(tp => tp.TemplateId)
+        //            .Select(tp => tp.templateId)
         //            .Distinct()
         //            .ToList();
 

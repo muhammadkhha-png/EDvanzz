@@ -239,4 +239,17 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
             .Where(ts => ts.IsDeleted && ts.DeletedAt != null && ts.DeletedAt.Value < cutoffDate)
             .ToListAsync();
     }
+
+    public async Task<IReadOnlyList<TeacherStudent>> GetByIdsAsync(List<long> studentIds, long teacherId)
+    {
+        if (studentIds == null || !studentIds.Any())
+            return new List<TeacherStudent>();
+
+        return await _context.TeacherStudents
+            .Where(s =>
+                studentIds.Contains(s.Id) &&
+                s.TeacherId == teacherId &&
+                !s.IsDeleted).AsNoTracking()
+            .ToListAsync();
+    }
 }

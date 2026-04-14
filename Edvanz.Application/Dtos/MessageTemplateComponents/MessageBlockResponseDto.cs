@@ -12,6 +12,6 @@ namespace Edvanz.Application.Dtos.MessageTemplateComponents
         public DynamicBlockKey? DynamicKey { get; set; }
         public string? CustomText { get; set; }
         public int SortOrder { get; set; }
-        public string PreviewLabel { get; set; } = string.Empty;  // e.g. "[Student Name]"
+        public string PreviewLabel { get; set; } = string.Empty;  // e.g. "[Student name]"
     }
 }

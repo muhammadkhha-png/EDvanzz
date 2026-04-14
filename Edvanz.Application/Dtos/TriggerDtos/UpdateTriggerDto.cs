@@ -8,6 +8,7 @@ namespace Edvanz.Application.Dtos.TriggerDtos
     public class UpdateTriggerDto
     {
         public long TriggerId { get; set; }
+        public long teacherId { get; set; }
         public long? MessageTemplateId { get; set; }
         public SendTimingType? SendTiming { get; set; }
         public TimeSpan? ScheduledTime { get; set; }

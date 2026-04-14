@@ -118,7 +118,7 @@ namespace Edvanz.Application.Services
 
         //        var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
         //        var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
-        //        modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+        //        modules = modulesPerTeacher.Select(mt => mt.name).ToList();
         //        jwt = tokenService.GenerateJwtToken(user, permissions, modules);
         //    }
         //    else if (user.UserType == Domain.Enums.UserType.Assistant)
@@ -136,7 +136,7 @@ namespace Edvanz.Application.Services
         //        {
         //            var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
         //                .GetModulesPerTeacher(assistant.TeacherAccountId);
-        //            modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
+        //            modules = modulesPerTeacher.Select(mt => mt.name).ToList();
         //            jwt = tokenService.GenerateJwtToken(user, permissions, modules);
         //        }
         //        await assistantService.RecordLoginActivityAsync(assistant.Id, LoginAcitvityActionType.login, _httpContextAccessor.HttpContext!);

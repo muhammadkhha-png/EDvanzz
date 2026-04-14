@@ -89,5 +89,6 @@ namespace Edvanz.Domain.Interfaces
         IMessagingChannelRepo messagingChannelRepo { get; }
         IMessageTemplateRepo messageTemplateRepo { get; }
         IAutomatedTriggerRepo automatedTriggerRepo { get; }
-        }
+        IMessageLogRepository messageLogRepo { get; }
+    }
 }

@@ -21,7 +21,7 @@ public class UpdateTeacherConfigurationDto
     public GenerationMode StudentCodeGenerationMode { get; set; } = GenerationMode.Auto;
     public GenerationLanguage StudentCodeLanguage { get; set; } = GenerationLanguage.English;
 
-    // ─── AAM-FR-04.3: Session Name Configuration ───
+    // ─── AAM-FR-04.3: Session name Configuration ───
 
     public GenerationMode SessionNameMode { get; set; } = GenerationMode.Auto;
     public GenerationLanguage SessionNameLanguage { get; set; } = GenerationLanguage.English;

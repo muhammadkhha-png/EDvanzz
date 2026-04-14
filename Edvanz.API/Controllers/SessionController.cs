@@ -94,7 +94,7 @@ public class SessionController : ApiBaseController
     //
     // WHAT IT DOES:
     //   Updates an existing session's configuration.
-    //   REQ-SES-005: Name editable. REQ-SES-012: Payment editable.
+    //   REQ-SES-005: name editable. REQ-SES-012: Payment editable.
     //   REQ-SES-009: OccurrenceType NOT editable if session has assignments or links.
     //
     // TABLES WRITTEN: Sessions

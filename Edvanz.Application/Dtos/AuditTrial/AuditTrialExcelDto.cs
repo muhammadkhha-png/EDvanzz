@@ -9,7 +9,7 @@ namespace Edvanz.Application.Dtos.AuditTrial
     {
         public long Id { get; set; }
 
-        [ExcelColumn("Assistant Name", 1)]
+        [ExcelColumn("Assistant name", 1)]
         public string AssistantName { get; set; }
 
         [ExcelColumn("Module", 2)]

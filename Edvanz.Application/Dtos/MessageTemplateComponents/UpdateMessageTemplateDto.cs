@@ -8,18 +8,19 @@ namespace Edvanz.Application.Dtos.MessageTemplateComponents
 {
     public class UpdateMessageTemplateDto
     {
-        public long TemplateId { get; set; }
+        public long teacherID { get; set; }
+        public long templateId { get; set; }
 
         [MaxLength(100)]
-        public string? Name { get; set; }
+        public string? name { get; set; }
 
-        public ChannelType? Channel { get; set; }
-        public RecipientTarget? RecipientTarget { get; set; }
+        public ChannelType? channel { get; set; }
+        public RecipientTarget? recipientTarget { get; set; }
 
         /// <summary>
         /// If provided → replaces ALL existing blocks (full replace strategy).
         /// If null → blocks are not touched.
         /// </summary>
-        public List<MessageBlockDto>? Blocks { get; set; }
+        public List<MessageBlockDto>? blocks { get; set; }
     }
 }

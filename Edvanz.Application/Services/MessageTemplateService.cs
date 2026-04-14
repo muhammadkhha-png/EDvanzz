@@ -79,24 +79,24 @@ namespace Edvanz.Application.Services
         // ── CREATE ───────────────────
         public async Task<Result<string>> CreateAsync(long teacherId, CreateMessageTemplateDto dto)
         {
-            if (dto.Blocks is not { Count: > 0 })
+            if (dto.blocks is not { Count: > 0 })
                 return Result<string>.Failure(_localizer, "TemplateMustHaveAtLeastOneBlock");
 
-            ValidateBlocks(dto.Blocks, out var blockError);
+            ValidateBlocks(dto.blocks, out var blockError);
             if (blockError is not null)
                 return Result<string>.Failure(_localizer, blockError);
 
             var nameExists = await _unitOfWork.messageTemplateRepo
-                .NameExistsAsync(teacherId, dto.Name.Trim());
+                .NameExistsAsync(teacherId, dto.name.Trim());
             if (nameExists)
                 return Result<string>.Failure(_localizer, "TemplateNameAlreadyExists");
 
             var template = new MessageTemplate
             {
                 TeacherId = teacherId,
-                Name = dto.Name.Trim(),
-                Channel = dto.Channel,
-                RecipientTarget = dto.RecipientTarget,
+                Name = dto.name.Trim(),
+                Channel = dto.channel,
+                RecipientTarget = dto.recipientTarget,
                 IsActive = true,
                 CreateAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -108,7 +108,7 @@ namespace Edvanz.Application.Services
                 await _unitOfWork.messageTemplateRepo.AddAsync(template);
                 await _unitOfWork.SaveChangesAsync();   // get template.Id
 
-                var blocks = BuildBlocks(dto.Blocks, template.Id);
+                var blocks = BuildBlocks(dto.blocks, template.Id);
                 await _unitOfWork.GetRepository<MessageBlock, long>().AddRangeAsync(blocks);
 
                 await _unitOfWork.SaveChangesAsync();
@@ -126,26 +126,26 @@ namespace Edvanz.Application.Services
         // ── UPDATE ────────────────────────────────────────────────────
         public async Task<Result<string>> UpdateAsync(long teacherId, UpdateMessageTemplateDto dto)
         {
-            var template = await _unitOfWork.messageTemplateRepo.GetByIdWithBlocksAsync(dto.TemplateId);
+            var template = await _unitOfWork.messageTemplateRepo.GetByIdWithBlocksAsync(dto.templateId);
 
             if (template is null || template.TeacherId != teacherId)
                 return Result<string>.Failure(_localizer, "TemplateNotFound");
 
-            // Name uniqueness (excluding self)
-            if (!string.IsNullOrWhiteSpace(dto.Name) && dto.Name.Trim() != template.Name)
+            // name uniqueness (excluding self)
+            if (!string.IsNullOrWhiteSpace(dto.name) && dto.name.Trim() != template.Name)
             {
                 var nameExists = await _unitOfWork.messageTemplateRepo
-                    .NameExistsAsync(teacherId, dto.Name.Trim(), excludeId: dto.TemplateId);
+                    .NameExistsAsync(teacherId, dto.name.Trim(), excludeId: dto.templateId);
                 if (nameExists)
                     return Result<string>.Failure(_localizer, "TemplateNameAlreadyExists");
             }
 
-            if (dto.Blocks is not null)
+            if (dto.blocks is not null)
             {
-                if (dto.Blocks.Count == 0)
+                if (dto.blocks.Count == 0)
                     return Result<string>.Failure(_localizer, "TemplateMustHaveAtLeastOneBlock");
 
-                ValidateBlocks(dto.Blocks, out var blockError);
+                ValidateBlocks(dto.blocks, out var blockError);
                 if (blockError is not null)
                     return Result<string>.Failure(_localizer, blockError);
             }
@@ -153,23 +153,23 @@ namespace Edvanz.Application.Services
             await _unitOfWork.BeginTransactionAsync();
             try
             {
-                if (!string.IsNullOrWhiteSpace(dto.Name)) template.Name = dto.Name.Trim();
-                if (dto.Channel.HasValue) template.Channel = dto.Channel.Value;
-                if (dto.RecipientTarget.HasValue) template.RecipientTarget = dto.RecipientTarget.Value;
+                if (!string.IsNullOrWhiteSpace(dto.name)) template.Name = dto.name.Trim();
+                if (dto.channel.HasValue) template.Channel = dto.channel.Value;
+                if (dto.recipientTarget.HasValue) template.RecipientTarget = dto.recipientTarget.Value;
                 template.UpdatedAt = DateTime.UtcNow;
 
                 await _unitOfWork.messageTemplateRepo.UpdateAsync(template);
 
                 // Full replace blocks if provided
-                if (dto.Blocks is not null)
+                if (dto.blocks is not null)
                 {
                     var existing = await _unitOfWork.GetRepository<MessageBlock, long>()
-                        .GetAsync(b => b.MessageTemplateId == dto.TemplateId);
+                        .GetAsync(b => b.MessageTemplateId == dto.templateId);
 
                     if (existing.Any())
                         await _unitOfWork.GetRepository<MessageBlock, long>().DeleteRangeAsync(existing);
 
-                    var newBlocks = BuildBlocks(dto.Blocks, dto.TemplateId);
+                    var newBlocks = BuildBlocks(dto.blocks, dto.templateId);
                     await _unitOfWork.GetRepository<MessageBlock, long>().AddRangeAsync(newBlocks);
                 }
 

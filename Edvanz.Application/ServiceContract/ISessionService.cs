@@ -34,7 +34,7 @@ public interface ISessionService
 
     /// <summary>
     /// Updates an existing session.
-    /// REQ-SES-005: Name editable. REQ-SES-012: Payment editable.
+    /// REQ-SES-005: name editable. REQ-SES-012: Payment editable.
     /// REQ-SES-009: OccurrenceType not editable if assignments/links exist.
     /// </summary>
     Task<Result<SessionDto>> UpdateSessionAsync(long teacherId, long sessionId, UpdateSessionDto dto);

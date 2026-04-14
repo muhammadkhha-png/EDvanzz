@@ -151,4 +151,10 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// Uses IgnoreQueryFilters to access soft-deleted records.
     /// </summary>
     Task<IReadOnlyList<TeacherStudent>> GetExpiredRecycleBinRecordsAsync();
+
+    /// <summary>
+    /// Get students by multiple IDs in clean reusable way
+    /// </summary>
+    public  Task<IReadOnlyList<TeacherStudent>> GetByIdsAsync(List<long> studentIds, long teacherId);
+
 }

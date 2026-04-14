@@ -34,7 +34,7 @@ namespace Edvanz.Application.Services;
 /// - Step 4: BulkMarkAttendanceAsync validates student assignment exists before creating record.
 /// - Step 5: SyncOfflineRecordsAsync no longer auto-confirms absence alerts.
 /// - Step 6: MarkAttendanceAsync adds remapped-date duplicate check for cross-session.
-/// - Step 7: MarkAttendanceResultDto populated with AssignedSessionId/Name for cross-session warning.
+/// - Step 7: MarkAttendanceResultDto populated with AssignedSessionId/name for cross-session warning.
 /// - Step 8: ReleaseHoldAsync guards against deleted session while student on hold.
 /// - Step 9: Counter updates wrapped with DbUpdateConcurrencyException retry.
 /// - Step 11: RecordedByUserId defaults to TeacherId when not provided.

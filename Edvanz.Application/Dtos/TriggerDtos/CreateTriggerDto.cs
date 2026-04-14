@@ -9,6 +9,7 @@ namespace Edvanz.Application.Dtos.TriggerDtos
 {
     public class CreateTriggerDto
     {
+        public long teacherId { get; set; }
         public TriggerEventType EventType { get; set; }
 
         [Required]

@@ -28,7 +28,7 @@ public class EventPaymentController : ApiBaseController
     //
     // WHAT IT DOES:
     //   Creates a new one-time payment event with target scope resolution.
-    //   REQ-EVT-001/002: Event Name, Amount, Target Scope, Date are mandatory.
+    //   REQ-EVT-001/002: Event name, Amount, Target Scope, Date are mandatory.
     //   BR-EVT-001: Obligations created for students in scope at creation time.
     //
     // TABLES WRITTEN: PaymentEvents, EventStudentObligations

@@ -46,7 +46,7 @@ namespace Edvanz.Infrastructure.Repositories
         //    .Where(up => up.UserId == userId)
         //    .Include(up => up.Permission)
         //        .ThenInclude(p => p.module)
-        //    .Select(up => $"{up.Permission.module.Name}.{up.Permission.Name}")
+        //    .Select(up => $"{up.Permission.module.name}.{up.Permission.name}")
         //    .ToListAsync();
         //}
     }

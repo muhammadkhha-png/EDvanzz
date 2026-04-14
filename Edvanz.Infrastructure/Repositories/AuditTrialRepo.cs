@@ -90,7 +90,7 @@ namespace Edvanz.Infrastructure.Repositories
                 query = query.Where(a => a.actionType == parsedAction);
             }
 
-            // 🔹 Filter: Assistant Name
+            // 🔹 Filter: Assistant name
             if (!string.IsNullOrWhiteSpace(AssistantName))
             {
                 var name = AssistantName.ToLower();
