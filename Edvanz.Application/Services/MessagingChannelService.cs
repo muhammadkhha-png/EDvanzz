@@ -77,7 +77,7 @@ namespace Edvanz.Application.Services
                     Status = ChannelStatus.Connected,
                     IsActive = true,
                     ConnectedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
+                    UpdatedAt=DateTime.UtcNow,
                     CreateAt = DateTime.UtcNow,
                 };
 

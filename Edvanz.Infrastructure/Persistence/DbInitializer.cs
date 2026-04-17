@@ -87,7 +87,7 @@ namespace Edvanz.Infrastructure.Persistence
                 new Permission { Name = "SendManual", ModuleId = modules["Messaging"], IsRestricted = false },
                 new Permission { Name = "ManageTemplates", ModuleId = modules["Messaging"], IsRestricted = false },
                 new Permission { Name = "ConfigureAutomatedTriggers", ModuleId = modules["Messaging"], IsRestricted = false },
-                new Permission { Name = "ConfigureChannels", ModuleId = modules["Messaging"], IsRestricted = true }
+                //new Permission { Name = "ConfigureChannels", ModuleId = modules["Messaging"], IsRestricted = true } // to delete
 
             };
 

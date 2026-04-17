@@ -10,7 +10,7 @@
       "name": "Assistant",
       "item": [
         {
-          "name": "CreateAssitant",
+          "name": "GetTeacherAssistantPaginatedList",
           "request": {
             "method": "GET",
             "header": []
@@ -18,7 +18,55 @@
           "response": []
         },
         {
-          "name": "GetTeacherAssistantPaginatedList",
+          "name": "CreateAssistant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "GetByAssitantId",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "EditAssisstant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "DeactiveAssistant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "ActivateAssistant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "DeleteAssistant",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "get assistant login activity",
           "request": {
             "method": "GET",
             "header": []
@@ -382,6 +430,224 @@
               ],
               "cookie": [],
               "body": "{\n    \"success\": true,\n    \"message\": \"log out \",\n    \"data\": null\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "AuditTrial",
+      "item": [
+        {
+          "name": "GetPaginatedAuditTrialsPerTeacher",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "ExportAssistantAuditTrialPerTeacher",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Permission",
+      "item": [
+        {
+          "name": "GetTeacherAvaliablePermissions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoibS5hdGVmIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiVGVhY2hlciIsIlNlY3VyaXR5U3RhbXAiOiIzZTJlZjQ3MC0wZDY2LTRhMjYtODc5OS0zMWU1YzZiOWE1ZmMiLCJtb2R1bGUiOlsiU3R1ZGVudCIsIlNlc3Npb24iLCJBdHRlbmRhbmNlIiwiUGF5bWVudCIsIkV2ZW50LUJhc2VkIFBheW1lbnQiLCJFeGFtcyBBbmQgSG9tZXdvcmsiLCJNZXNzYWdpbmciXSwiZXhwIjoxNzc1ODUxODc5fQ.i9dVwlfnBkk4q8MuhRPCNo57HM1WFhjNEaFQxEEGjjI",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BaseUrl}}Permission/teacher/1",
+              "host": [
+                "{{BaseUrl}}Permission"
+              ],
+              "path": [
+                "teacher",
+                "1"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ApplyAssistantProfile",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "EditPermissions",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Messaging",
+      "item": [
+        {
+          "name": "Channels",
+          "item": [
+            {
+              "name": "GetChannelsForTeacher",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "GetChannelByTypePerTeacher",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "Config-ReconfigChannel",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "ActivateChannel",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "deactivateChannel",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "DeleteChannel",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Templates",
+          "item": [
+            {
+              "name": "Get Teacher TEMPLATES",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "AddNewMessageTemplate",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "get message template details",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "DeleteTemplate",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "EditMessageTemplateForTeacher",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "Deactivate template",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "ActivateTemplate",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Triggers",
+          "item": [
+            {
+              "name": "GetTeaacherTriggers",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "get trigger details",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
+            },
+            {
+              "name": "AddTriger",
+              "request": {
+                "method": "GET",
+                "header": []
+              },
+              "response": []
             }
           ]
         }

@@ -7,6 +7,7 @@ using Edvanz.Application.Dtos.TriggerDtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,6 +15,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class MessagingController : ApiBaseController
     {
         private readonly IMessagingChannelService _channelService;
@@ -44,14 +46,16 @@ namespace Edvanz.API.Controllers
         /// GET /api/messaging/channels
         /// Returns status of all configured channels 
         [HttpGet("channels/{teacherID}")]
-        [ModulePermission("Messaging")]
+        [ModulePermission("Messaging", "ConfigureChannels", ["Teacher", "SuperAdmin"])]
+
         public async Task<IActionResult> GetChannels(long teacherID)
             => ToResponse(await _channelService.GetAllChannelsAsync(teacherID));
 
 
         /// GET /api/messaging/channels/{type}
         [HttpGet("channels/get-by-type")]
-        [ModulePermission("Messaging")]
+        [ModulePermission("Messaging", "ConfigureChannels", ["Teacher", "SuperAdmin"])]
+
         public async Task<IActionResult> GetChannel([FromQuery]ChannelReqDto req)
             => ToResponse(await _channelService.GetChannelAsync(req.teacherID, req.type));
 
@@ -59,7 +63,7 @@ namespace Edvanz.API.Controllers
         /// POST /api/messaging/channels
         /// Connect / reconfigure a channel 
         /// Access: Teacher only 
-        [HttpPost("channels/reconfigure")]
+        [HttpPost("channels/conf-reconfigure")]
         [ModulePermission("Messaging", "ConfigureChannels", ["Teacher","SuperAdmin"])]
         public async Task<IActionResult> UpsertChannel([FromBody] UpsertChannelDto dto)
             => ToResponse(await _channelService.UpsertChannelAsync(dto.teacherID, dto));
@@ -67,21 +71,22 @@ namespace Edvanz.API.Controllers
 
         /// PATCH /api/messaging/channels/{type}/activate
         [HttpPatch("channels/activate")]
-        [ModulePermission("Messaging", "ConfigureChannels")]
+        [ModulePermission("Messaging", "ConfigureChannels", ["Teacher", "SuperAdmin"])]
         public async Task<IActionResult> ActivateChannel(ChannelReqDto req)
             => ToResponse(await _channelService.ToggleChannelAsync(req.teacherID, req.type, true));
 
 
         /// PATCH /api/messaging/channels/{type}/deactivate
         [HttpPatch("channels/deactivate")]
-        [ModulePermission("Messaging", "ConfigureChannels")]
+        [ModulePermission("Messaging", "ConfigureChannels", ["Teacher", "SuperAdmin"])]
+
         public async Task<IActionResult> DeactivateChannel(ChannelReqDto req)
             => ToResponse(await _channelService.ToggleChannelAsync(req.teacherID, req.type, false));
 
 
         /// DELETE /api/messaging/channels/{type}
         [HttpDelete("channels/{type}")]
-        [ModulePermission("Messaging", "ConfigureChannels")]
+        [ModulePermission("Messaging", "ConfigureChannels", ["Teacher", "SuperAdmin"])]
         public async Task<IActionResult> DisconnectChannel(ChannelReqDto req)
             => ToResponse(await _channelService.DisconnectChannelAsync(req.teacherID, req.type));
         #endregion
@@ -90,20 +95,22 @@ namespace Edvanz.API.Controllers
 
         /// GET /api/messaging/templates
         [HttpGet("templates")]
-        [ModulePermission("Messaging", "ManageTemplates")]
-        public async Task<IActionResult> GetTemplates(TemplatesfilterReqDto req)
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        public async Task<IActionResult> GetTemplates([FromQuery]TemplatesfilterReqDto req)
             => ToResponse(await _templateService.GetAllAsync(req));
 
 
         /// GET /api/messaging/templates/{id}
-        [HttpGet("templates/{id:long}")]
-        [ModulePermission("Messaging", "ManageTemplates")]
+        [HttpGet("templates/details")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+
         public async Task<IActionResult> GetTemplate([FromQuery]MessageTemplateReq req)
             => ToResponse(await _templateService.GetByIdAsync(req.teacherId, req.templateId));
 
         /// POST /api/messaging/templates
         [HttpPost("templates")]
-        [ModulePermission("Messaging", "ManageTemplates")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+
         public async Task<IActionResult> CreateTemplate([FromBody] CreateMessageTemplateDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -111,30 +118,30 @@ namespace Edvanz.API.Controllers
         }
 
         /// PUT /api/messaging/templates/{id}
-        [HttpPut("templates/{id:long}")]
-        [ModulePermission("Messaging", "ManageTemplates")]
-        public async Task<IActionResult> UpdateTemplate(long id, [FromBody] UpdateMessageTemplateDto dto)
+        [HttpPut("templates")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        public async Task<IActionResult> UpdateTemplate( [FromBody] UpdateMessageTemplateDto dto)
         {
-            dto.templateId = id;
+           
             return ToResponse(await _templateService.UpdateAsync(dto.teacherID, dto));
         }
 
 
         /// DELETE /api/messaging/templates/{id}
-        [HttpDelete("templates/{id:long}")]
-        [ModulePermission("Messaging", "ManageTemplates")]
+        [HttpDelete("templates")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> DeleteTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.DeleteAsync(req.teacherId, req.templateId));
 
         /// PATCH /api/messaging/templates/{id}/activate
-        [HttpPatch("templates/{id:long}/activate")]
-        [ModulePermission("Messaging", "ManageTemplates")]
+        [HttpPatch("templates/activate")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> ActivateTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.ToggleActiveAsync(req.teacherId, req.templateId, true));
 
         /// PATCH /api/messaging/templates/{id}/deactivate
-        [HttpPatch("templates/{id:long}/deactivate")]
-        [ModulePermission("Messaging", "ManageTemplates")]
+        [HttpPatch("templates/deactivate")]
+        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> DeactivateTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.ToggleActiveAsync(req.teacherId, req.templateId, false));
         #endregion
@@ -142,26 +149,25 @@ namespace Edvanz.API.Controllers
         #region AUTOMATED TRIGGERS
         /// GET /api/messaging/triggers
         [HttpGet("triggers/{teacherid:long}")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> GetTriggers(long teacherId)
             => ToResponse(await _triggerService.GetAllAsync(teacherId));
 
         /// GET /api/messaging/triggers/{id}
         [HttpGet("trigger/details")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> GetTrigger(TriggerReqDto req)
             => ToResponse(await _triggerService.GetByIdAsync(req.teacherId, req.triggerId));
 
-
         /// POST /api/messaging/triggers
         [HttpPost("triggers")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> CreateTrigger([FromBody] CreateTriggerDto dto)
             => ToResponse(await _triggerService.CreateAsync(dto.teacherId, dto));
 
         /// PUT /api/messaging/triggers/{id}
         [HttpPut("triggers/{id:long}")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> UpdateTrigger(long id, [FromBody] UpdateTriggerDto dto)
         {
             dto.TriggerId = id;
@@ -170,19 +176,22 @@ namespace Edvanz.API.Controllers
 
         /// DELETE /api/messaging/triggers/{id}
         [HttpDelete("triggers/{id:long}")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+
         public async Task<IActionResult> DeleteTrigger(TriggerReqDto req)
             => ToResponse(await _triggerService.DeleteAsync(req.teacherId, req.triggerId));
 
         /// PATCH /api/messaging/triggers/{id}/activate
         [HttpPatch("triggers/{id:long}/activate")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+
         public async Task<IActionResult> ActivateTrigger(TriggerReqDto req)
             => ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, true));
 
         /// PATCH /api/messaging/triggers/{id}/deactivate
         [HttpPatch("triggers/{id:long}/deactivate")]
-        [ModulePermission("Messaging", "ConfigureAutomatedTriggers")]
+        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+
         public async Task<IActionResult> DeactivateTrigger(TriggerReqDto req)
             => ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, false));
         #endregion
@@ -191,7 +200,7 @@ namespace Edvanz.API.Controllers
         /// POST /api/messaging/send
         /// Sends a manual message — returns preview + recipient count for confirmation 
         [HttpPost("send")]
-        [ModulePermission("Messaging", "SendManual")]
+        //[ModulePermission("Messaging", "SendManual")]
         public async Task<IActionResult> SendManual([FromBody] ManualMessageRequests request)
         {
           
@@ -202,7 +211,7 @@ namespace Edvanz.API.Controllers
 
         /// GET /api/messaging/history
         [HttpGet("history")]
-        [ModulePermission("Messaging", "ViewHistory")]
+        //[ModulePermission("Messaging", "ViewHistory")]
         public async Task<IActionResult> GetHistory([FromQuery] MessageLogQueryDto query)
         {
             
@@ -211,7 +220,7 @@ namespace Edvanz.API.Controllers
 
         /// POST /api/messaging/history/{id}/resend
         [HttpPost("history/{id:long}/resend")]
-        [ModulePermission("Messaging", "SendManual")]
+        //[ModulePermission("Messaging", "SendManual")]
         public async Task<IActionResult> Resend(MessageLogRequestDto req)
             => ToResponse(await _logService.ResendAsync(req.teacherId, req.messageLogId));
 
