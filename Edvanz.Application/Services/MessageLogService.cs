@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos.DispatcherDtos;
 using Edvanz.Application.Dtos.MessageLogDtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities.Messaging;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Microsoft.Extensions.Localization;
@@ -78,7 +79,7 @@ namespace Edvanz.Application.Services
             if (log is null)
                 return Result<string>.Failure(_localizer, "MessageLogNotFound");
 
-            if (log.Status != MessageStatus.Failed)
+            if (log.Status != MessageStatus.Failed && log.Status != MessageStatus.skipped)
                 return Result<string>.Failure(_localizer, "OnlyFailedMessagesCanBeResent");
 
             var channel = await _unitOfWork.GetRepository<MessagingChannel, long>()
@@ -107,6 +108,60 @@ namespace Edvanz.Application.Services
 
             return Result<string>.Success("MessageRequeued", _localizer);
         }
+
+        public async Task LogMissingPhoneAsync(
+   long teacherId,
+ long studentId,
+ string studentName, string studentcode,
+ RecipientTarget recipientType,
+ long messageTemplateId,
+ ChannelType channel)
+        {
+            var log = new MessageLog
+            {
+                TeacherId = teacherId,
+                StudentId = studentId,
+                StudentName = studentName,
+                RecipientPhone = " not found",
+                RecipientType = recipientType,
+                MessageTemplateId = messageTemplateId,
+                ResolvedContent = string.Empty,
+                Channel = channel,
+                Status = MessageStatus.skipped,
+                FailureReason = "MissingPhoneNumber",
+                SentAt = DateTime.UtcNow,
+                CreateAt = DateTime.UtcNow,
+                StudentCode=studentcode
+            };
+
+            await _unitOfWork.GetRepository<MessageLog, long>().AddAsync(log);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        public async Task SaveAsync(MessageSendPayload payload, bool success, string? error)
+        {
+            var log = new MessageLog
+            {
+                TeacherId = payload.TeacherId,
+                StudentId = payload.StudentId,
+                StudentName = payload.StudentName,
+                RecipientPhone = payload.RecipientPhone,
+                RecipientType = payload.RecipientType,
+                MessageTemplateId = payload.MessageTemplateId,
+                ResolvedContent = payload.ResolvedContent,
+                Channel = payload.Channel,
+                Status = success ? MessageStatus.Delivered : MessageStatus.Failed,
+                FailureReason = error,
+                SentAt = DateTime.UtcNow,
+                DeliveredAt = success ? DateTime.UtcNow : null,
+                CreateAt = DateTime.UtcNow,
+                StudentCode = payload.StudentCode
+
+            };
+
+            await _unitOfWork.GetRepository<MessageLog, long>().AddAsync(log);
+            await _unitOfWork.SaveChangesAsync();
+        }
+   
     }
 
 }

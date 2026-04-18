@@ -1,4 +1,6 @@
-﻿using Edvanz.Application.Dtos;
+﻿using DocumentFormat.OpenXml.Drawing;
+using DocumentFormat.OpenXml.Wordprocessing;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.TriggerDtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities.Messaging;
@@ -103,6 +105,11 @@ namespace Edvanz.Application.Services
         // ── UPDATE ────────────────────────────────────────────────────
         public async Task<Result<string>> UpdateAsync(long teacherId, UpdateTriggerDto dto)
         {
+
+            var isTeacherExist = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.teacherId);
+            if (isTeacherExist is null)
+                return Result<string>.Failure(_localizer, "TeacherNotFound");
+
             var trigger = await _unitOfWork.automatedTriggerRepo.GetByTeacherIdAndTriggerId(teacherId, dto.TriggerId);
             if (trigger is null)
                 return Result<string>.Failure(_localizer, "TriggerNotFound");
@@ -141,6 +148,10 @@ namespace Edvanz.Application.Services
         // ── DELETE ────────────────────────────────────────────────────
         public async Task<Result<string>> DeleteAsync(long teacherId, long triggerId)
         {
+            var isTeacherExist = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+            if (isTeacherExist is null)
+                return Result<string>.Failure(_localizer, "TeacherNotFound");
+
             var trigger = await _unitOfWork.automatedTriggerRepo.GetByTeacherIdAndTriggerId(teacherId, triggerId);
             if (trigger is null)
                 return Result<string>.Failure(_localizer, "TriggerNotFound");
@@ -154,6 +165,10 @@ namespace Edvanz.Application.Services
         // ── TOGGLE ─
         public async Task<Result<string>> ToggleAsync(long teacherId, long triggerId, bool activate)
         {
+            var isTeacherExist = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+            if (isTeacherExist is null)
+                return Result<string>.Failure(_localizer, "TeacherNotFound");
+
             var trigger = await _unitOfWork.automatedTriggerRepo.GetByTeacherIdAndTriggerId(teacherId, triggerId);
             if (trigger is null)
                 return Result<string>.Failure(_localizer, "TriggerNotFound");
@@ -196,6 +211,42 @@ namespace Edvanz.Application.Services
             }
 
             return candidates.FirstOrDefault(t => t.Scope == TriggerScope.All);
+        }
+
+        public async Task<Result<PaginatedResponse<List<TriggerDto>>>> GetPagedAsync(TriggerFiltetrReq req)
+        {
+            var isTeacherExist= await _unitOfWork.Users.GetActiveTeacherByIdAsync(req.teacherId);
+            if (isTeacherExist is null)
+                return Result<PaginatedResponse<List<TriggerDto>>>.Failure(_localizer, "TeacherNotFound");
+
+            var (triggers, count) = await _unitOfWork.automatedTriggerRepo.GetFilteredAsync(
+                req.teacherId,
+                req.eventType,
+                req.scope,
+                req.isActive,
+                req.pageSize,
+                req.page
+            );
+
+            // 🔹 Load templates
+            var templateIds = triggers.Select(t => t.MessageTemplateId).Distinct().ToList();
+            var templates = await _unitOfWork.messageTemplateRepo.GetByIdsAsync(templateIds);
+            var templateMap = templates.ToDictionary(t => t.Id, t => t.Name);
+
+            var data = triggers
+                .Select(t => MapToDto(t, templateMap))
+                .ToList();
+
+            var response = new PaginatedResponse<List<TriggerDto>>
+            {
+                data = data,
+                totalCount = count,
+                page = req.page ?? 1,
+                pageSize = req.pageSize ?? count,
+                totalPages = (int)Math.Ceiling((double)count / (req.pageSize ?? count))
+            };
+
+            return Result<PaginatedResponse<List<TriggerDto>>>.Success(response, _localizer);
         }
 
         // ── Helpers ───────────────────────────────────────────────────

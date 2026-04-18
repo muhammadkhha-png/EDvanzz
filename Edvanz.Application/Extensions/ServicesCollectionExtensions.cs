@@ -71,7 +71,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IBlockResolver, BlockResolver>();
         services.AddScoped<ISmsSender,SmsSender>();             
         services.AddScoped<IEncryptionService, EncryptionService>();
-
+        services.AddScoped<IMessageSenderJob, MessageSenderJob>();
 
         #endregion
 

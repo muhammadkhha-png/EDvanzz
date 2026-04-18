@@ -23,7 +23,7 @@ namespace Edvanz.Application.Services
             string encryptedCredentials,  
             string senderNumber)           
         {
-            var serviceUrl = _config["WhatsApp:ServiceUrl"];  // http://localhost:3000
+            var serviceUrl = _config["WhatsApp:ServiceUrl"];  
 
             try
             {

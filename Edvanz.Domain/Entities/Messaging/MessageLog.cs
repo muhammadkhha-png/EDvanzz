@@ -36,5 +36,5 @@ namespace Edvanz.Domain.Entities.Messaging
         public DateTime? DeliveredAt { get; set; }
     }
 
-    public enum MessageStatus { Pending = 1, Delivered = 2, Failed = 3 }
+    public enum MessageStatus { Pending = 1, Delivered = 2, Failed = 3 ,skipped=4}
 }

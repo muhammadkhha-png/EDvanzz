@@ -6,11 +6,13 @@ namespace Edvanz.Application.Dtos.DispatcherDtos
 {
     public class ManualSendSummaryDto
     {
-        public int TotalRecipients { get; set; }
         public int StudentCount { get; set; }
         public int ParentCount { get; set; }
-        public string PreviewContent { get; set; } = string.Empty;  
+        public int SkippedNoPhone { get; set; }
+        public int Failed { get; set; }
+        public int TotalRecipients { get; set; }
         public List<string> Channels { get; set; } = new();
+        public string? PreviewContent { get; set; }
     }
 
 }

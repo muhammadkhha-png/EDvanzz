@@ -364,3 +364,12 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# WhatsApp Web session files — DO NOT commit
+whatsapp-service/.wwebjs_auth/
+whatsapp-service/.wwebjs_cache/
+whatsapp-service/node_modules/
+
+# أو لو الـ service في الـ root
+.wwebjs_auth/
+.wwebjs_cache/
+node_modules/

@@ -21,5 +21,7 @@ namespace Edvanz.Application.IservicesContract
         // Returns the most specific matching trigger (Session > SessionGroup > All).
         Task<AutomatedTrigger?> GetMatchingTriggerAsync(
             long teacherId, TriggerEventType eventType, long? sessionId, long? sessionGroupId);
+
+        Task<Result<PaginatedResponse<List<TriggerDto>>>> GetPagedAsync(TriggerFiltetrReq req);
     }
 }

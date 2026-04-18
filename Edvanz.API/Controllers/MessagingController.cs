@@ -1,4 +1,6 @@
-﻿using Edvanz.API.Attributes;
+﻿using DocumentFormat.OpenXml.Office2010.Excel;
+using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ChannelDtos;
 using Edvanz.Application.Dtos.DispatcherDtos;
 using Edvanz.Application.Dtos.MessageLogDtos;
@@ -15,7 +17,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+    //[Authorize]
     public class MessagingController : ApiBaseController
     {
         private readonly IMessagingChannelService _channelService;
@@ -148,10 +150,10 @@ namespace Edvanz.API.Controllers
 
         #region AUTOMATED TRIGGERS
         /// GET /api/messaging/triggers
-        [HttpGet("triggers/{teacherid:long}")]
+        [HttpGet("triggers/all")]
         [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
-        public async Task<IActionResult> GetTriggers(long teacherId)
-            => ToResponse(await _triggerService.GetAllAsync(teacherId));
+        public async Task<IActionResult> GetTriggers([FromQuery]TriggerFiltetrReq req)
+            => ToResponse(await _triggerService.GetPagedAsync(req));
 
         /// GET /api/messaging/triggers/{id}
         [HttpGet("trigger/details")]
@@ -170,30 +172,54 @@ namespace Edvanz.API.Controllers
         [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> UpdateTrigger(long id, [FromBody] UpdateTriggerDto dto)
         {
+            if (dto.TriggerId != id)
+            {
+                return ToResponse(Result<string>.Failure("Route id does not match body id"));
+            }
+
             dto.TriggerId = id;
+
             return ToResponse(await _triggerService.UpdateAsync(dto.teacherId, dto));
         }
 
         /// DELETE /api/messaging/triggers/{id}
         [HttpDelete("triggers/{id:long}")]
         [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        public async Task<IActionResult> DeleteTrigger(long id,TriggerReqDto req)
+        {
+            if (req.triggerId != id)
+            {
+                return ToResponse(Result<string>.Failure("Route id does not match body id"));
+            }
+            return ToResponse(await _triggerService.DeleteAsync(req.teacherId, req.triggerId));
 
-        public async Task<IActionResult> DeleteTrigger(TriggerReqDto req)
-            => ToResponse(await _triggerService.DeleteAsync(req.teacherId, req.triggerId));
+        }
 
         /// PATCH /api/messaging/triggers/{id}/activate
         [HttpPatch("triggers/{id:long}/activate")]
         [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
 
-        public async Task<IActionResult> ActivateTrigger(TriggerReqDto req)
-            => ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, true));
+        public async Task<IActionResult> ActivateTrigger(long id ,TriggerReqDto req)
+        {
+            if (req.triggerId != id)
+            {
+                return ToResponse(Result<string>.Failure("Route id does not match body id"));
+            }
+            return ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, true));
+        }
 
         /// PATCH /api/messaging/triggers/{id}/deactivate
         [HttpPatch("triggers/{id:long}/deactivate")]
         [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
 
-        public async Task<IActionResult> DeactivateTrigger(TriggerReqDto req)
-            => ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, false));
+        public async Task<IActionResult> DeactivateTrigger(long id ,TriggerReqDto req)
+        {
+            if (req.triggerId != id)
+            {
+                return ToResponse(Result<string>.Failure("Route id does not match body id"));
+            }
+            return ToResponse(await _triggerService.ToggleAsync(req.teacherId, req.triggerId, false)); 
+        }
         #endregion
 
         #region MANUAL MESSAGING

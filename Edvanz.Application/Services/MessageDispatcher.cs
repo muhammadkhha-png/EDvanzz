@@ -21,17 +21,19 @@ namespace Edvanz.Application.Services
         private readonly IAutomatedTriggerService _triggerService;
         private readonly IBlockResolver _resolver;
         private readonly IStringLocalizer<Messages> _localizer;
+        private readonly IMessageLogService _logService;
 
         public MessageDispatcher(
             IUnitOfWork unitOfWork,
             IAutomatedTriggerService triggerService,
             IBlockResolver resolver,
-            IStringLocalizer<Messages> localizer)
+            IStringLocalizer<Messages> localizer,IMessageLogService logService)
         {
             _unitOfWork = unitOfWork;
             _triggerService = triggerService;
             _resolver = resolver;
             _localizer = localizer;
+            this._logService = logService;
         }
 
         // ── AUTOMATED DISPATCH ────────────────────────────────────────
@@ -194,44 +196,78 @@ namespace Edvanz.Application.Services
                 var resolved = _resolver.Resolve(orderedBlocks, ctx);
 
                 // ── Student phone ──────────────────────────────────────
-                if (recipientTarget is RecipientTarget.Student or RecipientTarget.Both
-      && !string.IsNullOrEmpty(student.StudentPhoneNumber))
+                if (recipientTarget is RecipientTarget.Student or RecipientTarget.Both)
                 {
-                    EnqueueOrSchedule(new MessageSendPayload
+                    if (string.IsNullOrWhiteSpace(student.StudentPhoneNumber))
                     {
-                        TeacherId = request.TeacherId,
-                        StudentId = student.Id,
-                        StudentName = ctx.StudentName,
-                        RecipientPhone = student.StudentPhoneNumber,
-                        RecipientType = RecipientTarget.Student,
-                        ResolvedContent = resolved,
-                        Channel = channel,
-                        MessageTemplateId = template.Id,
-                        IsManual = true,
-                        ScheduledSendAt = request.ScheduledSendAt // 🔥 الجديد
-                    });
+                        summary.SkippedNoPhone++;
+                        await _logService.LogMissingPhoneAsync(
+                                               request.TeacherId,
+                                                  student.Id,
+                                                  student.StudentName,
+                                                 student.StudentCode,
+                                                 RecipientTarget.Student,
+                                                 template.Id,
+                                                 channel
+                                             );
+                    }
+                    else
+                    {
+                        EnqueueOrSchedule(new MessageSendPayload
+                        {
+                            TeacherId = request.TeacherId,
+                            StudentId = student.Id,
+                            StudentName = ctx.StudentName,
+                            RecipientPhone = student.StudentPhoneNumber,
+                            RecipientType = RecipientTarget.Student,
+                            ResolvedContent = resolved,
+                            Channel = channel,
+                            MessageTemplateId = template.Id,
+                            IsManual = true,
+                            ScheduledSendAt = request.ScheduledSendAt
+                        });
 
-                    summary.StudentCount++;
+                        summary.StudentCount++;
+                    }
                 }
                 // ── Parent phone ───────────────────────────────────────
-                if (recipientTarget is RecipientTarget.Parent or RecipientTarget.Both
-          && !string.IsNullOrEmpty(student.ParentPhoneNumber))
+                if (recipientTarget is RecipientTarget.Parent or RecipientTarget.Both)
                 {
-                    EnqueueOrSchedule(new MessageSendPayload
+                    if (string.IsNullOrWhiteSpace(student.ParentPhoneNumber))
                     {
-                        TeacherId = request.TeacherId,
-                        StudentId = student.Id,
-                        StudentName = ctx.StudentName,
-                        RecipientPhone = student.ParentPhoneNumber,
-                        RecipientType = RecipientTarget.Parent,
-                        ResolvedContent = resolved,
-                        Channel = channel,
-                        MessageTemplateId = template.Id,
-                        IsManual = true,
-                        ScheduledSendAt = request.ScheduledSendAt 
-                    });
+                        summary.SkippedNoPhone++;
 
-                    summary.ParentCount++;
+
+                        await _logService.LogMissingPhoneAsync(
+                          request.TeacherId,
+                             student.Id,
+                             student.StudentName,
+                             student.StudentCode,
+                            RecipientTarget.Student,
+                            template.Id,
+                            channel
+                            
+                          
+                        );
+                    }
+                    else
+                    {
+                        EnqueueOrSchedule(new MessageSendPayload
+                        {
+                            TeacherId = request.TeacherId,
+                            StudentId = student.Id,
+                            StudentName = ctx.StudentName,
+                            RecipientPhone = student.ParentPhoneNumber,
+                            RecipientType = RecipientTarget.Parent,
+                            ResolvedContent = resolved,
+                            Channel = channel,
+                            MessageTemplateId = template.Id,
+                            IsManual = true,
+                            ScheduledSendAt = request.ScheduledSendAt
+                        });
+
+                        summary.ParentCount++;
+                    }
                 }
             }
 

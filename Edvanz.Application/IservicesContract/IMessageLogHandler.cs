@@ -5,8 +5,8 @@ using System.Text;
 
 namespace Edvanz.Application.IservicesContract
 {
-    public interface IMessageSenderJob
+    public interface IMessageLogHandler
     {
-        Task SendAsync(MessageSendPayload payload);
+       Task SaveAsync(MessageSendPayload payload, bool success, string? error);
     }
 }
