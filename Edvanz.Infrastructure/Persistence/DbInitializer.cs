@@ -95,6 +95,89 @@ namespace Edvanz.Infrastructure.Persistence
 
                 await context.SaveChangesAsync();
             }
+
+            // 4️⃣ Seed StudentCapacityPackages
+            if (!context.StudentCapacityPackages.Any())
+            {
+                var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+                var packages = new List<StudentCapacityPackage>
+    {
+        new StudentCapacityPackage
+        {
+            Name = "Up to 300",
+            MinStudents = 0,
+            MaxStudents = 300,
+            IsActive = true,
+            DisplayOrder = 1,
+            CreateAt = now,
+            MonthlyPriceEGP = 0 // will be updated by admin later
+        },
+        new StudentCapacityPackage
+        {
+            Name = "300 to 500",
+            MinStudents = 300,
+            MaxStudents = 500,
+            IsActive = true,
+            DisplayOrder = 2,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        },
+        new StudentCapacityPackage
+        {
+            Name = "500 to 800",
+            MinStudents = 500,
+            MaxStudents = 800,
+            IsActive = true,
+            DisplayOrder = 3,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        },
+        new StudentCapacityPackage
+        {
+            Name = "800 to 1200",
+            MinStudents = 800,
+            MaxStudents = 1200,
+            IsActive = true,
+            DisplayOrder = 4,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        },
+        new StudentCapacityPackage
+        {
+            Name = "1200 to 1500",
+            MinStudents = 1200,
+            MaxStudents = 1500,
+            IsActive = true,
+            DisplayOrder = 5,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        },
+        new StudentCapacityPackage
+        {
+            Name = "1500 to 3000",
+            MinStudents = 1500,
+            MaxStudents = 3000,
+            IsActive = true,
+            DisplayOrder = 6,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        },
+        new StudentCapacityPackage
+        {
+            Name = "3000+",
+            MinStudents = 3000,
+            MaxStudents = null,
+            IsActive = true,
+            DisplayOrder = 7,
+            CreateAt = now,
+            MonthlyPriceEGP = 0
+        }
+    };
+
+                context.StudentCapacityPackages.AddRange(packages);
+                await context.SaveChangesAsync();
+            }
         }
     }
 

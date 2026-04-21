@@ -89,4 +89,21 @@ public class Teacher : BaseEntity
 
     public virtual ICollection<TutorModule> OpenModules { get; set; } = new List<TutorModule>();
 
+
+    // ── Subscription Management Module navigation properties ────────
+
+    /// <summary>
+    /// All pending subscription-renewal payments initiated by this teacher.
+    /// Includes historical (Confirmed/Rejected/Expired) and in-flight (Initiated/AwaitingSuperAdminApproval).
+    /// </summary>
+    public ICollection<PendingSubscriptionPayment> PendingSubscriptionPayments { get; set; }
+        = new List<PendingSubscriptionPayment>();
+
+    /// <summary>
+    /// All subscription alert records (idempotency log) for this teacher.
+    /// </summary>
+    public ICollection<SubscriptionAlert> SubscriptionAlerts { get; set; }
+        = new List<SubscriptionAlert>();
+
+
 }

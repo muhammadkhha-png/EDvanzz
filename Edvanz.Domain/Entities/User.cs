@@ -27,4 +27,18 @@ public class User: BaseEntity
     public string? OtpCode { get; set; }
     public DateTime? OtpExpiry { get; set; }
     public virtual ICollection<UsersPermission> Permissions { get; set; } = new List<UsersPermission>();
+
+    /// <summary>
+    /// In-app notifications delivered to this user (push notifications only per D-05).
+    /// WhatsApp messages are NOT stored here — they use the Messaging module's MessageLog.
+    /// </summary>
+    public ICollection<UserNotification> Notifications { get; set; }
+        = new List<UserNotification>();
+
+    /// <summary>
+    /// Firebase FCM device tokens registered for this user.
+    /// Supports multiple devices per user (phone + tablet). EC-12.
+    /// </summary>
+    public ICollection<UserDeviceToken> DeviceTokens { get; set; }
+        = new List<UserDeviceToken>();
 }

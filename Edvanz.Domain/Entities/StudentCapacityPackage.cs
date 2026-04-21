@@ -1,4 +1,5 @@
 ﻿using Edvanz.Domain.Entities.ShareProp;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
 
@@ -36,4 +37,29 @@ public class StudentCapacityPackage : BaseEntity
 
     // Navigation
     public ICollection<Teacher> Teachers { get; set; } = new List<Teacher>();
+    // ──────────────────────────────────────────────────────────────
+    // SUBSCRIPTION PRICING (added for Subscription Management Module)
+    // ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Price of a 30-day subscription period for teachers assigned to this package, in EGP.
+    /// REQ-SUB-016: Displayed on the renewal screen.
+    /// BR-SUB-009: Snapshotted into PendingSubscriptionPayment.AmountEGP at renewal initiation.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal MonthlyPriceEGP { get; set; }
+
+    /// <summary>
+    /// UTC timestamp of the last price change on this package.
+    /// </summary>
+    public DateTime? PriceUpdatedAt { get; set; }
+
+    /// <summary>
+    /// Foreign key to the User (super admin) who last updated the price.
+    /// Null until a price is explicitly set by super admin (post-seed).
+    /// </summary>
+    [ForeignKey(nameof(PriceUpdatedByUser))]
+    public long? PriceUpdatedByUserId { get; set; }
+
+    public User? PriceUpdatedByUser { get; set; }
 }
