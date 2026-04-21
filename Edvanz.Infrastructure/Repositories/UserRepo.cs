@@ -286,24 +286,52 @@ namespace Edvanz.Infrastructure.Repositories
         // ══════════════════════════════════════════════
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<TeacherSubscription>> GetActiveSubscriptionsByTeacherIdAsync(long teacherId)
+        //public async Task<IReadOnlyList<TeacherSubscription>> GetActiveSubscriptionsByTeacherIdAsync(long teacherId)
+        //{
+        //    return await _context.Set<TeacherSubscription>()
+        //        .AsNoTracking()
+        //        .Where(s => s.TeacherId == teacherId &&
+        //            (s.SubscriptionStatus == SubscriptionStatus.Active ||
+        //             s.SubscriptionStatus == SubscriptionStatus.ExpiringSoon))
+        //        .ToListAsync();
+        //}
+        public async Task<TeacherSubscription?> GetCurrentSubscriptionByTeacherIdAsync(long teacherId)
         {
+            // Single indexed read against the filtered unique index
+            // IX_TeacherSubscriptions_Current on (TeacherId) WHERE IsCurrent = 1.
+            // Returns null if the teacher has never had a subscription OR all rows are historical.
             return await _context.Set<TeacherSubscription>()
                 .AsNoTracking()
-                .Where(s => s.TeacherId == teacherId &&
-                    (s.SubscriptionStatus == SubscriptionStatus.Active ||
-                     s.SubscriptionStatus == SubscriptionStatus.ExpiringSoon))
-                .ToListAsync();
+                .FirstOrDefaultAsync(s => s.TeacherId == teacherId && s.IsCurrent);
         }
-
+        /// <inheritdoc />
+        //public async Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync()
+        //{
+        //    return await _context.Set<TeacherSubscription>()
+        //        .AsNoTracking()
+        //        .ToListAsync();
+        //}
         /// <inheritdoc />
         public async Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync()
         {
+            // Used by the super admin dashboard's in-memory join (GetTeachersAsync).
+            // Unchanged in behavior — but the returned rows no longer have the
+            // SubscriptionStatus column. Callers derive status via
+            // SubscriptionStatusCalculator.Derive(row, DateTime.UtcNow).
             return await _context.Set<TeacherSubscription>()
                 .AsNoTracking()
                 .ToListAsync();
         }
-
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsByTeacherIdAsync(long teacherId)
+        {
+            // REQ-SUB-022: full payment history, most recent first.
+            return await _context.Set<TeacherSubscription>()
+                .AsNoTracking()
+                .Where(s => s.TeacherId == teacherId)
+                .OrderByDescending(s => s.EndDate)
+                .ToListAsync();
+        }
         // ══════════════════════════════════════════════
         // STUDENT CAPACITY PACKAGE QUERIES
         // ══════════════════════════════════════════════

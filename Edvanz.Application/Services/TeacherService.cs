@@ -1,9 +1,10 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
+using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
-using Edvanz.Application.ServiceContract;
 using Microsoft.Extensions.Localization;
 using System.Net;
 
@@ -490,29 +491,65 @@ public class TeacherService : ITeacherService
     }
 
     /// <inheritdoc />
+    //public async Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId)
+    //{
+    //    // Find the most recent active or expiring-soon subscription
+    //    var subscriptions = await _unitOfWork.Users.GetActiveSubscriptionsByTeacherIdAsync(teacherId);
+
+    //    var activeSubscription = subscriptions
+    //        .OrderByDescending(s => s.EndDate)
+    //        .FirstOrDefault();
+
+    //    if (activeSubscription is null)
+    //        return Result<TeacherSubscriptionDto?>.Success(null, _localizer, "NoActiveSubscription", HttpStatusCode.OK);
+
+    //    var dto = new TeacherSubscriptionDto
+    //    {
+    //        Id = activeSubscription.Id,
+    //        SubscriptionStatus = activeSubscription.SubscriptionStatus.ToString(),
+    //        StartDate = activeSubscription.StartDate,
+    //        EndDate = activeSubscription.EndDate,
+    //        DaysRemaining = Math.Max(0, (activeSubscription.EndDate.Date - DateTime.UtcNow.Date).Days)
+    //    };
+
+    //    return Result<TeacherSubscriptionDto?>.Success(dto, _localizer, "Success", HttpStatusCode.OK);
+    //}
+    /// <inheritdoc />
     public async Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId)
     {
-        // Find the most recent active or expiring-soon subscription
-        var subscriptions = await _unitOfWork.Users.GetActiveSubscriptionsByTeacherIdAsync(teacherId);
+        // Single-row lookup via the filtered unique index (BR-SUB-006).
+        var currentSub = await _unitOfWork.Users.GetCurrentSubscriptionByTeacherIdAsync(teacherId);
 
-        var activeSubscription = subscriptions
-            .OrderByDescending(s => s.EndDate)
-            .FirstOrDefault();
+        if (currentSub is null)
+        {
+            // No current row exists — teacher has never subscribed, or no row is IsCurrent.
+            // Middleware treats this as Expired; the endpoint returns null data
+            // with the "NoActiveSubscription" message.
+            return Result<TeacherSubscriptionDto?>.Success(
+                null, _localizer, "NoActiveSubscription", HttpStatusCode.OK);
+        }
 
-        if (activeSubscription is null)
-            return Result<TeacherSubscriptionDto?>.Success(null, _localizer, "NoActiveSubscription", HttpStatusCode.OK);
+        var now = DateTime.UtcNow;
 
+        // Derive status — the column no longer exists on the row (C-6 / D-08).
+        var derivedStatus = SubscriptionStatusCalculator.Derive(currentSub, now);
+
+        // If derived status is Expired, REQ-SUB-003 still requires returning the details
+        // so the teacher can see when their subscription ended. Return the row with
+        // Status = "Expired" — do NOT return null data here (different from the historical
+        // behavior where there was no current row at all).
         var dto = new TeacherSubscriptionDto
         {
-            Id = activeSubscription.Id,
-            SubscriptionStatus = activeSubscription.SubscriptionStatus.ToString(),
-            StartDate = activeSubscription.StartDate,
-            EndDate = activeSubscription.EndDate,
-            DaysRemaining = Math.Max(0, (activeSubscription.EndDate.Date - DateTime.UtcNow.Date).Days)
+            Id = currentSub.Id,
+            SubscriptionStatus = derivedStatus.ToString(),
+            StartDate = currentSub.StartDate,
+            EndDate = currentSub.EndDate,
+            DaysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(currentSub, now)
         };
 
         return Result<TeacherSubscriptionDto?>.Success(dto, _localizer, "Success", HttpStatusCode.OK);
     }
+
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<TeacherListItemDto>>>> GetTeachersAsync(
@@ -573,14 +610,21 @@ public class TeacherService : ITeacherService
         }
 
         // ── 4. Filter by subscription status ──────────────────────────────────
+        //if (!string.IsNullOrWhiteSpace(subscriptionStatus) &&
+        //    Enum.TryParse<SubscriptionStatus>(subscriptionStatus, true, out var parsedSubStatus))
+        //{
+        //    joined = joined
+        //        .Where(x => x.LatestSub != null && x.LatestSub.SubscriptionStatus == parsedSubStatus)
+        //        .ToList();
+        //}
         if (!string.IsNullOrWhiteSpace(subscriptionStatus) &&
             Enum.TryParse<SubscriptionStatus>(subscriptionStatus, true, out var parsedSubStatus))
         {
+            var filterNow = DateTime.UtcNow;
             joined = joined
-                .Where(x => x.LatestSub != null && x.LatestSub.SubscriptionStatus == parsedSubStatus)
+                .Where(x => SubscriptionStatusCalculator.Derive(x.LatestSub, filterNow) == parsedSubStatus)
                 .ToList();
         }
-
         // ── 5. Search — contains, case-insensitive, across all fields ─────────
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -632,6 +676,22 @@ public class TeacherService : ITeacherService
             .ToList();
 
         // ── 9. Build DTOs ──────────────────────────────────────────────────────
+        //var items = paged.Select(x => new TeacherListItemDto
+        //{
+        //    Id = x.Teacher.Id,
+        //    FullName = x.User?.FullName ?? string.Empty,
+        //    Username = x.User?.Username ?? string.Empty,
+        //    TeacherCode = x.Teacher.TeacherCode,
+        //    PhoneNumber = x.User?.PhoneNumber,
+        //    StudentCapacity = x.Teacher.StudentCapacity,
+        //    AccountStatus = x.Teacher.AccountStatus.ToString(),
+        //    IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
+        //    SubscriptionStatus = x.LatestSub?.SubscriptionStatus.ToString(),
+        //    SubscriptionEndDate = x.LatestSub?.EndDate,
+        //    CreatedAt = x.Teacher.CreateAt
+        //}).ToList();
+        // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
+        var dtoNow = DateTime.UtcNow;
         var items = paged.Select(x => new TeacherListItemDto
         {
             Id = x.Teacher.Id,
@@ -642,7 +702,10 @@ public class TeacherService : ITeacherService
             StudentCapacity = x.Teacher.StudentCapacity,
             AccountStatus = x.Teacher.AccountStatus.ToString(),
             IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
-            SubscriptionStatus = x.LatestSub?.SubscriptionStatus.ToString(),
+            // Derive status; null LatestSub → "Expired" (treated as never-subscribed).
+            SubscriptionStatus = x.LatestSub is null
+                ? null
+                : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),
             SubscriptionEndDate = x.LatestSub?.EndDate,
             CreatedAt = x.Teacher.CreateAt
         }).ToList();

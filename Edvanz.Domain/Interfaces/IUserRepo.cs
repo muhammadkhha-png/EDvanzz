@@ -219,12 +219,12 @@ namespace Edvanz.Domain.Interfaces
         /// Retrieves active or expiring-soon subscriptions for a teacher.
         /// Used by GetActiveSubscriptionAsync.
         /// </summary>
-        Task<IReadOnlyList<TeacherSubscription>> GetActiveSubscriptionsByTeacherIdAsync(long teacherId);
+        //Task<IReadOnlyList<TeacherSubscription>> GetActiveSubscriptionsByTeacherIdAsync(long teacherId);
 
         /// <summary>
         /// Retrieves all subscriptions (no filter). Used for bulk operations in GetTeachersAsync.
         /// </summary>
-        Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync();
+        //Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync();
 
         // ══════════════════════════════════════════════
         // STUDENT CAPACITY PACKAGE QUERIES
@@ -429,6 +429,43 @@ namespace Edvanz.Domain.Interfaces
         /// <param name="teacherIds">The set of Teacher IDs to load data for.</param>
         /// <returns>A container with all related data keyed by ID for O(1) lookup.</returns>
         Task<TeacherDashboardBatchData> GetTeacherDashboardDataAsync(IReadOnlyList<long> teacherIds);
+
+
+        // ══════════════════════════════════════════════
+        // TEACHER SUBSCRIPTION QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// Retrieves the teacher's CURRENT subscription row (IsCurrent = true) or null if none exists.
+        /// Replaces the pre-migration GetActiveSubscriptionsByTeacherIdAsync method.
+        ///
+        /// Status (Active / ExpiringSoon / Expired) is NOT part of the row — callers derive it
+        /// using Edvanz.Domain.Helpers.SubscriptionStatusCalculator.Derive(row, DateTime.UtcNow).
+        ///
+        /// Because the filtered unique index on (TeacherId) WHERE IsCurrent = 1 enforces
+        /// the "exactly one current per teacher" invariant (BR-SUB-006), this method
+        /// returns a single row — never a list.
+        /// </summary>
+        Task<TeacherSubscription?> GetCurrentSubscriptionByTeacherIdAsync(long teacherId);
+
+        /// <summary>
+        /// Retrieves all subscription rows for a teacher (historical + current).
+        /// Used by the payment history endpoint (REQ-SUB-022).
+        /// Ordered by EndDate DESC (most recent first).
+        /// </summary>
+        Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsByTeacherIdAsync(long teacherId);
+
+        /// <summary>
+        /// Retrieves all subscriptions across all teachers (no filter).
+        /// Used by GetTeachersAsync for the super admin dashboard in-memory join.
+        /// Retained with the same signature as before but returns rows WITHOUT the
+        /// removed SubscriptionStatus column — callers must derive status via the helper.
+        /// </summary>
+        Task<IReadOnlyList<TeacherSubscription>> GetAllSubscriptionsAsync();
+
+
+
+
 
     }
 }

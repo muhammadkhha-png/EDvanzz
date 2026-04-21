@@ -90,18 +90,40 @@ public interface ITeacherService
     /// </summary>
     /// <param name="teacherId">The Teacher's Id.</param>
     /// <returns>Result containing subscription details, or null data if no active subscription exists.</returns>
-    Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId);
+    //Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId);
 
+    /// <summary>
+    /// Returns the teacher's CURRENT subscription (the IsCurrent = true row) with a
+    /// DERIVED status (Active / ExpiringSoon / Expired).
+    ///
+    /// Status derivation (REQ-SUB-003, REQ-SUB-004):
+    ///   - No current row         → returns null data with "NoActiveSubscription" message
+    ///   - Current row, EndDate past → Status = "Expired"
+    ///   - Current row, within 5 days of EndDate → Status = "ExpiringSoon"
+    ///   - Otherwise → Status = "Active"
+    ///
+    /// Implementation note: the SubscriptionStatus column was removed from the
+    /// TeacherSubscription table (Critique C-6 / D-08). Derivation happens in-service
+    /// via <see cref="Edvanz.Domain.Helpers.SubscriptionStatusCalculator"/>.
+    /// </summary>
+    /// <param name="teacherId">The Teacher's Id.</param>
+    /// <returns>Result containing subscription details, or null data if no current subscription exists.</returns>
+    Task<Result<TeacherSubscriptionDto?>> GetActiveSubscriptionAsync(long teacherId);
     /// <summary>
     /// Retrieves a paginated list of teachers with search, sort, and filter support.
     /// REQ-ADM-026 through 028: Super Admin dashboard teacher list with
     /// searching by name/username, sorting by name/subscription/student count,
     /// and filtering by subscription status and account status.
+    ///
+    /// Filtering by subscription status accepts Active / ExpiringSoon / Expired.
+    /// Status is DERIVED at query time from the teacher's current subscription row
+    /// (IsCurrent = true) — the column was removed per Critique C-6 / D-08.
+    /// Teachers with no current row are excluded from "Active" / "ExpiringSoon" filter results
+    /// and included in "Expired" filter results.
     /// </summary>
     /// <param name="request">Pagination, search, and sort parameters.</param>
     /// <param name="accountStatus">Optional filter by account status (Active, Inactive, Suspended).</param>
-    /// <param name="subscriptionStatus">Optional filter by subscription status (Active, ExpiringSoon, Expired).</param>
-    /// <returns>Result containing paginated teacher list.</returns>
+    /// <param name="subscriptionStatus">Optional filter by derived subscription status (Active, ExpiringSoon, Expired).</param>
     Task<Result<PaginatedResponse<List<TeacherListItemDto>>>> GetTeachersAsync(
         PaginatedRequest request,
         string? accountStatus = null,

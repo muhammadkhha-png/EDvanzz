@@ -282,10 +282,32 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         #endregion
 
         #region TeacherSubscription (1:N from Teacher)
+        //modelBuilder.Entity<TeacherSubscription>(entity =>
+        //{
+        //    entity.ToTable("TeacherSubscriptions");
+
+        //    entity.HasOne(s => s.Teacher)
+        //        .WithMany(t => t.Subscriptions)
+        //        .HasForeignKey(s => s.TeacherId)
+        //        .OnDelete(DeleteBehavior.Cascade);
+
+        //    entity.HasOne(s => s.CreatedByUser)
+        //        .WithMany()
+        //        .HasForeignKey(s => s.CreatedByUserId)
+        //        .OnDelete(DeleteBehavior.SetNull);
+
+        //    // Index for subscription expiry queries (AAM-FR-08, REQ-SUB-005)
+        //    entity.HasIndex(s => new { s.TeacherId, s.EndDate })
+        //        .HasDatabaseName("IX_TeacherSubscriptions_TeacherId_EndDate");
+
+        //    entity.HasIndex(s => s.SubscriptionStatus)
+        //        .HasDatabaseName("IX_TeacherSubscriptions_Status");
+        //});
         modelBuilder.Entity<TeacherSubscription>(entity =>
         {
             entity.ToTable("TeacherSubscriptions");
 
+            // ── Relationships (unchanged) ────────────────────────────────
             entity.HasOne(s => s.Teacher)
                 .WithMany(t => t.Subscriptions)
                 .HasForeignKey(s => s.TeacherId)
@@ -296,12 +318,45 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(s => s.CreatedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Index for subscription expiry queries (AAM-FR-08, REQ-SUB-005)
+            // ── Monetary & concurrency mappings (NEW) ────────────────────
+            entity.Property(s => s.AmountPaidEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.Property(s => s.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken();
+
+            entity.Property(s => s.TransactionReference)
+                .HasMaxLength(100);
+
+            // EncryptedPaymentDetails: nvarchar(max) by default — no explicit mapping needed.
+
+            // ── Indexes ──────────────────────────────────────────────────
+
+            // (RETAINED) Subscription expiry scan index — used by the reminder dispatcher
+            // (REQ-SUB-005) and general end-date range queries.
             entity.HasIndex(s => new { s.TeacherId, s.EndDate })
                 .HasDatabaseName("IX_TeacherSubscriptions_TeacherId_EndDate");
 
-            entity.HasIndex(s => s.SubscriptionStatus)
-                .HasDatabaseName("IX_TeacherSubscriptions_Status");
+            // (NEW) End-date scan index — used by Section 9.5 Migration M1 and by the
+            // historical reporting view.
+            entity.HasIndex(s => s.EndDate)
+                .HasDatabaseName("IX_TeacherSubscriptions_EndDate");
+
+            // (NEW) FILTERED UNIQUE INDEX — enforces BR-SUB-006 at the database level.
+            // Exactly one TeacherSubscription row per teacher has IsCurrent = true.
+            // Two concurrent renewal confirmations racing to insert will collide here
+            // (the second fails with SQL 2601 unique violation), and the service's
+            // bounded retry catches and rolls back safely.
+            entity.HasIndex(s => s.TeacherId)
+                .HasFilter("[IsCurrent] = 1")
+                .IsUnique()
+                .HasDatabaseName("IX_TeacherSubscriptions_Current");
+
+            // (REMOVED — DO NOT ADD BACK)
+            //   The previous IX_TeacherSubscriptions_Status index is gone. The column
+            //   it indexed no longer exists (Critique C-6 / D-08). Queries that filtered
+            //   by status now derive status in-memory or via vw_TeacherSubscriptionStatus.
         });
         #endregion
 
