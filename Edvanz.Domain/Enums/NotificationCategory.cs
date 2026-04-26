@@ -14,5 +14,7 @@ public enum NotificationCategory : byte
     /// Subscription expiry reminder or renewal confirmation/rejection.
     /// REQ-SUB-005, REQ-SUB-020.
     /// </summary>
-    SubscriptionReminder = 1
+    SubscriptionReminder = 1,
+    RenewalConfirmed=2,
+    PaymentRejected=3
 }

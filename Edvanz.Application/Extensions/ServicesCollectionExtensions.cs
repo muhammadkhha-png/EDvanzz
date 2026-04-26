@@ -75,9 +75,28 @@ public static class ServicesCollectionExtensions
 
         #endregion
 
+        // ════════════════════════════════════════════════
+        // SUBSCRIPTION MANAGEMENT MODULE (Module 11 — v1.2)
+        // ════════════════════════════════════════════════
 
+        // Teacher-facing flow (§4.1 / §6.3 confirm pipeline / §6.4 initiate)
+        services.AddScoped<ISubscriptionService, SubscriptionService>();
 
+        // Super-admin operations (§4.4 / FR-SUB-060…064)
+        services.AddScoped<IAdminSubscriptionService, AdminSubscriptionService>();
 
+        // Reminder dispatcher + per-teacher worker (§7)
+        services.AddScoped<ISubscriptionReminderService, SubscriptionReminderService>();
+
+        // Bell-icon inbox + FCM token registration (§4.2 / FR-SUB-050…054)
+        services.AddScoped<INotificationHistoryService, NotificationHistoryService>();
+        // ── Hangfire job implementations (Phase 08) ──
+        // These are activated by Hangfire's job activator via DI. Scoped lifetime
+        // so each job execution gets a fresh DbContext.
+        services.AddScoped<ISubscriptionReminderJob, SubscriptionReminderJob>();
+        services.AddScoped<IRenewalNotificationJob, RenewalNotificationJob>();
+        services.AddScoped<IPendingPaymentRejectedNotificationJob, PendingPaymentRejectedNotificationJob>();
+       
 
         services.Configure<RequestLocalizationOptions>(options =>
         {

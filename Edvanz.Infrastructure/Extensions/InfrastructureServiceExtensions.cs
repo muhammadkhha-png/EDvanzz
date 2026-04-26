@@ -112,6 +112,7 @@ public static class InfrastructureServiceExtensions
         }
 
         services.AddScoped<ISubscriptionCacheService, RedisSubscriptionCacheService>();
-
+        services.AddScoped<SubscriptionReminderDispatcherJob>();
+        services.AddScoped<PendingPaymentExpiryJob>();
     }
 }
