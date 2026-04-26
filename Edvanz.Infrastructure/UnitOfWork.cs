@@ -80,7 +80,13 @@ namespace Edvanz.Infrastructure
         {
             return await _Context.Database.BeginTransactionAsync();
         }
-
+        /// <inheritdoc />
+        public async Task BeginTransactionAsync(System.Data.IsolationLevel isolationLevel)
+        {
+            // Same lifecycle pattern as the parameterless overload — _transaction
+            // is owned and disposed by Commit/Rollback.
+            _transaction = await _Context.Database.BeginTransactionAsync(isolationLevel);
+        }
         /// <summary>
         /// FIX BUG-1: Commits the current transaction and clears the reference.
         /// Previously _transaction was NOT set to null after commit, causing

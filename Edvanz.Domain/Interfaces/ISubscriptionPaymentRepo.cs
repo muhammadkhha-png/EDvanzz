@@ -76,4 +76,19 @@ public interface ISubscriptionPaymentRepo : IGenericRepo<PendingSubscriptionPaym
     /// Returns the number of rows transitioned to Expired.
     /// </summary>
     Task<int> ExpireStalePendingPaymentsAsync(DateTime cutoffUtc);
+    /// <summary>
+    /// Marks a tracked PendingSubscriptionPayment as Modified so EF will write its
+    /// changes on the next SaveChanges. Called by SubscriptionService when it
+    /// transitions Status / writes ResolvedByUserId / persists the encrypted
+    /// submitted-details blob. SaveChanges is NOT called here.
+    /// </summary>
+    void UpdatePending(PendingSubscriptionPayment pending);
+
+    /// <summary>
+    /// Detaches a PendingSubscriptionPayment from the change tracker. Called by
+    /// SubscriptionService.ConfirmPaymentAsync inside the §6.6 retry loop, between
+    /// a failed attempt and the re-fetch, so the second attempt starts with a clean
+    /// tracker state.
+    /// </summary>
+    void DetachPending(PendingSubscriptionPayment pending);
 }

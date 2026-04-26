@@ -96,4 +96,15 @@ public class SubscriptionPaymentRepo
                 .SetProperty(p => p.Status, PendingPaymentStatus.Expired)
                 .SetProperty(p => p.ResolvedAt, DateTime.UtcNow));
     }
+    /// <inheritdoc />
+    public void UpdatePending(PendingSubscriptionPayment pending)
+    {
+        _context.Entry(pending).State = EntityState.Modified;
+    }
+
+    /// <inheritdoc />
+    public void DetachPending(PendingSubscriptionPayment pending)
+    {
+        _context.Entry(pending).State = EntityState.Detached;
+    }
 }

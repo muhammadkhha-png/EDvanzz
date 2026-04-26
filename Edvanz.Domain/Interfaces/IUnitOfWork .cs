@@ -12,6 +12,16 @@ namespace Edvanz.Domain.Interfaces
                 where T : class where Tkey : IEquatable<Tkey>;
         Task<int> SaveChangesAsync();
         Task BeginTransactionAsync();
+        /// <summary>
+        /// Begins a database transaction at the specified isolation level.
+        /// Required by SubscriptionService.ConfirmPaymentAsync (§6.6) which needs
+        /// IsolationLevel.Serializable to safely combine pessimistic UPDLOCK reads
+        /// with the optimistic-concurrency RowVersion check on TeacherSubscription.
+        ///
+        /// Use this overload only when an isolation level stronger than the default
+        /// (READ COMMITTED) is required. Most flows use the parameterless overload.
+        /// </summary>
+        Task BeginTransactionAsync(System.Data.IsolationLevel isolationLevel);
         Task RollbackAsync();
         Task CommitAsync();
         //Task LogError(Exception ex);
@@ -116,5 +126,6 @@ namespace Edvanz.Domain.Interfaces
         /// Firebase FCM device-token registry per user.
         /// </summary>
         IUserDeviceTokenRepo UserDeviceTokensRepo { get; }
+    
     }
 }
