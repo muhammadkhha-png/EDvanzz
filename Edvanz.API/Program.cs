@@ -39,7 +39,7 @@ builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure();
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddLocalization();
 
 builder.Services.Configure<RequestLocalizationOptions>(options =>

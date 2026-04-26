@@ -45,6 +45,11 @@ namespace Edvanz.Infrastructure
         private IMessageTemplateRepo? _messageTemplateRepo;
         private IAutomatedTriggerRepo? _automatedTriggerRepo;
         private IMessageLogRepository? _messageLogRepo;
+        // Subscription Management Module (Module 11 — v1.2)
+        private ISubscriptionPaymentRepo? _subscriptionPaymentsRepo;
+        private ISubscriptionAlertRepo? _subscriptionAlertsRepo;
+        private IUserNotificationRepo? _userNotificationsRepo;
+        private IUserDeviceTokenRepo? _userDeviceTokensRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -171,6 +176,17 @@ namespace Edvanz.Infrastructure
         public IAutomatedTriggerRepo automatedTriggerRepo => _automatedTriggerRepo?? new AutomatedTriggerRepo(_Context);
 
         public IMessageLogRepository messageLogRepo => _messageLogRepo?? new MessageLogRepository(_Context);
+        public ISubscriptionPaymentRepo SubscriptionPaymentsRepo
+            => _subscriptionPaymentsRepo ??= new SubscriptionPaymentRepo(_Context);
+
+        public ISubscriptionAlertRepo SubscriptionAlertsRepo
+            => _subscriptionAlertsRepo ??= new SubscriptionAlertRepo(_Context);
+
+        public IUserNotificationRepo UserNotificationsRepo
+            => _userNotificationsRepo ??= new UserNotificationRepo(_Context);
+
+        public IUserDeviceTokenRepo UserDeviceTokensRepo
+            => _userDeviceTokensRepo ??= new UserDeviceTokenRepo(_Context);
     }
 
 

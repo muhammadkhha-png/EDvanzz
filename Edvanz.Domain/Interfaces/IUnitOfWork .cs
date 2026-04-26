@@ -90,5 +90,31 @@ namespace Edvanz.Domain.Interfaces
         IMessageTemplateRepo messageTemplateRepo { get; }
         IAutomatedTriggerRepo automatedTriggerRepo { get; }
         IMessageLogRepository messageLogRepo { get; }
+
+
+        // ══════════════════════════════════════════════
+        // SUBSCRIPTION MANAGEMENT MODULE (Module 11 — v1.2)
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// Pending subscription-renewal payments. Owns the in-flight queue between
+        /// initiate and Confirmed/Rejected/Expired terminal states.
+        /// </summary>
+        ISubscriptionPaymentRepo SubscriptionPaymentsRepo { get; }
+
+        /// <summary>
+        /// Subscription-reminder idempotency log (D-5 through D-0 alerts).
+        /// </summary>
+        ISubscriptionAlertRepo SubscriptionAlertsRepo { get; }
+
+        /// <summary>
+        /// In-app push-notification inbox per user (bell-icon feed).
+        /// </summary>
+        IUserNotificationRepo UserNotificationsRepo { get; }
+
+        /// <summary>
+        /// Firebase FCM device-token registry per user.
+        /// </summary>
+        IUserDeviceTokenRepo UserDeviceTokensRepo { get; }
     }
 }

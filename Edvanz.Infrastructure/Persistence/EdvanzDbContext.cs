@@ -76,7 +76,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<Assistant> Assistants { get; set; }
     public DbSet<LoginActivityAssistantLog> AssistantLoginActivity { get; set; }
     public DbSet<AuditTrail> AuditTrial { get; set; }
-
+    // ─── Subscription Management Module (Module 11 — v1.2) ───
+    public DbSet<PendingSubscriptionPayment> PendingSubscriptionPayments { get; set; }
+    public DbSet<SubscriptionAlert> SubscriptionAlerts { get; set; }
+    public DbSet<UserNotification> UserNotifications { get; set; }
+    public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
 
 
     //  ─── Messaging  ───
@@ -241,7 +245,20 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             entity.HasIndex(p => p.IsActive)
                 .HasDatabaseName("IX_StudentCapacityPackages_IsActive");
+            // ── Pricing fields (added for Subscription Management Module — §5.6) ──
+
+            // Money: decimal(10,2) consistent with all EGP financial columns.
+            entity.Property(p => p.MonthlyPriceEGP)
+                .HasColumnType("decimal(10,2)")
+                .HasDefaultValue(0m);
+
+            // Audit FK: keep the package row even if the admin user is removed.
+            entity.HasOne(p => p.PriceUpdatedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.PriceUpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
+
         #endregion
 
         #region TeacherConfiguration (1:1 with Teacher)
@@ -358,6 +375,141 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             //   it indexed no longer exists (Critique C-6 / D-08). Queries that filtered
             //   by status now derive status in-memory or via vw_TeacherSubscriptionStatus.
         });
+        // ════════════════════════════════════════════════
+        // SUBSCRIPTION MANAGEMENT MODULE CONFIGURATION (Module 11 — v1.2)
+        // ════════════════════════════════════════════════
+
+        #region PendingSubscriptionPayment (REQ-SUB-019, FR-SUB-035, BR-SUB-008)
+        modelBuilder.Entity<PendingSubscriptionPayment>(entity =>
+        {
+            entity.ToTable("PendingSubscriptionPayments");
+
+            // Money: decimal(10,2) consistent with all EGP financial columns in the system.
+            entity.Property(p => p.AmountEGP)
+                .HasColumnType("decimal(10,2)");
+
+            // Paymob session lookup: nvarchar(200) per §5.2.
+            entity.Property(p => p.PaymobSessionId)
+                .HasMaxLength(200);
+
+            // Manually entered tutor reference (Vodafone Cash / InstaPay tx id).
+            entity.Property(p => p.SubmittedTransactionReference)
+                .HasMaxLength(100);
+
+            // RejectionReason: nvarchar(500), surfaced to the teacher in PaymentRejected notification.
+            entity.Property(p => p.RejectionReason)
+                .HasMaxLength(500);
+
+            // EncryptedSubmittedDetails: nvarchar(max) by default — no explicit mapping needed.
+
+            // ── Relationships ──
+            // Cascade on the owning Teacher: pending payments are tenant-scoped.
+            entity.HasOne(p => p.Teacher)
+                .WithMany(t => t.PendingSubscriptionPayments)
+                .HasForeignKey(p => p.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ResolvedByUser is an audit FK — keep the row even if the admin user is removed.
+            entity.HasOne(p => p.ResolvedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── Indexes (§9.1) ──
+
+            // Admin pending-queue listing + per-teacher status lookup.
+            entity.HasIndex(p => new { p.TeacherId, p.Status })
+                .HasDatabaseName("IX_PendingSubscriptionPayments_TeacherId_Status");
+
+            // Paymob webhook lookup: incoming callback knows only the Paymob session id.
+            entity.HasIndex(p => p.PaymobSessionId)
+                .HasDatabaseName("IX_PendingSubscriptionPayments_PaymobSessionId");
+        });
+        #endregion
+
+        #region SubscriptionAlert (REQ-SUB-005, Critique C-7)
+        modelBuilder.Entity<SubscriptionAlert>(entity =>
+        {
+            entity.ToTable("SubscriptionAlerts");
+
+            // SubscriptionEndDate is part of the idempotency key — store as date (no time component).
+            entity.Property(a => a.SubscriptionEndDate)
+                .HasColumnType("date");
+
+            // ── Relationships ──
+            entity.HasOne(a => a.Teacher)
+                .WithMany(t => t.SubscriptionAlerts)
+                .HasForeignKey(a => a.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ── Idempotency index (§9.1, FR-SUB-014) ──
+            // Uniqueness is enforced at the DB so the per-teacher reminder job can race-safely
+            // INSERT and lose to a competing worker without producing duplicate notifications.
+            entity.HasIndex(a => new { a.TeacherId, a.SubscriptionEndDate, a.AlertDay })
+                .IsUnique()
+                .HasDatabaseName("IX_SubscriptionAlerts_Key");
+        });
+        #endregion
+
+        #region UserNotification (REQ-SUB-005 push records, Critique M-6)
+        modelBuilder.Entity<UserNotification>(entity =>
+        {
+            entity.ToTable("UserNotifications");
+
+            entity.Property(n => n.Title)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(n => n.Body)
+                .HasMaxLength(1000)
+                .IsRequired();
+
+            entity.Property(n => n.DeepLinkPayload)
+                .HasMaxLength(500);
+
+            // ── Relationships ──
+            entity.HasOne(n => n.User)
+                .WithMany(u => u.Notifications)
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ── Indexes (§9.1, M-6) ──
+            // Single covering index for both the bell-icon unread-count query and the
+            // paginated history list. Key order is (UserId, IsRead, SentAt DESC) — exactly
+            // the predicate shape: WHERE UserId=@u AND IsRead=0 ORDER BY SentAt DESC.
+            entity.HasIndex(n => new { n.UserId, n.IsRead, n.SentAt })
+                .IsDescending(false, false, true)
+                .HasDatabaseName("IX_UserNotifications_UserId_IsRead_SentAt");
+        });
+        #endregion
+
+        #region UserDeviceToken (REQ-SUB-005 push delivery, D-06)
+        modelBuilder.Entity<UserDeviceToken>(entity =>
+        {
+            entity.ToTable("UserDeviceTokens");
+
+            entity.Property(d => d.FcmToken)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            // ── Relationships ──
+            entity.HasOne(d => d.User)
+                .WithMany(u => u.DeviceTokens)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ── Indexes (§9.1) ──
+
+            // Upsert-on-(UserId, FcmToken): the register-fcm-token endpoint MERGEs by this key.
+            entity.HasIndex(d => new { d.UserId, d.FcmToken })
+                .IsUnique()
+                .HasDatabaseName("IX_UserDeviceTokens_UserId_FcmToken");
+
+            // Per-teacher reminder scan: filters IsActive=true tokens for a user.
+            entity.HasIndex(d => new { d.UserId, d.IsActive })
+                .HasDatabaseName("IX_UserDeviceTokens_UserId_IsActive");
+        });
+        #endregion
         #endregion
 
         // ════════════════════════════════════════════════

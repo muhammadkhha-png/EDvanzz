@@ -466,6 +466,129 @@ namespace Edvanz.Domain.Interfaces
 
 
 
+        // ══════════════════════════════════════════════
+        // SUBSCRIPTION MANAGEMENT EXTENSIONS (v1.2)
+        // ══════════════════════════════════════════════
 
+        /// <summary>
+        /// Returns a lean projection of the teacher's CURRENT subscription, intended
+        /// for the ActiveSubscriptionHandler (§8.2) and Redis cache value.
+        ///
+        /// Returns null when the teacher has never had a subscription OR all rows
+        /// are historical (IsCurrent = false). The handler treats null as Expired.
+        ///
+        /// Status (Active / ExpiringSoon / Expired) is NOT part of the projection —
+        /// the handler derives it via SubscriptionStatusCalculator at request time
+        /// (lazy evaluation per NFR-SUB-002 / C-6).
+        ///
+        /// REQ-SUB-NFR-007: This is the query backing the 30-min Redis cache.
+        /// </summary>
+        Task<CurrentSubscriptionStatusProjection?> GetCurrentSubscriptionStatusAsync(long teacherId);
+
+        /// <summary>
+        /// Loads the teacher's current TeacherSubscription row under a pessimistic
+        /// lock (WITH (UPDLOCK, HOLDLOCK)) for the duration of the enclosing transaction.
+        ///
+        /// MUST be called inside an active transaction at IsolationLevel.Serializable
+        /// (§6.6). The lock blocks any concurrent reader from selecting the same row
+        /// until the transaction commits or rolls back, eliminating the read-modify-write
+        /// race between two confirmation flows.
+        ///
+        /// Returns null when no current subscription exists (first-ever payment).
+        /// </summary>
+        Task<TeacherSubscription?> GetCurrentSubscriptionForUpdateAsync(long teacherId);
+
+        /// <summary>
+        /// Atomically flips the previous current subscription's IsCurrent flag to false
+        /// (if one was passed) and inserts a new TeacherSubscription with IsCurrent = true.
+        ///
+        /// SaveChanges is NOT called here — the caller (SubscriptionService.ConfirmPaymentAsync)
+        /// owns the transaction lifecycle and calls SaveChangesAsync explicitly so that
+        /// EF Core's optimistic-concurrency check on RowVersion runs in the right place
+        /// for the bounded retry to catch DbUpdateConcurrencyException.
+        ///
+        /// The filtered unique index IX_TeacherSubscriptions_Current is the hard guarantee:
+        /// if two transactions race past EF's check, the second INSERT fails with SQL 2601
+        /// and the service rolls back + retries.
+        /// </summary>
+        /// <param name="previousCurrent">The row whose IsCurrent flag to clear, or null if none.</param>
+        /// <param name="newSubscription">The new IsCurrent = true row to insert.</param>
+        Task FlipCurrentAndInsertNewAsync(
+            TeacherSubscription? previousCurrent,
+            TeacherSubscription newSubscription);
+
+        /// <summary>
+        /// Eligibility scan for the daily reminder dispatcher (§7.2).
+        /// Returns one row per teacher whose CURRENT subscription's EndDate falls within
+        /// the alert window (D-5 through D-0) relative to the supplied "today".
+        ///
+        /// "Today" is the dispatcher's reference date in UTC; AlertDay is computed as
+        /// (EndDate.Date - today).Days and is in {0..5}.
+        ///
+        /// Scoped to IsCurrent = true so historical rows never produce phantom alerts.
+        /// </summary>
+        Task<IReadOnlyList<UpcomingExpiryProjection>> GetTeachersWithUpcomingExpiryAsync(DateTime today);
+
+        /// <summary>
+        /// Per-teacher reminder worker query (§7.3). Loads the minimum data the worker
+        /// needs to render a localized push + WhatsApp template:
+        /// teacher Id, owning user Id, full name, phone number, and language preference.
+        ///
+        /// Returns null if the teacher does not exist or is soft-deleted.
+        /// </summary>
+        Task<TeacherReminderProjection?> GetTeacherForReminderAsync(long teacherId);
+
+        // ══════════════════════════════════════════════
+        // STUDENT CAPACITY PACKAGE PRICING (v1.2)
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// Persists a price change for a StudentCapacityPackage (super admin only).
+        /// Updates MonthlyPriceEGP, PriceUpdatedAt, and PriceUpdatedByUserId on the row.
+        /// SaveChanges is NOT called here — the caller owns the transaction.
+        /// </summary>
+        Task UpdateCapacityPackagePriceAsync(StudentCapacityPackage package);
+    }
+    // ══════════════════════════════════════════════════════════════════
+    // PROJECTIONS used by IUserRepo subscription methods.
+    // Live in the Domain layer alongside the interface (precedent:
+    // PagedAttendanceStudentRow next to IAttendanceRepo).
+    // ══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Lean projection of a teacher's CURRENT subscription for the policy handler
+    /// and Redis cache. Excludes the encrypted blob and other heavy fields.
+    /// </summary>
+    public class CurrentSubscriptionStatusProjection
+    {
+        public long SubscriptionId { get; set; }
+        public long TeacherId { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public decimal AmountPaidEGP { get; set; }
+        public long? StudentCapacityPackageId { get; set; }
+    }
+
+    /// <summary>
+    /// One row per teacher eligible for a reminder on the dispatcher run.
+    /// </summary>
+    public class UpcomingExpiryProjection
+    {
+        public long TeacherId { get; set; }
+        public DateTime SubscriptionEndDate { get; set; }
+        public int DaysUntilExpiry { get; set; }
+    }
+
+    /// <summary>
+    /// Minimum data the per-teacher reminder worker needs to render and dispatch
+    /// a localized notification across both channels.
+    /// </summary>
+    public class TeacherReminderProjection
+    {
+        public long TeacherId { get; set; }
+        public long UserId { get; set; }
+        public string FullName { get; set; } = null!;
+        public string? PhoneNumber { get; set; }
+        public string? LanguagePreference { get; set; }
     }
 }

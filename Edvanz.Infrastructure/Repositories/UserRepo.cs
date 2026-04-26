@@ -673,5 +673,123 @@ namespace Edvanz.Infrastructure.Repositories
         {
             return await  _context.Teachers.FirstOrDefaultAsync(t => t.UserId == userId && t.DeletedAt==null );
         }
+        // ══════════════════════════════════════════════
+        // SUBSCRIPTION MANAGEMENT EXTENSIONS (v1.2)
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<CurrentSubscriptionStatusProjection?> GetCurrentSubscriptionStatusAsync(long teacherId)
+        {
+            // Single indexed read against IX_TeacherSubscriptions_Current.
+            // Project to the lean DTO so the cache value stays small (<200 bytes JSON).
+            return await _context.Set<TeacherSubscription>()
+                .AsNoTracking()
+                .Where(s => s.TeacherId == teacherId && s.IsCurrent)
+                .Join(_context.Set<Teacher>(),
+                      sub => sub.TeacherId,
+                      teacher => teacher.Id,
+                      (sub, teacher) => new CurrentSubscriptionStatusProjection
+                      {
+                          SubscriptionId = sub.Id,
+                          TeacherId = sub.TeacherId,
+                          StartDate = sub.StartDate,
+                          EndDate = sub.EndDate,
+                          AmountPaidEGP = sub.AmountPaidEGP,
+                          StudentCapacityPackageId = teacher.StudentCapacityPackageId
+                      })
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<TeacherSubscription?> GetCurrentSubscriptionForUpdateAsync(long teacherId)
+        {
+            // Pessimistic lock for the confirmation transaction (§6.6).
+            // WITH (UPDLOCK, HOLDLOCK) ensures any concurrent reader/writer of the same
+            // row blocks until this transaction commits or rolls back. The lock is held
+            // for the duration of the enclosing transaction (Serializable isolation).
+            //
+            // FromSqlInterpolated parameterizes teacherId safely — never string concatenation.
+            const string sql =
+                "SELECT * FROM TeacherSubscriptions WITH (UPDLOCK, HOLDLOCK) " +
+                "WHERE TeacherId = {0} AND IsCurrent = 1";
+
+            return await _context.Set<TeacherSubscription>()
+                .FromSqlRaw(sql, teacherId)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task FlipCurrentAndInsertNewAsync(
+            TeacherSubscription? previousCurrent,
+            TeacherSubscription newSubscription)
+        {
+            if (previousCurrent is not null)
+            {
+                previousCurrent.IsCurrent = false;
+                _context.Entry(previousCurrent).State = EntityState.Modified;
+            }
+
+            await _context.Set<TeacherSubscription>().AddAsync(newSubscription);
+
+            // Caller (SubscriptionService.ConfirmPaymentAsync) is responsible for
+            // SaveChangesAsync — that's where DbUpdateConcurrencyException surfaces
+            // for the bounded retry in §6.6.
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<UpcomingExpiryProjection>> GetTeachersWithUpcomingExpiryAsync(DateTime today)
+        {
+            // Day-precision boundaries for the alert window (D-5 through D-0).
+            // We compare against EndDate's date component to avoid HH:MM drift.
+            DateTime windowStart = today.Date;                  // D-0 → EndDate >= today
+            DateTime windowEnd = today.Date.AddDays(6);         // D-5 → EndDate < today + 6 days
+
+            return await _context.Set<TeacherSubscription>()
+                .AsNoTracking()
+                .Where(s => s.IsCurrent
+                         && s.EndDate >= windowStart
+                         && s.EndDate < windowEnd)
+                .Select(s => new UpcomingExpiryProjection
+                {
+                    TeacherId = s.TeacherId,
+                    SubscriptionEndDate = s.EndDate,
+                    // SQL Server-side computation: DATEDIFF(DAY, today, s.EndDate)
+                    DaysUntilExpiry = EF.Functions.DateDiffDay(windowStart, s.EndDate)
+                })
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<TeacherReminderProjection?> GetTeacherForReminderAsync(long teacherId)
+        {
+            return await _context.Set<Teacher>()
+                .AsNoTracking()
+                .Where(t => t.Id == teacherId && t.DeletedAt == null)
+                .Join(_context.Set<User>(),
+                      teacher => teacher.UserId,
+                      user => user.Id,
+                      (teacher, user) => new TeacherReminderProjection
+                      {
+                          TeacherId = teacher.Id,
+                          UserId = user.Id,
+                          FullName = user.FullName,
+                          PhoneNumber = user.PhoneNumber,
+                          LanguagePreference = teacher.LanguagePreference
+                      })
+                .FirstOrDefaultAsync();
+        }
+
+        // ══════════════════════════════════════════════
+        // STUDENT CAPACITY PACKAGE PRICING (v1.2)
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        // FIX BUG-2: EF's Entry().State is synchronous — await Task.CompletedTask
+        // for the project's all-async convention.
+        public async Task UpdateCapacityPackagePriceAsync(StudentCapacityPackage package)
+        {
+            _context.Entry(package).State = EntityState.Modified;
+            await Task.CompletedTask;
+        }
     }
 }

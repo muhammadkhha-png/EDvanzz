@@ -780,4 +780,160 @@
   <data name="TriggerDeactivated" xml:space="preserve">
     <value>TriggerDeactivated</value>
   </data>
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- SUBSCRIPTION MANAGEMENT MODULE (Module 11 — v1.2)                -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+
+  <!-- Renewal initiate -->
+  <data name="SubscriptionRenewalInitiated" xml:space="preserve">
+    <value>Subscription renewal initiated successfully</value>
+  </data>
+  <data name="InvalidPaymentMethod" xml:space="preserve">
+    <value>The selected payment method is not supported. Please choose Vodafone Cash or InstaPay</value>
+  </data>
+  <data name="InvalidPaymentChannel" xml:space="preserve">
+    <value>The selected payment channel is invalid</value>
+  </data>
+  <data name="SuperAdminMethodNotAllowed" xml:space="preserve">
+    <value>This payment method is reserved for administrative use and cannot be selected by tutors</value>
+  </data>
+  <data name="PendingPaymentAlreadyInFlight" xml:space="preserve">
+    <value>You already have a renewal payment in progress. Please wait for it to complete or cancel before starting a new one</value>
+  </data>
+  <data name="CapacityPackageNotAssigned" xml:space="preserve">
+    <value>No subscription package is assigned to your account. Please contact support</value>
+  </data>
+  <data name="CapacityPackagePriceNotSet" xml:space="preserve">
+    <value>The subscription price for your package has not been configured yet. Please contact support</value>
+  </data>
+
+  <!-- Manual submit -->
+  <data name="ManualSubmissionRecorded" xml:space="preserve">
+    <value>Your payment details were submitted. Awaiting administrator approval</value>
+  </data>
+  <data name="PendingPaymentNotFound" xml:space="preserve">
+    <value>The pending payment was not found</value>
+  </data>
+  <data name="PendingPaymentNotInInitiated" xml:space="preserve">
+    <value>This payment is no longer awaiting your submission</value>
+  </data>
+  <data name="TransactionReferenceRequired" xml:space="preserve">
+    <value>Please enter the transaction reference from your payment provider</value>
+  </data>
+  <data name="PaymentPhoneRequired" xml:space="preserve">
+    <value>Please enter the phone number you used to send the payment</value>
+  </data>
+
+  <!-- Confirmation flow -->
+  <data name="PaymentConfirmed" xml:space="preserve">
+    <value>Payment confirmed. Your subscription has been renewed</value>
+  </data>
+  <data name="PaymentAlreadyConfirmed" xml:space="preserve">
+    <value>This payment has already been confirmed</value>
+  </data>
+  <data name="ConcurrentRenewalDetected" xml:space="preserve">
+    <value>A concurrent renewal was detected. Please refresh and try again</value>
+  </data>
+
+  <!-- Admin pending queue -->
+  <data name="PendingPaymentApproved" xml:space="preserve">
+    <value>Payment approved successfully</value>
+  </data>
+  <data name="PendingPaymentRejected" xml:space="preserve">
+    <value>Payment rejected and the tutor has been notified</value>
+  </data>
+  <data name="PendingPaymentNotAwaitingApproval" xml:space="preserve">
+    <value>This payment is not awaiting administrator approval</value>
+  </data>
+  <data name="DuplicatePaymentDetected" xml:space="preserve">
+    <value>Duplicate payment detected — the tutor has an active subscription created in the last 24 hours. Verify before approving</value>
+  </data>
+  <data name="RejectionReasonRequired" xml:space="preserve">
+    <value>Please provide a reason for rejecting this payment</value>
+  </data>
+
+  <!-- Admin manual overrides -->
+  <data name="SubscriptionActivated" xml:space="preserve">
+    <value>Subscription activated successfully</value>
+  </data>
+  <data name="SubscriptionExtended" xml:space="preserve">
+    <value>Subscription extended successfully</value>
+  </data>
+  <data name="SubscriptionEndDateUpdated" xml:space="preserve">
+    <value>Subscription end date updated successfully</value>
+  </data>
+  <data name="SubscriptionNotFound" xml:space="preserve">
+    <value>Subscription not found</value>
+  </data>
+  <data name="ExtensionDaysMustBePositive" xml:space="preserve">
+    <value>Extension days must be a positive number</value>
+  </data>
+  <data name="EndDateMustBeAfterStart" xml:space="preserve">
+    <value>End date must be after the subscription start date</value>
+  </data>
+  <data name="PackagePriceUpdated" xml:space="preserve">
+    <value>Package price updated successfully</value>
+  </data>
+  <data name="PackageNotFound" xml:space="preserve">
+    <value>Capacity package not found</value>
+  </data>
+  <data name="PriceMustBeNonNegative" xml:space="preserve">
+    <value>Price must be zero or a positive value</value>
+  </data>
+
+  <!-- Notifications inbox -->
+  <data name="NotificationNotFound" xml:space="preserve">
+    <value>Notification not found</value>
+  </data>
+  <data name="NotificationMarkedRead" xml:space="preserve">
+    <value>Notification marked as read</value>
+  </data>
+  <data name="NotificationsAllMarkedRead" xml:space="preserve">
+    <value>All notifications marked as read</value>
+  </data>
+  <data name="FcmTokenRegistered" xml:space="preserve">
+    <value>Device registered for push notifications</value>
+  </data>
+  <data name="FcmTokenRequired" xml:space="preserve">
+    <value>Device token is required</value>
+  </data>
+
+  <!-- Reminder &amp; confirmation templates (M-8 — collapsed key set) -->
+  <data name="SubscriptionReminderTitle" xml:space="preserve">
+    <value>Subscription expiry reminder</value>
+  </data>
+  <data name="SubscriptionReminderBodyDaysRemaining" xml:space="preserve">
+    <value>{0} days remain until your subscription expires on {1}. Renew now to avoid interruption</value>
+  </data>
+  <data name="SubscriptionReminderBodyExpiresToday" xml:space="preserve">
+    <value>Your subscription expires today. Renew now to restore access</value>
+  </data>
+  <data name="RenewalConfirmationTitle" xml:space="preserve">
+    <value>Subscription renewed</value>
+  </data>
+  <data name="RenewalConfirmationBody" xml:space="preserve">
+    <value>Your subscription is active until {0}. Full access has been restored</value>
+  </data>
+  <data name="PaymentRejectedTitle" xml:space="preserve">
+    <value>Payment rejected</value>
+  </data>
+  <data name="PaymentRejectedBody" xml:space="preserve">
+    <value>Your renewal payment was rejected. Reason: {0}. Please submit a new payment to continue</value>
+  </data>
+
+  <!-- Manual-pay instructions -->
+  <data name="ManualPayInstructionsVodafoneCash" xml:space="preserve">
+    <value>Send {0} EGP from your Vodafone Cash wallet to {1}, then submit the transaction reference here</value>
+  </data>
+  <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
+    <value>Send {0} EGP via InstaPay to {1}, then submit the transaction reference here</value>
+  </data>
+
+  <!-- Webhook -->
+  <data name="WebhookSignatureInvalid" xml:space="preserve">
+    <value>Webhook signature verification failed</value>
+  </data>
+  <data name="PaymobNotConfigured" xml:space="preserve">
+    <value>Online payment is not configured. Please use the manual payment flow</value>
+  </data>
 </root>

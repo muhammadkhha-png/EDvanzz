@@ -780,4 +780,160 @@
   <data name="TriggerDeactivated" xml:space="preserve">
     <value>تم إلغاء التفعيل</value>
   </data>
+  <!-- ════════════════════════════════════════════════════════════════ -->
+  <!-- وحدة إدارة الاشتراكات (Module 11 — v1.2)                          -->
+  <!-- ════════════════════════════════════════════════════════════════ -->
+
+  <!-- بدء التجديد -->
+  <data name="SubscriptionRenewalInitiated" xml:space="preserve">
+    <value>تم بدء عملية تجديد الاشتراك بنجاح</value>
+  </data>
+  <data name="InvalidPaymentMethod" xml:space="preserve">
+    <value>طريقة الدفع اللي اخترتها مش متاحة. اختار فودافون كاش أو إنستاباي</value>
+  </data>
+  <data name="InvalidPaymentChannel" xml:space="preserve">
+    <value>قناة الدفع المختارة غير صحيحة</value>
+  </data>
+  <data name="SuperAdminMethodNotAllowed" xml:space="preserve">
+    <value>طريقة الدفع دي مخصصة للإدارة فقط ومينفعش تختارها</value>
+  </data>
+  <data name="PendingPaymentAlreadyInFlight" xml:space="preserve">
+    <value>عندك طلب تجديد جاري بالفعل. استنى لحد ما يخلص قبل ما تبدأ واحد جديد</value>
+  </data>
+  <data name="CapacityPackageNotAssigned" xml:space="preserve">
+    <value>مفيش باقة اشتراك محددة لحسابك. من فضلك تواصل مع الدعم</value>
+  </data>
+  <data name="CapacityPackagePriceNotSet" xml:space="preserve">
+    <value>سعر الاشتراك للباقة بتاعتك لسه ما اتحددش. من فضلك تواصل مع الدعم</value>
+  </data>
+
+  <!-- الإرسال اليدوي -->
+  <data name="ManualSubmissionRecorded" xml:space="preserve">
+    <value>تم تسجيل بيانات الدفع. في انتظار موافقة الإدارة</value>
+  </data>
+  <data name="PendingPaymentNotFound" xml:space="preserve">
+    <value>طلب الدفع مش موجود</value>
+  </data>
+  <data name="PendingPaymentNotInInitiated" xml:space="preserve">
+    <value>الدفعة دي مش في انتظار إرسال البيانات منك</value>
+  </data>
+  <data name="TransactionReferenceRequired" xml:space="preserve">
+    <value>من فضلك دخّل رقم العملية اللي ظهرلك من مزود الخدمة</value>
+  </data>
+  <data name="PaymentPhoneRequired" xml:space="preserve">
+    <value>من فضلك دخّل رقم الموبايل اللي بعت منه التحويل</value>
+  </data>
+
+  <!-- التأكيد -->
+  <data name="PaymentConfirmed" xml:space="preserve">
+    <value>تم تأكيد الدفع وتجديد اشتراكك</value>
+  </data>
+  <data name="PaymentAlreadyConfirmed" xml:space="preserve">
+    <value>الدفعة دي اتأكدت قبل كدا</value>
+  </data>
+  <data name="ConcurrentRenewalDetected" xml:space="preserve">
+    <value>حصل تعارض في التجديد. حدّث الصفحة وحاول تاني</value>
+  </data>
+
+  <!-- قائمة طلبات الإدارة -->
+  <data name="PendingPaymentApproved" xml:space="preserve">
+    <value>تم اعتماد الدفعة بنجاح</value>
+  </data>
+  <data name="PendingPaymentRejected" xml:space="preserve">
+    <value>تم رفض الدفعة وإبلاغ المعلم</value>
+  </data>
+  <data name="PendingPaymentNotAwaitingApproval" xml:space="preserve">
+    <value>الدفعة دي مش في انتظار موافقة الإدارة</value>
+  </data>
+  <data name="DuplicatePaymentDetected" xml:space="preserve">
+    <value>تنبيه: المعلم عنده اشتراك نشط اتعمل في آخر ٢٤ ساعة. راجع قبل الموافقة</value>
+  </data>
+  <data name="RejectionReasonRequired" xml:space="preserve">
+    <value>من فضلك اكتب سبب رفض الدفعة</value>
+  </data>
+
+  <!-- التعديلات اليدوية للإدارة -->
+  <data name="SubscriptionActivated" xml:space="preserve">
+    <value>تم تفعيل الاشتراك بنجاح</value>
+  </data>
+  <data name="SubscriptionExtended" xml:space="preserve">
+    <value>تم تمديد الاشتراك بنجاح</value>
+  </data>
+  <data name="SubscriptionEndDateUpdated" xml:space="preserve">
+    <value>تم تحديث تاريخ انتهاء الاشتراك بنجاح</value>
+  </data>
+  <data name="SubscriptionNotFound" xml:space="preserve">
+    <value>الاشتراك مش موجود</value>
+  </data>
+  <data name="ExtensionDaysMustBePositive" xml:space="preserve">
+    <value>عدد أيام التمديد لازم يكون رقم موجب</value>
+  </data>
+  <data name="EndDateMustBeAfterStart" xml:space="preserve">
+    <value>تاريخ الانتهاء لازم يكون بعد تاريخ البداية</value>
+  </data>
+  <data name="PackagePriceUpdated" xml:space="preserve">
+    <value>تم تحديث سعر الباقة بنجاح</value>
+  </data>
+  <data name="PackageNotFound" xml:space="preserve">
+    <value>الباقة مش موجودة</value>
+  </data>
+  <data name="PriceMustBeNonNegative" xml:space="preserve">
+    <value>السعر لازم يكون صفر أو قيمة موجبة</value>
+  </data>
+
+  <!-- صندوق الإشعارات -->
+  <data name="NotificationNotFound" xml:space="preserve">
+    <value>الإشعار مش موجود</value>
+  </data>
+  <data name="NotificationMarkedRead" xml:space="preserve">
+    <value>تم تعليم الإشعار كمقروء</value>
+  </data>
+  <data name="NotificationsAllMarkedRead" xml:space="preserve">
+    <value>تم تعليم كل الإشعارات كمقروءة</value>
+  </data>
+  <data name="FcmTokenRegistered" xml:space="preserve">
+    <value>تم تسجيل الجهاز للإشعارات الفورية</value>
+  </data>
+  <data name="FcmTokenRequired" xml:space="preserve">
+    <value>توكن الجهاز مطلوب</value>
+  </data>
+
+  <!-- قوالب التذكير والتأكيد (M-8) -->
+  <data name="SubscriptionReminderTitle" xml:space="preserve">
+    <value>تذكير بانتهاء الاشتراك</value>
+  </data>
+  <data name="SubscriptionReminderBodyDaysRemaining" xml:space="preserve">
+    <value>باقي {0} يوم على انتهاء اشتراكك في {1}. جدّد دلوقتي عشان متفقدش الخدمة</value>
+  </data>
+  <data name="SubscriptionReminderBodyExpiresToday" xml:space="preserve">
+    <value>اشتراكك بينتهي النهاردة. جدّد دلوقتي عشان ترجّع الخدمة</value>
+  </data>
+  <data name="RenewalConfirmationTitle" xml:space="preserve">
+    <value>تم تجديد الاشتراك</value>
+  </data>
+  <data name="RenewalConfirmationBody" xml:space="preserve">
+    <value>اشتراكك شغال لحد {0}. رجعت كل المميزات بالكامل</value>
+  </data>
+  <data name="PaymentRejectedTitle" xml:space="preserve">
+    <value>تم رفض الدفعة</value>
+  </data>
+  <data name="PaymentRejectedBody" xml:space="preserve">
+    <value>دفعة التجديد بتاعتك اترفضت. السبب: {0}. ابعت دفعة جديدة عشان تكمل</value>
+  </data>
+
+  <!-- تعليمات الدفع اليدوي -->
+  <data name="ManualPayInstructionsVodafoneCash" xml:space="preserve">
+    <value>ابعت {0} جنيه من محفظة فودافون كاش لـ {1}، وبعدين دخّل رقم العملية هنا</value>
+  </data>
+  <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
+    <value>ابعت {0} جنيه عبر إنستاباي لـ {1}، وبعدين دخّل رقم العملية هنا</value>
+  </data>
+
+  <!-- Webhook -->
+  <data name="WebhookSignatureInvalid" xml:space="preserve">
+    <value>فشل التحقق من توقيع الـ webhook</value>
+  </data>
+  <data name="PaymobNotConfigured" xml:space="preserve">
+    <value>الدفع الإلكتروني مش متاح حاليًا. استخدم الدفع اليدوي</value>
+  </data>
 </root>
