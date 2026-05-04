@@ -50,6 +50,9 @@ namespace Edvanz.Infrastructure
         private ISubscriptionAlertRepo? _subscriptionAlertsRepo;
         private IUserNotificationRepo? _userNotificationsRepo;
         private IUserDeviceTokenRepo? _userDeviceTokensRepo;
+        // Exam & Homework Module repo (Module 6: templates, occurrences, obligations,
+        // audit logs, deletion logs, tracking and grade-entry views, reports)
+        private IExamHomeworkRepo? _examHomeworkRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -193,6 +196,14 @@ namespace Edvanz.Infrastructure
 
         public IUserDeviceTokenRepo UserDeviceTokensRepo
             => _userDeviceTokensRepo ??= new UserDeviceTokenRepo(_Context);
+        /// <summary>
+        /// Exam &amp; Homework Module repo (Module 6: assignment templates, scopes,
+        /// occurrences, student obligations, audit logs, deletion logs, tracking views,
+        /// grade entry views, barcode-scan idempotent updates, and all assignment reports).
+        /// </summary>
+        public IExamHomeworkRepo ExamHomeworkRepo
+            => _examHomeworkRepo ??= new ExamHomeworkRepo(_Context);
+
     }
 
 

@@ -2,6 +2,7 @@
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
+using FluentAssertions.Execution;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -89,8 +90,46 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<MessageBlock> MessageBlocks => Set<MessageBlock>();
     public DbSet<AutomatedTrigger> AutomatedTriggers => Set<AutomatedTrigger>();
     public DbSet<MessageLog> MessageLogs => Set<MessageLog>();
-   
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // REQUIRED DbSet<> ADDITIONS
+    // ════════════════════════════════════════════════════════════════════════════
+    // Add the following six properties to the EdvanzDbContext class body alongside
+    // the existing DbSet declarations (e.g., near the other module DbSets):
+    // ════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — assignment configuration templates.
+    /// </summary>
+    public DbSet<AssignmentTemplate> AssignmentTemplates => Set<AssignmentTemplate>();
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — targeting rules for assignment templates.
+    /// </summary>
+    public DbSet<AssignmentScope> AssignmentScopes => Set<AssignmentScope>();
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — materialized assignment instances per due date.
+    /// </summary>
+    public DbSet<AssignmentOccurrence> AssignmentOccurrences => Set<AssignmentOccurrence>();
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — per-student state on each assignment occurrence.
+    /// Hot table backing the Assignment Tracking View and Grade Entry View.
+    /// </summary>
+    public DbSet<StudentAssignmentObligation> StudentAssignmentObligations
+        => Set<StudentAssignmentObligation>();
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — append-only audit trail of obligation changes.
+    /// </summary>
+    public DbSet<StudentObligationAuditLog> StudentObligationAuditLogs
+        => Set<StudentObligationAuditLog>();
+
+    /// <summary>
+    /// Exam &amp; Homework Module (Module 6) — JSON-snapshot record of deleted/stopped templates.
+    /// </summary>
+    public DbSet<AssignmentDeletionLog> AssignmentDeletionLogs => Set<AssignmentDeletionLog>();
 
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -1719,6 +1758,459 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         .HasIndex(t => new { t.TeacherId, t.Name }).IsUnique()
         .HasDatabaseName("IX_MessageTemplate_TeacherId_Name");
 
+        #endregion
+
+
+
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// EXAM & HOMEWORK MODULE CONFIGURATION (Module 6)
+// ════════════════════════════════════════════════════════════════════════════
+
+
+
+
+        // ════════════════════════════════════════════════
+        // EXAM & HOMEWORK MODULE CONFIGURATION (Module 6)
+        // ════════════════════════════════════════════════
+
+        #region AssignmentTemplate (REQ-EXH-001 through 013, 020/021, 034)
+modelBuilder.Entity<AssignmentTemplate>(entity =>
+{
+    entity.ToTable("AssignmentTemplates");
+
+    // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+    entity.Property(t => t.Name)
+        .HasMaxLength(200)
+        .IsRequired();
+
+    entity.Property(t => t.NameAr)
+        .HasMaxLength(200)
+        .IsRequired();
+
+    entity.Property(t => t.Notes)
+        .HasMaxLength(2000);
+
+    entity.Property(t => t.AssignmentType)
+        .IsRequired();
+
+    entity.Property(t => t.RecurrencePattern)
+        .IsRequired()
+        .HasDefaultValue(RecurrencePattern.OneTime);
+
+    entity.Property(t => t.RecurrenceEndDate)
+        .HasColumnType("date");
+
+    entity.Property(t => t.IsRecurring)
+        .HasDefaultValue(false);
+
+    entity.Property(t => t.IsRecurrenceStopped)
+        .HasDefaultValue(false);
+
+    // Grade fields — decimal(8,2) accommodates grades up to 999999.99
+    entity.Property(t => t.MaxGrade)
+        .HasColumnType("decimal(8,2)");
+
+    entity.Property(t => t.PassingThreshold)
+        .HasColumnType("decimal(8,2)");
+
+    entity.Property(t => t.UpdatedAt)
+        .HasColumnType("datetime2(0)")
+        .IsRequired();
+
+    entity.Property(t => t.RowVersion)
+        .IsRowVersion()
+        .IsConcurrencyToken();
+
+    // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+    // Teacher FK: cascade — deleting a teacher deletes their templates.
+    entity.HasOne(t => t.Teacher)
+        .WithMany()
+        .HasForeignKey(t => t.TeacherId)
+        .OnDelete(DeleteBehavior.Cascade);
+
+    // CreatedByUser: audit FK — keep the row even if the creator is removed.
+    entity.HasOne(t => t.CreatedByUser)
+        .WithMany()
+        .HasForeignKey(t => t.CreatedByUserId)
+        .OnDelete(DeleteBehavior.Restrict);
+
+    // ── INDEXES ───────────────────────────────────────────────────────
+
+    // (REQ-EXH-033) Assignment Overview list — tenant-scoped, filterable by type and recurrence.
+    // Section 7.2 index #6.
+    entity.HasIndex(t => new { t.TeacherId, t.AssignmentType, t.IsRecurring, t.CreateAt })
+        .IsDescending(false, false, false, true)
+        .IncludeProperties(t => new { t.Name, t.NameAr })
+        .HasDatabaseName("IX_AssignmentTemplates_TeacherList");
+
+    // Recurrence scheduler scan: which templates need new occurrences generated today?
+    entity.HasIndex(t => new { t.IsRecurring, t.IsRecurrenceStopped, t.RecurrenceEndDate })
+        .HasFilter("[IsRecurring] = 1 AND [IsRecurrenceStopped] = 0")
+        .HasDatabaseName("IX_AssignmentTemplates_RecurrenceScheduler");
+});
+        #endregion
+
+        #region AssignmentScope (REQ-EXH-002 through 003, 035)
+        modelBuilder.Entity<AssignmentScope>(entity =>
+        {
+            entity.ToTable("AssignmentScopes");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            entity.Property(s => s.ScopeType)
+                .IsRequired();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+            // Template FK: cascade — scope rows die with their template.
+            entity.HasOne(s => s.Template)
+                .WithMany(t => t.Scopes)
+                .HasForeignKey(s => s.TemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Teacher FK: Restrict — Teacher → Template → Scope already cascades; this
+            // FK exists only for the denormalized TeacherId. NoAction avoids the
+            // multiple-cascade-paths SQL Server restriction.
+            entity.HasOne(s => s.Teacher)
+                .WithMany()
+                .HasForeignKey(s => s.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // TeacherStudent FK: SetNull — if a student is purged, their scope row
+            // becomes orphaned but the parent template/occurrence chain survives.
+            // Service layer detects null targets and skips them at occurrence generation.
+            entity.HasOne(s => s.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(s => s.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Session FK: SetNull — same reasoning. Session deletion is hard per BR-SES-004,
+            // but a stale scope row is harmless because occurrences are already materialized.
+            entity.HasOne(s => s.Session)
+                .WithMany()
+                .HasForeignKey(s => s.SessionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // SessionGroup FK: SetNull.
+            entity.HasOne(s => s.SessionGroup)
+                .WithMany()
+                .HasForeignKey(s => s.SessionGroupId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── CHECK CONSTRAINT ──────────────────────────────────────────────
+            //
+            // Enforces "exactly one of TeacherStudentId / SessionId / SessionGroupId is non-null"
+            // and that the populated FK matches ScopeType. This is the database-level
+            // safety net for the polymorphic-resolution pattern (design issue 3.4).
+            //
+            // ScopeType values: 0 = IndividualStudent, 1 = Session, 2 = SessionGroup.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_AssignmentScopes_ExactlyOneTarget",
+                @"(
+            CASE WHEN [TeacherStudentId] IS NULL THEN 0 ELSE 1 END
+          + CASE WHEN [SessionId]        IS NULL THEN 0 ELSE 1 END
+          + CASE WHEN [SessionGroupId]   IS NULL THEN 0 ELSE 1 END
+        ) = 1
+        AND (
+            ([ScopeType] = 0 AND [TeacherStudentId] IS NOT NULL)
+         OR ([ScopeType] = 1 AND [SessionId]        IS NOT NULL)
+         OR ([ScopeType] = 2 AND [SessionGroupId]   IS NOT NULL)
+        )"));
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // (Section 7.2 index #8) Scope-to-template lookup at occurrence generation.
+            entity.HasIndex(s => new { s.TemplateId, s.ScopeType })
+                .IncludeProperties(s => new { s.TeacherStudentId, s.SessionId, s.SessionGroupId })
+                .HasDatabaseName("IX_AssignmentScopes_Template");
+
+            // Reverse-lookup indexes for "is this student/session/group used in any template?"
+            // Each is filtered to skip the null rows — keeps the indexes small.
+            entity.HasIndex(s => s.TeacherStudentId)
+                .HasFilter("[TeacherStudentId] IS NOT NULL")
+                .HasDatabaseName("IX_AssignmentScopes_TeacherStudentId");
+
+            entity.HasIndex(s => s.SessionId)
+                .HasFilter("[SessionId] IS NOT NULL")
+                .HasDatabaseName("IX_AssignmentScopes_SessionId");
+
+            entity.HasIndex(s => s.SessionGroupId)
+                .HasFilter("[SessionGroupId] IS NOT NULL")
+                .HasDatabaseName("IX_AssignmentScopes_SessionGroupId");
+        });
+        #endregion
+
+        #region AssignmentOccurrence (REQ-EXH-005, 007, 011, 046)
+        modelBuilder.Entity<AssignmentOccurrence>(entity =>
+        {
+            entity.ToTable("AssignmentOccurrences");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            entity.Property(o => o.DueDate)
+                .HasColumnType("date")
+                .IsRequired();
+
+            entity.Property(o => o.OccurrenceNumber)
+                .IsRequired();
+
+            entity.Property(o => o.Status)
+                .IsRequired()
+                .HasDefaultValue(AssignmentOccurrenceStatus.Pending);
+
+            entity.Property(o => o.MaxGradeSnapshot)
+                .HasColumnType("decimal(8,2)");
+
+            entity.Property(o => o.PassingThresholdSnapshot)
+                .HasColumnType("decimal(8,2)");
+
+            entity.Property(o => o.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+            // Template FK: cascade — occurrence dies with template (REQ-EXH-037).
+            entity.HasOne(o => o.Template)
+                .WithMany(t => t.Occurrences)
+                .HasForeignKey(o => o.TemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Teacher FK: NoAction — Teacher → Template → Occurrence already cascades;
+            // this FK exists only for the denormalized TeacherId.
+            entity.HasOne(o => o.Teacher)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // Unique: one occurrence per (template, OccurrenceNumber).
+            entity.HasIndex(o => new { o.TemplateId, o.OccurrenceNumber })
+                .IsUnique()
+                .HasDatabaseName("UX_AssignmentOccurrences_Template_OccurrenceNumber");
+
+            // (Section 7.2 index #7) Occurrence by date — drives REQ-EXH-046 reports.
+            entity.HasIndex(o => new { o.TeacherId, o.DueDate, o.TemplateId })
+                .IncludeProperties(o => new { o.Status, o.OccurrenceNumber })
+                .HasDatabaseName("IX_AssignmentOccurrences_DueDate");
+
+            // Status filter for grade-entry workflows: which occurrences are still open?
+            entity.HasIndex(o => new { o.TeacherId, o.Status })
+                .HasDatabaseName("IX_AssignmentOccurrences_TeacherId_Status");
+        });
+        #endregion
+
+        #region StudentAssignmentObligation (REQ-EXH-007, 016/017/019, 026, 030/031/032, NFR-001/002)
+        modelBuilder.Entity<StudentAssignmentObligation>(entity =>
+        {
+            entity.ToTable("StudentAssignmentObligations");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            entity.Property(o => o.Status)
+                .IsRequired()
+                .HasDefaultValue(ObligationStatus.Pending);
+
+            entity.Property(o => o.GradeValue)
+                .HasColumnType("decimal(8,2)");
+
+            entity.Property(o => o.IsGradeEntered)
+                .HasDefaultValue(false);
+
+            entity.Property(o => o.MarkedByScan)
+                .HasDefaultValue(false);
+
+            entity.Property(o => o.UpdatedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            entity.Property(o => o.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+            // Occurrence FK: cascade — obligation dies with occurrence (REQ-EXH-037).
+            entity.HasOne(o => o.Occurrence)
+                .WithMany(occ => occ.Obligations)
+                .HasForeignKey(o => o.OccurrenceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // TeacherStudent FK: Restrict — student deletion does NOT auto-delete obligations.
+            // Service layer must explicitly remove obligations for a student being purged
+            // (consistent with how the codebase handles student purge in other modules
+            // via NullifyStudentReferencesOnRecordsAsync-style methods).
+            entity.HasOne(o => o.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherStudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Teacher FK: NoAction — denormalized only; cascade flows through the occurrence chain.
+            entity.HasOne(o => o.Teacher)
+                .WithMany()
+                .HasForeignKey(o => o.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // LastUpdatedByUser: audit FK — SetNull keeps the row if the user is removed.
+            entity.HasOne(o => o.LastUpdatedByUser)
+                .WithMany()
+                .HasForeignKey(o => o.LastUpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // (Section 7.2 index #5) UNIQUE SAFETY NET — one obligation per (occurrence, student).
+            // REQ-EXH-003: write-time dedup safety net. A service-layer bug inserting a duplicate
+            // hits SQL 2601 unique violation here instead of silently corrupting the tracking view.
+            // Also serves the "does this student already have an obligation" lookup for REQ-EXH-035.
+            entity.HasIndex(o => new { o.OccurrenceId, o.TeacherStudentId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentAssignmentObligations_Occurrence_Student");
+
+            // (Section 7.2 index #1) Tracking view — REQ-EXH-030. Tenant-leading covering index.
+            // Drives the < 2-second NFR (REQ-EXH-NFR-001) at 50K students.
+            entity.HasIndex(o => new { o.TeacherId, o.OccurrenceId, o.Status })
+                .IncludeProperties(o => new { o.TeacherStudentId, o.GradeValue, o.IsGradeEntered, o.UpdatedAt })
+                .HasDatabaseName("IX_StudentAssignmentObligations_Tracking");
+
+            // (Section 7.2 index #2) Student history — REQ-EXH-040.
+            entity.HasIndex(o => new { o.TeacherId, o.TeacherStudentId, o.CreateAt })
+                .IsDescending(false, false, true)
+                .IncludeProperties(o => new { o.OccurrenceId, o.Status, o.GradeValue, o.IsGradeEntered })
+                .HasDatabaseName("IX_StudentAssignmentObligations_StudentHistory");
+
+            // (Section 7.2 index #3) Absence reports — REQ-EXH-041, 042. Filtered to absent states.
+            // Status values: 2 = NotDone, 5 = DidNotAttend.
+            entity.HasIndex(o => new { o.TeacherId, o.TeacherStudentId, o.OccurrenceId })
+                .IncludeProperties(o => new { o.Status })
+                .HasFilter("[Status] IN (2, 5)")
+                .HasDatabaseName("IX_StudentAssignmentObligations_Absence");
+
+            // (Section 7.2 index #4) Grade Entry View — REQ-EXH-026-A. Filtered to grade-pending states.
+            // Status values: 3 = Attended (exam, grade pending), 6 = DoneWithoutGrade (graded HW, grade pending).
+            entity.HasIndex(o => new { o.TeacherId, o.OccurrenceId })
+                .IncludeProperties(o => new { o.TeacherStudentId })
+                .HasFilter("[Status] IN (3, 6)")
+                .HasDatabaseName("IX_StudentAssignmentObligations_PendingGrades");
+        });
+        #endregion
+
+        #region StudentObligationAuditLog (REQ-EXH-040, 043, 044 — historical reproducibility)
+        modelBuilder.Entity<StudentObligationAuditLog>(entity =>
+        {
+            entity.ToTable("StudentObligationAuditLogs");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            entity.Property(a => a.OldStatus).IsRequired();
+            entity.Property(a => a.NewStatus).IsRequired();
+
+            entity.Property(a => a.OldGradeValue).HasColumnType("decimal(8,2)");
+            entity.Property(a => a.NewGradeValue).HasColumnType("decimal(8,2)");
+            entity.Property(a => a.MaxGradeSnapshot).HasColumnType("decimal(8,2)");
+            entity.Property(a => a.PassingThresholdSnapshot).HasColumnType("decimal(8,2)");
+
+            entity.Property(a => a.ChangeReason).HasMaxLength(500);
+
+            entity.Property(a => a.ChangedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+            // Obligation FK: Restrict — audit log is NOT cascade-deleted with the obligation.
+            // Per design decision 5.4, the service layer detaches audit logs (or copies them
+            // to an archive table) BEFORE the cascading hard delete fires. This is the same
+            // pattern the codebase already uses for AttendanceEditLog (Step 5.1 audit fix).
+            entity.HasOne(a => a.StudentObligation)
+                .WithMany(o => o.AuditLogs)
+                .HasForeignKey(a => a.StudentObligationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Teacher FK: cascade — when a teacher is purged, their audit history goes with them.
+            entity.HasOne(a => a.Teacher)
+                .WithMany()
+                .HasForeignKey(a => a.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ChangedByUser FK: SetNull — keep the audit row if the user is removed.
+            entity.HasOne(a => a.ChangedByUser)
+                .WithMany()
+                .HasForeignKey(a => a.ChangedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // History lookup for a single obligation, ordered by time.
+            entity.HasIndex(a => new { a.StudentObligationId, a.ChangedAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_StudentObligationAuditLogs_Obligation_ChangedAt");
+
+            // Tenant-scoped audit dashboard query: "all changes by tutor X in date range".
+            // Designed to align with future range partitioning by ChangedAt month.
+            entity.HasIndex(a => new { a.TeacherId, a.ChangedAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_StudentObligationAuditLogs_TeacherId_ChangedAt");
+        });
+        #endregion
+
+        #region AssignmentDeletionLog (REQ-EXH-012, 037 — JSON snapshot pattern)
+        modelBuilder.Entity<AssignmentDeletionLog>(entity =>
+        {
+            entity.ToTable("AssignmentDeletionLogs");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            // TemplateId: NO foreign key — the referenced template is hard-deleted.
+            entity.Property(d => d.TemplateId).IsRequired();
+
+            entity.Property(d => d.DeletionType).IsRequired();
+
+            entity.Property(d => d.StudentsAffected)
+                .IsRequired()
+                .HasDefaultValue(0);
+
+            // JSON snapshot: nvarchar(max) — SQL Server stores efficiently and supports
+            // JSON_VALUE projections if any field becomes a hotspot.
+            entity.Property(d => d.TemplateSnapshotJson)
+                .HasColumnType("nvarchar(max)")
+                .IsRequired();
+
+            entity.Property(d => d.DeletedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+
+            // Teacher FK: cascade — deletion logs are tenant-scoped.
+            entity.HasOne(d => d.Teacher)
+                .WithMany()
+                .HasForeignKey(d => d.TeacherId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // DeletedByUser FK: SetNull — keep the log row if the user is removed.
+            entity.HasOne(d => d.DeletedByUser)
+                .WithMany()
+                .HasForeignKey(d => d.DeletedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // Tenant-scoped audit dashboard query.
+            entity.HasIndex(d => new { d.TeacherId, d.DeletedAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_AssignmentDeletionLogs_TeacherId_DeletedAt");
+
+            // Reverse lookup: "find the deletion record for template X" (template is gone,
+            // but the Id is preserved in this column for forensic queries).
+            entity.HasIndex(d => d.TemplateId)
+                .HasDatabaseName("IX_AssignmentDeletionLogs_TemplateId");
+        });
         #endregion
 
         // ════════════════════════════════════════════════

@@ -99,75 +99,93 @@ namespace Edvanz.Application.Services
             return Result<string>.Success(null, _localizer, "Account Verified");
         }
 
-        //public async Task<Result<AuthResponse>> Login(LoginDto req)
-        //{
-        //    var user = await _unitOfWork.Users.GetByUserName(req.userName);
-        //    if (user == null)
-        //        return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
-        //    var IsPassMatched = _passwordService.VerifyPassword(user.PasswordHashed, req.password);
-        //    if (!IsPassMatched)
-        //        return Result<AuthResponse>.Failure(_localizer, "PasswordError");
-        //    var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
-        //    string jwt = null;
-        //    List<string> modules = new List<string>();
-        //    if (user.UserType == Domain.Enums.UserType.Student || user.UserType == Domain.Enums.UserType.Parent)
-        //        jwt = tokenService.GenerateJwtToken(user, permissions, null);
+        // ════════════════════════════════════════════════════════════════
+        // ADD THIS METHOD TO Edvanz.Application/Services/AuthService.cs
+        // alongside the existing Login() method. The rest of the class stays unchanged.
+        //
+        // Required usings (already present in the file):
+        //   using Edvanz.Domain.Enums;
+        //   using Edvanz.Domain.Entities;
+        //   using Edvanz.Application.Dtos;
+        //   using Edvanz.Application.Dtos.Auth;
+        // ════════════════════════════════════════════════════════════════
 
-        //    else if (user.UserType == Domain.Enums.UserType.Teacher)
-        //    {
+        /// <inheritdoc />
+        public async Task<Result<AuthResponse>> AdminLoginAsync(LoginDto req)
+        {
+            // ── Step 1: Load user ──
+            // Same lookup as Login() — enumeration-safe because the next step still runs
+            // even when user is null (we return the generic message either way).
+            var user = await _unitOfWork.Users.GetByUserName(req.userName);
 
-        //        var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
-        //        var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
-        //        modules = modulesPerTeacher.Select(mt => mt.name).ToList();
-        //        jwt = tokenService.GenerateJwtToken(user, permissions, modules);
-        //    }
-        //    else if (user.UserType == Domain.Enums.UserType.Assistant)
-        //    {
-        //        var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
-        //        if (assistant == null)
-        //            return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+            // ── Step 2: Verify password ──
+            // Verify FIRST, then gate on role. Two reasons:
+            //   (a) Anyone who knows a tutor's username + password already owns that tutor's
+            //       account; learning that the tutor is "not an admin" gives them nothing new.
+            //   (b) Verifying password first keeps the response shape identical for
+            //       wrong-password and wrong-role cases — clients can't tell which failed.
+            bool credentialsValid = user != null
+                && _passwordService.VerifyPassword(user.PasswordHashed, req.password);
 
+            if (!credentialsValid)
+            {
+                return Result<AuthResponse>.Failure(_localizer, "InvalidCredentials");
+            }
 
-        //        if (assistant.TeacherAccountId == null)
-        //        {
-        //            jwt = tokenService.GenerateJwtToken(user, null, null);
-        //        }
-        //        else
-        //        {
-        //            var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
-        //                .GetModulesPerTeacher(assistant.TeacherAccountId);
-        //            modules = modulesPerTeacher.Select(mt => mt.name).ToList();
-        //            jwt = tokenService.GenerateJwtToken(user, permissions, modules);
-        //        }
-        //        await assistantService.RecordLoginActivityAsync(assistant.Id, LoginAcitvityActionType.login, _httpContextAccessor.HttpContext!);
+            // ── Step 3: SuperAdmin role gate ──
+            // The whole reason this endpoint exists. A non-admin reaching this point owns
+            // a valid account but is forbidden from this surface — deliberate same message
+            // as the credential failure above to avoid leaking user-type information.
+            if (user!.UserType != UserType.SuperAdmin)
+            {
+                return Result<AuthResponse>.Failure(_localizer, "InvalidCredentials");
+            }
 
+            // ── Step 4: Build access token ──
+            // Reuses TokenService.BuildUserTokenData — the same path Refresh() uses.
+            // Note: BuildUserTokenData must include a SuperAdmin branch (see TokenService
+            // patch in the slice). Without that branch this returns a null jwt.
+            var (jwt, userDto) = await tokenService.BuildUserTokenData(user);
 
-        //    }
-        //    var refreshToken = tokenService.GenerateRefreshToken();
+            if (string.IsNullOrEmpty(jwt))
+            {
+                // Defensive: BuildUserTokenData fell through without producing a token.
+                // Indicates a missing branch in TokenService — fail loudly rather than
+                // returning a malformed AuthResponse.
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+            }
 
-        //    var refreshTokenEntity = new RefreshToken
-        //    {
-        //        UserId = user.Id,
-        //        Token = refreshToken,
-        //        ExpiryDate = DateTime.UtcNow.AddDays(7),
-        //        CreatedAt = DateTime.UtcNow,
-        //        SecurityStamp = user.SecurityStamp,
-        //        IsRevoked = false,
+            // ── Step 5: Persist refresh token ──
+            // Mirrors Login()'s refresh-token persistence exactly so revocation, expiry,
+            // and reuse-detection in Refresh()/Logout() work identically for admin sessions.
+            var refreshToken = tokenService.GenerateRefreshToken();
 
-        //    };
+            var refreshTokenEntity = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = refreshToken,
+                ExpiryDate = DateTime.UtcNow.AddDays(7),
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = user.SecurityStamp,
+                IsRevoked = false,
+            };
 
-        //    await _unitOfWork.GetRepository<RefreshToken, long>().AddAsync(refreshTokenEntity);
+            await _unitOfWork.GetRepository<RefreshToken, long>()
+                .AddAsync(refreshTokenEntity);
 
-        //    var res = await _unitOfWork.SaveChangesAsync();
-        //    if (res <= 0)
-        //        return Result<AuthResponse>.Failure(_localizer, "ServerError");
+            var saveResult = await _unitOfWork.SaveChangesAsync();
+            if (saveResult <= 0)
+            {
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+            }
 
-        //    return Result<AuthResponse>.Success(new AuthResponse
-        //    {
-        //        accessToken = jwt,
-        //        refreshToken = refreshToken
-        //    }, _localizer, "successlogin");
-        //}
+            return Result<AuthResponse>.Success(new AuthResponse
+            {
+                accessToken = jwt,
+                refreshToken = refreshToken,
+                userAccountData = userDto
+            }, _localizer, "successlogin");
+        }
         public async Task<Result<AuthResponse>> Login(LoginDto req)
         {
             var user = await _unitOfWork.Users.GetByUserName(req.userName);
@@ -288,42 +306,7 @@ namespace Edvanz.Application.Services
             }, _localizer, "successlogin");
         }
 
-        //public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
-        //{
-        //    if (  _currentUser.UserId == null)
-        //        return Result<string>.Failure(_localizer, "UserNotFound");
-
-        //    var userId = _currentUser.UserId.Value;
-
-        //    var user = await _unitOfWork.Users.GetByIdAsync(userId);
-        //    if (user == null)
-        //        return Result<string>.Failure(_localizer, "UserNotFound");
-
-        //    var isOldPasswordVerified = _passwordService.VerifyPassword(user.PasswordHashed, req.oldPassword);
-        //    if (!isOldPasswordVerified)
-        //        return Result<string>.Failure(_localizer, "oldPassNotMatched");
-
-        //    var newHashedPassword = _passwordService.HashPassword(req.newPassword);
-
-        //    await _unitOfWork.BeginTransactionAsync();
-
-        //    user.PasswordHashed = newHashedPassword;
-
-        //    user.SecurityStamp = Guid.NewGuid().ToString();
-
-        //    var entities = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
-        //    await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(entities);
-
-        //    var res = await _unitOfWork.SaveChangesAsync();
-        //    if(res <= 0)
-        //    {
-        //        await _unitOfWork.RollbackAsync();
-        //        return Result<string>.Failure(_localizer, "ServerError");
-
-        //    }
-        //    await _unitOfWork.CommitAsync();
-        //    return Result<string>.Success(null,_localizer, "PasswordChangedSuccessfully");
-        //}
+       
 
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {

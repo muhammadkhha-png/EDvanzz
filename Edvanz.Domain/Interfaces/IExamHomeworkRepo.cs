@@ -1,0 +1,465 @@
+using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
+
+namespace Edvanz.Domain.Interfaces;
+
+/// <summary>
+/// Extended repository interface for the Exams &amp; Homework Module (Module 6).
+/// Centralizes all domain-specific query methods for assignment-related entities:
+/// AssignmentTemplate, AssignmentScope, AssignmentOccurrence, StudentAssignmentObligation,
+/// StudentObligationAuditLog, and AssignmentDeletionLog.
+///
+/// ARCHITECTURAL NOTE (same rationale as IUserRepo, IAttendanceRepo, IPaymentRepo):
+/// All expression-based queries are encapsulated here in named methods. The Application
+/// layer never builds raw predicates. If a query changes, you edit ONE method here —
+/// not every service that uses it.
+///
+/// Inherits from IGenericRepo&lt;StudentAssignmentObligation, long&gt; for basic CRUD on the
+/// primary (hot) entity. Other entities are accessed via named methods below.
+///
+/// CONCURRENCY NOTE:
+/// The barcode-scan path uses <see cref="TryMarkScannedAsync"/>, which executes a
+/// conditional ExecuteUpdateAsync rather than a tracked update. This avoids
+/// DbUpdateConcurrencyException on duplicate scans (REQ-EXH-NFR-002 sub-1-second target;
+/// design decision 5.3). The manual grade-entry path uses standard tracked updates with
+/// the entity's RowVersion for optimistic concurrency.
+/// </summary>
+public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, long>
+{
+    // ══════════════════════════════════════════════
+    // ASSIGNMENT TEMPLATE QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a new assignment template to the change tracker.
+    /// Service layer composes the template with its scopes and the first occurrence
+    /// inside a single UnitOfWork transaction (REQ-EXH-007).
+    /// </summary>
+    Task AddTemplateAsync(AssignmentTemplate template);
+
+    /// <summary>
+    /// Marks an existing assignment template as modified.
+    /// Used for REQ-EXH-034 edit operations (name, notes, date, scope, grading config).
+    /// </summary>
+    Task UpdateTemplateAsync(AssignmentTemplate template);
+
+    /// <summary>
+    /// Hard-deletes an assignment template. Cascades to AssignmentScopes,
+    /// AssignmentOccurrences, and StudentAssignmentObligations per REQ-EXH-037.
+    /// Service layer must persist the JSON snapshot to AssignmentDeletionLogs
+    /// BEFORE invoking this in the same transaction.
+    /// </summary>
+    Task DeleteTemplateAsync(AssignmentTemplate template);
+
+    /// <summary>
+    /// Finds a template by Id, scoped to the teacher.
+    /// Returns null if the template does not exist or belongs to another teacher.
+    /// REQ-EXH-NFR-004: Multi-tenant isolation.
+    /// </summary>
+    Task<AssignmentTemplate?> GetTemplateByIdAndTeacherAsync(long templateId, long teacherId);
+
+    /// <summary>
+    /// Finds a template with its scopes eagerly loaded.
+    /// Used during edit/view flows where the full template + targeting picture is needed.
+    /// </summary>
+    Task<AssignmentTemplate?> GetTemplateWithScopesAsync(long templateId, long teacherId);
+
+    /// <summary>
+    /// Determines whether a template's recurrence pattern is still editable.
+    /// REQ-EXH-013: Pattern is locked once any occurrence has student data recorded
+    /// (i.e., any obligation has Status != Pending).
+    /// </summary>
+    Task<bool> CanEditRecurrencePatternAsync(long templateId);
+
+    /// <summary>
+    /// Builds a filtered, searchable IQueryable for the Assignment Overview list.
+    /// REQ-EXH-033: Lists every assignment created by the tutor with filters.
+    /// REQ-EXH-NFR-001: Backed by IX_AssignmentTemplates_TeacherList covering index.
+    ///
+    /// Returns IQueryable so pagination is applied at the database level via
+    /// the inherited <c>GetPagedAsync</c>.
+    /// </summary>
+    /// <param name="teacherId">The owning teacher (multi-tenant scope).</param>
+    /// <param name="search">Optional partial match on Name or NameAr.</param>
+    /// <param name="assignmentType">Optional filter by Exam or Homework.</param>
+    /// <param name="recurrenceFilter">Optional filter on IsRecurring.</param>
+    IQueryable<AssignmentTemplate> BuildAssignmentOverviewQuery(
+        long teacherId,
+        string? search = null,
+        AssignmentType? assignmentType = null,
+        bool? recurrenceFilter = null);
+
+    // ══════════════════════════════════════════════
+    // ASSIGNMENT SCOPE QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds multiple scope rows in bulk. Used at template creation time and when
+    /// the tutor expands an existing assignment's target scope (REQ-EXH-035).
+    /// </summary>
+    Task AddScopesRangeAsync(IEnumerable<AssignmentScope> scopes);
+
+    /// <summary>
+    /// Retrieves all scope rows for a template, eagerly loading the referenced
+    /// student / session / session-group target.
+    /// Used by the occurrence generator to resolve and deduplicate students.
+    /// REQ-EXH-003: De-duplication happens in service code; this method just loads scopes.
+    /// </summary>
+    Task<IReadOnlyList<AssignmentScope>> GetScopesByTemplateAsync(long templateId);
+
+    /// <summary>
+    /// Removes scope rows. Used during template edit when the tutor changes targeting
+    /// (e.g., removes a session from the scope set per REQ-EXH-034).
+    /// </summary>
+    Task DeleteScopesRangeAsync(IEnumerable<AssignmentScope> scopes);
+
+    // ══════════════════════════════════════════════
+    // ASSIGNMENT OCCURRENCE QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds a single occurrence. Used for one-time templates and as the first occurrence
+    /// of recurring templates at creation time (REQ-EXH-007).
+    /// </summary>
+    Task AddOccurrenceAsync(AssignmentOccurrence occurrence);
+
+    /// <summary>
+    /// Adds multiple occurrences in bulk. Used by the recurrence scheduler when
+    /// materializing a batch of future occurrences (REQ-EXH-011).
+    /// </summary>
+    Task AddOccurrencesRangeAsync(IEnumerable<AssignmentOccurrence> occurrences);
+
+    /// <summary>
+    /// Marks an occurrence as modified. Used by the scheduler to flip Status from
+    /// Pending to Active or Completed.
+    /// </summary>
+    Task UpdateOccurrenceAsync(AssignmentOccurrence occurrence);
+
+    /// <summary>
+    /// Finds an occurrence by Id, scoped to the teacher.
+    /// </summary>
+    Task<AssignmentOccurrence?> GetOccurrenceByIdAndTeacherAsync(long occurrenceId, long teacherId);
+
+    /// <summary>
+    /// Finds an occurrence with its parent template eagerly loaded.
+    /// Used for grade-entry flows where the snapshot configuration must be read.
+    /// </summary>
+    Task<AssignmentOccurrence?> GetOccurrenceWithTemplateAsync(long occurrenceId, long teacherId);
+
+    /// <summary>
+    /// Returns occurrences within a date range for reporting.
+    /// REQ-EXH-046: Session or Group Assignment Summary report uses this.
+    /// REQ-EXH-NFR-001: Backed by IX_AssignmentOccurrences_DueDate covering index.
+    /// </summary>
+    Task<IReadOnlyList<AssignmentOccurrence>> GetOccurrencesByDateRangeAsync(
+        long teacherId, DateTime startDate, DateTime endDate);
+
+    /// <summary>
+    /// Returns the highest <c>OccurrenceNumber</c> currently used for a template,
+    /// or 0 if none exist. The scheduler increments from this value when materializing
+    /// new occurrences.
+    /// </summary>
+    Task<int> GetHighestOccurrenceNumberAsync(long templateId);
+
+    /// <summary>
+    /// Returns the count of templates that are due for occurrence generation —
+    /// recurring templates whose next scheduled occurrence date has arrived and is not stopped.
+    /// Used by the recurrence scheduler.
+    /// </summary>
+    Task<IReadOnlyList<AssignmentTemplate>> GetTemplatesDueForOccurrenceGenerationAsync(DateTime asOfDate);
+
+    // ══════════════════════════════════════════════
+    // OBLIGATION QUERIES — TRACKING VIEW (REQ-EXH-030/031/032)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds multiple obligation rows in bulk. Called once per occurrence-generation
+    /// event with the deduplicated student list (REQ-EXH-007).
+    /// </summary>
+    Task AddObligationsRangeAsync(IEnumerable<StudentAssignmentObligation> obligations);
+
+    /// <summary>
+    /// Returns the set of TeacherStudentIds that ALREADY have an obligation row
+    /// for a given occurrence. Used by the service layer to filter out duplicates
+    /// before insert (REQ-EXH-003 write-time dedup).
+    /// </summary>
+    Task<IReadOnlyList<long>> GetExistingObligationStudentIdsAsync(
+        long occurrenceId, IEnumerable<long> candidateStudentIds);
+
+    /// <summary>
+    /// Builds the Assignment Tracking View query — paged, searched, filtered.
+    /// REQ-EXH-030: Full student list with status and grade.
+    /// REQ-EXH-031: Search by name or code; filter by status, missing entries, grade thresholds.
+    /// REQ-EXH-032: Backed by IX_StudentAssignmentObligations_Tracking covering index;
+    /// supports virtual scrolling at 50,000 students.
+    /// REQ-EXH-NFR-001: Renders in &lt; 2 seconds.
+    ///
+    /// Service layer wraps the result in PaginatedResponse&lt;TrackingRow&gt;.
+    /// </summary>
+    Task<(IReadOnlyList<TrackingViewRow> Items, int TotalCount)> GetTrackingViewPagedAsync(
+        long teacherId, long occurrenceId,
+        string? search,
+        ObligationStatus? statusFilter,
+        bool? missingEntries,
+        decimal? gradeAboveThreshold,
+        decimal? gradeBelowThreshold,
+        bool? belowPassingGrade,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Builds the Grade Entry View query — only obligations awaiting grade entry.
+    /// REQ-EXH-026-A: Filters to Status IN (Attended, DoneWithoutGrade), backed by
+    /// the filtered index IX_StudentAssignmentObligations_PendingGrades.
+    /// </summary>
+    Task<(IReadOnlyList<TrackingViewRow> Items, int TotalCount)> GetGradeEntryViewPagedAsync(
+        long teacherId, long occurrenceId,
+        string? search,
+        int page, int pageSize);
+
+    // ══════════════════════════════════════════════
+    // OBLIGATION QUERIES — STUDENT HISTORY (REQ-EXH-040)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns the full assignment history for a single student across all occurrences.
+    /// REQ-EXH-040: Single Student Assignment History Report.
+    /// Backed by IX_StudentAssignmentObligations_StudentHistory.
+    /// </summary>
+    Task<(IReadOnlyList<StudentAssignmentObligation> Items, int TotalCount)> GetStudentHistoryPagedAsync(
+        long teacherId, long teacherStudentId,
+        DateTime? startDate, DateTime? endDate,
+        AssignmentType? assignmentType,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Computes the cumulative homework completion rate for a student.
+    /// REQ-EXH-040: % of completed homework out of total assigned.
+    /// Returns (completedCount, totalAssignedCount). Service layer derives the percentage.
+    /// </summary>
+    Task<(int Completed, int TotalAssigned)> GetHomeworkCompletionStatsAsync(
+        long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// Computes the cumulative exam attendance rate for a student.
+    /// REQ-EXH-040: % of attended exams out of total assigned.
+    /// </summary>
+    Task<(int Attended, int TotalAssigned)> GetExamAttendanceStatsAsync(
+        long teacherId, long teacherStudentId);
+
+    // ══════════════════════════════════════════════
+    // OBLIGATION QUERIES — REPORTS (REQ-EXH-039 through 046)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns all obligations for a single occurrence with student details.
+    /// REQ-EXH-039: Single Assignment Report.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByOccurrenceAsync(
+        long teacherId, long occurrenceId);
+
+    /// <summary>
+    /// Returns students with one or more NotDone homework entries, optionally filtered.
+    /// REQ-EXH-041: Homework Absence Report.
+    /// Backed by IX_StudentAssignmentObligations_Absence filtered index
+    /// (Status IN (NotDone, DidNotAttend)).
+    /// </summary>
+    Task<(IReadOnlyList<AbsenceReportRow> Items, int TotalCount)> GetHomeworkAbsenceReportPagedAsync(
+        long teacherId,
+        long? sessionId, long? sessionGroupId, long? specificTemplateId,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Returns students with one or more DidNotAttend exam entries.
+    /// REQ-EXH-042: Exam Absence Report. Same index as the homework variant.
+    /// </summary>
+    Task<(IReadOnlyList<AbsenceReportRow> Items, int TotalCount)> GetExamAbsenceReportPagedAsync(
+        long teacherId,
+        long? sessionId, long? sessionGroupId, long? specificTemplateId,
+        int page, int pageSize);
+
+    /// <summary>
+    /// Returns grade-distribution statistics for a single exam occurrence.
+    /// REQ-EXH-043: Grades Analysis Report — highest, lowest, average, above/below threshold.
+    /// </summary>
+    Task<ExamGradeAnalysis> GetExamGradeAnalysisAsync(long teacherId, long occurrenceId);
+
+    /// <summary>
+    /// Returns students who scored below the passing threshold for an occurrence,
+    /// or across all exams in a session/group when occurrenceId is null.
+    /// REQ-EXH-044: Below Passing Grade Report.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetBelowPassingGradeAsync(
+        long teacherId,
+        long? occurrenceId, long? sessionId, long? sessionGroupId);
+
+    /// <summary>
+    /// Returns students who scored above a tutor-defined grade value for an occurrence.
+    /// REQ-EXH-045: Above Grade Threshold Report.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetAboveGradeThresholdAsync(
+        long teacherId, long occurrenceId, decimal threshold);
+
+    // ══════════════════════════════════════════════
+    // OBLIGATION QUERIES — IDEMPOTENT BARCODE SCAN (REQ-EXH-026, NFR-002)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Atomic conditional UPDATE for the barcode-scan hot path.
+    /// REQ-EXH-026: Auto-marks Attended (exam) or Done (homework) on scan.
+    /// REQ-EXH-NFR-002: Must complete in &lt; 1 second.
+    ///
+    /// Implements design decision 5.3: returns true when the row was updated
+    /// (this scan won the race) and true when 0 rows were affected (another
+    /// scan already marked it — idempotent success). The caller never sees a
+    /// concurrency exception.
+    ///
+    /// Resolves the obligation by (TeacherId, OccurrenceId, TeacherStudentId)
+    /// rather than by Id so the barcode-to-obligation lookup happens in one
+    /// indexed UPDATE instead of a SELECT-then-UPDATE round trip.
+    /// </summary>
+    /// <param name="teacherId">Owning teacher (multi-tenant guard).</param>
+    /// <param name="occurrenceId">The occurrence being marked.</param>
+    /// <param name="teacherStudentId">The student resolved from the scanned barcode.</param>
+    /// <param name="newStatus">Either Attended (exam) or Done (homework).</param>
+    /// <param name="scannedAt">UTC timestamp of the scan.</param>
+    /// <param name="scannedByUserId">The user who performed the scan.</param>
+    /// <returns>The number of rows affected — 0 means another scan won the race.</returns>
+    Task<int> TryMarkScannedAsync(
+        long teacherId, long occurrenceId, long teacherStudentId,
+        ObligationStatus newStatus, DateTime scannedAt, long scannedByUserId);
+
+    // ══════════════════════════════════════════════
+    // OBLIGATION QUERIES — SINGLE-ROW LOOKUPS
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Finds a single obligation by Id, scoped to the teacher.
+    /// Used by the manual grade-entry path so RowVersion can be applied via the tracker.
+    /// </summary>
+    Task<StudentAssignmentObligation?> GetObligationByIdAndTeacherAsync(
+        long obligationId, long teacherId);
+
+    /// <summary>
+    /// Finds a single obligation by (occurrenceId, studentId) for service-level upsert flows.
+    /// Used when adding students to an existing assignment (REQ-EXH-035) to detect
+    /// pre-existing obligations.
+    /// </summary>
+    Task<StudentAssignmentObligation?> GetObligationByOccurrenceAndStudentAsync(
+        long occurrenceId, long teacherStudentId);
+
+    /// <summary>
+    /// Removes an obligation. Used when the tutor removes a student from a scope
+    /// (REQ-EXH-036), with confirmation if a status was already recorded.
+    /// </summary>
+    Task DeleteObligationAsync(StudentAssignmentObligation obligation);
+
+    // ══════════════════════════════════════════════
+    // AUDIT LOG QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds an audit-log entry. Service layer is responsible for capturing both
+    /// the status delta and the grade delta in the same transaction as the
+    /// obligation update.
+    /// </summary>
+    Task AddAuditLogAsync(StudentObligationAuditLog auditLog);
+
+    /// <summary>
+    /// Returns the full audit history for a single obligation, ordered chronologically.
+    /// </summary>
+    Task<IReadOnlyList<StudentObligationAuditLog>> GetAuditHistoryByObligationAsync(
+        long obligationId);
+
+    // ══════════════════════════════════════════════
+    // DELETION LOG QUERIES
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Persists the JSON snapshot before the cascading hard delete.
+    /// REQ-EXH-037: Hard delete is final; this row is the only historical record.
+    /// </summary>
+    Task AddDeletionLogAsync(AssignmentDeletionLog log);
+
+    /// <summary>
+    /// Returns paginated deletion-log entries for a teacher, used by audit dashboards.
+    /// </summary>
+    Task<(IReadOnlyList<AssignmentDeletionLog> Items, int TotalCount)> GetDeletionLogsPagedAsync(
+        long teacherId, DateTime? startDate, DateTime? endDate, int page, int pageSize);
+}
+
+// ══════════════════════════════════════════════
+// PROJECTION TYPES
+// ══════════════════════════════════════════════
+
+/// <summary>
+/// Projection model for a single row in the Assignment Tracking View and Grade Entry View.
+/// Lives in the Domain layer alongside the repo interface (same pattern as
+/// <c>PagedAttendanceStudentRow</c>) since it is a query projection, not a DTO.
+///
+/// Materializing this projection avoids loading the full <c>StudentAssignmentObligation</c>
+/// graph on the hot path — the tracking view can render with just these fields.
+/// </summary>
+public class TrackingViewRow
+{
+    public long ObligationId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public ObligationStatus Status { get; set; }
+    public decimal? GradeValue { get; set; }
+    public bool IsGradeEntered { get; set; }
+
+    /// <summary>
+    /// True when the recorded grade is below the occurrence's snapshotted PassingThreshold.
+    /// Computed at projection time so the UI can flag the row without a second query.
+    /// REQ-EXH-030: Tracking view shows whether grade is above or below passing.
+    /// </summary>
+    public bool IsBelowPassing { get; set; }
+
+    public bool MarkedByScan { get; set; }
+    public DateTime? ScannedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// Projection model for an absence-report row.
+/// REQ-EXH-041 / REQ-EXH-042: Each entry shows student name, code, assigned session,
+/// the specific assignments missed, and the cumulative miss count.
+/// </summary>
+public class AbsenceReportRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public long? SessionId { get; set; }
+    public string? SessionName { get; set; }
+
+    /// <summary>
+    /// Names of the specific assignments the student missed within the report's filter scope.
+    /// </summary>
+    public IReadOnlyList<string> MissedAssignmentNames { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Total count of missed assignments across the student's full history,
+    /// per REQ-EXH-041/042 ("total count of missed homework / exams across their full history").
+    /// </summary>
+    public int TotalMissedCount { get; set; }
+}
+
+/// <summary>
+/// Aggregated grade-distribution model for an exam occurrence.
+/// REQ-EXH-043: Highest, lowest, average grade; counts/percentages above and below
+/// the passing threshold; full per-student listing handled separately.
+/// </summary>
+public class ExamGradeAnalysis
+{
+    public long OccurrenceId { get; set; }
+    public int AttendedStudentsCount { get; set; }
+    public decimal? HighestGrade { get; set; }
+    public decimal? LowestGrade { get; set; }
+    public decimal? AverageGrade { get; set; }
+    public int AbovePassingCount { get; set; }
+    public int BelowPassingCount { get; set; }
+    public decimal? MaxGradeSnapshot { get; set; }
+    public decimal? PassingThresholdSnapshot { get; set; }
+}

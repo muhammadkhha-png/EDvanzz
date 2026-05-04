@@ -126,6 +126,13 @@ namespace Edvanz.Domain.Interfaces
         /// Firebase FCM device-token registry per user.
         /// </summary>
         IUserDeviceTokenRepo UserDeviceTokensRepo { get; }
-    
+        /// <summary>
+        /// Extended repository for the Exams &amp; Homework Module (Module 6).
+        /// Handles assignment templates, scopes, occurrences, student obligations,
+        /// audit logs, deletion logs, the Assignment Tracking View, the Grade Entry View,
+        /// barcode-scan idempotent updates, student history, and all assignment reports.
+        /// </summary>
+        IExamHomeworkRepo ExamHomeworkRepo { get; }
+
     }
 }

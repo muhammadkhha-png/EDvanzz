@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.Dtos.Auth;
+﻿using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos.Auth;
 using Edvanz.Application.Dtos.UserDto;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -24,6 +25,7 @@ namespace Edvanz.API.Controllers
     /// </summary>
     [Route("api/[controller]")]
     [ApiController]
+    [AllowAnonymous]
     public class AuthController : ApiBaseController
     {
         // FIX I1/I3: Updated from IuserService to IUserService (PascalCase, correct namespace)
@@ -114,6 +116,41 @@ namespace Edvanz.API.Controllers
         public async Task<IActionResult> Logout([FromBody] RefeshDto req)
         {
             var result = await authService.Logout(req.token);
+            return ToResponse(result);
+        }
+
+
+        // ════════════════════════════════════════════════════════════════
+        // ADD THIS ACTION METHOD to Edvanz.API/Controllers/AuthController.cs
+        // alongside the existing Login() action. No other changes to the controller.
+        // ════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Authenticates a SuperAdmin user.
+        ///
+        /// This endpoint accepts the same credentials shape as the generic /login endpoint
+        /// but rejects every non-SuperAdmin account. It exists as a separate surface so:
+        ///   - admin auth can be rate-limited / monitored / firewalled independently of
+        ///     end-user login,
+        ///   - 2FA or IP allow-listing can be added later without touching tutor login,
+        ///   - tutor login cannot accidentally issue an admin token.
+        ///
+        /// SECURITY:
+        ///   The service verifies the password BEFORE checking the SuperAdmin role and
+        ///   returns the same generic "InvalidCredentials" message for both wrong-password
+        ///   and not-an-admin cases. Clients cannot use this endpoint to enumerate which
+        ///   usernames belong to which user type.
+        /// </summary>
+        /// <param name="req">Username and password.</param>
+        /// <returns>
+        /// 200 with an <c>AuthResponse</c> on successful admin login. 400 with
+        /// "InvalidCredentials" on any failure path.
+        /// </returns>
+      
+        [HttpPost("admin-login")]
+        public async Task<IActionResult> AdminLogin([FromBody] LoginDto req)
+        {
+            var result = await authService.AdminLoginAsync(req);
             return ToResponse(result);
         }
 

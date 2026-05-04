@@ -180,6 +180,18 @@ namespace Edvanz.Application.Services
 
                 jwt = GenerateJwtToken(user, permissions, modules);
             }
+            else if (user.UserType == Domain.Enums.UserType.SuperAdmin)
+            {
+                // SuperAdmin has no teacher and no per-tutor module list — they administer
+                // the platform itself. Permissions are still resolved (a SuperAdmin can still
+                // be enrolled in granular permissions if your model supports it) but no
+                // module claims and no teacherIds are emitted on the token.
+                userDto.models = null;
+                userDto.teacherIds = null;
+                userDto.permissions = permissions;
+
+                jwt = GenerateJwtToken(user, permissions, null);
+            }
 
             #endregion
 
