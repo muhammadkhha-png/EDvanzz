@@ -90,4 +90,8 @@ public class AssignmentDeletionLog : BaseEntity
     /// Distinct from <see cref="BaseEntity.CreateAt"/> for clarity in reports.
     /// </summary>
     public DateTime DeletedAt { get; set; }
+
+    [ForeignKey(nameof(occurrence))]
+    public long? OccurrenceId { get; set; }
+    public virtual AssignmentOccurrence? occurrence { get;  }= new AssignmentOccurrence();
 }

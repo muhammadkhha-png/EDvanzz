@@ -119,4 +119,8 @@ public class AssignmentOccurrence : BaseEntity
     /// </summary>
     public ICollection<StudentAssignmentObligation> Obligations { get; set; }
         = new List<StudentAssignmentObligation>();
+    /// <summary>
+    /// Problem: The tracking view (REQ-EXH-029) needs to show “total number of students the assignment applies to”. Without a cached count, you must COUNT(*) over StudentAssignmentObligations. With 50k students, that’s an extra scan.
+    /// </summary>
+    public int? TotalStudentCount { get; set; }
 }
