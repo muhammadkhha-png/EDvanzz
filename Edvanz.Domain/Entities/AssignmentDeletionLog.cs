@@ -91,7 +91,18 @@ public class AssignmentDeletionLog : BaseEntity
     /// </summary>
     public DateTime DeletedAt { get; set; }
 
-    [ForeignKey(nameof(occurrence))]
-    public long? OccurrenceId { get; set; }
-    public virtual AssignmentOccurrence? occurrence { get;  }= new AssignmentOccurrence();
+    // CORRECTED:
+    /// <summary>
+    /// The last generated occurrence at the moment of stop-recurrence.
+    /// REQ-EXH-012: Stopping recurrence does not delete prior occurrences — this anchor
+    /// records which occurrence was the cutoff so forensic queries can answer
+    /// "what was preserved when this template was stopped?".
+    ///
+    /// Population rules:
+    ///   - DeletionType = HardDelete → NULL (entire chain hard-deleted; no anchor possible).
+    ///   - DeletionType = StopRecurrence → set to MAX(OccurrenceNumber) at the moment of stop.
+    /// </summary>
+    [ForeignKey(nameof(LastOccurrence))]
+    public long? LastOccurrenceId { get; set; }
+    public AssignmentOccurrence? LastOccurrence { get; set; }
 }

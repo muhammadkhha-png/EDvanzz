@@ -2210,6 +2210,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // but the Id is preserved in this column for forensic queries).
             entity.HasIndex(d => d.TemplateId)
                 .HasDatabaseName("IX_AssignmentDeletionLogs_TemplateId");
+            // AssignmentDeletionLog.LastOccurrence
+            entity.HasOne(d => d.LastOccurrence)
+                .WithMany()
+                .HasForeignKey(d => d.LastOccurrenceId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(d => d.LastOccurrenceId)
+    .HasFilter("[LastOccurrenceId] IS NOT NULL")
+    .HasDatabaseName("IX_AssignmentDeletionLogs_LastOccurrenceId");
         });
         #endregion
 
