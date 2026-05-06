@@ -72,22 +72,30 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<bool> CanEditRecurrencePatternAsync(long templateId);
 
     /// <summary>
-    /// Builds a filtered, searchable IQueryable for the Assignment Overview list.
-    /// REQ-EXH-033: Lists every assignment created by the tutor with filters.
-    /// REQ-EXH-NFR-001: Backed by IX_AssignmentTemplates_TeacherList covering index.
+    /// Returns the paged Assignment Overview list with all filters applied.
+    /// Replaces <c>BuildAssignmentOverviewQuery</c> — pagination is now performed
+    /// inside the repo (consistent with <see cref="IExamHomeworkRepo.GetTrackingViewPagedAsync"/>
+    /// and the rest of the paginated methods in this interface).
     ///
-    /// Returns IQueryable so pagination is applied at the database level via
-    /// the inherited <c>GetPagedAsync</c>.
+    /// REQ-EXH-033: Lists every assignment created by the tutor with filters.
+    /// REQ-EXH-NFR-001: Backed by IX_AssignmentTemplates_TeacherList covering index;
+    /// renders in &lt; 2 seconds at 50K rows.
     /// </summary>
     /// <param name="teacherId">The owning teacher (multi-tenant scope).</param>
-    /// <param name="search">Optional partial match on Name or NameAr.</param>
+    /// <param name="search">Optional partial match on Name or NameAr (case-insensitive via EF.Functions.Like).</param>
     /// <param name="assignmentType">Optional filter by Exam or Homework.</param>
-    /// <param name="recurrenceFilter">Optional filter on IsRecurring.</param>
-    IQueryable<AssignmentTemplate> BuildAssignmentOverviewQuery(
+    /// <param name="recurrencePattern">Optional filter by exact recurrence pattern.</param>
+    /// <param name="isRecurring">Optional boolean filter on IsRecurring.</param>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="pageSize">Page size; clamped by the caller.</param>
+    Task<(IReadOnlyList<AssignmentTemplate> Items, int TotalCount)> GetAssignmentOverviewPagedAsync(
         long teacherId,
-        string? search = null,
-        AssignmentType? assignmentType = null,
-        bool? recurrenceFilter = null);
+        string? search,
+        AssignmentType? assignmentType,
+        RecurrencePattern? recurrencePattern,
+        bool? isRecurring,
+        int page,
+        int pageSize);
 
     // ══════════════════════════════════════════════
     // ASSIGNMENT SCOPE QUERIES
@@ -385,6 +393,117 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// </summary>
     Task<(IReadOnlyList<AssignmentDeletionLog> Items, int TotalCount)> GetDeletionLogsPagedAsync(
         long teacherId, DateTime? startDate, DateTime? endDate, int page, int pageSize);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // OVERVIEW & OCCURRENCE AGGREGATES (REQ-EXH-029, 033)
+    // O(2)-pattern support — replaces N+1 per-row queries.
+    // ══════════════════════════════════════════════════════════════════════
+    /// <summary>
+    /// Returns the latest <c>OccurrenceId</c> per template in the input list.
+    /// Used by the Assignment Overview aggregate path so the per-row "completion
+    /// summary" reflects the most recent iteration of a recurring template.
+    /// One database round-trip; EF translates the <c>GroupBy</c>/<c>OrderByDescending</c>
+    /// pair into a single CTE with ROW_NUMBER().
+    /// </summary>
+    Task<Dictionary<long, long>> GetLatestOccurrenceIdsByTemplateAsync(
+        IEnumerable<long> templateIds);
+
+    /// <summary>
+    /// Returns per-occurrence completion summaries in a single grouped aggregate.
+    /// Buckets every obligation status into:
+    ///   - DoneOrAttended: Done | Attended | AttendedWithGrade | DoneWithoutGrade | DoneWithGrade
+    ///   - NotDoneOrAbsent: NotDone | DidNotAttend
+    ///   - Pending: Pending
+    /// REQ-EXH-029 / REQ-EXH-033.
+    /// </summary>
+    Task<Dictionary<long, OccurrenceCompletionSummary>> GetCompletionSummariesByOccurrenceIdsAsync(
+        IEnumerable<long> occurrenceIds);
+
+    /// <summary>
+    /// Returns (templateId → next future occurrence date OR last past occurrence date)
+    /// for the Assignment Overview list.
+    /// </summary>
+    Task<Dictionary<long, DateTime?>> GetNextOrLastOccurrenceDatesAsync(
+        IEnumerable<long> templateIds, DateTime today);
+    // ══════════════════════════════════════════════════════════════════════
+    // OCCURRENCE PAGINATION (REQ-EXH-011)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Paginated occurrences for a single template, ordered by OccurrenceNumber ASC.
+    /// </summary>
+    Task<(IReadOnlyList<AssignmentOccurrence> Items, int TotalCount)> GetOccurrencesByTemplatePagedAsync(
+        long teacherId, long templateId, int page, int pageSize);
+
+    /// <summary>
+    /// Returns the first occurrence (OccurrenceNumber = 1) for a template, tracked.
+    /// Used by UpdateTemplateAsync when the tutor edits the date on a non-recurring template.
+    /// </summary>
+    Task<AssignmentOccurrence?> GetFirstOccurrenceAsync(long templateId, long teacherId);
+
+
+    /// <summary>
+    /// Returns the highest-numbered (latest) occurrence for a template, no-tracking.
+    /// Used by StopRecurrenceAsync to anchor the deletion-log entry (REQ-EXH-012).
+    /// </summary>
+    Task<AssignmentOccurrence?> GetLatestOccurrenceAsync(long templateId, long teacherId);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DELETION-TIME AGGREGATES (REQ-EXH-037)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Counts distinct students with any recorded data (non-Pending status OR a grade
+    /// entered) across all occurrences of a template.
+    /// </summary>
+    Task<int> CountStudentsWithRecordedDataAsync(long templateId);
+
+    /// <summary>Counts the occurrences of a template.</summary>
+    Task<int> CountOccurrencesByTemplateAsync(long templateId);
+
+    /// <summary>
+    /// Returns the full audit-log history for all obligations under a template.
+    /// Used by DeleteTemplateAsync to copy history into the deletion-log JSON snapshot
+    /// BEFORE the cascading hard delete fires.
+    /// </summary>
+    Task<IReadOnlyList<StudentObligationAuditLog>> GetAuditLogsForTemplateAsync(long templateId);
+
+    /// <summary>
+    /// Bulk-deletes audit-log rows for all obligations under a template using a single
+    /// SQL statement (ExecuteDeleteAsync). Called inside the delete transaction AFTER
+    /// the rows have been serialized into the deletion log's JSON snapshot.
+    /// </summary>
+    Task DeleteAuditLogsForTemplateAsync(long templateId);
+    // ══════════════════════════════════════════════════════════════════════
+    // CONCURRENCY HELPER
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Sets the original RowVersion bytes on a tracked AssignmentTemplate entity so
+    /// EF Core generates the correct WHERE clause for optimistic concurrency.
+    ///
+    /// Why this lives here: the service layer must not touch the EF change tracker
+    /// directly. Wrapping the operation in a named repo method keeps the service
+    /// LINQ-free and isolates EF concerns to Infrastructure.
+    /// </summary>
+    void SetTemplateOriginalRowVersion(AssignmentTemplate template, byte[] rowVersion);
+    // ══════════════════════════════════════════════════════════════════════
+    // ASSIGNMENT OVERVIEW LIST (REQ-EXH-033) — replaces BuildAssignmentOverviewQuery
+    // ══════════════════════════════════════════════════════════════════════
+
+   
+    /// <summary>
+    /// Returns scope counts (Individual / Session / Group) for a set of templates
+    /// in a single grouped query. Used by GetOverviewAsync to render the
+    /// "3 students · 2 sessions · 1 group" summary string.
+    /// </summary>
+    Task<Dictionary<long, ScopeCountAggregate>> GetScopeCountsByTemplateIdsAsync(
+        IEnumerable<long> templateIds);
+
+
+
+    
+
 }
 
 // ══════════════════════════════════════════════
@@ -462,4 +581,40 @@ public class ExamGradeAnalysis
     public int BelowPassingCount { get; set; }
     public decimal? MaxGradeSnapshot { get; set; }
     public decimal? PassingThresholdSnapshot { get; set; }
+}
+/// <summary>
+/// Per-occurrence completion summary projection.
+/// Lives in the Domain layer alongside <c>TrackingViewRow</c> and <c>AbsenceReportRow</c>
+/// since it is a query projection rather than a cross-layer DTO.
+/// </summary>
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECTION TYPES — add to the existing projections section of IExamHomeworkRepo.cs
+// alongside TrackingViewRow and AbsenceReportRow.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Per-occurrence completion summary projection.
+/// Lives in the Domain layer alongside <c>TrackingViewRow</c> since it is a query
+/// projection, not a cross-layer DTO.
+/// </summary>
+public sealed class OccurrenceCompletionSummary
+{
+    public long OccurrenceId { get; set; }
+    public int TotalStudents { get; set; }
+    public int DoneOrAttended { get; set; }
+    public int NotDoneOrAbsent { get; set; }
+    public int Pending { get; set; }
+}
+
+/// <summary>
+/// Per-template scope-count aggregate projection.
+/// Used by the Assignment Overview list to render the human-readable scope summary.
+/// </summary>
+public sealed class ScopeCountAggregate
+{
+    public long TemplateId { get; set; }
+    public int IndividualCount { get; set; }
+    public int SessionCount { get; set; }
+    public int GroupCount { get; set; }
 }

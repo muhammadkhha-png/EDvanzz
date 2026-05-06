@@ -822,4 +822,295 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         return (items, totalCount);
     }
+
+
+    // For documentation only; do not actually create this class. Copy the methods
+    // below into the existing ExamHomeworkRepo class.
+
+    private readonly EdvanzDbContext _context = null!;
+
+ 
+
+  
+    // For documentation only. Do not actually create a class. Copy the methods below
+    // into the existing ExamHomeworkRepo class. The `_context` references resolve
+    // correctly when these methods live alongside the existing ones.
+
+    // ══════════════════════════════════════════════
+    // SCOPE COUNTS PER TEMPLATE
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public  async Task<Dictionary<long, ScopeCountAggregate>> GetScopeCountsByTemplateIdsAsync(
+        IEnumerable<long> templateIds)
+    {
+        var idList = templateIds.ToList();
+        if (idList.Count == 0) return new Dictionary<long, ScopeCountAggregate>();
+
+        var rows = await _context.AssignmentScopes
+            .Where(s => idList.Contains(s.TemplateId))
+            .GroupBy(s => s.TemplateId)
+            .Select(g => new ScopeCountAggregate
+            {
+                TemplateId = g.Key,
+                IndividualCount = g.Count(s => s.ScopeType == AssignmentScopeType.IndividualStudent),
+                SessionCount = g.Count(s => s.ScopeType == AssignmentScopeType.Session),
+                GroupCount = g.Count(s => s.ScopeType == AssignmentScopeType.SessionGroup),
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.TemplateId);
+    }
+
+
+
+
+    // ══════════════════════════════════════════════
+    // ASSIGNMENT OVERVIEW LIST — replaces BuildAssignmentOverviewQuery
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+   public async Task<(IReadOnlyList<AssignmentTemplate> Items, int TotalCount)>
+        GetAssignmentOverviewPagedAsync(
+            long teacherId,
+            string? search,
+            AssignmentType? assignmentType,
+            RecurrencePattern? recurrencePattern,
+            bool? isRecurring,
+            int page,
+            int pageSize)
+    {
+        // Backed by IX_AssignmentTemplates_TeacherList (Section 7.2 covering index).
+        var query = _context.AssignmentTemplates
+            .Where(t => t.TeacherId == teacherId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{search.Trim()}%";
+            query = query.Where(t =>
+                EF.Functions.Like(t.Name, pattern)
+             || EF.Functions.Like(t.NameAr, pattern));
+        }
+
+        if (assignmentType.HasValue)
+            query = query.Where(t => t.AssignmentType == assignmentType.Value);
+
+        if (recurrencePattern.HasValue)
+            query = query.Where(t => t.RecurrencePattern == recurrencePattern.Value);
+
+        if (isRecurring.HasValue)
+            query = query.Where(t => t.IsRecurring == isRecurring.Value);
+
+        int totalCount = await query.CountAsync();
+
+        // Newest first (REQ-EXH-033 lists "every assignment ever created").
+        var items = await query
+            .OrderByDescending(t => t.CreateAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+
+
+
+    // ══════════════════════════════════════════════
+    // OVERVIEW & OCCURRENCE AGGREGATES
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, long>> GetLatestOccurrenceIdsByTemplateAsync(
+        IEnumerable<long> templateIds)
+    {
+        var idList = templateIds.ToList();
+        if (idList.Count == 0) return new Dictionary<long, long>();
+
+        // Single query: GROUP BY templateId, take the row with MAX(OccurrenceNumber).
+        var rows = await _context.AssignmentOccurrences
+            .Where(o => idList.Contains(o.TemplateId))
+            .GroupBy(o => o.TemplateId)
+            .Select(g => new
+            {
+                TemplateId = g.Key,
+                LatestOccurrenceId = g.OrderByDescending(o => o.OccurrenceNumber)
+                                      .Select(o => o.Id)
+                                      .First()
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.TemplateId, r => r.LatestOccurrenceId);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, OccurrenceCompletionSummary>>
+        GetCompletionSummariesByOccurrenceIdsAsync(IEnumerable<long> occurrenceIds)
+    {
+        var idList = occurrenceIds.ToList();
+        if (idList.Count == 0) return new Dictionary<long, OccurrenceCompletionSummary>();
+
+        var rows = await _context.StudentAssignmentObligations
+            .Where(o => idList.Contains(o.OccurrenceId))
+            .GroupBy(o => o.OccurrenceId)
+            .Select(g => new OccurrenceCompletionSummary
+            {
+                OccurrenceId = g.Key,
+                TotalStudents = g.Count(),
+                DoneOrAttended = g.Count(o =>
+                    o.Status == ObligationStatus.Done
+                 || o.Status == ObligationStatus.Attended
+                 || o.Status == ObligationStatus.AttendedWithGrade
+                 || o.Status == ObligationStatus.DoneWithoutGrade
+                 || o.Status == ObligationStatus.DoneWithGrade),
+                NotDoneOrAbsent = g.Count(o =>
+                    o.Status == ObligationStatus.NotDone
+                 || o.Status == ObligationStatus.DidNotAttend),
+                Pending = g.Count(o => o.Status == ObligationStatus.Pending),
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.OccurrenceId);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, DateTime?>> GetNextOrLastOccurrenceDatesAsync(
+        IEnumerable<long> templateIds, DateTime today)
+    {
+        var idList = templateIds.ToList();
+        if (idList.Count == 0) return new Dictionary<long, DateTime?>();
+
+        DateTime cutoff = today.Date;
+
+        var nextRows = await _context.AssignmentOccurrences
+            .Where(o => idList.Contains(o.TemplateId) && o.DueDate >= cutoff)
+            .GroupBy(o => o.TemplateId)
+            .Select(g => new { TemplateId = g.Key, Date = g.Min(o => (DateTime?)o.DueDate) })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var lastRows = await _context.AssignmentOccurrences
+            .Where(o => idList.Contains(o.TemplateId) && o.DueDate < cutoff)
+            .GroupBy(o => o.TemplateId)
+            .Select(g => new { TemplateId = g.Key, Date = g.Max(o => (DateTime?)o.DueDate) })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var nextDict = nextRows.ToDictionary(r => r.TemplateId, r => r.Date);
+        var lastDict = lastRows.ToDictionary(r => r.TemplateId, r => r.Date);
+
+        return idList.ToDictionary(
+            id => id,
+            id => nextDict.GetValueOrDefault(id) ?? lastDict.GetValueOrDefault(id));
+    }
+
+    // ══════════════════════════════════════════════
+    // OCCURRENCE PAGINATION
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+   public  async Task<(IReadOnlyList<AssignmentOccurrence> Items, int TotalCount)>
+        GetOccurrencesByTemplatePagedAsync(long teacherId, long templateId, int page, int pageSize)
+    {
+        var query = _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId && o.TemplateId == templateId);
+
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(o => o.OccurrenceNumber)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<AssignmentOccurrence?> GetFirstOccurrenceAsync(long templateId, long teacherId)
+    {
+        // Tracked: caller (UpdateTemplate) edits DueDate.
+        return await _context.AssignmentOccurrences
+            .FirstOrDefaultAsync(o => o.TemplateId == templateId
+                                   && o.TeacherId == teacherId
+                                   && o.OccurrenceNumber == 1);
+    }
+
+    /// <inheritdoc />
+    public async Task<AssignmentOccurrence?> GetLatestOccurrenceAsync(long templateId, long teacherId)
+    {
+        return await _context.AssignmentOccurrences
+            .Where(o => o.TemplateId == templateId && o.TeacherId == teacherId)
+            .OrderByDescending(o => o.OccurrenceNumber)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+
+    // ══════════════════════════════════════════════
+    // DELETION-TIME AGGREGATES
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<int> CountStudentsWithRecordedDataAsync(long templateId)
+    {
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.Occurrence.TemplateId == templateId
+                     && (o.Status != ObligationStatus.Pending || o.IsGradeEntered))
+            .Select(o => o.TeacherStudentId)
+            .Distinct()
+            .CountAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountOccurrencesByTemplateAsync(long templateId)
+    {
+        return await _context.AssignmentOccurrences
+            .CountAsync(o => o.TemplateId == templateId);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentObligationAuditLog>> GetAuditLogsForTemplateAsync(
+        long templateId)
+    {
+        return await _context.StudentObligationAuditLogs
+            .Where(a => a.StudentObligation.Occurrence.TemplateId == templateId)
+            .OrderBy(a => a.ChangedAt)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAuditLogsForTemplateAsync(long templateId)
+    {
+        // Single SQL DELETE — avoids materializing rows. Runs inside the ambient
+        // transaction opened by the caller (EF Core 7+ shares the connection's
+        // current transaction with ExecuteDeleteAsync).
+        await _context.StudentObligationAuditLogs
+            .Where(a => a.StudentObligation.Occurrence.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+    }
+
+    // ══════════════════════════════════════════════
+    // CONCURRENCY HELPER
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public void SetTemplateOriginalRowVersion(AssignmentTemplate template, byte[] rowVersion)
+    {
+        // Set the original RowVersion bytes on the tracked entity so EF generates the
+        // correct WHERE [RowVersion] = @original clause on save. If the entity is not
+        // tracked (e.g., loaded via AsNoTracking), Attach it first.
+        var entry = _context.Entry(template);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.Attach(template);
+            entry.State = EntityState.Modified;
+        }
+        entry.OriginalValues["RowVersion"] = rowVersion;
+    }
 }
