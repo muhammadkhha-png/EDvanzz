@@ -157,4 +157,14 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// </summary>
     public  Task<IReadOnlyList<TeacherStudent>> GetByIdsAsync(List<long> studentIds, long teacherId);
 
+
+
+    /// <summary>
+    /// Finds an active (non-deleted) student by their student code, scoped to the teacher.
+    /// Used by the *ByCode status-entry endpoints (REQ-EXH-024). Code matching is exact
+    /// (case-sensitive) — student codes are stored in normalized form by REQ-STU-007.
+    /// </summary>
+    Task<TeacherStudent?> GetActiveByCodeAndTeacherAsync(string studentCode, long teacherId);
+
+
 }

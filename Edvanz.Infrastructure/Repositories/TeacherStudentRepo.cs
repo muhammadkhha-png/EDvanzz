@@ -252,4 +252,13 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
                 !s.IsDeleted).AsNoTracking()
             .ToListAsync();
     }
+
+    public async Task<TeacherStudent?> GetActiveByCodeAndTeacherAsync(string studentCode, long teacherId)
+    {
+        // Active = not soft-deleted (global query filter applies).
+        // Code is treated as exact-match — student codes are normalized.
+        return await _context.TeacherStudents
+            .FirstOrDefaultAsync(ts => ts.TeacherId == teacherId
+                                    && ts.StudentCode == studentCode);
+    }
 }

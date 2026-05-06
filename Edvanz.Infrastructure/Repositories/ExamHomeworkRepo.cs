@@ -1113,4 +1113,180 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         }
         entry.OriginalValues["RowVersion"] = rowVersion;
     }
+
+
+    /// <inheritdoc />
+    public async Task UpdateObligationAsync(StudentAssignmentObligation obligation)
+    {
+        _context.Entry(obligation).State = EntityState.Modified;
+        await Task.CompletedTask;
+    }
+
+    public void SetObligationOriginalRowVersion(
+             StudentAssignmentObligation obligation, byte[] rowVersion)
+    {
+        var entry = _context.Entry(obligation);
+        if (entry.State == EntityState.Detached)
+        {
+            _context.Attach(obligation);
+            entry.State = EntityState.Modified;
+        }
+        entry.OriginalValues["RowVersion"] = rowVersion;
+    }
+
+    public async Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByIdsAsync(
+            long teacherId, long occurrenceId, IEnumerable<long> obligationIds)
+    {
+        var idList = obligationIds.ToList();
+        if (idList.Count == 0) return Array.Empty<StudentAssignmentObligation>();
+
+        // Tracked: callers (BulkUpdateStatusAsync) mutate Status/Grade in place.
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.OccurrenceId == occurrenceId
+                     && idList.Contains(o.Id))
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<StudentPickerRow>> SearchStudentsInOccurrenceAsync(
+            long teacherId, long occurrenceId, string query, int limit)
+    {
+        string trimmed = query?.Trim() ?? string.Empty;
+        string pattern = $"%{trimmed}%";
+
+        // Backed by IX_StudentAssignmentObligations_Tracking (TeacherId, OccurrenceId).
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.OccurrenceId == occurrenceId
+                     && (string.IsNullOrEmpty(trimmed)
+                         || EF.Functions.Like(o.TeacherStudent.StudentName, pattern)
+                         || EF.Functions.Like(o.TeacherStudent.StudentCode, pattern)))
+            .OrderBy(o => o.TeacherStudent.StudentName)
+            .Take(limit)
+            .Select(o => new StudentPickerRow
+            {
+                ObligationId = o.Id,
+                TeacherStudentId = o.TeacherStudentId,
+                StudentName = o.TeacherStudent.StudentName,
+                StudentCode = o.TeacherStudent.StudentCode,
+                CurrentStatus = o.Status,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    public async Task<(IReadOnlyList<EligibleStudentRow> Items, int TotalCount)>
+            GetEligibleStudentsForTemplatePagedAsync(
+                long teacherId, long templateId, long? sessionId,
+                string? search, int page, int pageSize)
+    {
+        // ── Step 1: Compute the set of student ids ALREADY in the template's scope ──
+        // Union of three buckets: individual scope rows, students in scoped sessions,
+        // students in sessions belonging to scoped session-groups. We compute these
+        // as IQueryables to keep the work in SQL.
+
+        var individualScopeIds = _context.AssignmentScopes
+            .Where(s => s.TemplateId == templateId
+                     && s.ScopeType == AssignmentScopeType.IndividualStudent
+                     && s.TeacherStudentId.HasValue)
+            .Select(s => s.TeacherStudentId!.Value);
+
+        var sessionScopeStudentIds = _context.AssignmentScopes
+            .Where(s => s.TemplateId == templateId
+                     && s.ScopeType == AssignmentScopeType.Session
+                     && s.SessionId.HasValue)
+            .SelectMany(s => _context.TeacherStudents
+                .Where(ts => ts.SessionId == s.SessionId && !ts.IsDeleted)
+                .Select(ts => ts.Id));
+
+        var groupScopeStudentIds = _context.AssignmentScopes
+            .Where(s => s.TemplateId == templateId
+                     && s.ScopeType == AssignmentScopeType.SessionGroup
+                     && s.SessionGroupId.HasValue)
+            .SelectMany(s => _context.TeacherStudents
+                .Where(ts => !ts.IsDeleted
+                          && ts.Session != null
+                          && ts.Session.SessionGroupId == s.SessionGroupId)
+                .Select(ts => ts.Id));
+
+        // ── Step 2: candidates = teacher's active students MINUS the included set ──
+        var includedIds = individualScopeIds
+            .Concat(sessionScopeStudentIds)
+            .Concat(groupScopeStudentIds);
+
+        var query = _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && !ts.IsDeleted)
+            .Where(ts => !includedIds.Contains(ts.Id));
+
+        if (sessionId.HasValue)
+            query = query.Where(ts => ts.SessionId == sessionId.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{search.Trim()}%";
+            query = query.Where(ts =>
+                EF.Functions.Like(ts.StudentName, pattern)
+             || EF.Functions.Like(ts.StudentCode, pattern));
+        }
+
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new EligibleStudentRow
+            {
+                TeacherStudentId = ts.Id,
+                StudentName = ts.StudentName,
+                StudentCode = ts.StudentCode,
+                SessionName = ts.Session != null ? ts.Session.SessionName : null,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    public async Task<IReadOnlyList<StudentAssignmentObligation>> GetFutureObligationsForStudentAsync(
+            long teacherId, long templateId, long teacherStudentId, DateTime asOfDate)
+    {
+        DateTime cutoff = asOfDate.Date;
+        // Tracked: caller deletes these rows.
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.TemplateId == templateId
+                     && o.Occurrence.DueDate >= cutoff)
+            .Include(o => o.Occurrence)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+  public  async Task<int> CountStudentObligationsWithDataAsync(
+        long teacherId, long templateId, long teacherStudentId)
+    {
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.TemplateId == templateId
+                     && (o.Status != ObligationStatus.Pending || o.IsGradeEntered))
+            .CountAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<AssignmentScope?> GetScopeByIdAndTeacherAsync(long scopeId, long teacherId)
+    {
+        return await _context.AssignmentScopes
+            .FirstOrDefaultAsync(s => s.Id == scopeId && s.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteScopeAsync(AssignmentScope scope)
+    {
+        _context.AssignmentScopes.Remove(scope);
+        await Task.CompletedTask;
+    }
+    
+   
 }

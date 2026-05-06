@@ -501,8 +501,94 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
         IEnumerable<long> templateIds);
 
 
+    // ══════════════════════════════════════════════════════════════════════
+    // OBLIGATION WRITE PATH (status entry / grade entry)
+    // ══════════════════════════════════════════════════════════════════════
 
-    
+    /// <summary>
+    /// Marks an existing obligation as Modified in the change tracker.
+    /// Used by every status-entry and grade-entry path; the service layer mutates
+    /// the entity then calls this so the EF Core change tracker picks up the changes.
+    /// </summary>
+    Task UpdateObligationAsync(StudentAssignmentObligation obligation);
+
+    /// <summary>
+    /// Sets the original RowVersion bytes on a tracked obligation so EF generates
+    /// the WHERE [RowVersion] = @original clause for optimistic concurrency.
+    /// REQ-EXH-027: Manual grade-entry surfaces a 409 if two users edit the same row.
+    /// Mirrors <c>SetTemplateOriginalRowVersion</c> pattern.
+    /// </summary>
+    void SetObligationOriginalRowVersion(StudentAssignmentObligation obligation, byte[] rowVersion);
+
+    /// <summary>
+    /// Returns a tracked set of obligations by their ids, scoped to (teacher, occurrence).
+    /// Used by <c>BulkUpdateStatusAsync</c> to load obligations for in-place mutation
+    /// inside a single transaction.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByIdsAsync(
+        long teacherId, long occurrenceId, IEnumerable<long> obligationIds);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PICKERS — typeahead and eligible-students
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Type-ahead picker for the manual-status entry flow (REQ-EXH-023).
+    /// Returns a slim projection of obligations matching a name or code prefix.
+    /// Capped at <paramref name="limit"/> rows; service layer clamps the limit.
+    /// </summary>
+    Task<IReadOnlyList<StudentPickerRow>> SearchStudentsInOccurrenceAsync(
+        long teacherId, long occurrenceId, string query, int limit);
+
+    /// <summary>
+    /// Paginated list of students who belong to the teacher but are NOT yet in the
+    /// resolved scope of a template (REQ-EXH-035). The "resolved scope" is computed
+    /// as the union of:
+    ///   - IndividualStudent scope rows
+    ///   - All students in any Session referenced by a Session scope row
+    ///   - All students in any Session in any SessionGroup referenced by a SessionGroup scope row
+    ///
+    /// Implementation note: the repo computes the included-set inline and excludes it
+    /// from the candidate set. Optionally filters to a specific session via
+    /// <paramref name="sessionId"/>.
+    /// </summary>
+    Task<(IReadOnlyList<EligibleStudentRow> Items, int TotalCount)> GetEligibleStudentsForTemplatePagedAsync(
+        long teacherId, long templateId, long? sessionId,
+        string? search, int page, int pageSize);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // OBLIGATION DELETE PATH (REQ-EXH-036)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns the set of obligation ids for one student across all FUTURE or CURRENT
+    /// occurrences of a template (DueDate &gt;= today).
+    /// Used by <c>RemoveStudentFromTemplateAsync</c> to delete only forward-looking rows;
+    /// past occurrences are preserved (BR-EXH-002).
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetFutureObligationsForStudentAsync(
+        long teacherId, long templateId, long teacherStudentId, DateTime asOfDate);
+
+    /// <summary>
+    /// Counts obligations for a student under a template that have recorded data
+    /// (Status != Pending or IsGradeEntered = true).
+    /// Drives the "force flag required" decision in <c>RemoveStudentFromTemplateAsync</c>
+    /// (REQ-EXH-036).
+    /// </summary>
+    Task<int> CountStudentObligationsWithDataAsync(
+        long teacherId, long templateId, long teacherStudentId);
+
+    /// <summary>
+    /// Removes a single AssignmentScope row, scoped to the teacher.
+    /// </summary>
+    Task<AssignmentScope?> GetScopeByIdAndTeacherAsync(long scopeId, long teacherId);
+
+    /// <summary>
+    /// Removes a single scope row from the change tracker. Used by
+    /// <c>RemoveScopeAsync</c> and the "remove individual student" flow.
+    /// </summary>
+    Task DeleteScopeAsync(AssignmentScope scope);
+
 
 }
 
@@ -617,4 +703,29 @@ public sealed class ScopeCountAggregate
     public int IndividualCount { get; set; }
     public int SessionCount { get; set; }
     public int GroupCount { get; set; }
+}
+/// <summary>
+/// Slim projection for the manual-entry typeahead picker (REQ-EXH-023).
+/// Includes the current obligation status so the UI can display "Currently: NotDone"
+/// alongside the suggestion and skip showing students who already have a recorded value.
+/// </summary>
+public sealed class StudentPickerRow
+{
+    public long ObligationId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public Edvanz.Domain.Enums.ObligationStatus CurrentStatus { get; set; }
+}
+
+/// <summary>
+/// Slim projection for the "eligible students" picker shown when the tutor is adding
+/// students to an existing template (REQ-EXH-035).
+/// </summary>
+public sealed class EligibleStudentRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public string? SessionName { get; set; }
 }
