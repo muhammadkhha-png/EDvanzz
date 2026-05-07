@@ -335,6 +335,7 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
                 MarkedByScan = o.MarkedByScan,
                 ScannedAt = o.ScannedAt,
                 UpdatedAt = o.UpdatedAt,
+                ObligationRowVersion = o.RowVersion, // For concurrency control on the grade-entry path.
             })
             .AsNoTracking()
             .ToListAsync();
@@ -389,6 +390,7 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
                 MarkedByScan = o.MarkedByScan,
                 ScannedAt = o.ScannedAt,
                 UpdatedAt = o.UpdatedAt,
+                ObligationRowVersion=o.RowVersion, // For concurrency control on the grade-entry path.
             })
             .AsNoTracking()
             .ToListAsync();

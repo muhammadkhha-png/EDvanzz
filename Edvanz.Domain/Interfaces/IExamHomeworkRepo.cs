@@ -648,6 +648,7 @@ public class TrackingViewRow
     public bool MarkedByScan { get; set; }
     public DateTime? ScannedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public byte[] ObligationRowVersion { get; set; } = null!;
 }
 
 /// <summary>

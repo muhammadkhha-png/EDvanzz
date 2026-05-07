@@ -19,6 +19,7 @@ public class TrackingViewRowDto
     public bool MarkedByScan { get; set; }
     public DateTime? ScannedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public string RowVersion { get; set; }
 }
 
 /// <summary>

@@ -141,6 +141,16 @@ builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
 var app = builder.Build();
+
+// testing notes : for test assignment and hw materialization without waiting for the daily recurring job
+
+//using (var scope = app.Services.CreateScope())
+//{
+//    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
+//    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
+//        job => job.RunAsync(),
+//        TimeSpan.FromMinutes(1));
+//}
 await app.SeedDatabaseAsync();
 
 // Use localization middleware
@@ -213,10 +223,3 @@ app.MapControllers();
 
 app.Run();
 
-using (var scope = app.Services.CreateScope())
-{
-    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
-    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
-        job => job.RunAsync(),
-        TimeSpan.FromMinutes(1));
-}

@@ -1929,6 +1929,7 @@ public class ExamHomeworkService : IExamHomeworkService
         MarkedByScan = r.MarkedByScan,
         ScannedAt = r.ScannedAt,
         UpdatedAt = r.UpdatedAt,
+        RowVersion =Convert.ToBase64String( r.ObligationRowVersion),
     };
 
     /// <summary>
@@ -1960,6 +1961,7 @@ public class ExamHomeworkService : IExamHomeworkService
             MarkedByScan = obligation.MarkedByScan,
             ScannedAt = obligation.ScannedAt,
             UpdatedAt = obligation.UpdatedAt,
+RowVersion = Convert.ToBase64String(obligation.RowVersion),
         };
     }
 
