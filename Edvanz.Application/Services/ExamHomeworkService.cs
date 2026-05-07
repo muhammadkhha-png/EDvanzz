@@ -77,11 +77,16 @@ public class ExamHomeworkService : IExamHomeworkService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Messages> _localizer;
+    private readonly IAssignmentScopeResolver _scopeResolver;
 
-    public ExamHomeworkService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+    public ExamHomeworkService(
+        IUnitOfWork unitOfWork,
+        IStringLocalizer<Messages> localizer,
+        IAssignmentScopeResolver scopeResolver)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
+        _scopeResolver = scopeResolver;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1468,38 +1473,13 @@ public class ExamHomeworkService : IExamHomeworkService
 
     /// <summary>
     /// Resolves all scope rows to a deduplicated set of TeacherStudentIds.
-    /// Reuses <c>IPaymentRepo.GetStudentIdsBySessionAsync</c> and
-    /// <c>GetStudentIdsByGroupAsync</c> — single source of truth for "who's in a session".
+    /// Delegates to <see cref="IAssignmentScopeResolver"/> — the same resolver is
+    /// shared with the Hangfire materializer so dedupe semantics never drift.
     /// REQ-EXH-003: HashSet handles deduplication for free.
     /// </summary>
-    private async Task<HashSet<long>> ResolveAndDedupeStudentsAsync(
+    private Task<HashSet<long>> ResolveAndDedupeStudentsAsync(
         long teacherId, IEnumerable<ScopeInputDto> scopes)
-    {
-        var ids = new HashSet<long>();
-
-        foreach (var s in scopes)
-        {
-            IReadOnlyList<long> resolved = s.ScopeType switch
-            {
-                AssignmentScopeType.IndividualStudent
-                    => new[] { s.TeacherStudentId!.Value },
-
-                AssignmentScopeType.Session
-                    => await _unitOfWork.PaymentsRepo
-                        .GetStudentIdsBySessionAsync(teacherId, s.SessionId!.Value),
-
-                AssignmentScopeType.SessionGroup
-                    => await _unitOfWork.PaymentsRepo
-                        .GetStudentIdsByGroupAsync(teacherId, s.SessionGroupId!.Value),
-
-                _ => Array.Empty<long>(),
-            };
-
-            foreach (var id in resolved) ids.Add(id);
-        }
-
-        return ids;
-    }
+        => _scopeResolver.ResolveFromInputsAsync(teacherId, scopes);
 
     // ══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS — ENTITY BUILDERS

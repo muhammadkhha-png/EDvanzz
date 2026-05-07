@@ -87,8 +87,9 @@ builder.Services.AddHangfire(config =>
 // Worker counts: default 5 workers on each queue. Tune via configuration if needed.
 builder.Services.AddHangfireServer(options =>
 {
-    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue };
+    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue,"assignment-materialization" };
 });
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -188,7 +189,19 @@ RecurringJob.AddOrUpdate<AssistantCleanupJob>(
     "assistant-cleanup-job",
     job => job.ExecuteAsync(),
    Cron.Daily);
-
+// ?? Recurring Assignment Materializer (Module 6) ??
+// Runs once daily at 06:00 Africa/Cairo. Earlier than the reminder dispatcher
+// (09:00) so tomorrow's occurrences are visible by morning.
+RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
+    recurringJobId: "recurring-assignment-materializer",
+    methodCall: job => job.RunAsync(),
+    cronExpression: "0 6 * * *",
+    options: new RecurringJobOptions
+    {
+        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+    }
+  );
+    
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 
@@ -199,3 +212,11 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+using (var scope = app.Services.CreateScope())
+{
+    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
+    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
+        job => job.RunAsync(),
+        TimeSpan.FromMinutes(1));
+}

@@ -936,4 +936,220 @@
   <data name="PaymobNotConfigured" xml:space="preserve">
     <value>الدفع الإلكتروني مش متاح حاليًا. استخدم الدفع اليدوي</value>
   </data>
+  <!--
+  ═══════════════════════════════════════════════════════════════════════════
+  MODULE 6 (EXAMS & HOMEWORK) — LOCALIZATION KEYS, EGYPTIAN ARABIC
+  ═══════════════════════════════════════════════════════════════════════════
+
+  THIS FILE INSTRUCTS YOU TO COPY THE <data> ENTRIES BELOW INTO THE EXISTING
+  /Edvanz.Domain/Messages.ar.resx FILE.
+
+  Wording style notes:
+    - Egyptian Arabic dialect (not Modern Standard / فصحى) — same as the
+      existing keys in REQ-STU-* and REQ-PAY-*.
+    - Direct, professional tone — say what's wrong and what to do about it.
+    - Avoid technical terms in user copy ("RowVersion" → "البيانات اتعدلت").
+    - Keep messages short — these display in mobile-app toasts.
+
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+
+  <!-- ─── Success messages ──────────────────────────────────────────────── -->
+  <data name="AssignmentCreated" xml:space="preserve">
+    <value>تم إنشاء المهمة بنجاح</value>
+  </data>
+  <data name="AssignmentUpdated" xml:space="preserve">
+    <value>تم تحديث المهمة بنجاح</value>
+  </data>
+  <data name="AssignmentDeleted" xml:space="preserve">
+    <value>تم حذف المهمة بنجاح</value>
+  </data>
+  <data name="RecurrenceStopped" xml:space="preserve">
+    <value>تم إيقاف تكرار المهمة. السجلات السابقة لسه موجودة</value>
+  </data>
+  <data name="ScopesAdded" xml:space="preserve">
+    <value>تم إضافة الطلاب المستهدفين للمهمة</value>
+  </data>
+  <data name="ScopeRemoved" xml:space="preserve">
+    <value>تم حذف الهدف من المهمة</value>
+  </data>
+  <data name="StudentsAddedToTemplate" xml:space="preserve">
+    <value>تم إضافة الطلاب للمهمة بنجاح</value>
+  </data>
+  <data name="StudentRemovedFromTemplate" xml:space="preserve">
+    <value>تم إزالة الطالب من المهمة</value>
+  </data>
+  <data name="ObligationRemoved" xml:space="preserve">
+    <value>تم استثناء الطالب من ميعاد المهمة دا</value>
+  </data>
+  <data name="StatusUpdated" xml:space="preserve">
+    <value>تم تحديث الحالة بنجاح</value>
+  </data>
+  <data name="BulkStatusUpdated" xml:space="preserve">
+    <value>تم تحديث حالة الطلاب المختارين</value>
+  </data>
+  <data name="GradeEntered" xml:space="preserve">
+    <value>تم حفظ الدرجة بنجاح</value>
+  </data>
+  <data name="ScanRecorded" xml:space="preserve">
+    <value>تم تسجيل الحضور</value>
+  </data>
+  <data name="ScanAlreadyProcessed" xml:space="preserve">
+    <value>الحضور كان متسجل قبل كده للطالب دا</value>
+  </data>
+  <data name="ReportGenerated" xml:space="preserve">
+    <value>تم إنشاء التقرير بنجاح</value>
+  </data>
+
+  <!-- ─── Validation: template inputs ───────────────────────────────────── -->
+  <data name="AssignmentNameRequired" xml:space="preserve">
+    <value>اسم المهمة مطلوب ومش لازم يزيد عن 200 حرف</value>
+  </data>
+  <data name="AssignmentNotesTooLong" xml:space="preserve">
+    <value>الملاحظات مش لازم تزيد عن 2000 حرف</value>
+  </data>
+  <data name="AssignmentDateInPast" xml:space="preserve">
+    <value>تاريخ المهمة لازم يكون النهاردة أو في المستقبل</value>
+  </data>
+  <data name="RecurrenceFlagMismatch" xml:space="preserve">
+    <value>نمط التكرار مش متطابق مع نوع المهمة. اختار "مرة واحدة" لو المهمة مش متكررة</value>
+  </data>
+  <data name="HomeworkRequiresTrackingMode" xml:space="preserve">
+    <value>الواجبات لازم تختار ليها طريقة المتابعة (إتمام فقط أو بدرجة)</value>
+  </data>
+  <data name="InvalidRecurrenceForHomework" xml:space="preserve">
+    <value>الواجبات تتكرر بس "مرة واحدة" أو "كل حصة" أو "كل حصتين"</value>
+  </data>
+  <data name="ExamRequiresMaxGrade" xml:space="preserve">
+    <value>الامتحانات لازم تحط ليها أقصى درجة أكبر من صفر</value>
+  </data>
+  <data name="PassingThresholdOutOfRange" xml:space="preserve">
+    <value>درجة النجاح لازم تكون بين صفر وأقصى درجة</value>
+  </data>
+  <data name="InvalidRecurrenceForExam" xml:space="preserve">
+    <value>الامتحانات تتكرر بس "مرة واحدة" أو "شهرياً"</value>
+  </data>
+
+  <!-- ─── Validation: scope inputs ──────────────────────────────────────── -->
+  <data name="ScopeListEmpty" xml:space="preserve">
+    <value>لازم تختار هدف واحد على الأقل (طالب أو حصة أو مجموعة)</value>
+  </data>
+  <data name="InvalidScopeShape" xml:space="preserve">
+    <value>واحد من الأهداف اللي اخترتها مش صحيح. راجعه وحاول تاني</value>
+  </data>
+  <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
+    <value>واحد من الأهداف مش موجود أو مش تابع لحسابك</value>
+  </data>
+  <data name="ScopeResolvedToZeroStudents" xml:space="preserve">
+    <value>الأهداف اللي اخترتها مفيهاش طلاب. ضيف طالب واحد على الأقل</value>
+  </data>
+  <data name="ScopeResolutionTooLarge" xml:space="preserve">
+    <value>عدد الطلاب أكبر من المسموح في مهمة واحدة. قسم الطلاب على مهام أصغر</value>
+  </data>
+  <data name="ScopeNotFound" xml:space="preserve">
+    <value>الهدف اللي عايز تشيله مش موجود في المهمة دي</value>
+  </data>
+
+  <!-- ─── Validation: students / obligations ────────────────────────────── -->
+  <data name="StudentListEmpty" xml:space="preserve">
+    <value>اختار طالب واحد على الأقل</value>
+  </data>
+  <data name="TooManyStudentsInOneCall" xml:space="preserve">
+    <value>تقدر تضيف لحد 500 طالب في المرة. قسم الاختيار</value>
+  </data>
+  <data name="StudentCodeNotFound" xml:space="preserve">
+    <value>مفيش طالب بالكود دا</value>
+  </data>
+  <data name="ObligationNotFound" xml:space="preserve">
+    <value>سجل الطالب دا مش موجود في المهمة دي</value>
+  </data>
+  <data name="OccurrenceNotFound" xml:space="preserve">
+    <value>ميعاد المهمة دا مش موجود</value>
+  </data>
+  <data name="TemplateNotFound" xml:space="preserve">
+    <value>المهمة دي مش موجودة</value>
+  </data>
+  <data name="TemplateIsNotRecurring" xml:space="preserve">
+    <value>المهمة دي مش متكررة، مفيش حاجة تتوقف</value>
+  </data>
+  <data name="RecurrenceAlreadyStopped" xml:space="preserve">
+    <value>تكرار المهمة دي اتوقف قبل كده</value>
+  </data>
+  <data name="DeletionConfirmationRequired" xml:space="preserve">
+    <value>أكد الحذف الأول علشان نكمل</value>
+  </data>
+
+  <!-- ─── Validation: status / grade entry ──────────────────────────────── -->
+  <data name="InvalidStatusForExam" xml:space="preserve">
+    <value>الحالة دي مش مناسبة للامتحانات. الحالات المسموحة: حضر، حضر بدرجة، مش حضر</value>
+  </data>
+  <data name="InvalidStatusForHomework" xml:space="preserve">
+    <value>الحالة دي مش مناسبة للواجبات. اختار حالة تناسب طريقة المتابعة</value>
+  </data>
+  <data name="InvalidStatusForOccurrence" xml:space="preserve">
+    <value>الحالة دي مش مناسبة للمهمة دي</value>
+  </data>
+  <data name="GradeRequiredForAttendedWithGrade" xml:space="preserve">
+    <value>لازم تدخل الدرجة لما تحدد إن الطالب حضر بدرجة</value>
+  </data>
+  <data name="GradeRequiredForDoneWithGrade" xml:space="preserve">
+    <value>لازم تدخل الدرجة لما تحدد إن الواجب اتعمل بدرجة</value>
+  </data>
+  <data name="GradeNotAllowedForStatus" xml:space="preserve">
+    <value>مينفعش تحط درجة مع الحالة دي. شيل الدرجة أو غير الحالة</value>
+  </data>
+  <data name="GradeNotAllowedForCompletionOnly" xml:space="preserve">
+    <value>الواجب دا متابعة "إتمام فقط"، مينفعش تدخل درجة</value>
+  </data>
+  <data name="OccurrenceMissingMaxGrade" xml:space="preserve">
+    <value>الامتحان دا مفيش ليه أقصى درجة. عدّل المهمة الأول</value>
+  </data>
+  <data name="GradeOutOfRange" xml:space="preserve">
+    <value>الدرجة لازم تكون بين صفر وأقصى درجة للمهمة</value>
+  </data>
+  <data name="ObligationNotInGradePendingState" xml:space="preserve">
+    <value>الطالب دا مش في انتظار درجة دلوقتي</value>
+  </data>
+
+  <!-- ─── Validation: bulk / scan / barcode ─────────────────────────────── -->
+  <data name="BulkItemsEmpty" xml:space="preserve">
+    <value>اختار طالب واحد على الأقل للتحديث الجماعي</value>
+  </data>
+  <data name="BulkItemsTooMany" xml:space="preserve">
+    <value>التحديث الجماعي بحد أقصى 1000 طالب في المرة. قسم الاختيار</value>
+  </data>
+  <data name="BulkObligationMismatch" xml:space="preserve">
+    <value>بعض الطلاب اللي اخترتهم مبقوش في المهمة دي. حدّث الصفحة وحاول تاني</value>
+  </data>
+  <data name="BarcodeRequired" xml:space="preserve">
+    <value>الباركود مطلوب</value>
+  </data>
+  <data name="BarcodeNotFound" xml:space="preserve">
+    <value>مفيش طالب طلع من الباركود اللي اتعمله سكان</value>
+  </data>
+
+  <!-- ─── Concurrency / locks (REQ-EXH-013, 027) ────────────────────────── -->
+  <data name="RecurrencePatternLocked" xml:space="preserve">
+    <value>مينفعش تغير نمط التكرار لأن في بيانات اتسجلت للطلاب</value>
+  </data>
+  <data name="TemplateConcurrencyConflict" xml:space="preserve">
+    <value>المهمة اتعدلت من حد تاني وانت بتعدل. حدّث الصفحة وحاول تاني</value>
+  </data>
+  <data name="ObligationConcurrencyConflict" xml:space="preserve">
+    <value>سجل الطالب اتعدل من حد تاني وانت بتعدل. حدّث الصفحة وحاول تاني</value>
+  </data>
+  <data name="ForceFlagRequiredForRecordedData" xml:space="preserve">
+    <value>الطالب دا عنده بيانات متسجلة. أكد الحذف علشان نكمل</value>
+  </data>
+  <data name="DatabaseConflict" xml:space="preserve">
+    <value>الطلب متعارض مع بيانات موجودة. حدّث الصفحة وحاول تاني</value>
+  </data>
+
+  <!-- ─── Reports validation ────────────────────────────────────────────── -->
+  <data name="ReportFilterAmbiguous" xml:space="preserve">
+    <value>اختار فلتر واحد بس للتقرير دا</value>
+  </data>
+  <data name="ReportDateRangeInvalid" xml:space="preserve">
+    <value>تاريخ النهاية لازم يكون بعد أو نفس تاريخ البداية</value>
+  </data>
 </root>

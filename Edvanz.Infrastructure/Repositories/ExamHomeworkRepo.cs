@@ -827,7 +827,7 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     // For documentation only; do not actually create this class. Copy the methods
     // below into the existing ExamHomeworkRepo class.
 
-    private readonly EdvanzDbContext _context = null!;
+
 
  
 
@@ -1287,6 +1287,83 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         _context.AssignmentScopes.Remove(scope);
         await Task.CompletedTask;
     }
-    
-   
+
+    public /// <inheritdoc />
+        async Task<IReadOnlyList<long>> GetTemplateIdsDueForMaterializationAsync(
+            DateTime fromDate, DateTime toDate)
+    {
+        // Two-pass query for clarity over a single mega-query:
+        //
+        // Pass 1: latest occurrence DueDate per template, restricted to recurring
+        // and non-stopped templates. Single grouped read; backed by IX_Occurrences_Template.
+        var latestPerTemplate = await _context.AssignmentTemplates
+            .Where(t => t.IsRecurring && !t.IsRecurrenceStopped)
+            .Select(t => new
+            {
+                t.Id,
+                t.RecurrencePattern,
+                t.RecurrenceEndDate,
+                LastDueDate = _context.AssignmentOccurrences
+                    .Where(o => o.TemplateId == t.Id)
+                    .Max(o => (DateTime?)o.DueDate),
+            })
+            .Where(x => x.LastDueDate != null)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // Pass 2: in-memory filter applying the per-pattern interval. Cheap because
+        // pass-1 already narrowed to recurring+active templates. Doing this in SQL
+        // would require a CASE expression and a CASE-aware index — not worth it.
+        DateTime cutoff = toDate.Date;
+
+        var due = latestPerTemplate
+            .Where(x => x.LastDueDate.HasValue)
+            .Where(x =>
+            {
+                DateTime? next = ComputeApproximateNextDate(x.RecurrencePattern, x.LastDueDate!.Value);
+                if (next is null) return false;
+                if (x.RecurrenceEndDate.HasValue && next.Value > x.RecurrenceEndDate.Value.Date)
+                    return false;
+                return next.Value <= cutoff;
+            })
+            .Select(x => x.Id)
+            .ToList();
+
+        return due;
+    }
+
+    public  /// <inheritdoc />
+        async Task<AssignmentTemplate?> LockTemplateForMaterializationAsync(long templateId)
+    {
+        // SQL Server table hint UPDLOCK + ROWLOCK serializes concurrent writers on
+        // this row without escalating to a page or table lock. HOLDLOCK extends the
+        // lock to the end of the transaction. The hint is supplied via FromSql so
+        // EF Core does not strip it from the generated query.
+        //
+        // The query is parameterized (FormattableString interpolation = SqlParameter)
+        // so SQL injection is impossible.
+        var template = await _context.AssignmentTemplates
+            .FromSql($@"
+                    SELECT * FROM [AssignmentTemplates] WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
+                    WHERE [Id] = {templateId}")
+            .FirstOrDefaultAsync();
+
+        return template;
+    }
+    // ──────────────────────────────────────────────────────────────────
+    // Local helper — keep in sync with the materializer service's
+    // ComputeNextDueDate. Duplicated intentionally so the eligibility
+    // query stays self-contained and the service can refine its logic
+    // (e.g., real session-schedule lookups) without changing the repo.
+    // ──────────────────────────────────────────────────────────────────
+    static DateTime? ComputeApproximateNextDate(RecurrencePattern pattern, DateTime lastDueDate)
+        => pattern switch
+        {
+            RecurrencePattern.OneTime => null,
+            RecurrencePattern.EverySession => lastDueDate.Date.AddDays(7),
+            RecurrencePattern.EveryTwoSessions => lastDueDate.Date.AddDays(14),
+            RecurrencePattern.Monthly => lastDueDate.Date.AddMonths(1),
+            _ => null,
+        };
+
 }

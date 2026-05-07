@@ -114,5 +114,12 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ISubscriptionCacheService, RedisSubscriptionCacheService>();
         services.AddScoped<SubscriptionReminderDispatcherJob>();
         services.AddScoped<PendingPaymentExpiryJob>();
+        // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
+        //  Hangfire dispatcher + worker (Phase 6) ──
+        // Daily fan-out + per-template materialization workers.
+        services.AddScoped<RecurringAssignmentDispatcherJob>();
+        services.AddScoped<IRecurringAssignmentMaterializerJob,
+                           RecurringAssignmentMaterializerJob>();
+        services.AddScoped<IExamHomeworkReportService, ExamHomeworkReportService>();
     }
 }

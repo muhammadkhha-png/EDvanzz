@@ -588,6 +588,30 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// <c>RemoveScopeAsync</c> and the "remove individual student" flow.
     /// </summary>
     Task DeleteScopeAsync(AssignmentScope scope);
+    /// <summary>
+    /// Returns the ids of recurring, non-stopped templates whose next expected
+    /// occurrence date falls within [<paramref name="fromDate"/>, <paramref name="toDate"/>].
+    ///
+    /// "Next expected date" is approximated by the latest occurrence's DueDate plus
+    /// the recurrence pattern's standard interval (7 days for EverySession, 14 for
+    /// EveryTwoSessions, 1 month for Monthly). The materializer service computes the
+    /// exact date and re-validates, so a slightly over-eager filter here is harmless.
+    ///
+    /// Backed by IX_AssignmentTemplates_TeacherList covering the IsRecurring filter
+    /// plus a join to AssignmentOccurrences keyed by IX_AssignmentOccurrences_Template.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetTemplateIdsDueForMaterializationAsync(
+        DateTime fromDate, DateTime toDate);
+
+    /// <summary>
+    /// Loads a template inside an UPDLOCK row lock so concurrent materializer runs
+    /// on the same template serialize. The lock is released when the surrounding
+    /// transaction COMMITs or ROLLBACKs.
+    ///
+    /// Catalog §7.2 chose this pattern over Hangfire Pro's <c>[Mutex]</c> attribute
+    /// (free, predictable, matches SQL Server semantics).
+    /// </summary>
+    Task<AssignmentTemplate?> LockTemplateForMaterializationAsync(long templateId);
 
 
 }

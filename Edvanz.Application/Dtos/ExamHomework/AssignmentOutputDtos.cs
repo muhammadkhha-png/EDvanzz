@@ -38,7 +38,7 @@ public class AssignmentTemplateDto
     public decimal? PassingThreshold { get; set; }
 
     public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
     public byte[] RowVersion { get; set; } = null!;
 
     /// <summary>Populated on create response — Id of the synchronously materialized first occurrence.</summary>

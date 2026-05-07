@@ -148,7 +148,7 @@ public class AssignmentTemplate : BaseEntity
     /// Last update timestamp. Maintained by the service layer on every edit.
     /// REQ-EXH-034: Templates are editable after creation, subject to recurrence restrictions.
     /// </summary>
-    public DateTime UpdatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 
     // ══════════════════════════════════════════════
     // CONCURRENCY

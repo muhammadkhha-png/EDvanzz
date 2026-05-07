@@ -936,4 +936,201 @@
   <data name="PaymobNotConfigured" xml:space="preserve">
     <value>Online payment is not configured. Please use the manual payment flow</value>
   </data>
+   <data name="AssignmentCreated" xml:space="preserve">
+    <value>Assignment created successfully</value>
+  </data>
+  <data name="AssignmentUpdated" xml:space="preserve">
+    <value>Assignment updated successfully</value>
+  </data>
+  <data name="AssignmentDeleted" xml:space="preserve">
+    <value>Assignment deleted successfully</value>
+  </data>
+  <data name="RecurrenceStopped" xml:space="preserve">
+    <value>Recurring assignment stopped. Past records remain available</value>
+  </data>
+  <data name="ScopesAdded" xml:space="preserve">
+    <value>Targets added to the assignment successfully</value>
+  </data>
+  <data name="ScopeRemoved" xml:space="preserve">
+    <value>Target removed from the assignment</value>
+  </data>
+  <data name="StudentsAddedToTemplate" xml:space="preserve">
+    <value>Students added to the assignment successfully</value>
+  </data>
+  <data name="StudentRemovedFromTemplate" xml:space="preserve">
+    <value>Student removed from the assignment</value>
+  </data>
+  <data name="ObligationRemoved" xml:space="preserve">
+    <value>Student excused from this assignment occurrence</value>
+  </data>
+  <data name="StatusUpdated" xml:space="preserve">
+    <value>Status updated successfully</value>
+  </data>
+  <data name="BulkStatusUpdated" xml:space="preserve">
+    <value>Status updated for the selected students</value>
+  </data>
+  <data name="GradeEntered" xml:space="preserve">
+    <value>Grade saved successfully</value>
+  </data>
+  <data name="ScanRecorded" xml:space="preserve">
+    <value>Attendance recorded</value>
+  </data>
+  <data name="ScanAlreadyProcessed" xml:space="preserve">
+    <value>Attendance was already recorded for this student</value>
+  </data>
+  <data name="ReportGenerated" xml:space="preserve">
+    <value>Report generated successfully</value>
+  </data>
+ 
+  <!-- ─── Validation: template inputs ───────────────────────────────────── -->
+  <data name="AssignmentNameRequired" xml:space="preserve">
+    <value>Assignment name is required and cannot exceed 200 characters</value>
+  </data>
+  <data name="AssignmentNotesTooLong" xml:space="preserve">
+    <value>Notes cannot exceed 2000 characters</value>
+  </data>
+  <data name="AssignmentDateInPast" xml:space="preserve">
+    <value>Assignment date must be today or a future date</value>
+  </data>
+  <data name="RecurrenceFlagMismatch" xml:space="preserve">
+    <value>Recurrence pattern does not match the recurring flag. Choose One-Time when not recurring</value>
+  </data>
+  <data name="HomeworkRequiresTrackingMode" xml:space="preserve">
+    <value>Homework assignments require a tracking mode (Completion-only or Graded)</value>
+  </data>
+  <data name="InvalidRecurrenceForHomework" xml:space="preserve">
+    <value>Homework can only repeat as One-Time, Every Session, or Every Two Sessions</value>
+  </data>
+  <data name="ExamRequiresMaxGrade" xml:space="preserve">
+    <value>Exam assignments require a maximum grade greater than zero</value>
+  </data>
+  <data name="PassingThresholdOutOfRange" xml:space="preserve">
+    <value>Passing threshold must be between zero and the maximum grade</value>
+  </data>
+  <data name="InvalidRecurrenceForExam" xml:space="preserve">
+    <value>Exams can only repeat as One-Time or Monthly</value>
+  </data>
+ 
+  <!-- ─── Validation: scope inputs ──────────────────────────────────────── -->
+  <data name="ScopeListEmpty" xml:space="preserve">
+    <value>At least one target (student, session, or group) is required</value>
+  </data>
+  <data name="InvalidScopeShape" xml:space="preserve">
+    <value>One of the selected targets is invalid. Please review and try again</value>
+  </data>
+  <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
+    <value>One of the selected targets does not exist or does not belong to your account</value>
+  </data>
+  <data name="ScopeResolvedToZeroStudents" xml:space="preserve">
+    <value>The selected targets did not resolve to any students. Please add at least one student</value>
+  </data>
+  <data name="ScopeResolutionTooLarge" xml:space="preserve">
+    <value>The selected scope is too large for a single assignment. Please split it into smaller groups</value>
+  </data>
+  <data name="ScopeNotFound" xml:space="preserve">
+    <value>The target you are trying to remove was not found on this assignment</value>
+  </data>
+ 
+  <!-- ─── Validation: students / obligations ────────────────────────────── -->
+  <data name="StudentListEmpty" xml:space="preserve">
+    <value>Please select at least one student</value>
+  </data>
+  <data name="TooManyStudentsInOneCall" xml:space="preserve">
+    <value>You can add up to 500 students at a time. Please split the selection</value>
+  </data>
+  <data name="StudentCodeNotFound" xml:space="preserve">
+    <value>No student found with this code</value>
+  </data>
+  <data name="ObligationNotFound" xml:space="preserve">
+    <value>The selected student record was not found on this assignment</value>
+  </data>
+  <data name="OccurrenceNotFound" xml:space="preserve">
+    <value>This assignment occurrence was not found</value>
+  </data>
+  <data name="TemplateNotFound" xml:space="preserve">
+    <value>This assignment was not found</value>
+  </data>
+  <data name="TemplateIsNotRecurring" xml:space="preserve">
+    <value>This assignment is not recurring, so there is nothing to stop</value>
+  </data>
+  <data name="RecurrenceAlreadyStopped" xml:space="preserve">
+    <value>This recurring assignment has already been stopped</value>
+  </data>
+  <data name="DeletionConfirmationRequired" xml:space="preserve">
+    <value>Please confirm the deletion before proceeding</value>
+  </data>
+ 
+  <!-- ─── Validation: status / grade entry ──────────────────────────────── -->
+  <data name="InvalidStatusForExam" xml:space="preserve">
+    <value>This status is not valid for exams. Allowed values: Attended, Attended with grade, Did not attend</value>
+  </data>
+  <data name="InvalidStatusForHomework" xml:space="preserve">
+    <value>This status is not valid for homework. Please choose a status that matches the tracking mode</value>
+  </data>
+  <data name="InvalidStatusForOccurrence" xml:space="preserve">
+    <value>This status is not valid for this assignment</value>
+  </data>
+  <data name="GradeRequiredForAttendedWithGrade" xml:space="preserve">
+    <value>A grade is required when marking the exam as attended with grade</value>
+  </data>
+  <data name="GradeRequiredForDoneWithGrade" xml:space="preserve">
+    <value>A grade is required when marking the homework as done with grade</value>
+  </data>
+  <data name="GradeNotAllowedForStatus" xml:space="preserve">
+    <value>A grade cannot be entered for this status. Please clear the grade or change the status</value>
+  </data>
+  <data name="GradeNotAllowedForCompletionOnly" xml:space="preserve">
+    <value>This homework is set to completion-only. Grades cannot be entered</value>
+  </data>
+  <data name="OccurrenceMissingMaxGrade" xml:space="preserve">
+    <value>This exam does not have a maximum grade configured. Please update the assignment first</value>
+  </data>
+  <data name="GradeOutOfRange" xml:space="preserve">
+    <value>Grade must be between zero and the assignment's maximum grade</value>
+  </data>
+  <data name="ObligationNotInGradePendingState" xml:space="preserve">
+    <value>This student is not currently awaiting a grade</value>
+  </data>
+ 
+  <!-- ─── Validation: bulk / scan / barcode ─────────────────────────────── -->
+  <data name="BulkItemsEmpty" xml:space="preserve">
+    <value>Please select at least one student for the bulk update</value>
+  </data>
+  <data name="BulkItemsTooMany" xml:space="preserve">
+    <value>Bulk updates are limited to 1000 students at a time. Please split the selection</value>
+  </data>
+  <data name="BulkObligationMismatch" xml:space="preserve">
+    <value>Some of the selected students no longer belong to this assignment. Please refresh and try again</value>
+  </data>
+  <data name="BarcodeRequired" xml:space="preserve">
+    <value>Barcode is required</value>
+  </data>
+  <data name="BarcodeNotFound" xml:space="preserve">
+    <value>No student matched the scanned barcode</value>
+  </data>
+ 
+  <!-- ─── Concurrency / locks (REQ-EXH-013, 027) ────────────────────────── -->
+  <data name="RecurrencePatternLocked" xml:space="preserve">
+    <value>Recurrence pattern cannot be changed because student data has already been recorded</value>
+  </data>
+  <data name="TemplateConcurrencyConflict" xml:space="preserve">
+    <value>This assignment was updated by someone else while you were editing. Please refresh and try again</value>
+  </data>
+  <data name="ObligationConcurrencyConflict" xml:space="preserve">
+    <value>This student record was updated by someone else while you were editing. Please refresh and try again</value>
+  </data>
+  <data name="ForceFlagRequiredForRecordedData" xml:space="preserve">
+    <value>This student already has recorded data. Please confirm the deletion to proceed</value>
+  </data>
+  <data name="DatabaseConflict" xml:space="preserve">
+    <value>The request conflicts with existing data. Please refresh and try again</value>
+  </data>
+ 
+  <!-- ─── Reports validation ────────────────────────────────────────────── -->
+  <data name="ReportFilterAmbiguous" xml:space="preserve">
+    <value>Please choose exactly one filter for this report</value>
+  </data>
+  <data name="ReportDateRangeInvalid" xml:space="preserve">
+    <value>End date must be on or after the start date</value>
+  </data>
 </root>
