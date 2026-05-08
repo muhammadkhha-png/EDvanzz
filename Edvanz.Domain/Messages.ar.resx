@@ -1152,4 +1152,83 @@
   <data name="ReportDateRangeInvalid" xml:space="preserve">
     <value>تاريخ النهاية لازم يكون بعد أو نفس تاريخ البداية</value>
   </data>
+  <!--
+  ═══════════════════════════════════════════════════════════════════════════
+  MODULE 14 (VIDEO CONTENT MANAGEMENT) — LOCALIZATION KEYS, EGYPTIAN ARABIC
+  ═══════════════════════════════════════════════════════════════════════════
+
+  APPEND THESE <data> ENTRIES TO THE EXISTING Edvanz.Domain/Messages.ar.resx
+  FILE, BEFORE THE CLOSING </root> TAG.
+
+  Wording style — matches the existing Module 6 / Subscription Arabic copy:
+    - Egyptian Arabic dialect (not Modern Standard / فصحى).
+    - Direct, professional tone — no filler.
+    - Short — these display in mobile toasts and dialog headers.
+    - Avoid technical terms in user-facing text.
+
+  Decisions baked in (per Q1/Q5/Q6) — no entries for keys we don't ship:
+    - No "VideoHiddenByTeacher", no "ScopeTooLarge", no "DuplicateVideoUrl".
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+
+  <!-- ─── Success messages ─────────────────────────────────────────────── -->
+  <data name="VideoCreated" xml:space="preserve">
+    <value>تم إضافة الفيديو بنجاح</value>
+  </data>
+  <data name="VideoDeleted" xml:space="preserve">
+    <value>تم حذف الفيديو نهائيًا</value>
+  </data>
+  <data name="ScopesAssigned" xml:space="preserve">
+    <value>تم تحديث صلاحيات الوصول للفيديو</value>
+  </data>
+  <data name="ScopesReplaced" xml:space="preserve">
+    <value>تم استبدال صلاحيات الوصول للفيديو</value>
+  </data>
+  <data name="ScopeRemoved" xml:space="preserve">
+    <value>تم إزالة جهة الوصول</value>
+  </data>
+  <data name="WatchStarted" xml:space="preserve">
+    <value>بدأت جلسة المشاهدة</value>
+  </data>
+  <data name="WatchStopped" xml:space="preserve">
+    <value>تم حفظ جلسة المشاهدة</value>
+  </data>
+
+  <!-- ─── Error messages ───────────────────────────────────────────────── -->
+  <data name="VideoNotFound" xml:space="preserve">
+    <value>الفيديو ده مش موجود. يمكن يكون اتحذف</value>
+  </data>
+  <data name="VideoNotInScope" xml:space="preserve">
+    <value>معندكش صلاحية تشاهد الفيديو ده</value>
+  </data>
+  <data name="ModuleDeactivated" xml:space="preserve">
+    <value>وحدة الفيديوهات متوقفة دلوقتي</value>
+  </data>
+  <data name="InvalidUrl" xml:space="preserve">
+    <value>الرابط مش صحيح. ياريت تحط رابط YouTube أو Google Drive صحيح</value>
+  </data>
+  <data name="UnsupportedSource" xml:space="preserve">
+    <value>بندعم بس فيديوهات YouTube و Google Drive</value>
+  </data>
+  <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
+    <value>واحد من اللي اخترتهم مش تابع لحسابك</value>
+  </data>
+  <data name="ScopeShapeInvalid" xml:space="preserve">
+    <value>بيانات الوصول مش مظبوطة. ياريت تعمل ريفريش وتجرب تاني</value>
+  </data>
+  <data name="ScopeCannotBeEmpty" xml:space="preserve">
+    <value>لازم تختار جهة وصول واحدة على الأقل</value>
+  </data>
+  <data name="LastScopeCannotBeRemoved" xml:space="preserve">
+    <value>مينفعش تشيل آخر جهة وصول. لو عايز تلغي الفيديو، احذفه</value>
+  </data>
+  <data name="NoActiveSession" xml:space="preserve">
+    <value>مفيش جلسة مشاهدة شغالة على الجهاز ده</value>
+  </data>
+  <data name="NotVideoOwner" xml:space="preserve">
+    <value>الفيديو ده مش تابع لحسابك</value>
+  </data>
+  <data name="ScopeNotFound" xml:space="preserve">
+    <value>جهة الوصول اللي حاولت تشيلها مش موجودة</value>
+  </data>
 </root>
