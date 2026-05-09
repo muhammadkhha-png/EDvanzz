@@ -31,6 +31,7 @@ namespace Edvanz.Infrastructure
         private IUserPermissionRepo? _userPermissionRepo;
         private IRefreshTokenRepo? _refreshTokenRepo;
         private IgoogleUserRepo? _googleUserRepo;
+        private IVideoAssetRepo? _videoAssetsRepo;
 
         private IAssitantRepo? _assistantRepo;
         private IModuleTeacherRepo? _ModuleTeacherRepo;
@@ -203,7 +204,18 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public IExamHomeworkRepo ExamHomeworkRepo
             => _examHomeworkRepo ??= new ExamHomeworkRepo(_Context);
-
+        /// <inheritdoc />
+        /// <summary>
+        /// Video Content Management Module repo (Module 14). Handles video CRUD,
+        /// scope management, atomic per-(student, video) analytics UPSERT, watch
+        /// event log, audit snapshots, and the admin teacher-purge integration hook.
+        ///
+        /// Lazy-initialized on first access; the same instance is reused for the
+        /// entire UnitOfWork's lifetime (i.e., for the duration of a single HTTP
+        /// request when using the per-request DI scope).
+        /// </summary>
+        public IVideoAssetRepo VideoAssetsRepo
+            => _videoAssetsRepo ??= new Repositories.VideoAssetRepo(_Context);
     }
 
 

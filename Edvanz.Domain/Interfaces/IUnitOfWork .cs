@@ -134,5 +134,16 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         IExamHomeworkRepo ExamHomeworkRepo { get; }
 
+        /// <summary>
+        /// Extended repository for the Video Content Management Module (Module 14).
+        /// Handles every read and write across the five VCM entities:
+        /// <c>VideoAsset</c>, <c>VideoScope</c>, <c>VideoAnalytics</c>,
+        /// <c>VideoWatchEvent</c>, and <c>VideoAssetAudit</c>.
+        ///
+        /// Endpoints served: video CRUD, scope management, student start/stop,
+        /// teacher analytics report, parent view, audit snapshots, and the admin
+        /// teacher-purge integration hook.
+        /// </summary>
+        IVideoAssetRepo VideoAssetsRepo { get; }
     }
 }
