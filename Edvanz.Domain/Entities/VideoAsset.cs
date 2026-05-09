@@ -27,8 +27,12 @@ namespace Edvanz.Domain.Entities;
 /// any prior value (see <c>VideoConstants.DurationToleranceFraction</c>).
 ///
 /// PERSISTED CONTRACT: column types, lengths, and FK behaviors are defined in
-/// <c>EdvanzDbContext.OnModelCreating</c>. Changes to those rules go in the
-/// fluent API configuration, not by attribute fiat here.
+/// <c>EdvanzDbContext.OnModelCreating</c>. <see cref="TeacherId"/> and
+/// <see cref="CreatedByUserId"/> intentionally have NO <c>[ForeignKey]</c>
+/// attributes — the fluent API is the single source of truth for cascade
+/// behavior. With both annotation and fluent API present, EF Core 10 silently
+/// merges declarations and the explicit <c>OnDelete</c> from the fluent side is
+/// dropped (this caused the Cascade-everywhere bug in the initial migration).
 /// </summary>
 public class VideoAsset : BaseEntity
 {
@@ -38,9 +42,9 @@ public class VideoAsset : BaseEntity
 
     /// <summary>
     /// Foreign key to the owning Teacher. Every read and write of this row is
-    /// tenant-scoped on this column. Cascade-deleted with the teacher.
+    /// tenant-scoped on this column. Restrict-deleted (app-layer cascade on
+    /// teacher purge); see <c>OnModelCreating</c> for FK behavior.
     /// </summary>
-    [ForeignKey(nameof(Teacher))]
     public long TeacherId { get; set; }
 
     /// <summary>The Teacher that owns this video.</summary>
@@ -115,12 +119,18 @@ public class VideoAsset : BaseEntity
     /// <see cref="TeacherId"/> because an assistant with <c>ManageVideos</c>
     /// permission can add a video on their tutor's behalf — the row still
     /// belongs to the tutor, but the action is attributed here.
+    ///
+    /// Nullable because of <c>SET_NULL</c> on the FK: when the actor's User
+    /// account is permanently purged, this column becomes <c>NULL</c> rather
+    /// than cascade-deleting the video. The video survives because it belongs
+    /// to the <c>Teacher</c> tenant, not the actor.
     /// </summary>
-    [ForeignKey(nameof(CreatedByUser))]
-    public long CreatedByUserId { get; set; }
+    public long? CreatedByUserId { get; set; }
 
-    /// <summary>The user who created this video.</summary>
-    public User CreatedByUser { get; set; } = null!;
+    /// <summary>
+    /// The user who created this video. Nullable: see <see cref="CreatedByUserId"/>.
+    /// </summary>
+    public User? CreatedByUser { get; set; }
 
     // ══════════════════════════════════════════════
     // NAVIGATION COLLECTIONS

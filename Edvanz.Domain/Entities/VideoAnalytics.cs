@@ -40,7 +40,10 @@ namespace Edvanz.Domain.Entities;
 /// COMPOSITE TENANT SCOPE:
 /// <see cref="TeacherId"/> is denormalized and participates in the
 /// <c>(VideoAssetId, TeacherId)</c> composite FK with the parent video — same
-/// integrity guarantee as <see cref="VideoScope"/>.
+/// integrity guarantee as <see cref="VideoScope"/>. The fluent API in
+/// <c>EdvanzDbContext.OnModelCreating</c> is the single source of truth; do NOT
+/// add <c>[ForeignKey(nameof(Teacher))]</c> here (see <see cref="VideoScope"/>
+/// remarks for why).
 /// </summary>
 public class VideoAnalytics : BaseEntity
 {
@@ -49,9 +52,9 @@ public class VideoAnalytics : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The video these analytics describe. Cascade-deleted with the video.
+    /// The video these analytics describe. Cascade-deleted with the video via
+    /// the composite FK in fluent API.
     /// </summary>
-    [ForeignKey(nameof(VideoAsset))]
     public long VideoAssetId { get; set; }
 
     /// <summary>The owning video.</summary>
@@ -61,7 +64,6 @@ public class VideoAnalytics : BaseEntity
     /// Foreign key to the owning Teacher (denormalized from
     /// <see cref="VideoAsset.TeacherId"/>). Composite-FK enforced.
     /// </summary>
-    [ForeignKey(nameof(Teacher))]
     public long TeacherId { get; set; }
 
     /// <summary>The teacher (denormalized).</summary>

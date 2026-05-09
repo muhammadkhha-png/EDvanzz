@@ -26,6 +26,10 @@ namespace Edvanz.Domain.Entities;
 /// matters. The optional <see cref="SnapshotArchiveUrl"/> column lets a future
 /// migration move the JSON to blob storage and replace the inline column with a
 /// reference, without a schema change. NULL in v1.
+///
+/// FK MODELING: <see cref="TeacherId"/> and <see cref="DeletedByUserId"/>
+/// intentionally have NO <c>[ForeignKey]</c> attributes — fluent API in
+/// <c>OnModelCreating</c> is the single source of truth for cascade behavior.
 /// </summary>
 public class VideoAssetAudit : BaseEntity
 {
@@ -47,9 +51,10 @@ public class VideoAssetAudit : BaseEntity
     /// <summary>
     /// Foreign key to the owning Teacher. Lets the audit dashboard scope by
     /// tenant without joining anything that might be cascade-deleted later.
-    /// Cascade-deleted only when the teacher's whole account is removed.
+    /// Restrict-deleted: only when the teacher's whole account is hard-purged
+    /// by app-layer code does this audit row go (and that code clears it
+    /// explicitly in the same transaction).
     /// </summary>
-    [ForeignKey(nameof(Teacher))]
     public long TeacherId { get; set; }
 
     /// <summary>The teacher whose video was deleted.</summary>
@@ -104,13 +109,15 @@ public class VideoAssetAudit : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The user (Teacher or Assistant) who triggered the deletion.
+    /// The user (Teacher or Assistant) who triggered the deletion. Nullable
+    /// because of <c>SET_NULL</c> on the FK: the audit row outlives the actor.
     /// </summary>
-    [ForeignKey(nameof(DeletedByUser))]
-    public long DeletedByUserId { get; set; }
+    public long? DeletedByUserId { get; set; }
 
-    /// <summary>The user who deleted the video.</summary>
-    public User DeletedByUser { get; set; } = null!;
+    /// <summary>
+    /// The user who deleted the video. Nullable: see <see cref="DeletedByUserId"/>.
+    /// </summary>
+    public User? DeletedByUser { get; set; }
 
     /// <summary>
     /// Server-side UTC time the deletion was committed. Distinct from

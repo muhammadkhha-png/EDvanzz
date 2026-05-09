@@ -36,7 +36,9 @@ namespace Edvanz.Domain.Entities;
 /// </list>
 ///
 /// COMPOSITE TENANT SCOPE: <see cref="TeacherId"/> participates in the
-/// <c>(VideoAssetId, TeacherId)</c> composite FK with the parent video.
+/// <c>(VideoAssetId, TeacherId)</c> composite FK with the parent video. The
+/// fluent API is the single source of truth — see <see cref="VideoScope"/> for
+/// why <c>[ForeignKey(nameof(Teacher))]</c> is intentionally omitted.
 /// </summary>
 public class VideoWatchEvent : BaseEntity
 {
@@ -45,9 +47,9 @@ public class VideoWatchEvent : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The video this event refers to. Cascade-deleted with the video.
+    /// The video this event refers to. Cascade-deleted with the video via the
+    /// composite FK in fluent API.
     /// </summary>
-    [ForeignKey(nameof(VideoAsset))]
     public long VideoAssetId { get; set; }
 
     /// <summary>The owning video.</summary>
@@ -56,7 +58,6 @@ public class VideoWatchEvent : BaseEntity
     /// <summary>
     /// Foreign key to the owning Teacher (denormalized; composite-FK enforced).
     /// </summary>
-    [ForeignKey(nameof(Teacher))]
     public long TeacherId { get; set; }
 
     /// <summary>The teacher (denormalized).</summary>

@@ -2372,29 +2372,36 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .IsRequired();
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
-
-            // Teacher FK: RESTRICT to avoid the multiple-cascade-paths conflict on
-            // VideoAnalytics. Teacher hard-delete is handled by app-layer code that
-            // tears VCM data down explicitly in the right order (mirror of Module 6's
-            // AssignmentOccurrence.Teacher = NoAction decision).
+            // Teacher FK: NO_ACTION at DB level.
+            //
+            // Cascade chain decision: Option 2 from Phase 2.2 review.
+            // We do NOT cascade Teacher → VideoAssets at the DB level because we want
+            // CASCADE on TeacherStudents → VideoAnalytics/VideoWatchEvents (per
+            // architectural decision). SQL Server forbids two cascade paths from one
+            // parent (Teachers) to one child (VideoAnalytics / VideoWatchEvents), so
+            // the Teacher → VideoAssets edge is broken at NO_ACTION and the app-layer
+            // admin "hard-purge teacher" flow is responsible for clearing VCM rows in
+            // the right order. Day-to-day teacher-deactivate uses soft-delete on the
+            // Teacher row (HasQueryFilter), which doesn't trigger DB cascades anyway.
             entity.HasOne(v => v.Teacher)
                 .WithMany()
                 .HasForeignKey(v => v.TeacherId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // CreatedByUser FK: RESTRICT — keep the row even if the actor account is
-            // removed; auditability demands the actor reference survive.
+            // CreatedByUser FK: SET NULL — the video survives even if the actor User
+            // account is permanently removed. CreatedByUserId becomes long? to allow
+            // the FK to be nulled. Matches the pattern of Teachers.CreatedByUserId,
+            // AttendanceEditLog.AttendanceRecordId, and StudentSessionAssignment.
             entity.HasOne(v => v.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(v => v.CreatedByUserId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
             // CRITICAL — composite-FK target. Children carrying denormalized TeacherId
             // declare a composite FK against (Id, TeacherId), which requires a unique
-            // index over those columns on the parent. Without this index, EF Core's
-            // composite FK declaration fails to migrate.
+            // index over those columns on the parent.
             entity.HasIndex(v => new { v.Id, v.TeacherId })
                 .IsUnique()
                 .HasDatabaseName("UX_VideoAssets_Id_TeacherId");
@@ -2432,28 +2439,26 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .IsRequired();
 
             // ── COMPOSITE-FK TENANT INTEGRITY ─────────────────────────────────
+            //
             // (VideoAssetId, TeacherId) → VideoAssets(Id, TeacherId).
-            // Makes "scope row for video X claiming a different teacher" impossible at
-            // the DB level. Cascade matches the parent → cascade chain.
+            // This single declaration covers BOTH:
+            //   - the structural relationship to the parent video (the child cascades
+            //     when the video is hard-deleted)
+            //   - the tenant-integrity guarantee (TeacherId on the child must equal
+            //     TeacherId on the parent, enforced by the composite FK target index)
+            //
+            // The s.Teacher navigation works through this same FK column. Do NOT add
+            // a second HasOne(s => s.Teacher) declaration — EF Core 10 merges it into
+            // this one and drops our OnDelete clause.
             entity.HasOne(s => s.VideoAsset)
                 .WithMany(v => v.Scopes)
                 .HasForeignKey(s => new { s.VideoAssetId, s.TeacherId })
                 .HasPrincipalKey(v => new { v.Id, v.TeacherId })
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Teacher nav property — backs the composite FK above. EF needs both sides
-            // declared; the relationship to Teacher is implicit through the composite
-            // FK's TeacherId column. We mark the navigation as ignored at the DB-FK
-            // layer because the composite FK above is the authoritative declaration.
-            // (Same pattern: a foreign-key column shared by two relationships.)
-            entity.HasOne(s => s.Teacher)
-                .WithMany()
-                .HasForeignKey(s => s.TeacherId)
-                .HasPrincipalKey(t => t.Id)
-                .OnDelete(DeleteBehavior.NoAction);
-
-            // Three target FKs — each cascades from its own principal so the scope
-            // row dies when the target it pointed at is removed.
+            // Three target FKs — each uses its own delete behavior because the parent
+            // for each is a different entity (TeacherStudent / Session / SessionGroup),
+            // and the columns don't collide with the composite FK above.
             //
             // TeacherStudent: cascade — student permanent-purge takes their direct
             // scope rows with them (matches the entity's class-remarks contract).
@@ -2500,8 +2505,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
-            // Cascade-delete & "load all scopes for this video" path. INCLUDE columns
-            // cover the resolver's read shape so it's a single seek, no key lookup.
+            // Cascade-delete & "load all scopes for this video" path.
             entity.HasIndex(s => s.VideoAssetId)
                 .IncludeProperties(s => new
                 {
@@ -2514,9 +2518,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasDatabaseName("IX_VideoScopes_VideoAssetId");
 
             // Filtered indexes per scope target — drive the access-check resolver.
-            // Per blocker: each carries INCLUDE (VideoAssetId, AssignedAt) so the
-            // resolver's projection ("which videos can this student see?") is fully
-            // covered with no key lookup.
             entity.HasIndex(s => s.TeacherStudentId)
                 .HasFilter("[TeacherStudentId] IS NOT NULL")
                 .IncludeProperties(s => new { s.VideoAssetId, s.AssignedAt })
@@ -2535,6 +2536,15 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // Composite uniqueness per (video, scope-type, target). Prevents two
             // identical scope rows on the same video — for example, the teacher
             // accidentally adding the morning session twice through quick double-click.
+            //
+            // .HasFilter((string?)null) overrides EF Core 10's automatic
+            // "all-nullable-key-columns IS NOT NULL ANDed" filter, which is logically
+            // impossible here given CK_VideoScopes_ExactlyOneTarget. Without this
+            // override the index is silently disabled by a never-matching filter.
+            //
+            // NULLs are treated as distinct values, but ScopeType discriminates and
+            // the CHECK constraint guarantees only one target column is populated per
+            // row, so a duplicate scope row will still trip the unique constraint.
             entity.HasIndex(s => new
             {
                 s.VideoAssetId,
@@ -2544,6 +2554,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 s.SessionGroupId
             })
                 .IsUnique()
+                .HasFilter((string?)null)
                 .HasDatabaseName("UX_VideoScopes_Video_Type_Target");
         });
         #endregion
@@ -2559,8 +2570,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasDefaultValue(0)
                 .IsRequired();
 
-            // bigint — see entity remarks. SQL Server's bigint is the EF Core default
-            // mapping for long; declared explicitly for the migration's clarity.
             entity.Property(a => a.TotalWatchSeconds)
                 .HasColumnType("bigint")
                 .HasDefaultValue(0L)
@@ -2586,40 +2595,36 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .IsRequired();
 
             // ── COMPOSITE-FK TENANT INTEGRITY ─────────────────────────────────
-
+            //
+            // Single composite-FK declaration. Do NOT add a separate Teacher FK —
+            // see VideoScope region remarks.
             entity.HasOne(a => a.VideoAsset)
                 .WithMany(v => v.Analytics)
                 .HasForeignKey(a => new { a.VideoAssetId, a.TeacherId })
                 .HasPrincipalKey(v => new { v.Id, v.TeacherId })
                 .OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(a => a.Teacher)
-                .WithMany()
-                .HasForeignKey(a => a.TeacherId)
-                .HasPrincipalKey(t => t.Id)
-                .OnDelete(DeleteBehavior.NoAction);
-
-            // TeacherStudent FK: RESTRICT at DB to avoid the multiple-cascade-paths
-            // conflict (Teacher → TeacherStudent → VideoAnalytics vs. Teacher →
-            // VideoAsset → VideoAnalytics). Per the spec ERD ("TeacherStudent →
-            // VideoAnalytics: cascade"), the application's student permanent-purge
-            // flow is responsible for clearing analytics rows in the same transaction
-            // as the student row. Enforced in IUserRepo / app layer.
+            // TeacherStudent FK: CASCADE at DB level.
+            //
+            // Cascade chain decision: Option 2 from Phase 2.2 review. The
+            // Teacher → VideoAssets edge is set to NO_ACTION on the parent side to
+            // resolve SQL Server's multiple-cascade-paths rule, leaving this edge as
+            // the single live cascade chain reaching VideoAnalytics from a deleted
+            // student. When a TeacherStudent row is permanently purged, their watch
+            // history goes with them.
             entity.HasOne(a => a.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherStudentId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Cascade);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
-            // The UPSERT key. UNIQUE — the atomic increment depends on at-most-one
-            // row per (video, student); a duplicate would silently double-count.
+            // Atomic UPSERT key.
             entity.HasIndex(a => new { a.VideoAssetId, a.TeacherStudentId })
                 .IsUnique()
                 .HasDatabaseName("UX_VideoAnalytics_Video_Student");
 
-            // Powers the student video-list "did I open this?" check (Story B card).
-            // INCLUDE makes it a covering index for the read shape.
+            // Student video-list "did I open this?" check.
             entity.HasIndex(a => new { a.TeacherStudentId, a.VideoAssetId })
                 .IncludeProperties(a => new
                 {
@@ -2630,8 +2635,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 })
                 .HasDatabaseName("IX_VideoAnalytics_TeacherStudentId_VideoAssetId");
 
-            // Powers the teacher analytics report (Story F). LEFT JOIN driver for
-            // every student-in-scope row.
+            // Teacher analytics report driver.
             entity.HasIndex(a => a.VideoAssetId)
                 .IncludeProperties(a => new
                 {
@@ -2643,6 +2647,8 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasDatabaseName("IX_VideoAnalytics_VideoAssetId_Includes");
         });
         #endregion
+
+    
 
         #region VideoWatchEvent (REQ-VCM-FR-03 / Module 14)
         modelBuilder.Entity<VideoWatchEvent>(entity =>
@@ -2692,14 +2698,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany()
                 .HasForeignKey(e => e.TeacherId)
                 .HasPrincipalKey(t => t.Id)
-                .OnDelete(DeleteBehavior.NoAction);
+                .OnDelete(DeleteBehavior.Cascade);
 
-            // TeacherStudent FK: RESTRICT for the same multiple-cascade-paths reason
-            // as VideoAnalytics. App-layer student-purge flow handles the cascade.
+            // TeacherStudent FK: CASCADE — see VideoAnalytics region remarks for the
+            // cascade-graph reasoning.
             entity.HasOne(e => e.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(e => e.TeacherStudentId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.Cascade);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
@@ -2765,8 +2771,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
             // Teacher FK: RESTRICT — audit must outlive ordinary tenant operations.
-            // Cascade deletion of an audit row only happens when the teacher account
-            // itself is removed from the platform, and that's an app-layer flow.
             entity.HasOne(a => a.Teacher)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherId)
@@ -2776,16 +2780,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.HasOne(a => a.DeletedByUser)
                 .WithMany()
                 .HasForeignKey(a => a.DeletedByUserId)
-                .OnDelete(DeleteBehavior.Restrict);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
-            // Tenant-scoped audit dashboard query.
             entity.HasIndex(a => new { a.TeacherId, a.DeletedAt })
                 .IsDescending(false, true)
                 .HasDatabaseName("IX_VideoAssetAudits_TeacherId_DeletedAt");
 
-            // "Was this video ID ever deleted?" — forensic lookup.
             entity.HasIndex(a => a.VideoAssetId)
                 .HasDatabaseName("IX_VideoAssetAudits_VideoAssetId");
         });
