@@ -261,7 +261,9 @@ namespace Edvanz.Infrastructure.Persistence
                 new Module { Name = "Payment" },
                 new Module { Name = "Event-Based Payment" },
                 new Module { Name = "Exams And Homework" },
-                new Module { Name = "Messaging" }
+                new Module { Name = "Messaging" },
+                new Module { Name = "Videos" }
+
             );
 
             await context.SaveChangesAsync();
@@ -333,6 +335,10 @@ namespace Edvanz.Infrastructure.Persistence
                 new Permission { Name = "SendManual", ModuleId = modules["Messaging"], IsRestricted = false },
                 new Permission { Name = "ManageTemplates", ModuleId = modules["Messaging"], IsRestricted = false },
                 new Permission { Name = "ConfigureAutomatedTriggers", ModuleId = modules["Messaging"], IsRestricted = false },
+                 
+                // Videos (Module 14)
+                new Permission { Name = "View",          ModuleId = modules["Videos"], IsRestricted = false },
+                new Permission { Name = "ManageVideos",  ModuleId = modules["Videos"], IsRestricted = false },
             };
 
             context.Permissions.AddRange(permissions);
