@@ -548,6 +548,17 @@ namespace Edvanz.Domain.Interfaces
         /// SaveChanges is NOT called here — the caller owns the transaction.
         /// </summary>
         Task UpdateCapacityPackagePriceAsync(StudentCapacityPackage package);
+        /// <summary>
+        /// Finds an active (non-deleted) student user by their underlying User.Id.
+        ///
+        /// Distinct from <see cref="GetActiveStudentUserByIdAsync"/>: this takes the
+        /// User table's primary key (which the JWT carries as the principal id), not
+        /// the StudentUser table's primary key. Used by the VCM student controller
+        /// to resolve the JWT's User.Id to a StudentUser.Id, which then drives the
+        /// StudentTeacherLink lookup for the targeted teacher.
+        /// </summary>
+        Task<StudentUser?> GetActiveStudentUserByUserIdAsync(long userId);
+
     }
     // ══════════════════════════════════════════════════════════════════
     // PROJECTIONS used by IUserRepo subscription methods.

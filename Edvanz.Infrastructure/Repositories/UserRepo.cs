@@ -791,5 +791,11 @@ namespace Edvanz.Infrastructure.Repositories
             _context.Entry(package).State = EntityState.Modified;
             await Task.CompletedTask;
         }
+        /// <inheritdoc />
+        public async Task<StudentUser?> GetActiveStudentUserByUserIdAsync(long userId)
+        {
+            return await _context.StudentUsers
+                .FirstOrDefaultAsync(su => su.UserId == userId && su.DeletedAt == null);
+        }
     }
 }

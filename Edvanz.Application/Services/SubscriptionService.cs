@@ -109,7 +109,7 @@ public class SubscriptionService : ISubscriptionService
             StartDate = projection.StartDate,
             EndDate = projection.EndDate,
             DaysRemaining = ComputeDaysRemaining(projection.EndDate),
-            Status = SubscriptionStatusCalculator.Derive(subForStatus, projection.EndDate),
+            Status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow),
             RenewalAmountEGP = renewalAmount
         };
 

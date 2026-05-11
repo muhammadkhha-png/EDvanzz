@@ -1,9 +1,11 @@
+using DocumentFormat.OpenXml.Wordprocessing;
 using Edvanz.API.Authorization;
 using Edvanz.API.Filters;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Options;
 using Edvanz.Application.Security;
+using Edvanz.Application.ServiceContract;
 using Edvanz.Application.Services;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
@@ -74,7 +76,9 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
+    c.OperationFilter<SwaggerExamplesFilter>();
     c.UseInlineDefinitionsForEnums();
+
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 builder.Services.AddHangfire(config =>
@@ -137,6 +141,9 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // (Note: ASP.NET Core resolves IAuthorizationHandler instances per request
 // when registered as Scoped. Use Scoped to match IUnitOfWork's lifetime.)
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
+builder.Services.AddSingleton<IVideoUrlParser, VideoUrlParser>();
+builder.Services.AddScoped<IVideoScopeResolver, VideoScopeResolver>();
+builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();

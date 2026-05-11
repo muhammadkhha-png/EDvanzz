@@ -184,17 +184,7 @@ public interface IVideoService
     // PARENT READ FLOW (Q7(a))
     // ══════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Paged list of videos visible to a parent's specific child, with watch
-    /// fields. Read-only — parents have no start/stop actions in v1.
-    ///
-    /// The service validates the parent-child link and the per-teacher
-    /// visibility flag (AAM-FR-04.9) before resolving.
-    /// </summary>
-    /// <param name="parentUserId">The calling parent's user id.</param>
-    /// <param name="request">Includes the child's StudentUserId.</param>
-    Task<Result<PaginatedResponse<List<ParentVideoListItemDto>>>>
-        GetParentVideosAsync(long parentUserId, ParentVideoListRequest request);
+   
     #region INTEGRATION HOOKS (called by admin teacher hard-purge flow)
 
     /// <summary>

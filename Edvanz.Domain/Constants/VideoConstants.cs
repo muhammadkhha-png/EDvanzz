@@ -104,6 +104,8 @@ public static class VideoConstants
     /// Always <c>NULL</c> in v1 — the snapshot lives entirely in <c>SnapshotJson</c>.
     /// </summary>
     public const int SnapshotArchiveUrlMaxLength = 500;
+    public const int MaxOpenRetries = 10;
+
 
     // ══════════════════════════════════════════════
     // LOCALIZATION KEYS
@@ -138,5 +140,19 @@ public static class VideoConstants
         public const string NoActiveSession              = "NoActiveSession";
         public const string NotVideoOwner                = "NotVideoOwner";
         public const string ScopeNotFound                = "ScopeNotFound";
+        // ── BOUNDED RETRY (concurrency conflict on first-open INSERT) ────────────
+
+        /// <summary>
+        /// Maximum retry attempts for the StartWatch flow when a concurrent first-time
+        /// open from the same student (e.g., simultaneously on phone and tablet)
+        /// races to insert the analytics row. The unique index
+        /// <c>UX_VideoAnalytics_Video_Student</c> rejects the second insert; the
+        /// service retries by switching to the increment branch (the row now exists).
+        ///
+        /// Two retries is generous — in practice the second attempt always succeeds
+        /// because the competing transaction has already committed by then.
+        /// </summary>
+        public const int MaxOpenRetries = 2;
+
     }
 }

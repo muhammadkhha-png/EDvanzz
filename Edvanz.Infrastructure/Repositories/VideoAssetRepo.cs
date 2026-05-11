@@ -378,19 +378,13 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     // ══════════════════════════════════════════════════════════════════════
     // ANALYTICS — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════
-
-    /// <inheritdoc />
-    public async Task<VideoAnalyticsSnapshot> UpsertAnalyticsOnOpenAsync(
-        long videoAssetId, long teacherStudentId, long teacherId,
-        int videoDurationSeconds, DateTime utcNow)
+    // <inheritdoc />
+    public async Task<VideoAnalyticsSnapshot?> IncrementOpenCountIfExistsAsync(
+        long videoAssetId, long teacherStudentId, DateTime utcNow)
     {
-        // UPSERT pattern: try UPDATE first (existing row → atomic increment).
-        // If zero rows matched, INSERT a fresh row.
-        //
-        // Why UPDATE-first instead of INSERT-first: existing rows are the
-        // common case after the first-ever open. UPDATE-first avoids the
-        // unique-constraint exception path on every subsequent open.
-
+        // ExecuteUpdateAsync writes immediately — no SaveChanges needed for this
+        // single-statement update. SQL Server takes a row-level X lock; concurrent
+        // increments serialize with sub-millisecond contention.
         int rowsUpdated = await _context.VideoAnalytics
             .Where(a => a.VideoAssetId == videoAssetId
                      && a.TeacherStudentId == teacherStudentId)
@@ -398,50 +392,54 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 .SetProperty(a => a.OpenCount, a => a.OpenCount + 1)
                 .SetProperty(a => a.LastUpdated, utcNow));
 
-        if (rowsUpdated > 0)
+        if (rowsUpdated == 0)
         {
-            // Read the resulting state for the response.
-            var snapshot = await _context.VideoAnalytics
-                .Where(a => a.VideoAssetId == videoAssetId
-                         && a.TeacherStudentId == teacherStudentId)
-                .Select(a => new VideoAnalyticsSnapshot
-                {
-                    OpenCount = a.OpenCount,
-                    TotalWatchSeconds = a.TotalWatchSeconds,
-                    LastResumePositionSeconds = a.LastResumePositionSeconds,
-                })
-                .AsNoTracking()
-                .FirstAsync();
-            return snapshot;
+            // No row exists yet — caller should INSERT a fresh row via
+            // AddAnalyticsRowForFirstOpenAsync.
+            return null;
         }
 
-        // First-time open — insert. Note the composite-FK requires us to
-        // populate TeacherId; the schema's CHECK constraints enforce that
-        // it must equal the parent video's TeacherId, but the FK target
-        // index UX_VideoAssets_Id_TeacherId is what makes this lookup work
-        // at the DB level.
-        var fresh = new VideoAnalytics
-        {
-            VideoAssetId = videoAssetId,
-            TeacherId = teacherId,
-            TeacherStudentId = teacherStudentId,
-            OpenCount = 1,
-            TotalWatchSeconds = 0,
-            FirstOpenedAt = utcNow,
-            LastUpdated = utcNow,
-            VideoDurationAtFirstWatch = videoDurationSeconds,
-            LastResumePositionSeconds = 0,
-            CreateAt = utcNow,
-        };
-        await _context.VideoAnalytics.AddAsync(fresh);
-        await _context.SaveChangesAsync();
+        // Read the resulting state for the response. Single seek on the unique
+        // index UX_VideoAnalytics_Video_Student.
+        return await _context.VideoAnalytics
+            .Where(a => a.VideoAssetId == videoAssetId
+                     && a.TeacherStudentId == teacherStudentId)
+            .Select(a => new VideoAnalyticsSnapshot
+            {
+                OpenCount = a.OpenCount,
+                TotalWatchSeconds = a.TotalWatchSeconds,
+                LastResumePositionSeconds = a.LastResumePositionSeconds,
+            })
+            .AsNoTracking()
+            .FirstAsync();
+    }
 
-        return new VideoAnalyticsSnapshot
-        {
-            OpenCount = 1,
-            TotalWatchSeconds = 0,
-            LastResumePositionSeconds = 0,
-        };
+    /// <inheritdoc />
+    public async Task AddAnalyticsRowForFirstOpenAsync(VideoAnalytics row)
+    {
+        // Queue the INSERT into the change tracker. SaveChanges is the service's
+        // responsibility — see VideoService.UpsertAnalyticsOnOpenWithRetryAsync
+        // for the bounded retry loop that handles unique-violation races.
+        await _context.VideoAnalytics.AddAsync(row);
+    }
+
+    /// <inheritdoc />
+    public async Task<VideoAnalyticsSnapshot?> GetAnalyticsSnapshotAsync(
+        long videoAssetId, long teacherStudentId)
+    {
+        // Pure read — used by idempotency-replay paths. Single seek on the
+        // unique index UX_VideoAnalytics_Video_Student.
+        return await _context.VideoAnalytics
+            .Where(a => a.VideoAssetId == videoAssetId
+                     && a.TeacherStudentId == teacherStudentId)
+            .Select(a => new VideoAnalyticsSnapshot
+            {
+                OpenCount = a.OpenCount,
+                TotalWatchSeconds = a.TotalWatchSeconds,
+                LastResumePositionSeconds = a.LastResumePositionSeconds,
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
     }
 
     /// <inheritdoc />

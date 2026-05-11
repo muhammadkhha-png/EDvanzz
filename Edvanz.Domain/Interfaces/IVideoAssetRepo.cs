@@ -221,33 +221,49 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     // ══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Atomically increments <c>OpenCount</c> on the analytics row for the
-    /// given (video, student) pair, OR inserts a new row when none exists.
+    /// Atomic SQL-side UPDATE that increments <c>OpenCount</c> on the analytics
+    /// row for the (video, student) pair when a row exists. Returns the resulting
+    /// snapshot, or <c>null</c> when no row matched (caller handles by inserting
+    /// a fresh row via <see cref="AddAnalyticsRowForFirstOpenAsync"/>).
     ///
-    /// First-time open path — when no row exists yet:
-    /// <list type="bullet">
-    ///   <item><c>OpenCount = 1</c>, <c>FirstOpenedAt = utcNow</c>,
-    ///         <c>VideoDurationAtFirstWatch = durationSeconds</c>.</item>
-    ///   <item><c>TotalWatchSeconds = 0</c>, <c>LastResumePositionSeconds = 0</c>.</item>
-    /// </list>
-    ///
-    /// Subsequent-open path — when a row exists:
-    /// <list type="bullet">
-    ///   <item><c>OpenCount = OpenCount + 1</c> via SQL-side increment.</item>
-    ///   <item><c>LastUpdated = utcNow</c>.</item>
-    ///   <item><c>TotalWatchSeconds</c> and <c>LastResumePositionSeconds</c>
-    ///         are NOT touched here — those mutate only on Stop.</item>
-    /// </list>
-    ///
-    /// Returns the resulting analytics state so the service can compute the
-    /// resume position for the response.
+    /// Implemented as a single <c>ExecuteUpdateAsync</c>; no SaveChanges needed
+    /// because <c>ExecuteUpdateAsync</c> writes immediately.
     /// </summary>
-    Task<VideoAnalyticsSnapshot> UpsertAnalyticsOnOpenAsync(
+    /// <returns>The analytics state after the increment, or <c>null</c> when
+    /// no row exists yet for this (video, student) pair.</returns>
+    Task<VideoAnalyticsSnapshot?> IncrementOpenCountIfExistsAsync(
         long videoAssetId,
         long teacherStudentId,
-        long teacherId,
-        int videoDurationSeconds,
         DateTime utcNow);
+
+    /// <summary>
+    /// Queues an INSERT of a new <see cref="VideoAnalytics"/> row representing
+    /// the student's first-ever open of the video. Does NOT call SaveChanges —
+    /// the caller (service layer) must call <c>IUnitOfWork.SaveChangesAsync()</c>
+    /// and handle <c>DbUpdateException</c> via the bounded retry pattern when
+    /// the unique index <c>UX_VideoAnalytics_Video_Student</c> rejects a
+    /// concurrent insert.
+    ///
+    /// On a unique-violation collision, the caller retries by calling
+    /// <see cref="IncrementOpenCountIfExistsAsync"/> instead — the competing
+    /// transaction has already created the row, so the increment path now
+    /// applies.
+    /// </summary>
+    Task AddAnalyticsRowForFirstOpenAsync(VideoAnalytics row);
+
+    /// <summary>
+    /// Read-only snapshot of the analytics row for the (video, student) pair.
+    /// Returns <c>null</c> when no row exists.
+    ///
+    /// Used by the StartWatch and StopWatch idempotency-replay paths: when a
+    /// duplicate <c>ClientEventId</c> is detected, the service reads the
+    /// current state and returns it without inserting anything new — distinct
+    /// from <see cref="IncrementWatchAtomicAsync"/> which mutates
+    /// <c>LastUpdated</c> on every call.
+    /// </summary>
+    Task<VideoAnalyticsSnapshot?> GetAnalyticsSnapshotAsync(
+        long videoAssetId,
+        long teacherStudentId);
 
     /// <summary>
     /// Atomic SQL-side UPDATE that adds the validated delta to

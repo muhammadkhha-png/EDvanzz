@@ -226,63 +226,7 @@ public sealed class StudentVideoListItemDto
     public DateTime? LastOpenedAt { get; set; }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// PARENT VIDEO LIST (Q7(a) decision)
-// ══════════════════════════════════════════════════════════════════════════
 
-/// <summary>
-/// Request DTO for <c>GET /api/videos/parent</c>. The parent picks which
-/// child's videos to view via the <see cref="StudentUserId"/> query
-/// parameter; the service validates the parent-child link and the
-/// teacher-visibility flag (AAM-FR-04.9) before resolving the list.
-///
-/// Q7(a) decision: the parent endpoint takes a student id and returns
-/// the same shape as the student endpoint, plus watch fields for the
-/// parent to monitor progress.
-/// </summary>
-public sealed class ParentVideoListRequest
-{
-    private int _page = 1;
-    private int _pageSize = 20;
-
-    [Required]
-    public long StudentUserId { get; set; }
-
-    public int Page
-    {
-        get => _page;
-        set => _page = value < 1 ? 1 : value;
-    }
-
-    public int PageSize
-    {
-        get => _pageSize;
-        set => _pageSize = value < 1 ? 20 : value > 100 ? 100 : value;
-    }
-}
-
-/// <summary>
-/// One row of the parent's video-monitoring list for a specific child.
-/// Adds <see cref="TotalWatchSeconds"/> on top of
-/// <see cref="StudentVideoListItemDto"/> so the parent sees how much of each
-/// video their child has watched. This is read-only — parents have no
-/// start/stop actions in v1.
-/// </summary>
-public sealed class ParentVideoListItemDto
-{
-    public long Id { get; set; }
-    public string Title { get; set; } = null!;
-    public string? Description { get; set; }
-
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public VideoSourceType SourceType { get; set; }
-
-    public int DurationSeconds { get; set; }
-    public DateTime AssignedAt { get; set; }
-    public bool HasOpened { get; set; }
-    public DateTime? LastOpenedAt { get; set; }
-    public long TotalWatchSeconds { get; set; }
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // START / STOP (Story B + Story C)
