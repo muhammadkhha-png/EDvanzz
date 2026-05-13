@@ -100,20 +100,20 @@ namespace Edvanz.API.Controllers
             return ToResponse(result);
         }
         [HttpPost("refresh")]
-        public async Task<IActionResult> RefreshToken(RefeshDto req)
+        public async Task<IActionResult> RefreshToken(RefreshDto req)
         {
             var result = await authService.Refresh(req.token);
             return ToResponse(result);
         }
         [HttpPost("sigup-by-google")]
-        public async Task<IActionResult> GoogleSignUp(RefeshDto req)
+        public async Task<IActionResult> GoogleSignUp(SigUpByGoogle req)
         {
-            var result = await authService.SigUpByGoogle(req.token);
+            var result = await authService.SigUpByGoogle(req.clientDeviceToken);
             return ToResponse(result);
         }
 
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout([FromBody] RefeshDto req)
+        public async Task<IActionResult> Logout([FromBody] RefreshDto req)
         {
             var result = await authService.Logout(req.token);
             return ToResponse(result);

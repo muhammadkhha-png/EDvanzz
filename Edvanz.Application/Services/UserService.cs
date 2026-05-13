@@ -69,103 +69,18 @@ namespace Edvanz.Application.Services
         }
 
         /// <inheritdoc />
-        //public async Task<Result<AddUserDto?>> AddUser(SigupDto user)
-        //{
-        //    if (user == null)
-        //        return Result<AddUserDto?>.Failure(_localizer, "cann't add empty user");
-
-        //    if (user.password != user.confirmedPassword)
-        //        return Result<AddUserDto?>.Failure(_localizer, "password must be equail confirmed password");
-
-        //    // FIX V1: Replaced raw FindAsync expression with named repo method.
-        //    // Previously: unitOfWork.Users.FindAsync(u => u.PhoneNumber == ... || u.Username == ... || ...)
-        //    // Now: all query logic is encapsulated in the repo — if the duplicate check logic
-        //    // ever needs to change, you edit it in ONE place (UserRepo), not here.
-        //    var existingUser = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
-        //        user.phoneNumber, user.username, user.email);
-
-        //    if (existingUser != null)
-        //    {
-        //        if (existingUser.PhoneNumber == user.phoneNumber)
-        //            return Result<AddUserDto?>.Failure(_localizer, "repeatedPhoneNumber");
-        //        if (existingUser.Username == user.username)
-        //            return Result<AddUserDto?>.Failure(_localizer, "repeatedUserName");
-        //        if (!string.IsNullOrEmpty(user.email) && existingUser.Email == user.email)
-        //            return Result<AddUserDto?>.Failure(_localizer, "repeatedEmail");
-        //    }
-
-        //    // FIX I3: Renamed from HasedPass to hashedPass (camelCase for local variables)
-        //    var hashedPass = _passwordService.HashPassword(user.password);
-        //    byte[]? imageBytes = null;
-
-        //    if (user.idImage != null)
-        //    {
-        //        using var ms = new MemoryStream();
-        //        await user.idImage.CopyToAsync(ms);
-        //        imageBytes = ms.ToArray();
-        //    }
-
-        //    var addedUser = new User()
-        //    {
-        //        // FIX B2 (partial): Use DateTime.UtcNow consistently instead of DateTime.Now
-        //        CreateAt = DateTime.UtcNow,
-        //        CreateByUserId = currentUserService.UserId,
-        //        Email = user.email,
-        //        FullName = user.fullName,
-        //        Username = user.username,
-        //        PhoneNumber = user.phoneNumber,
-        //        IdImage = imageBytes,
-        //        IsActive = true,
-        //        PasswordHashed = hashedPass,
-        //        UserType = user.userType
-        //    };
-
-        //    await _unitOfWork.BeginTransactionAsync();
-        //    await _unitOfWork.Users.AddAsync(addedUser);
-        //    switch (user.userType)
-        //    {
-        //        case Domain.Enums.UserType.Teacher:
-        //            CreateTeacherDto teacherDto = new CreateTeacherDto()
-        //            {
-        //                LanguagePreference = user.languagePreference,
-        //                UserId = addedUser.Id,
-        //                CreatedByUserId = currentUserService.UserId,
-        //                CustomSubject = user.customSubject,
-        //                StudentCapacity = (int)user.studentCapacity,
-        //                SubjectIds= user.subjectIds
-
-        //            };
-        //           var isTeacherAdded= await teacherService.InitializeTeacherAsync(teacherDto);
-        //            if(!isTeacherAdded.IsSuccess)
-        //            {
-        //                return Result<AddUserDto?>.Failure(_localizer, isTeacherAdded.Message);
-        //            }
-        //            break;
-
-        //        default:
-        //            return Result<AddUserDto?>.Failure(_localizer, "Invalid user type");
-        //    }
-        //    //To Do handle Add In Users Custom Table
-        //    var res = await _unitOfWork.SaveChangesAsync();
-        //    if (res > 0)
-        //    {
-        //        await _unitOfWork.CommitAsync();
-        //        return Result<AddUserDto?>.Success(user, _localizer, "SuccessSaving");
-        //    }
-        //    else
-        //    {
-        //        await _unitOfWork.RollbackAsync();
-        //        return Result<AddUserDto?>.Failure(_localizer, "error in saving");
-        //    }
-        //}
+       
         public async Task<Result<string?>> AddUser(SigupDto user)
         {
             if (user == null)
                 return Result<string?>.Failure(_localizer, "cann't add empty user");
-
+            var allowedSelfRegistration = new[] { UserType.Teacher, UserType.Student, UserType.Parent };
+            if (!allowedSelfRegistration.Contains(user.userType))
+                return Result<string?>.Failure(_localizer, "InvalidUserType");
             if (user.password != user.confirmedPassword)
                 return Result<string?>.Failure(_localizer, "password must be equail confirmed password");
-
+            if(user.phoneNumber == null )
+                return Result<string?>.Failure(_localizer, "phone number is required");
             var existingUser = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
                 user.phoneNumber, user.username, user.email);
 

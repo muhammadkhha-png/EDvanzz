@@ -4,6 +4,7 @@ using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using Microsoft.IdentityModel.Tokens;
 using System;
@@ -20,12 +21,15 @@ namespace Edvanz.Application.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IStringLocalizer<Messages> _localizer;
         private readonly IUserPermissionService userPermissionService;
-
-        public TokenService( IUnitOfWork _unitOfWork,IStringLocalizer<Messages> _localizer,IUserPermissionService userPermissionService)
+        private readonly IConfiguration configuration;
+        private readonly string apiKey;
+        public TokenService( IUnitOfWork _unitOfWork,IStringLocalizer<Messages> _localizer,IUserPermissionService userPermissionService, IConfiguration configuration)
         {
             this._unitOfWork = _unitOfWork;
             this._localizer = _localizer;
             this.userPermissionService = userPermissionService;
+            this.configuration = configuration;
+            this.apiKey = configuration["Jwt:Key"];
         }
 
         public string GenerateJwtToken(User user, List<string>? permissions,List<string>? modules)
@@ -41,8 +45,6 @@ namespace Edvanz.Application.Services
             if (user.UserType != null)
                 claims.Add(new Claim(ClaimTypes.Role, user.UserType.ToString()));
 
-            if (!string.IsNullOrWhiteSpace(user.SecurityStamp))
-                claims.Add(new Claim("SecurityStamp", user.SecurityStamp));
             if (modules != null && modules.Any())
             {
                 claims.AddRange(
@@ -59,16 +61,14 @@ namespace Edvanz.Application.Services
                     .Select(p => new Claim("Permission", p))
                 );
             }
+           
+          
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")
-            );
-
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)), SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 claims: claims,
-                expires: DateTime.UtcNow.AddMinutes(60),
+                expires: DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:AccessTokenMinutes")),
                 signingCredentials: creds
             );
 
@@ -92,11 +92,9 @@ namespace Edvanz.Application.Services
         new Claim("Permission", "CompleteProfile") 
     };
 
-            var key = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes("SUPER_SECRET_KEY_EDVanz_edvanzz_OMRANBELAL")
-            );
+           
 
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)), SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 claims: claims,
@@ -188,7 +186,7 @@ namespace Edvanz.Application.Services
                 // module claims and no teacherIds are emitted on the token.
                 userDto.models = null;
                 userDto.teacherIds = null;
-                userDto.permissions = permissions;
+                userDto.permissions = null;
 
                 jwt = GenerateJwtToken(user, permissions, null);
             }

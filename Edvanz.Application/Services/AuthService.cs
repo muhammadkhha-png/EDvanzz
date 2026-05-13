@@ -10,6 +10,7 @@ using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
@@ -35,6 +36,7 @@ namespace Edvanz.Application.Services
         private readonly IAssistantService assistantService;
         private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly IConfiguration configuration;
 
 
         /// <summary>
@@ -46,7 +48,7 @@ namespace Edvanz.Application.Services
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser,IUserPermissionService userPermissionService,IAssistantService assistantService,IHttpContextAccessor httpContextAccessor)
+            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser,IUserPermissionService userPermissionService,IAssistantService assistantService,IHttpContextAccessor httpContextAccessor, IConfiguration _configuration)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
@@ -57,6 +59,7 @@ namespace Edvanz.Application.Services
             this.assistantService = assistantService;
      
             _httpContextAccessor = httpContextAccessor;
+            configuration = _configuration;
         }
 
         /// <summary>
@@ -277,15 +280,20 @@ namespace Edvanz.Application.Services
                 );
             }
 
-            #endregion
+            else
+            {
+                return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+            }
 
-            var refreshToken = tokenService.GenerateRefreshToken();
+                #endregion
+
+                var refreshToken = tokenService.GenerateRefreshToken();
 
             var refreshTokenEntity = new RefreshToken
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(7),
+                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays")),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
@@ -366,19 +374,20 @@ namespace Edvanz.Application.Services
             if (token == null)
                 return Result<AuthResponse>.Failure(_localizer, "notFoundToken");
 
-            if (token.user == null || token.ExpiryDate <= DateTime.UtcNow || token.IsRevoked)
+            if (token.user is null || token.ExpiryDate <= DateTime.UtcNow)
                 return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
+
             if (token.IsRevoked)
             {
+                // Token reuse detected — revoke ALL of this user's tokens (family invalidation)
                 var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(token.UserId);
-
-                await _unitOfWork.GetRepository<RefreshToken, long>()
-                    .DeleteRangeAsync(allTokens);
-
+                foreach (var t in allTokens) t.IsRevoked = true;
                 await _unitOfWork.SaveChangesAsync();
-
                 return Result<AuthResponse>.Failure(_localizer, "TokenReuseDetected");
             }
+
+            // Rotate: mark current as revoked, issue new
+            token.IsRevoked = true;
 
 
             var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
@@ -390,7 +399,7 @@ namespace Edvanz.Application.Services
             var newRefreshToken = tokenService.GenerateRefreshToken();
 
             token.Token = newRefreshToken;
-            token.ExpiryDate = DateTime.UtcNow.AddDays(7);
+            token.ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays"));
             token.SecurityStamp = user.SecurityStamp;
 
             await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);

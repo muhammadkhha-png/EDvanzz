@@ -5,7 +5,7 @@ using System.Text;
 
 namespace Edvanz.Application.Dtos.Auth
 {
-    public class RefeshDto
+    public class RefreshDto
     {
         [Required]
         public string token { get; set; }
