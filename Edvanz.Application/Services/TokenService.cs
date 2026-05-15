@@ -67,6 +67,8 @@ namespace Edvanz.Application.Services
             var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)), SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
+                 issuer: configuration["Jwt:Issuer"],
+    audience: configuration["Jwt:Audience"],
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:AccessTokenMinutes")),
                 signingCredentials: creds
