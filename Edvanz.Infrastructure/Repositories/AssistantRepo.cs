@@ -104,5 +104,21 @@ namespace Edvanz.Infrastructure.Repositories
                 .Include(a => a.Teacher)
                 .FirstOrDefaultAsync(a => a.UserId == userId);
         }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<long>> GetUserIdsByTeacherAccountIdAsync(long teacherId)
+        {
+            // BR-ADM-010 module-revocation fan-out: returns every assistant's UserId so
+            // the caller can invalidate their cached auth snapshot and bump their
+            // SecurityStamp atomically with the TutorModuleAccess delete.
+            //
+            // Includes assistants of any AccountStatus — they may still hold valid
+            // access tokens we want to invalidate. Excludes only soft-deleted rows.
+            return await _context.Assistants
+                .AsNoTracking()
+                .Where(a => a.TeacherAccountId == teacherId && a.DeletedAt == null)
+                .Select(a => a.UserId)
+                .ToListAsync();
+        }
     }
 }

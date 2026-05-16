@@ -75,6 +75,32 @@ namespace Edvanz.Domain.Interfaces
         /// <param name="email">The email to check for duplicates (skipped if null or empty).</param>
         Task<User?> FindExistingUserByCredentialsAsync(string phoneNumber, string username, string? email);
 
+        /// <summary>
+        /// Builds a fully-populated <see cref="UserAuthSnapshot"/> for the given user
+        /// in a single optimized round-trip. Backs the per-request authorization
+        /// resolution path (REQ-USR-013 / REQ-USR-027 / REQ-USR-008 / BR-ADM-010).
+        ///
+        /// CONTENTS:
+        ///   - Identity: UserId, Role, IsActive, SecurityStamp
+        ///   - Scope: TeacherScopeId (self for Teacher, TeacherAccountId for Assistant,
+        ///            null for SuperAdmin / Student / Parent)
+        ///   - Modules: derived from TutorModuleAccess for the resolved tutor scope
+        ///   - Permissions: "{ModuleName}.{PermissionName}" strings from UsersPermissions
+        ///     (Assistants only — Teachers infer access from Modules)
+        ///
+        /// PERFORMANCE:
+        ///   AsNoTracking, three sequential queries (User+role-row, modules, permissions)
+        ///   bounded by the user's own data — no cross-tenant scans. Typical execution
+        ///   ~5-10 ms locally. Cached afterward in Redis via
+        ///   <c>IUserAuthCacheService</c> so subsequent requests skip this entirely.
+        ///
+        /// RETURNS:
+        ///   The snapshot, or null when no user exists with the given id. A user that
+        ///   exists but has been deactivated still returns a snapshot — the caller
+        ///   (middleware) inspects <c>IsActive</c> to decide 401 vs proceed.
+        /// </summary>
+        Task<UserAuthSnapshot?> GetUserAuthSnapshotAsync(long userId);
+
         // ══════════════════════════════════════════════
         // TEACHER ENTITY QUERIES
         // ══════════════════════════════════════════════
@@ -559,6 +585,7 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task<StudentUser?> GetActiveStudentUserByUserIdAsync(long userId);
 
+
     }
     // ══════════════════════════════════════════════════════════════════
     // PROJECTIONS used by IUserRepo subscription methods.
@@ -602,4 +629,5 @@ namespace Edvanz.Domain.Interfaces
         public string? PhoneNumber { get; set; }
         public string? LanguagePreference { get; set; }
     }
+
 }

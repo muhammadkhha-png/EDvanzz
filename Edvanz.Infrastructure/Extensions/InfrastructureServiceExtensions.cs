@@ -65,6 +65,9 @@ public static class InfrastructureServiceExtensions
         services.Configure<ReminderSchedulerOptions>(configuration.GetSection(ReminderSchedulerOptions.Section));
         services.Configure<SubscriptionDefaultsOptions>(configuration.GetSection(SubscriptionDefaultsOptions.Section));
 
+        // ── Live permission / module-revocation cache options (REQ-USR-013 / BR-ADM-010) ──
+        services.Configure<UserAuthCacheOptions>(configuration.GetSection(UserAuthCacheOptions.Section));
+
         // ── Payment gateway: stub vs Paymob, selected by PaymobOptions.Enabled ──
         // FR-SUB-034 / D-04: Paymob is stubbed off in v1; the real adapter ships
         // dormant and is activated by flipping configuration only — no code change.
@@ -112,7 +115,12 @@ public static class InfrastructureServiceExtensions
         }
 
         services.AddScoped<ISubscriptionCacheService, RedisSubscriptionCacheService>();
-        services.AddScoped<SubscriptionReminderDispatcherJob>();
+
+        // Live permission / module-revocation cache — same IDistributedCache backend
+        // as the subscription cache, separate key namespace (auth:user:{id} vs
+        // subscription:teacher:{id}) and separate invalidation triggers.
+        // (REQ-USR-013 / REQ-USR-027 / REQ-USR-008 / BR-ADM-010)
+        services.AddScoped<IUserAuthCacheService, RedisUserAuthCacheService>(); services.AddScoped<SubscriptionReminderDispatcherJob>();
         services.AddScoped<PendingPaymentExpiryJob>();
         // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
         //  Hangfire dispatcher + worker (Phase 6) ──

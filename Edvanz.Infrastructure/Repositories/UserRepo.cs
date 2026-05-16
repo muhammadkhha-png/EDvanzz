@@ -82,7 +82,6 @@ namespace Edvanz.Infrastructure.Repositories
                 .AsNoTracking()
                 .ToListAsync();
         }
-
         /// <inheritdoc />
         // FIX V1: Encapsulates the complex OR-based duplicate check that was previously
         // a raw expression in UserService.AddUser. Now the Application layer calls this
@@ -96,6 +95,105 @@ namespace Edvanz.Infrastructure.Repositories
                     (!string.IsNullOrEmpty(email) && u.Email == email));
         }
 
+        /// <inheritdoc />
+        public async Task<UserAuthSnapshot?> GetUserAuthSnapshotAsync(long userId)
+        {
+            // ── Step 1: Load the User row (lightweight projection — no nav properties needed yet) ──
+            // We project to a temporary anonymous-shape result so EF translates this into a
+            // SELECT of just the columns we need, not the whole User row.
+            var userCore = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => new
+                {
+                    u.Id,
+                    u.UserType,
+                    u.IsActive,
+                    u.SecurityStamp
+                })
+                .FirstOrDefaultAsync();
+
+            if (userCore is null)
+                return null;
+
+            string role = userCore.UserType.ToString();
+
+            // ── Step 2: Resolve TeacherScopeId based on role ──
+            // - Teacher: their own Teacher.Id
+            // - Assistant: Assistant.TeacherAccountId (BR-SUB-002 / BR-USR-005)
+            // - SuperAdmin / Student / Parent: null — no tutor scope applies
+            long? teacherScopeId = userCore.UserType switch
+            {
+                UserType.Teacher => await _context.Set<Teacher>()
+                    .AsNoTracking()
+                    .Where(t => t.UserId == userId)
+                    .Select(t => (long?)t.Id)
+                    .FirstOrDefaultAsync(),
+
+                UserType.Assistant => await _context.Set<Assistant>()
+                    .AsNoTracking()
+                    .Where(a => a.UserId == userId)
+                    .Select(a => (long?)a.TeacherAccountId)
+                    .FirstOrDefaultAsync(),
+
+                _ => null
+            };
+
+            // ── Step 3: Load module names for the tutor scope ──
+            // Empty set for users without a tutor scope (SuperAdmin/Student/Parent).
+            // Reads TutorModuleAccess joined to Models — single indexed lookup.
+            HashSet<string> modules;
+            if (teacherScopeId.HasValue)
+            {
+                var moduleNames = await _context.TutorModuleAccess
+                    .AsNoTracking()
+                    .Where(t => t.TutorId == teacherScopeId.Value)
+                    .Select(t => t.module.Name)
+                    .ToListAsync();
+
+                modules = new HashSet<string>(moduleNames, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                modules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            // ── Step 4: Load granular permissions ──
+            // Only assistants have UsersPermission rows that matter for authorization —
+            // a teacher's "permissions" are inferred from their open modules.
+            // We still emit the set unconditionally to keep the snapshot shape simple;
+            // the handler treats Teacher role as module-only regardless of permission set.
+            //
+            // Format matches IUserPermissionService.GetUserPermissionsToToken exactly:
+            //   "{ModuleName}.{PermissionName}"  e.g. "Payment.Collect"
+            HashSet<string> permissions;
+            if (userCore.UserType == UserType.Assistant)
+            {
+                var permissionStrings = await _context.UsersPermissions
+                    .AsNoTracking()
+                    .Where(up => up.UserId == userId)
+                    .Select(up => up.Permission.module.Name + "." + up.Permission.Name)
+                    .ToListAsync();
+
+                permissions = new HashSet<string>(permissionStrings, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                permissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            // ── Step 5: Materialize the snapshot ──
+            return new UserAuthSnapshot
+            {
+                UserId = userCore.Id,
+                Role = role,
+                TeacherScopeId = teacherScopeId,
+                IsActive = userCore.IsActive ?? false,
+                SecurityStamp = userCore.SecurityStamp ?? string.Empty,
+                Modules = modules,
+                Permissions = permissions
+            };
+        }
         // ══════════════════════════════════════════════
         // TEACHER ENTITY QUERIES
         // ══════════════════════════════════════════════
