@@ -18,10 +18,13 @@ namespace Edvanz.Application.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IStringLocalizer<Messages> localizer;
 
-        public ProfileService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> _localizer)
+        private readonly IUserAuthInvalidationService _authInvalidation;
+
+        public ProfileService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> _localizer, IUserAuthInvalidationService authInvalidation)
         {
             _unitOfWork = unitOfWork;
             localizer = _localizer;
+            _authInvalidation = authInvalidation;
         }
         public async Task<Result<List<ProfilePermissionDto>>> GetAllProfilesWithPermissionsPerTeacherAsync(long teacherId)
         {
@@ -271,13 +274,22 @@ namespace Edvanz.Application.Services
 
                             if (safeToRemove.Any())
                             {
-                                var toDelete = await _unitOfWork.UsersPermissions.GetExistingUserPermissionsAsync(affectedUserIds,safeToRemove);
+                                var toDelete = await _unitOfWork.UsersPermissions.GetExistingUserPermissionsAsync(affectedUserIds, safeToRemove);
 
                                 if (toDelete.Any())
                                     await _unitOfWork.UsersPermissions
                                         .DeleteRangeAsync(toDelete);
                             }
                         }
+
+                        // REQ-USR-013 (defensive): the current ProfileService
+                        // implementation cascades template edits to assigned
+                        // assistants' UsersPermissions rows. BR-USR-004 says
+                        // edits should NOT cascade — when that requirement is
+                        // honored properly in a future refactor, this
+                        // invalidation call can be removed. Until then we
+                        // keep the cache consistent with reality.
+                        await _authInvalidation.InvalidateUsersAsync(affectedUserIds);
                     }
                 }
 
@@ -359,8 +371,15 @@ namespace Edvanz.Application.Services
                         if (toDelete.Any())
                             await _unitOfWork.UsersPermissions.DeleteRangeAsync(toDelete);
                     }
+
+                    // REQ-USR-013: Deleting a template removes permissions from
+                    // every assigned assistant. Bump their SecurityStamps and
+                    // drop their Redis snapshots so the revocation takes effect
+                    // immediately.
+                    await _authInvalidation.InvalidateUsersAsync(affectedUserIds);
                 }
 
+               
                 // -- 6. Delete TemplatePermissionsUsers rows -------------------------
                 if (affectedLinks.Any())
                     await _unitOfWork.GetRepository<TemplatePermissionsUsers, long>()

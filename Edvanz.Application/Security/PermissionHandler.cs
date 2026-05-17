@@ -1,99 +1,207 @@
-﻿using Edvanz.Application.ServiceContract;
-using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
-using System.Data;
-using System.Linq;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using System;
 using System.Threading.Tasks;
 
 namespace Edvanz.Application.Security
 {
+    /// <summary>
+    /// Authorization handler for <see cref="PermissionRequirement"/> — the
+    /// per-endpoint module/permission gate used by every <c>[ModulePermission]</c>
+    /// attribute in the API.
+    ///
+    /// LIVE-DATA SOURCE (REQ-USR-013 / REQ-USR-027 / BR-ADM-010):
+    ///   This handler resolves authorization against the per-request
+    ///   <see cref="UserAuthSnapshot"/> deposited on <c>HttpContext.Items</c> by
+    ///   <c>SecurityStampValidationMiddleware</c> — NOT against JWT claims.
+    ///   The snapshot is freshly loaded from Redis (or DB on cache miss) on
+    ///   every request, so any permission change saved by a tutor is visible
+    ///   on the assistant's very next call.
+    ///
+    /// ARCHITECTURE NOTE:
+    ///   The snapshot is read directly from <c>HttpContext.Items</c> using the
+    ///   key defined in <see cref="AuthConstants.AuthSnapshotItemKey"/>. We do
+    ///   NOT depend on any API-layer helper class — Onion Architecture forbids
+    ///   Application → API references. The key constant and snapshot type both
+    ///   live in the Domain layer, which both the API middleware and this
+    ///   Application-layer handler can reference.
+    ///
+    /// DECISION MATRIX (preserved from v1 to keep call-site behavior identical):
+    ///   - RoleOnly requirement present → succeed iff the user is in that role.
+    ///   - SuperAdmin / Student / Parent → bypass (their access is governed
+    ///     elsewhere, not by module/permission claims).
+    ///   - CompleteProfile flow → only succeeds for the dedicated CompleteProfile
+    ///     endpoint (legacy path; preserved for the Google-signup completion UI).
+    ///   - Teacher → module check only.
+    ///   - Assistant → module check AND permission check.
+    ///
+    /// DEFENSIVE FALLBACK:
+    ///   If <c>HttpContext.Items</c> contains no snapshot (middleware
+    ///   misconfigured or anonymous-flagged endpoint that somehow reaches a
+    ///   policy), the request fails closed — the safer of the two failure modes.
+    /// </summary>
     public class PermissionHandler : AuthorizationHandler<PermissionRequirement>
     {
+        // Role constants — kept in this file (not promoted to a global) because
+        // they are tightly coupled to the decision matrix above and used nowhere
+        // else. Matches the v1 implementation's literal-string convention.
+        private const string SuperAdminRole = "SuperAdmin";
+        private const string StudentRole = "Student";
+        private const string ParentRole = "Parent";
+        private const string TeacherRole = "Teacher";
+        private const string AssistantRole = "Assistant";
+        private const string CompleteProfilePermission = "CompleteProfile";
 
-        public PermissionHandler()
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public PermissionHandler(IHttpContextAccessor httpContextAccessor)
         {
-           
+            _httpContextAccessor = httpContextAccessor;
         }
 
-
+        /// <inheritdoc />
         protected override Task HandleRequirementAsync(
-      AuthorizationHandlerContext context,
-      PermissionRequirement requirement)
+            AuthorizationHandlerContext context,
+            PermissionRequirement requirement)
         {
-            var user = context.User;
+            var principal = context.User;
+
+            // ── 1. RoleOnly fast path ───────────────────────────────────────
+            // Endpoints decorated with [ModulePermission(roles: "X", roleOnly: true)]
+            // bypass the module/permission system entirely — only the role matters.
             if (!string.IsNullOrEmpty(requirement.RoleOnly))
             {
-                if (user.IsInRole(requirement.RoleOnly))
-                {
+                if (principal.IsInRole(requirement.RoleOnly))
                     context.Succeed(requirement);
-                    return Task.CompletedTask;
-                }
-                context.Fail();
+                else
+                    context.Fail();
+
                 return Task.CompletedTask;
             }
-            // ── SuperAdmin → bypass كامل ──────────────────────────────────
-            if (user.IsInRole("SuperAdmin")|| user.IsInRole("Student") || user.IsInRole("Parent"))
+
+            // ── 2. SuperAdmin / Student / Parent bypass ─────────────────────
+            // Same v1 behavior: these roles are governed by separate authorization
+            // surfaces (e.g., SuperAdmin sees everything; Student/Parent endpoints
+            // are typically scoped by user id, not by module/permission grants).
+            if (principal.IsInRole(SuperAdminRole)
+                || principal.IsInRole(StudentRole)
+                || principal.IsInRole(ParentRole))
             {
                 context.Succeed(requirement);
                 return Task.CompletedTask;
             }
 
-            // ── CompleteProfile → endpoint محدد بس، مش bypass كامل ────────
-            var permissions = user.Claims
-                .Where(c => c.Type == "Permission")
-                .Select(c => c.Value)
-                .ToList();
+            // ── 3. Resolve the live snapshot from HttpContext.Items ─────────
+            // Deposited by SecurityStampValidationMiddleware for every
+            // authenticated request. Null indicates either:
+            //   - An anonymous request that nonetheless triggered this handler
+            //     (misconfigured endpoint — fail closed).
+            //   - The middleware is not registered in the pipeline (deployment
+            //     error — fail closed).
+            UserAuthSnapshot? snapshot = ResolveSnapshot();
 
-            if (permissions.Contains("CompleteProfile", StringComparer.OrdinalIgnoreCase))
+            if (snapshot is null)
             {
-                // ✅ يعدي بس لو الـ endpoint نفسه هو CompleteProfile
-                if (requirement.Permission == "CompleteProfile")
-                {
-                    context.Succeed(requirement);
-                    return Task.CompletedTask;
-                }
                 context.Fail();
                 return Task.CompletedTask;
             }
 
-           
+            // ── 4. CompleteProfile flow ─────────────────────────────────────
+            // The Google sign-up completion path issues a token with only the
+            // "CompleteProfile" permission. It is preserved here because the
+            // CompleteProfile token is generated by GenerateCompleteProfileToken
+            // (not GenerateJwtToken), which still emits the legacy Permission
+            // claim. We read it from claims, not from the snapshot — the user
+            // is mid-signup and has no DB row yet to snapshot.
+            //
+            // NOTE: This path is INDEPENDENT of the live snapshot system; it
+            // exists only because GenerateCompleteProfileToken issues a special-
+            // purpose JWT that doesn't go through the SecurityStamp pipeline.
+            bool isCompleteProfileToken = principal.HasClaim(
+                c => c.Type == "Permission"
+                  && string.Equals(c.Value, CompleteProfilePermission,
+                                   StringComparison.OrdinalIgnoreCase));
 
-            // ── Teacher / Assistant → لازم module ────────────────────────
-            var modules = user.Claims
-                .Where(c => c.Type == "module")
-                .Select(c => c.Value);
-
-            if (!string.IsNullOrEmpty(requirement.Module)) // 🔹 تحقق بس لو فيه module محدد
+            if (isCompleteProfileToken)
             {
-                if (modules == null || !modules.Contains(requirement.Module, StringComparer.OrdinalIgnoreCase))
+                if (string.Equals(requirement.Permission, CompleteProfilePermission,
+                                  StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Succeed(requirement);
+                }
+                else
+                {
+                    context.Fail();
+                }
+                return Task.CompletedTask;
+            }
+
+            // ── 5. Module gate (Teacher + Assistant) ────────────────────────
+            // Snapshot.Modules is OrdinalIgnoreCase, so the HashSet.Contains
+            // already handles casing variations from the [ModulePermission]
+            // attribute.
+            if (!string.IsNullOrEmpty(requirement.Module))
+            {
+                if (!snapshot.Modules.Contains(requirement.Module))
                 {
                     context.Fail();
                     return Task.CompletedTask;
                 }
             }
 
-            // ── Teacher → module كافي ─────────────────────────────────────
-            if (user.IsInRole("Teacher"))
+            // ── 6. Teacher → module is sufficient ───────────────────────────
+            if (principal.IsInRole(TeacherRole))
             {
-                context.Succeed(requirement); // 🔥 ده اللي ناقص
+                context.Succeed(requirement);
                 return Task.CompletedTask;
             }
 
-            // ── Assistant → module + permission ──────────────────────────
+            // ── 7. Assistant → require granular permission ──────────────────
+            // The attribute may carry a null/empty permission (module-only
+            // requirement). For Assistants we fail closed on that — an empty
+            // permission requirement against an Assistant means the endpoint
+            // forgot to specify one, which is a coding bug we shouldn't silently
+            // allow past.
             if (string.IsNullOrEmpty(requirement.Permission))
             {
                 context.Fail();
                 return Task.CompletedTask;
             }
 
-            if (permissions.Contains(requirement.Permission, StringComparer.OrdinalIgnoreCase))
+            // Permissions in the snapshot are "{ModuleName}.{PermissionName}"
+            // (matches IUserPermissionService.GetUserPermissionsToToken). The
+            // attribute supplies just the permission name, so we form the
+            // qualified key here.
+            string qualifiedPermission = $"{requirement.Module}.{requirement.Permission}";
+
+            if (snapshot.Permissions.Contains(qualifiedPermission))
                 context.Succeed(requirement);
             else
                 context.Fail();
 
             return Task.CompletedTask;
+        }
+
+        // ════════════════════════════════════════════════
+        // PRIVATE HELPERS
+        // ════════════════════════════════════════════════
+
+        /// <summary>
+        /// Pulls the snapshot the middleware deposited on this request's
+        /// <c>HttpContext.Items</c>. Returns null when the middleware did not
+        /// run for this request — handled as fail-closed by the caller.
+        /// </summary>
+        private UserAuthSnapshot? ResolveSnapshot()
+        {
+            HttpContext? httpContext = _httpContextAccessor.HttpContext;
+            if (httpContext is null)
+                return null;
+
+            return httpContext.Items.TryGetValue(AuthConstants.AuthSnapshotItemKey, out var raw)
+                ? raw as UserAuthSnapshot
+                : null;
         }
     }
 }

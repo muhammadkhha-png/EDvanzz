@@ -13,7 +13,7 @@ namespace Edvanz.Domain.Entities
         public long teacherId { get; set; }
         public Teacher Teacher { get; set; }
         [ForeignKey(nameof(assistant))]
-        public long AssistantId { get; set; }
+        public long? AssistantId { get; set; }
         public Assistant assistant { get; set; }
         public ActionType actionType { get; set; }
         [ForeignKey(nameof(module))]

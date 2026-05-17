@@ -39,16 +39,12 @@ namespace Edvanz.Application.Services
         private readonly IConfiguration configuration;
 
 
-        /// <summary>
-        /// Initializes a new instance of AuthService with required dependencies.
-        /// </summary>
-        /// <param name="unitOfWork">Unit of work for database operations.</param>
-        /// <param name="localizer">String localizer for multilingual messages.</param>
-        /// <param name="passwordService">Password hashing and verification service.</param>
+        private readonly IUserAuthCacheService _authCache;
+
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService,ITokenService tokenService,ICurrentUserService currentUser,IUserPermissionService userPermissionService,IAssistantService assistantService,IHttpContextAccessor httpContextAccessor, IConfiguration _configuration)
+            IPasswordService passwordService, ITokenService tokenService, ICurrentUserService currentUser, IUserPermissionService userPermissionService, IAssistantService assistantService, IHttpContextAccessor httpContextAccessor, IConfiguration _configuration, IUserAuthCacheService authCache)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
@@ -57,9 +53,10 @@ namespace Edvanz.Application.Services
             this._currentUser = currentUser;
             this.userPermissionService = userPermissionService;
             this.assistantService = assistantService;
-     
+
             _httpContextAccessor = httpContextAccessor;
             configuration = _configuration;
+            _authCache = authCache;
         }
 
         /// <summary>
@@ -365,6 +362,14 @@ namespace Edvanz.Application.Services
             }
 
             await _unitOfWork.CommitAsync();
+
+            // REQ-USR-013 / REQ-USR-027: drop the Redis snapshot AFTER commit
+            // so the next request rebuilds from the new SecurityStamp (already
+            // bumped above before SaveChangesAsync). The stamp bump alone
+            // would suffice (TTL expiry), but invalidating immediately
+            // collapses the staleness window to zero.
+            await _authCache.InvalidateAsync(userId);
+
             return Result<string>.Success(null, _localizer, "PasswordChangedSuccessfully");
         }
         public async Task<Result<AuthResponse>> Refresh(string refreshToken)

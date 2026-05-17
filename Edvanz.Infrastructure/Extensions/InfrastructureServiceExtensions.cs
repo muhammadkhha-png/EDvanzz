@@ -120,7 +120,18 @@ public static class InfrastructureServiceExtensions
         // as the subscription cache, separate key namespace (auth:user:{id} vs
         // subscription:teacher:{id}) and separate invalidation triggers.
         // (REQ-USR-013 / REQ-USR-027 / REQ-USR-008 / BR-ADM-010)
-        services.AddScoped<IUserAuthCacheService, RedisUserAuthCacheService>(); services.AddScoped<SubscriptionReminderDispatcherJob>();
+        services.AddScoped<IUserAuthCacheService, RedisUserAuthCacheService>();
+
+        // Two-step invalidation orchestrator (stamp bump + cache drop). Every
+        // service that mutates a user's effective access calls this — keeps the
+        // two steps coupled at a single call site so neither can be forgotten.
+        services.AddScoped<IUserAuthInvalidationService, UserAuthInvalidationService>();
+
+        // Super-admin per-tutor module activation (REQ-ADM-034 through REQ-ADM-038).
+        // Writes TutorModuleAccess + audit trail + invalidates tutor and assistants
+        // in one transaction.
+        services.AddScoped<ITutorModuleAccessService, TutorModuleAccessService>();
+        services.AddScoped<SubscriptionReminderDispatcherJob>();
         services.AddScoped<PendingPaymentExpiryJob>();
         // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
         //  Hangfire dispatcher + worker (Phase 6) ──

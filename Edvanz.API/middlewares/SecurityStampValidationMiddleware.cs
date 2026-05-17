@@ -147,7 +147,7 @@ public class SecurityStampValidationMiddleware
         }
 
         // ── 6. Hand-off to downstream handlers ───────────────────────────
-        AuthContextItems.Set(context, snapshot);
+        context.Items[AuthConstants.AuthSnapshotItemKey] = snapshot;
 
         await _next(context);
     }

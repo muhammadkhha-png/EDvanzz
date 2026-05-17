@@ -30,8 +30,9 @@ namespace Edvanz.Application.Services
         private readonly IPasswordService passwordService;
         private readonly ICurrentUserService currentUserService;
         private readonly IPaymentService _paymentService;
+        private readonly IUserAuthInvalidationService _authInvalidation;
 
-        public AssistantService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer,IUserPermissionService userPermissionService ,IPasswordService passwordService,ICurrentUserService _currentUserService,IPaymentService paymentService)
+        public AssistantService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IUserPermissionService userPermissionService, IPasswordService passwordService, ICurrentUserService _currentUserService, IPaymentService paymentService, IUserAuthInvalidationService authInvalidation)
         {
             _unitOfWork = unitOfWork;
             this.localizer = localizer;
@@ -39,8 +40,8 @@ namespace Edvanz.Application.Services
             this.passwordService = passwordService;
             currentUserService = _currentUserService;
             this._paymentService = paymentService;
+            _authInvalidation = authInvalidation;
         }
-
         public async Task<Result<PaginatedResponse<List<AssistantListDto>>>> GetAssistantListPerTeacher(
             AssistantPerTeacherFilterDto req)
         {
@@ -427,7 +428,14 @@ namespace Edvanz.Application.Services
                         await templateRepo.AddRangeAsync(newTemplates);
                     }
                 }
-               assistant.UpdatedAt = DateTime.UtcNow;
+                assistant.UpdatedAt = DateTime.UtcNow;
+
+                // REQ-USR-013: Bump the assistant's SecurityStamp and drop their
+                // Redis snapshot so the permission/template/password change
+                // takes effect on their very next request. Must run BEFORE
+                // SaveChangesAsync so the stamp bump joins this transaction.
+                await _authInvalidation.InvalidateUserAsync(user.Id);
+
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitAsync();
 
@@ -482,6 +490,13 @@ namespace Edvanz.Application.Services
             {
                 await _unitOfWork.AssistantRepo.UpdateAsync(assistant);
                 await _unitOfWork.Users.UpdateAsync(user);
+
+                // REQ-USR-008 / REQ-USR-027: Bump the assistant's SecurityStamp
+                // and drop their Redis snapshot so the deactivation /
+                // reactivation / suspension takes effect on their next request.
+                // Without this, a deactivated assistant could continue using
+                // the app for up to 60 minutes (until token expiry).
+                await _authInvalidation.InvalidateUserAsync(user.Id);
 
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitAsync();

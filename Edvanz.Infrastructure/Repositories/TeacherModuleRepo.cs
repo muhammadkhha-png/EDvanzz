@@ -43,8 +43,59 @@ namespace Edvanz.Infrastructure.Repositories
             // removed it) IS deactivation. There is no IsActive flag on TutorModule
             // by design (Phase 2 review confirmed this matches the existing schema).
             return await _context.TutorModuleAccess
-                .AnyAsync(t => t.TutorId == teacherId
-                            && t.module.Name == moduleName);
+                   .AnyAsync(t => t.TutorId == teacherId
+                               && t.module.Name == moduleName);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<long>> GetTutorModuleIdsAsync(long teacherId)
+        {
+            // Lightweight id-only projection — used by the service layer to diff
+            // desired vs current module sets without materializing Module rows.
+            return await _context.TutorModuleAccess
+                .AsNoTracking()
+                .Where(t => t.TutorId == teacherId)
+                .Select(t => t.ModuleId)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> GrantModuleAsync(long teacherId, long moduleId)
+        {
+            // Idempotency check: presence of the row IS the grant. We check existence
+            // first (AsNoTracking, AnyAsync, sub-millisecond on the indexed composite
+            // key) rather than relying on a unique-constraint violation, because the
+            // latter would force the caller to handle DbUpdateException for a benign
+            // case. EF Core's change tracker is bypassed for the existence check.
+            bool exists = await _context.TutorModuleAccess
+                .AsNoTracking()
+                .AnyAsync(t => t.TutorId == teacherId && t.ModuleId == moduleId);
+
+            if (exists)
+                return false;
+
+            await _context.TutorModuleAccess.AddAsync(new TutorModule
+            {
+                TutorId = teacherId,
+                ModuleId = moduleId
+            });
+
+            return true;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> RevokeModuleAsync(long teacherId, long moduleId)
+        {
+            // Load the tracked entity (not AsNoTracking — we're about to delete it).
+            // FirstOrDefaultAsync over the indexed FK pair; null means nothing to do.
+            var row = await _context.TutorModuleAccess
+                .FirstOrDefaultAsync(t => t.TutorId == teacherId && t.ModuleId == moduleId);
+
+            if (row is null)
+                return false;
+
+            _context.TutorModuleAccess.Remove(row);
+            return true;
         }
     }
 }

@@ -9,23 +9,59 @@ namespace Edvanz.Domain.Interfaces
     {
         public  Task<List<Module>> GetModulesPerTeacher(long teacherId);
 
-        /// <summary>
-        /// Returns true when the named module is active for the given teacher.
-        ///
-        /// "Active" means a row exists in <c>TutorModuleAccess</c> tying that teacher
-        /// to that module. The TutorModule entity has no IsActive flag — presence is
-        /// activation, absence is deactivation. Removing the row is how a super-admin
-        /// instantaneously deactivates a module per BR-ADM-010.
-        ///
-        /// Used by the VCM service for student and parent runtime gates that cannot
-        /// rely on the JWT module claim (students and parents have no such claim).
-        /// Teacher and assistant endpoints already enforce module-active at JWT issue
-        /// time via <c>[ModulePermission(...)]</c>.
-        /// </summary>
-        /// <param name="teacherId">The teacher whose module activation is being checked.</param>
         /// <param name="moduleName">The module name as seeded in <c>Models.Name</c>
         /// (e.g. <c>VideoConstants.ModuleName</c>).</param>
         Task<bool> IsModuleActiveAsync(long teacherId, string moduleName);
 
+        /// <summary>
+        /// Returns the set of <c>ModuleId</c>s currently granted to the given tutor —
+        /// the same data as <see cref="GetModulesPerTeacher"/> but as a lightweight
+        /// id-only projection used by the service layer to diff a desired state
+        /// against the current state without materializing full <c>Module</c> rows.
+        ///
+        /// Used by:
+        ///   - <c>TutorModuleAccessService.GrantAsync</c> / <c>RevokeAsync</c> to detect
+        ///     idempotent no-ops (REQ-ADM-035 "takes effect immediately upon saving"
+        ///     interpreted as "must not error when applying the same state twice").
+        ///   - <c>TutorModuleAccessService.BulkReplaceAsync</c> to compute the
+        ///     adds/removes diff against the request payload (REQ-ADM-051 / 053).
+        /// </summary>
+        Task<IReadOnlyList<long>> GetTutorModuleIdsAsync(long teacherId);
+
+        /// <summary>
+        /// Grants a module to a tutor by inserting a row into <c>TutorModuleAccess</c>.
+        /// Idempotent: if the (TutorId, ModuleId) pair already exists, returns false
+        /// without raising — the caller (service layer) treats false as "no state
+        /// change → skip invalidation and audit write".
+        ///
+        /// Does NOT call <c>SaveChangesAsync</c> — the change participates in the
+        /// caller's transaction.
+        /// </summary>
+        /// <param name="teacherId">The Teacher.Id receiving the module grant.</param>
+        /// <param name="moduleId">The Module.Id to grant.</param>
+        /// <returns>True when a new row was queued for insert; false when the row
+        /// already existed and nothing changed.</returns>
+        Task<bool> GrantModuleAsync(long teacherId, long moduleId);
+
+        /// <summary>
+        /// Revokes a module from a tutor by deleting the matching row in
+        /// <c>TutorModuleAccess</c>. Idempotent: if no row exists, returns false
+        /// without raising.
+        ///
+        /// REQ-ADM-050: data created while the module was active is preserved —
+        /// only the grant row is removed. Existing <c>UsersPermissions</c> rows
+        /// referencing module-scoped permissions are also preserved (they become
+        /// dormant until the module is re-granted).
+        ///
+        /// Does NOT call <c>SaveChangesAsync</c>.
+        /// </summary>
+        /// <param name="teacherId">The Teacher.Id losing the module grant.</param>
+        /// <param name="moduleId">The Module.Id to revoke.</param>
+        /// <returns>True when a row was queued for delete; false when no row
+        /// existed and nothing changed.</returns>
+        Task<bool> RevokeModuleAsync(long teacherId, long moduleId);
+
     }
 }
+
+
