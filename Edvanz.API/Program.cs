@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml.Wordprocessing;
 using Edvanz.API.Authorization;
 using Edvanz.API.Filters;
+using Edvanz.API.Middleware;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Options;
@@ -105,6 +106,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.Zero,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
             NameClaimType = ClaimTypes.NameIdentifier,
             RoleClaimType = ClaimTypes.Role,
         };
@@ -222,8 +225,12 @@ RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 
-app.UseAuthentication(); 
-
+app.UseAuthentication();
+// Live permission / module-revocation enforcement (REQ-USR-013 / REQ-USR-027 /
+// REQ-USR-008 / BR-ADM-010). Runs after UseAuthentication so HttpContext.User
+// is populated, and before UseAuthorization so PermissionHandler and
+// ActiveSubscriptionHandler see the resolved snapshot on HttpContext.Items.
+app.UseMiddleware<SecurityStampValidationMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();

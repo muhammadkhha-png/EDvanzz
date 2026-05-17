@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Auth;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
@@ -32,8 +33,88 @@ namespace Edvanz.Application.Services
             this.apiKey = configuration["Jwt:Key"];
         }
 
-        public string GenerateJwtToken(User user, List<string>? permissions,List<string>? modules)
+        //    public string GenerateJwtToken(User user, List<string>? permissions,List<string>? modules)
+        //    {
+        //        var claims = new List<Claim>();
+
+        //        if (user.Id != 0)
+        //            claims.Add(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()));
+
+        //        if (!string.IsNullOrWhiteSpace(user.Username))
+        //            claims.Add(new Claim(ClaimTypes.Name, user.Username));
+
+        //        if (user.UserType != null)
+        //            claims.Add(new Claim(ClaimTypes.Role, user.UserType.ToString()));
+
+        //        if (modules != null && modules.Any())
+        //        {
+        //            claims.AddRange(
+        //                modules
+        //                    .Where(m => !string.IsNullOrWhiteSpace(m))
+        //                    .Select(m => new Claim("module", m))
+        //            );
+        //        }
+        //        if (permissions != null && permissions.Any())
+        //        {
+        //            claims.AddRange(
+        //                permissions
+        //                .Where(p => !string.IsNullOrWhiteSpace(p))
+        //                .Select(p => new Claim("Permission", p))
+        //            );
+        //        }
+
+
+
+        //        var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)), SecurityAlgorithms.HmacSha256);
+
+        //        var token = new JwtSecurityToken(
+        //             issuer: configuration["Jwt:Issuer"],
+        //audience: configuration["Jwt:Audience"],
+        //            claims: claims,
+        //            expires: DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:AccessTokenMinutes")),
+        //            signingCredentials: creds
+        //        );
+
+        //        return new JwtSecurityTokenHandler().WriteToken(token);
+        //    }
+
+
+
+
+        /// <summary>
+        /// Issues an access token carrying only stable identity claims plus a
+        /// <c>SecurityStamp</c> marker (REQ-USR-013 / REQ-USR-027).
+        ///
+        /// EMITTED CLAIMS:
+        ///   - <c>NameIdentifier</c> — user id (matches <c>User.Id</c>)
+        ///   - <c>Name</c>           — username (display only)
+        ///   - <c>Role</c>           — <c>User.UserType.ToString()</c>
+        ///   - <c>SecurityStamp</c>  — current <c>User.SecurityStamp</c>; the
+        ///     middleware compares this against the live snapshot on every
+        ///     request and rejects mismatched tokens. Bumping the stamp is how
+        ///     permission revocation, deactivation, and password change take
+        ///     effect instantly without reducing token lifetime.
+        ///
+        /// REMOVED FROM v1 → v2 (architectural fix):
+        ///   - <c>"Permission"</c> claims — were stale for up to 60min after
+        ///     a tutor revoked a permission. Now resolved from
+        ///     <c>UserAuthSnapshot.Permissions</c> per request.
+        ///   - <c>"module"</c> claims — were stale for up to 60min after a
+        ///     super-admin revoked a module (BR-ADM-010). Now resolved from
+        ///     <c>UserAuthSnapshot.Modules</c> per request.
+        ///
+        /// The <c>permissions</c> and <c>modules</c> parameters are retained
+        /// on the signature for compatibility with existing callers (Login,
+        /// Refresh, AdminLogin, BuildUserTokenData) — they are intentionally
+        /// not used in the claim list. Callers may also pass null.
+        /// </summary>
+        public string GenerateJwtToken(User user, List<string>? permissions, List<string>? modules)
         {
+            // Parameters retained for signature stability across callers; the
+            // architecture intentionally no longer emits these as claims.
+            _ = permissions;
+            _ = modules;
+
             var claims = new List<Claim>();
 
             if (user.Id != 0)
@@ -45,30 +126,20 @@ namespace Edvanz.Application.Services
             if (user.UserType != null)
                 claims.Add(new Claim(ClaimTypes.Role, user.UserType.ToString()));
 
-            if (modules != null && modules.Any())
-            {
-                claims.AddRange(
-                    modules
-                        .Where(m => !string.IsNullOrWhiteSpace(m))
-                        .Select(m => new Claim("module", m))
-                );
-            }
-            if (permissions != null && permissions.Any())
-            {
-                claims.AddRange(
-                    permissions
-                    .Where(p => !string.IsNullOrWhiteSpace(p))
-                    .Select(p => new Claim("Permission", p))
-                );
-            }
-           
-          
+            // SecurityStamp claim — REQ-USR-013 invalidation pivot.
+            // Defaulted in the User constructor (Guid.NewGuid().ToString()) so
+            // this is always non-empty for real users. Defensive guard kept
+            // for the rare seeded-without-stamp path.
+            if (!string.IsNullOrWhiteSpace(user.SecurityStamp))
+                claims.Add(new Claim(AuthConstants.SecurityStampClaim, user.SecurityStamp));
 
-            var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)), SecurityAlgorithms.HmacSha256);
+            var creds = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(apiKey)),
+                SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
-                 issuer: configuration["Jwt:Issuer"],
-    audience: configuration["Jwt:Audience"],
+                issuer: configuration["Jwt:Issuer"],
+                audience: configuration["Jwt:Audience"],
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:AccessTokenMinutes")),
                 signingCredentials: creds
