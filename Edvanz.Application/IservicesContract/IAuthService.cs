@@ -29,6 +29,7 @@ namespace Edvanz.Application.IservicesContract
         public Task<Result<AuthResponse>> Refresh(string refreshToken);
         Task<Result<AuthResponse>> SigUpByGoogle(string idToken);
         public  Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false);
+        Task<Result<AuthResponse>> CompleteProfile(CompleteProfileDto dto);
 
     }
 }

@@ -640,7 +640,7 @@
     <value>تمت المزامنة مع وجود تعارضات. برجاء المراجعة والحل.</value>
   </data>
   <data name="ReportGenerated" xml:space="preserve">
-    <value>تم إنشاء التقرير بنجاح.</value>
+    <value>تم إنشاء التقرير بنجاح</value>
   </data>
   <data name="InvalidReportType" xml:space="preserve">
     <value>نوع التقرير المحدد غير صالح.</value>
@@ -733,7 +733,7 @@
     <value>قوالب غير صالحة</value>
   </data>
   <data name="TemplateNotFound" xml:space="preserve">
-    <value>قالب الرسالة غير متوفر </value>
+    <value>المهمة دي مش موجودة</value>
   </data>
   <data name="TemplateCreated" xml:space="preserve">
     <value>تم انشاء القالب </value>
@@ -780,11 +780,6 @@
   <data name="TriggerDeactivated" xml:space="preserve">
     <value>تم إلغاء التفعيل</value>
   </data>
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- وحدة إدارة الاشتراكات (Module 11 — v1.2)                          -->
-  <!-- ════════════════════════════════════════════════════════════════ -->
-
-  <!-- بدء التجديد -->
   <data name="SubscriptionRenewalInitiated" xml:space="preserve">
     <value>تم بدء عملية تجديد الاشتراك بنجاح</value>
   </data>
@@ -806,8 +801,6 @@
   <data name="CapacityPackagePriceNotSet" xml:space="preserve">
     <value>سعر الاشتراك للباقة بتاعتك لسه ما اتحددش. من فضلك تواصل مع الدعم</value>
   </data>
-
-  <!-- الإرسال اليدوي -->
   <data name="ManualSubmissionRecorded" xml:space="preserve">
     <value>تم تسجيل بيانات الدفع. في انتظار موافقة الإدارة</value>
   </data>
@@ -823,8 +816,6 @@
   <data name="PaymentPhoneRequired" xml:space="preserve">
     <value>من فضلك دخّل رقم الموبايل اللي بعت منه التحويل</value>
   </data>
-
-  <!-- التأكيد -->
   <data name="PaymentConfirmed" xml:space="preserve">
     <value>تم تأكيد الدفع وتجديد اشتراكك</value>
   </data>
@@ -834,8 +825,6 @@
   <data name="ConcurrentRenewalDetected" xml:space="preserve">
     <value>حصل تعارض في التجديد. حدّث الصفحة وحاول تاني</value>
   </data>
-
-  <!-- قائمة طلبات الإدارة -->
   <data name="PendingPaymentApproved" xml:space="preserve">
     <value>تم اعتماد الدفعة بنجاح</value>
   </data>
@@ -851,8 +840,6 @@
   <data name="RejectionReasonRequired" xml:space="preserve">
     <value>من فضلك اكتب سبب رفض الدفعة</value>
   </data>
-
-  <!-- التعديلات اليدوية للإدارة -->
   <data name="SubscriptionActivated" xml:space="preserve">
     <value>تم تفعيل الاشتراك بنجاح</value>
   </data>
@@ -880,8 +867,6 @@
   <data name="PriceMustBeNonNegative" xml:space="preserve">
     <value>السعر لازم يكون صفر أو قيمة موجبة</value>
   </data>
-
-  <!-- صندوق الإشعارات -->
   <data name="NotificationNotFound" xml:space="preserve">
     <value>الإشعار مش موجود</value>
   </data>
@@ -897,8 +882,6 @@
   <data name="FcmTokenRequired" xml:space="preserve">
     <value>توكن الجهاز مطلوب</value>
   </data>
-
-  <!-- قوالب التذكير والتأكيد (M-8) -->
   <data name="SubscriptionReminderTitle" xml:space="preserve">
     <value>تذكير بانتهاء الاشتراك</value>
   </data>
@@ -920,41 +903,18 @@
   <data name="PaymentRejectedBody" xml:space="preserve">
     <value>دفعة التجديد بتاعتك اترفضت. السبب: {0}. ابعت دفعة جديدة عشان تكمل</value>
   </data>
-
-  <!-- تعليمات الدفع اليدوي -->
   <data name="ManualPayInstructionsVodafoneCash" xml:space="preserve">
     <value>ابعت {0} جنيه من محفظة فودافون كاش لـ {1}، وبعدين دخّل رقم العملية هنا</value>
   </data>
   <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
     <value>ابعت {0} جنيه عبر إنستاباي لـ {1}، وبعدين دخّل رقم العملية هنا</value>
   </data>
-
-  <!-- Webhook -->
   <data name="WebhookSignatureInvalid" xml:space="preserve">
     <value>فشل التحقق من توقيع الـ webhook</value>
   </data>
   <data name="PaymobNotConfigured" xml:space="preserve">
     <value>الدفع الإلكتروني مش متاح حاليًا. استخدم الدفع اليدوي</value>
   </data>
-  <!--
-  ═══════════════════════════════════════════════════════════════════════════
-  MODULE 6 (EXAMS & HOMEWORK) — LOCALIZATION KEYS, EGYPTIAN ARABIC
-  ═══════════════════════════════════════════════════════════════════════════
-
-  THIS FILE INSTRUCTS YOU TO COPY THE <data> ENTRIES BELOW INTO THE EXISTING
-  /Edvanz.Domain/Messages.ar.resx FILE.
-
-  Wording style notes:
-    - Egyptian Arabic dialect (not Modern Standard / فصحى) — same as the
-      existing keys in REQ-STU-* and REQ-PAY-*.
-    - Direct, professional tone — say what's wrong and what to do about it.
-    - Avoid technical terms in user copy ("RowVersion" → "البيانات اتعدلت").
-    - Keep messages short — these display in mobile-app toasts.
-
-  ═══════════════════════════════════════════════════════════════════════════
--->
-
-  <!-- ─── Success messages ──────────────────────────────────────────────── -->
   <data name="AssignmentCreated" xml:space="preserve">
     <value>تم إنشاء المهمة بنجاح</value>
   </data>
@@ -971,7 +931,7 @@
     <value>تم إضافة الطلاب المستهدفين للمهمة</value>
   </data>
   <data name="ScopeRemoved" xml:space="preserve">
-    <value>تم حذف الهدف من المهمة</value>
+    <value>تم إزالة جهة الوصول</value>
   </data>
   <data name="StudentsAddedToTemplate" xml:space="preserve">
     <value>تم إضافة الطلاب للمهمة بنجاح</value>
@@ -981,9 +941,6 @@
   </data>
   <data name="ObligationRemoved" xml:space="preserve">
     <value>تم استثناء الطالب من ميعاد المهمة دا</value>
-  </data>
-  <data name="StatusUpdated" xml:space="preserve">
-    <value>تم تحديث الحالة بنجاح</value>
   </data>
   <data name="BulkStatusUpdated" xml:space="preserve">
     <value>تم تحديث حالة الطلاب المختارين</value>
@@ -997,11 +954,6 @@
   <data name="ScanAlreadyProcessed" xml:space="preserve">
     <value>الحضور كان متسجل قبل كده للطالب دا</value>
   </data>
-  <data name="ReportGenerated" xml:space="preserve">
-    <value>تم إنشاء التقرير بنجاح</value>
-  </data>
-
-  <!-- ─── Validation: template inputs ───────────────────────────────────── -->
   <data name="AssignmentNameRequired" xml:space="preserve">
     <value>اسم المهمة مطلوب ومش لازم يزيد عن 200 حرف</value>
   </data>
@@ -1029,8 +981,6 @@
   <data name="InvalidRecurrenceForExam" xml:space="preserve">
     <value>الامتحانات تتكرر بس "مرة واحدة" أو "شهرياً"</value>
   </data>
-
-  <!-- ─── Validation: scope inputs ──────────────────────────────────────── -->
   <data name="ScopeListEmpty" xml:space="preserve">
     <value>لازم تختار هدف واحد على الأقل (طالب أو حصة أو مجموعة)</value>
   </data>
@@ -1038,7 +988,7 @@
     <value>واحد من الأهداف اللي اخترتها مش صحيح. راجعه وحاول تاني</value>
   </data>
   <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
-    <value>واحد من الأهداف مش موجود أو مش تابع لحسابك</value>
+    <value>واحد من اللي اخترتهم مش تابع لحسابك</value>
   </data>
   <data name="ScopeResolvedToZeroStudents" xml:space="preserve">
     <value>الأهداف اللي اخترتها مفيهاش طلاب. ضيف طالب واحد على الأقل</value>
@@ -1047,10 +997,8 @@
     <value>عدد الطلاب أكبر من المسموح في مهمة واحدة. قسم الطلاب على مهام أصغر</value>
   </data>
   <data name="ScopeNotFound" xml:space="preserve">
-    <value>الهدف اللي عايز تشيله مش موجود في المهمة دي</value>
+    <value>جهة الوصول اللي حاولت تشيلها مش موجودة</value>
   </data>
-
-  <!-- ─── Validation: students / obligations ────────────────────────────── -->
   <data name="StudentListEmpty" xml:space="preserve">
     <value>اختار طالب واحد على الأقل</value>
   </data>
@@ -1066,9 +1014,6 @@
   <data name="OccurrenceNotFound" xml:space="preserve">
     <value>ميعاد المهمة دا مش موجود</value>
   </data>
-  <data name="TemplateNotFound" xml:space="preserve">
-    <value>المهمة دي مش موجودة</value>
-  </data>
   <data name="TemplateIsNotRecurring" xml:space="preserve">
     <value>المهمة دي مش متكررة، مفيش حاجة تتوقف</value>
   </data>
@@ -1078,8 +1023,6 @@
   <data name="DeletionConfirmationRequired" xml:space="preserve">
     <value>أكد الحذف الأول علشان نكمل</value>
   </data>
-
-  <!-- ─── Validation: status / grade entry ──────────────────────────────── -->
   <data name="InvalidStatusForExam" xml:space="preserve">
     <value>الحالة دي مش مناسبة للامتحانات. الحالات المسموحة: حضر، حضر بدرجة، مش حضر</value>
   </data>
@@ -1110,8 +1053,6 @@
   <data name="ObligationNotInGradePendingState" xml:space="preserve">
     <value>الطالب دا مش في انتظار درجة دلوقتي</value>
   </data>
-
-  <!-- ─── Validation: bulk / scan / barcode ─────────────────────────────── -->
   <data name="BulkItemsEmpty" xml:space="preserve">
     <value>اختار طالب واحد على الأقل للتحديث الجماعي</value>
   </data>
@@ -1127,8 +1068,6 @@
   <data name="BarcodeNotFound" xml:space="preserve">
     <value>مفيش طالب طلع من الباركود اللي اتعمله سكان</value>
   </data>
-
-  <!-- ─── Concurrency / locks (REQ-EXH-013, 027) ────────────────────────── -->
   <data name="RecurrencePatternLocked" xml:space="preserve">
     <value>مينفعش تغير نمط التكرار لأن في بيانات اتسجلت للطلاب</value>
   </data>
@@ -1144,34 +1083,12 @@
   <data name="DatabaseConflict" xml:space="preserve">
     <value>الطلب متعارض مع بيانات موجودة. حدّث الصفحة وحاول تاني</value>
   </data>
-
-  <!-- ─── Reports validation ────────────────────────────────────────────── -->
   <data name="ReportFilterAmbiguous" xml:space="preserve">
     <value>اختار فلتر واحد بس للتقرير دا</value>
   </data>
   <data name="ReportDateRangeInvalid" xml:space="preserve">
     <value>تاريخ النهاية لازم يكون بعد أو نفس تاريخ البداية</value>
   </data>
-  <!--
-  ═══════════════════════════════════════════════════════════════════════════
-  MODULE 14 (VIDEO CONTENT MANAGEMENT) — LOCALIZATION KEYS, EGYPTIAN ARABIC
-  ═══════════════════════════════════════════════════════════════════════════
-
-  APPEND THESE <data> ENTRIES TO THE EXISTING Edvanz.Domain/Messages.ar.resx
-  FILE, BEFORE THE CLOSING </root> TAG.
-
-  Wording style — matches the existing Module 6 / Subscription Arabic copy:
-    - Egyptian Arabic dialect (not Modern Standard / فصحى).
-    - Direct, professional tone — no filler.
-    - Short — these display in mobile toasts and dialog headers.
-    - Avoid technical terms in user-facing text.
-
-  Decisions baked in (per Q1/Q5/Q6) — no entries for keys we don't ship:
-    - No "VideoHiddenByTeacher", no "ScopeTooLarge", no "DuplicateVideoUrl".
-  ═══════════════════════════════════════════════════════════════════════════
--->
-
-  <!-- ─── Success messages ─────────────────────────────────────────────── -->
   <data name="VideoCreated" xml:space="preserve">
     <value>تم إضافة الفيديو بنجاح</value>
   </data>
@@ -1184,17 +1101,12 @@
   <data name="ScopesReplaced" xml:space="preserve">
     <value>تم استبدال صلاحيات الوصول للفيديو</value>
   </data>
-  <data name="ScopeRemoved" xml:space="preserve">
-    <value>تم إزالة جهة الوصول</value>
-  </data>
   <data name="WatchStarted" xml:space="preserve">
     <value>بدأت جلسة المشاهدة</value>
   </data>
   <data name="WatchStopped" xml:space="preserve">
     <value>تم حفظ جلسة المشاهدة</value>
   </data>
-
-  <!-- ─── Error messages ───────────────────────────────────────────────── -->
   <data name="VideoNotFound" xml:space="preserve">
     <value>الفيديو ده مش موجود. يمكن يكون اتحذف</value>
   </data>
@@ -1209,9 +1121,6 @@
   </data>
   <data name="UnsupportedSource" xml:space="preserve">
     <value>بندعم بس فيديوهات YouTube و Google Drive</value>
-  </data>
-  <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
-    <value>واحد من اللي اخترتهم مش تابع لحسابك</value>
   </data>
   <data name="ScopeShapeInvalid" xml:space="preserve">
     <value>بيانات الوصول مش مظبوطة. ياريت تعمل ريفريش وتجرب تاني</value>
@@ -1228,7 +1137,10 @@
   <data name="NotVideoOwner" xml:space="preserve">
     <value>الفيديو ده مش تابع لحسابك</value>
   </data>
-  <data name="ScopeNotFound" xml:space="preserve">
-    <value>جهة الوصول اللي حاولت تشيلها مش موجودة</value>
+  <data name="PhoneNumberRequired" xml:space="preserve">
+    <value>رقم الموبايل مطلوب.</value>
+  </data>
+  <data name="PhoneNumberInvalidFormat" xml:space="preserve">
+    <value>Phone number format is invalid.</value>
   </data>
 </root>

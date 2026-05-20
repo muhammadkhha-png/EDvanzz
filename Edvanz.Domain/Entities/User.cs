@@ -15,8 +15,8 @@ public class User: BaseEntity
     public string? Email { get; set; }
     public string PasswordHashed { get; set; }
     public string  SecurityStamp { get; set; }= Guid.NewGuid().ToString();
-
-    public string? PhoneNumber { get; set; }
+    [Required]
+    public string PhoneNumber { get; set; }
     public byte[]? IdImage { get; set; }
     public bool? IsActive { get; set; } = true;
     [ForeignKey(nameof(CreateByUser))]

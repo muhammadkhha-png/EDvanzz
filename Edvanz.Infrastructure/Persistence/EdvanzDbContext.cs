@@ -1,4 +1,5 @@
-﻿using Edvanz.Domain.Constants;
+﻿using DocumentFormat.OpenXml.Vml.Office;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
@@ -201,6 +202,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
            .HasKey(ur => new { ur.PermisionId, ur.TemplateId });
         modelBuilder.Entity<TutorModule>()
         .HasKey(ur => new { ur.TutorId, ur.ModuleId });
+
         #endregion
 
         #region Existing unique constraints
@@ -211,8 +213,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<User>()
               .HasIndex(u => u.PhoneNumber)
               .HasDatabaseName("IX_User_Phnoe")
-                  .IsClustered(false); 
+                  .IsClustered(false);
+        modelBuilder.Entity<User>().Property(u => u.PhoneNumber)
+      .IsRequired()
+      .HasMaxLength(20);
 
+        modelBuilder.Entity<User>().HasIndex(u => u.PhoneNumber)
+              .IsUnique()
+              .HasDatabaseName("UX_Users_PhoneNumber");
 
         #endregion
 

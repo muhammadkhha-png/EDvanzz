@@ -153,6 +153,13 @@ namespace Edvanz.API.Controllers
             var result = await authService.AdminLoginAsync(req);
             return ToResponse(result);
         }
+        [Authorize(Policy = "CompleteProfile")]
+        [HttpPost("complete-profile")]
+        public async Task<IActionResult> CompleteProfile(CompleteProfileDto req)
+        {
+            var result = await authService.CompleteProfile(req);
+            return ToResponse(result);
+        }
 
     }
 }

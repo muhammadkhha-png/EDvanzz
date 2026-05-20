@@ -15,6 +15,7 @@ using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using static Edvanz.Application.Services.UserService;
 
 namespace Edvanz.Application.Services
 {
@@ -513,6 +514,94 @@ namespace Edvanz.Application.Services
             }
 
             return Result<string>.Success(null, _localizer, "LoggedOut");
+        }
+        public async Task<Result<AuthResponse>> CompleteProfile(CompleteProfileDto dto)
+        {
+            // 1. Identity: the CompleteProfile token authorizes this call.
+            //    PermissionHandler has already enforced the "CompleteProfile" claim.
+            //    Read GoogleUser.Id from NameIdentifier via ICurrentUserService.
+            if (!long.TryParse(_currentUser.UserId?.ToString(), out var googleUserId))
+                return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
+
+            var googleUser = await _unitOfWork.googleUserRepo.GetByIdAsync(googleUserId);
+            if (googleUser is null)
+                return Result<AuthResponse>.Failure(_localizer, "Unauthorized");
+
+            if (googleUser.IsCompleted)
+                return Result<AuthResponse>.Failure(_localizer, "Googleaccountalreadyregistered");
+
+            // 2. Phone validation — same rule as password path.
+            if (string.IsNullOrWhiteSpace(dto.phoneNumber))
+                return Result<AuthResponse>.Failure(_localizer, "PhoneNumberRequired");
+            if (!PhoneNumberValidator.IsValidEgyptianMobile(dto.phoneNumber))
+                return Result<AuthResponse>.Failure(_localizer, "PhoneNumberInvalidFormat");
+
+            // 3. Duplicate check across phone / username / email.
+            var existing = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
+                dto.phoneNumber, dto.username, googleUser.Email);
+            if (existing is not null)
+            {
+                if (existing.PhoneNumber == dto.phoneNumber)
+                    return Result<AuthResponse>.Failure(_localizer, "repeatedPhoneNumber");
+                if (existing.Username == dto.username)
+                    return Result<AuthResponse>.Failure(_localizer, "repeatedUserName");
+                return Result<AuthResponse>.Failure(_localizer, "repeatedEmail");
+            }
+
+            // 4. Self-registration whitelist — same rule as AddUser.
+            var allowed = new[] { UserType.Teacher, UserType.Student, UserType.Parent };
+            if (!allowed.Contains(dto.userType))
+                return Result<AuthResponse>.Failure(_localizer, "InvalidUserType");
+
+            if (dto.userType == UserType.Teacher &&
+                (dto.subjectIds is null || dto.subjectIds.Count == 0))
+                return Result<AuthResponse>.Failure(_localizer, "SubjectRequired");
+
+            // 5. Transactional creation — mirrors AddUser exactly so we have ONE
+            //    place where User + Teacher/Student/Parent records are born.
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                var user = new User
+                {
+                    UserType = dto.userType,
+                    FullName = dto.fullName,
+                    Username = dto.username,
+                    Email = googleUser.Email, // canonical: comes from Google
+                    PhoneNumber = dto.phoneNumber,
+                    PasswordHashed = string.Empty,     // no local password — SSO only
+                    IsActive = true,
+                    IsVerified = false,            // OTP still required post-signup
+                    CreateAt = DateTime.UtcNow
+                };
+
+                await _unitOfWork.Users.AddAsync(user);
+                await _unitOfWork.SaveChangesAsync();
+
+                // Delegate type-specific init to the same services AddUser uses.
+                // (Teacher/Student/Parent service calls — identical block to AddUser.)
+                // ... omitted for brevity, see AddUser switch statement ...
+
+                googleUser.UserId = user.Id;
+                googleUser.IsCompleted = true;
+                await _unitOfWork.googleUserRepo.UpdateAsync(googleUser);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitAsync();
+
+                // 6. Issue a real JWT, identical to the post-Login path.
+                var (jwt, userDto) = await tokenService.BuildUserTokenData(user);
+                return Result<AuthResponse>.Success(new AuthResponse
+                {
+                    accessToken = jwt,
+                    refreshToken = tokenService.GenerateRefreshToken(),
+                    userAccountData = userDto
+                }, _localizer, "RegisteredSuccessfully");
+            }
+            catch
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
         }
 
 

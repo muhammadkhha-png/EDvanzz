@@ -16,6 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Edvanz.Application.Services
 {
@@ -79,8 +80,11 @@ namespace Edvanz.Application.Services
                 return Result<string?>.Failure(_localizer, "InvalidUserType");
             if (user.password != user.confirmedPassword)
                 return Result<string?>.Failure(_localizer, "password must be equail confirmed password");
-            if(user.phoneNumber == null )
-                return Result<string?>.Failure(_localizer, "phone number is required");
+            if (string.IsNullOrWhiteSpace(user.phoneNumber))
+                return Result<string?>.Failure(_localizer, "PhoneNumberRequired");
+
+            if (!PhoneNumberValidator.IsValidEgyptianMobile(user.phoneNumber))
+                return Result<string?>.Failure(_localizer, "PhoneNumberInvalidFormat");
             var existingUser = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
                 user.phoneNumber, user.username, user.email);
 
@@ -212,7 +216,16 @@ namespace Edvanz.Application.Services
             }
         }
 
-       
+        public static class PhoneNumberValidator
+        {
+            // Egyptian mobile: 11 digits starting with 010/011/012/015.
+            // Centralized so Teacher/Student/Parent/Google paths share the same rule.
+            private static readonly Regex Pattern =
+                new(@"^01[0125]\d{8}$", RegexOptions.Compiled);
+
+            public static bool IsValidEgyptianMobile(string? phone) =>
+                !string.IsNullOrWhiteSpace(phone) && Pattern.IsMatch(phone);
+        }
 
         //public async Task<Result<string>> DeactiveUser(long userId)
         //{

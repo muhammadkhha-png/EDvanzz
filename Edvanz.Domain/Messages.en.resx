@@ -640,7 +640,7 @@
     <value>Sync completed with conflicts. Please review and resolve.</value>
   </data>
   <data name="ReportGenerated" xml:space="preserve">
-    <value>Report generated successfully.</value>
+    <value>Report generated successfully</value>
   </data>
   <data name="InvalidReportType" xml:space="preserve">
     <value>Invalid report type specified.</value>
@@ -694,7 +694,7 @@
     <value>Custom event amount set for student successfully.</value>
   </data>
   <data name="StatusUpdated" xml:space="preserve">
-    <value>Status Updated</value>
+    <value>Status updated successfully</value>
   </data>
   <data name="AssistantSuspended" xml:space="preserve">
     <value>Assistant Suspended</value>
@@ -733,7 +733,7 @@
     <value>Invalid Templates</value>
   </data>
   <data name="TemplateNotFound" xml:space="preserve">
-    <value>Template Not Found</value>
+    <value>This assignment was not found</value>
   </data>
   <data name="TemplateCreated" xml:space="preserve">
     <value>Template Created</value>
@@ -780,11 +780,6 @@
   <data name="TriggerDeactivated" xml:space="preserve">
     <value>TriggerDeactivated</value>
   </data>
-  <!-- ════════════════════════════════════════════════════════════════ -->
-  <!-- SUBSCRIPTION MANAGEMENT MODULE (Module 11 — v1.2)                -->
-  <!-- ════════════════════════════════════════════════════════════════ -->
-
-  <!-- Renewal initiate -->
   <data name="SubscriptionRenewalInitiated" xml:space="preserve">
     <value>Subscription renewal initiated successfully</value>
   </data>
@@ -806,8 +801,6 @@
   <data name="CapacityPackagePriceNotSet" xml:space="preserve">
     <value>The subscription price for your package has not been configured yet. Please contact support</value>
   </data>
-
-  <!-- Manual submit -->
   <data name="ManualSubmissionRecorded" xml:space="preserve">
     <value>Your payment details were submitted. Awaiting administrator approval</value>
   </data>
@@ -823,8 +816,6 @@
   <data name="PaymentPhoneRequired" xml:space="preserve">
     <value>Please enter the phone number you used to send the payment</value>
   </data>
-
-  <!-- Confirmation flow -->
   <data name="PaymentConfirmed" xml:space="preserve">
     <value>Payment confirmed. Your subscription has been renewed</value>
   </data>
@@ -834,8 +825,6 @@
   <data name="ConcurrentRenewalDetected" xml:space="preserve">
     <value>A concurrent renewal was detected. Please refresh and try again</value>
   </data>
-
-  <!-- Admin pending queue -->
   <data name="PendingPaymentApproved" xml:space="preserve">
     <value>Payment approved successfully</value>
   </data>
@@ -851,8 +840,6 @@
   <data name="RejectionReasonRequired" xml:space="preserve">
     <value>Please provide a reason for rejecting this payment</value>
   </data>
-
-  <!-- Admin manual overrides -->
   <data name="SubscriptionActivated" xml:space="preserve">
     <value>Subscription activated successfully</value>
   </data>
@@ -880,8 +867,6 @@
   <data name="PriceMustBeNonNegative" xml:space="preserve">
     <value>Price must be zero or a positive value</value>
   </data>
-
-  <!-- Notifications inbox -->
   <data name="NotificationNotFound" xml:space="preserve">
     <value>Notification not found</value>
   </data>
@@ -897,8 +882,6 @@
   <data name="FcmTokenRequired" xml:space="preserve">
     <value>Device token is required</value>
   </data>
-
-  <!-- Reminder &amp; confirmation templates (M-8 — collapsed key set) -->
   <data name="SubscriptionReminderTitle" xml:space="preserve">
     <value>Subscription expiry reminder</value>
   </data>
@@ -920,23 +903,19 @@
   <data name="PaymentRejectedBody" xml:space="preserve">
     <value>Your renewal payment was rejected. Reason: {0}. Please submit a new payment to continue</value>
   </data>
-
-  <!-- Manual-pay instructions -->
   <data name="ManualPayInstructionsVodafoneCash" xml:space="preserve">
     <value>Send {0} EGP from your Vodafone Cash wallet to {1}, then submit the transaction reference here</value>
   </data>
   <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
     <value>Send {0} EGP via InstaPay to {1}, then submit the transaction reference here</value>
   </data>
-
-  <!-- Webhook -->
   <data name="WebhookSignatureInvalid" xml:space="preserve">
     <value>Webhook signature verification failed</value>
   </data>
   <data name="PaymobNotConfigured" xml:space="preserve">
     <value>Online payment is not configured. Please use the manual payment flow</value>
   </data>
-   <data name="AssignmentCreated" xml:space="preserve">
+  <data name="AssignmentCreated" xml:space="preserve">
     <value>Assignment created successfully</value>
   </data>
   <data name="AssignmentUpdated" xml:space="preserve">
@@ -952,7 +931,7 @@
     <value>Targets added to the assignment successfully</value>
   </data>
   <data name="ScopeRemoved" xml:space="preserve">
-    <value>Target removed from the assignment</value>
+    <value>Access target removed</value>
   </data>
   <data name="StudentsAddedToTemplate" xml:space="preserve">
     <value>Students added to the assignment successfully</value>
@@ -962,9 +941,6 @@
   </data>
   <data name="ObligationRemoved" xml:space="preserve">
     <value>Student excused from this assignment occurrence</value>
-  </data>
-  <data name="StatusUpdated" xml:space="preserve">
-    <value>Status updated successfully</value>
   </data>
   <data name="BulkStatusUpdated" xml:space="preserve">
     <value>Status updated for the selected students</value>
@@ -978,11 +954,6 @@
   <data name="ScanAlreadyProcessed" xml:space="preserve">
     <value>Attendance was already recorded for this student</value>
   </data>
-  <data name="ReportGenerated" xml:space="preserve">
-    <value>Report generated successfully</value>
-  </data>
- 
-  <!-- ─── Validation: template inputs ───────────────────────────────────── -->
   <data name="AssignmentNameRequired" xml:space="preserve">
     <value>Assignment name is required and cannot exceed 200 characters</value>
   </data>
@@ -1010,8 +981,6 @@
   <data name="InvalidRecurrenceForExam" xml:space="preserve">
     <value>Exams can only repeat as One-Time or Monthly</value>
   </data>
- 
-  <!-- ─── Validation: scope inputs ──────────────────────────────────────── -->
   <data name="ScopeListEmpty" xml:space="preserve">
     <value>At least one target (student, session, or group) is required</value>
   </data>
@@ -1019,7 +988,7 @@
     <value>One of the selected targets is invalid. Please review and try again</value>
   </data>
   <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
-    <value>One of the selected targets does not exist or does not belong to your account</value>
+    <value>One of the selected targets does not belong to your account</value>
   </data>
   <data name="ScopeResolvedToZeroStudents" xml:space="preserve">
     <value>The selected targets did not resolve to any students. Please add at least one student</value>
@@ -1028,10 +997,8 @@
     <value>The selected scope is too large for a single assignment. Please split it into smaller groups</value>
   </data>
   <data name="ScopeNotFound" xml:space="preserve">
-    <value>The target you are trying to remove was not found on this assignment</value>
+    <value>The access target you tried to remove no longer exists</value>
   </data>
- 
-  <!-- ─── Validation: students / obligations ────────────────────────────── -->
   <data name="StudentListEmpty" xml:space="preserve">
     <value>Please select at least one student</value>
   </data>
@@ -1047,9 +1014,6 @@
   <data name="OccurrenceNotFound" xml:space="preserve">
     <value>This assignment occurrence was not found</value>
   </data>
-  <data name="TemplateNotFound" xml:space="preserve">
-    <value>This assignment was not found</value>
-  </data>
   <data name="TemplateIsNotRecurring" xml:space="preserve">
     <value>This assignment is not recurring, so there is nothing to stop</value>
   </data>
@@ -1059,8 +1023,6 @@
   <data name="DeletionConfirmationRequired" xml:space="preserve">
     <value>Please confirm the deletion before proceeding</value>
   </data>
- 
-  <!-- ─── Validation: status / grade entry ──────────────────────────────── -->
   <data name="InvalidStatusForExam" xml:space="preserve">
     <value>This status is not valid for exams. Allowed values: Attended, Attended with grade, Did not attend</value>
   </data>
@@ -1091,8 +1053,6 @@
   <data name="ObligationNotInGradePendingState" xml:space="preserve">
     <value>This student is not currently awaiting a grade</value>
   </data>
- 
-  <!-- ─── Validation: bulk / scan / barcode ─────────────────────────────── -->
   <data name="BulkItemsEmpty" xml:space="preserve">
     <value>Please select at least one student for the bulk update</value>
   </data>
@@ -1108,8 +1068,6 @@
   <data name="BarcodeNotFound" xml:space="preserve">
     <value>No student matched the scanned barcode</value>
   </data>
- 
-  <!-- ─── Concurrency / locks (REQ-EXH-013, 027) ────────────────────────── -->
   <data name="RecurrencePatternLocked" xml:space="preserve">
     <value>Recurrence pattern cannot be changed because student data has already been recorded</value>
   </data>
@@ -1125,36 +1083,12 @@
   <data name="DatabaseConflict" xml:space="preserve">
     <value>The request conflicts with existing data. Please refresh and try again</value>
   </data>
- 
-  <!-- ─── Reports validation ────────────────────────────────────────────── -->
   <data name="ReportFilterAmbiguous" xml:space="preserve">
     <value>Please choose exactly one filter for this report</value>
   </data>
   <data name="ReportDateRangeInvalid" xml:space="preserve">
     <value>End date must be on or after the start date</value>
   </data>
-  
-  
-  
-  <!--
-  ═══════════════════════════════════════════════════════════════════════════
-  MODULE 14 (VIDEO CONTENT MANAGEMENT) — LOCALIZATION KEYS, ENGLISH
-  ═══════════════════════════════════════════════════════════════════════════
-
-  APPEND THESE <data> ENTRIES TO THE EXISTING Edvanz.Domain/Messages.en.resx
-  FILE, BEFORE THE CLOSING </root> TAG.
-
-  All keys are referenced exclusively through VideoConstants.Messages.* — never
-  inline string literals in service code.
-
-  Decisions baked in (per Q1/Q5/Q6):
-    - No "VideoHiddenByTeacher" key (Q1(a): no per-student visibility).
-    - No "ScopeTooLarge" key (Q5: no scope-size cap).
-    - No "DuplicateVideoUrl" key (Q6(a): silent allow).
-  ═══════════════════════════════════════════════════════════════════════════
--->
-
-  <!-- ─── Success messages ─────────────────────────────────────────────── -->
   <data name="VideoCreated" xml:space="preserve">
     <value>Video added successfully</value>
   </data>
@@ -1167,17 +1101,12 @@
   <data name="ScopesReplaced" xml:space="preserve">
     <value>Video access replaced</value>
   </data>
-  <data name="ScopeRemoved" xml:space="preserve">
-    <value>Access target removed</value>
-  </data>
   <data name="WatchStarted" xml:space="preserve">
     <value>Watch session started</value>
   </data>
   <data name="WatchStopped" xml:space="preserve">
     <value>Watch session saved</value>
   </data>
-
-  <!-- ─── Error messages ───────────────────────────────────────────────── -->
   <data name="VideoNotFound" xml:space="preserve">
     <value>We couldn't find this video. It may have been deleted</value>
   </data>
@@ -1192,9 +1121,6 @@
   </data>
   <data name="UnsupportedSource" xml:space="preserve">
     <value>Only YouTube and Google Drive videos are supported</value>
-  </data>
-  <data name="ScopeTargetNotFoundOrForeign" xml:space="preserve">
-    <value>One of the selected targets does not belong to your account</value>
   </data>
   <data name="ScopeShapeInvalid" xml:space="preserve">
     <value>The access target is malformed. Please refresh and try again</value>
@@ -1211,7 +1137,10 @@
   <data name="NotVideoOwner" xml:space="preserve">
     <value>This video does not belong to your account</value>
   </data>
-  <data name="ScopeNotFound" xml:space="preserve">
-    <value>The access target you tried to remove no longer exists</value>
+  <data name="PhoneNumberRequired" xml:space="preserve">
+    <value>Phone number is required</value>
+  </data>
+  <data name="PhoneNumberInvalidFormat" xml:space="preserve">
+    <value> صيغة رقم الموبايل غير صحيحة.</value>
   </data>
 </root>
