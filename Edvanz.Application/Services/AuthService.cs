@@ -33,7 +33,7 @@ namespace Edvanz.Application.Services
         private readonly IPasswordService _passwordService;
         private readonly ITokenService tokenService;
         private readonly ICurrentUserService _currentUser;
-        private readonly IUserPermissionService userPermissionService;
+
         private readonly IAssistantService assistantService;
         private readonly string _googleClientId = "528615365840-ha6qiocetc2sgu1349ecrb9vincdo5rt.apps.googleusercontent.com";
         private readonly IHttpContextAccessor _httpContextAccessor;
@@ -45,14 +45,14 @@ namespace Edvanz.Application.Services
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService, ITokenService tokenService, ICurrentUserService currentUser, IUserPermissionService userPermissionService, IAssistantService assistantService, IHttpContextAccessor httpContextAccessor, IConfiguration _configuration, IUserAuthCacheService authCache)
+            IPasswordService passwordService, ITokenService tokenService, ICurrentUserService currentUser, IAssistantService assistantService, IHttpContextAccessor httpContextAccessor, IConfiguration _configuration, IUserAuthCacheService authCache)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
             _passwordService = passwordService;
             this.tokenService = tokenService;
             this._currentUser = currentUser;
-            this.userPermissionService = userPermissionService;
+           
             this.assistantService = assistantService;
 
             _httpContextAccessor = httpContextAccessor;
@@ -197,108 +197,36 @@ namespace Edvanz.Application.Services
             if (!isPassMatched)
                 return Result<AuthResponse>.Failure(_localizer, "PasswordError");
 
-            var permissions = await userPermissionService.GetUserPermissionsToToken(user.Id);
+            // Active-status gate. User.IsActive is the canonical login flag — set false by
+            // AssistantService.ToggleStatus for Inactive/Suspended accounts, default true for
+            // self-registered users. Per-request enforcement still lives in
+            // SecurityStampValidationMiddleware; this stops a new token being minted at all.
+            if (user.IsActive != true)
+                return Result<AuthResponse>.Failure(_localizer, "AccountInactive");
 
-            string jwt = null;
-            List<string> modules = new();
-            List<long> teacherIds = new();
+            // Single source of truth for access token + userDto — the same path AdminLogin
+            // and Refresh already use. Replaces the previously-inlined user-type switch so
+            // every flow is provably identical, not identical-by-inspection.
+            var (jwt, userDto) = await tokenService.BuildUserTokenData(user);
+            if (string.IsNullOrEmpty(jwt))
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
 
-            var userDto = new UserLoginDto
+            // Login-activity log (REQ-USR-028) is a login-flow concern, not a token-building
+            // one, so it stays here — NOT in BuildUserTokenData, which Refresh also calls
+            // (a refresh is not a login). Separate fetch mirrors the existing Logout() pattern.
+            if (user.UserType == UserType.Assistant)
             {
-                accountId = user.Id,
-                userName = user.Username,
-                fullName = user.FullName,
-                accountType = user.UserType.ToString()
-            };
-
-            #region Handle User Types
-
-            if (user.UserType == Domain.Enums.UserType.Student)
-            {
-                // 🔹 get teacherIds
-                (long userId, teacherIds) = await _unitOfWork.studentTeacherLinkRepo
-                     .GetSudentAccountLinkedTeacherIdsByUserId(user.Id);
-
-                userDto.teacherIds = teacherIds;
-
-                jwt = tokenService.GenerateJwtToken(user, null, null);
-            }
-            else if (user.UserType == Domain.Enums.UserType.Parent)
-            {
-                // 🔹 ignore models / permissions / teacherIds
-                jwt = tokenService.GenerateJwtToken(user, null, null);
-
-                userDto.models = null;
-                userDto.permissions = null;
-                userDto.teacherIds = null;
-            }
-            else if (user.UserType == Domain.Enums.UserType.Teacher)
-            {
-                var teacher = await _unitOfWork.Users.GetTeacherByUserIdAsync(user.Id);
-
-                var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
-                    .GetModulesPerTeacher(teacher.Id);
-
-                modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
-
-                userDto.models = modules;
-                userDto.permissions = permissions;
-
-                jwt = tokenService.GenerateJwtToken(user, permissions, modules);
-            }
-            else if (user.UserType == Domain.Enums.UserType.Assistant)
-            {
-                var assistant = await _unitOfWork.AssistantRepo
-                    .GetAssistantWithUserIdAsync(user.Id);
-
-                if (assistant == null)
-                    return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
-
-                if (assistant.TeacherAccountId != null)
+                var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+                if (assistant != null)
                 {
-                    teacherIds.Add(assistant.TeacherAccountId);
-
-                    var modulesPerTeacher = await _unitOfWork.ModuleTeacherRepo
-                        .GetModulesPerTeacher(assistant.TeacherAccountId);
-
-                    modules = modulesPerTeacher.Select(mt => mt.Name).ToList();
-
-                    userDto.models = modules;
+                    await assistantService.RecordLoginActivityAsync(
+                        assistant.Id,
+                        LoginAcitvityActionType.login,
+                        _httpContextAccessor.HttpContext!);
                 }
-
-                userDto.teacherIds = teacherIds;
-                userDto.permissions = permissions;
-
-                jwt = tokenService.GenerateJwtToken(user, permissions, modules);
-
-                await assistantService.RecordLoginActivityAsync(
-                    assistant.Id,
-                    LoginAcitvityActionType.login,
-                    _httpContextAccessor.HttpContext!
-                );
             }
 
-            else
-            {
-                return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
-            }
-
-                #endregion
-
-                var refreshToken = tokenService.GenerateRefreshToken();
-
-            var refreshTokenEntity = new RefreshToken
-            {
-                UserId = user.Id,
-                Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays")),
-                CreatedAt = DateTime.UtcNow,
-                SecurityStamp = user.SecurityStamp,
-                IsRevoked = false,
-            };
-
-            await _unitOfWork.GetRepository<RefreshToken, long>()
-                .AddAsync(refreshTokenEntity);
+            var refreshToken = await IssueAndStageRefreshTokenAsync(user);
 
             var res = await _unitOfWork.SaveChangesAsync();
             if (res <= 0)
@@ -312,7 +240,7 @@ namespace Edvanz.Application.Services
             }, _localizer, "successlogin");
         }
 
-       
+
 
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {
@@ -439,14 +367,39 @@ namespace Edvanz.Application.Services
             {
                 throw new UnauthorizedAccessException("Invalid Google token");
             }
-
             var googleUser = await _unitOfWork.googleUserRepo.GetByGoogleIdAsync(payload.Subject);
 
             if (googleUser != null)
             {
                 if (googleUser.IsCompleted)
                 {
-                    return Result<AuthResponse>.Failure(_localizer,"Googleaccountalreadyregistered");
+                    if (googleUser.UserId is not long linkedUserId)
+                        return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+
+                    var existingUser = await _unitOfWork.Users.GetByIdAsync(linkedUserId);
+                    if (existingUser is null)
+                        return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
+
+                    // Same active-status gate as Login().
+                    if (existingUser.IsActive != true)
+                        return Result<AuthResponse>.Failure(_localizer, "AccountInactive");
+
+                    var (loginJwt, loginUserDto) = await tokenService.BuildUserTokenData(existingUser);
+                    if (string.IsNullOrEmpty(loginJwt))
+                        return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+                    var loginRefreshToken = await IssueAndStageRefreshTokenAsync(existingUser);
+
+                    var loginSave = await _unitOfWork.SaveChangesAsync();
+                    if (loginSave <= 0)
+                        return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+                    return Result<AuthResponse>.Success(new AuthResponse
+                    {
+                        accessToken = loginJwt,
+                        refreshToken = loginRefreshToken,
+                        userAccountData = loginUserDto
+                    }, _localizer, "successlogin");
                 }
             }
             else
@@ -460,20 +413,21 @@ namespace Edvanz.Application.Services
                 };
 
                 await _unitOfWork.googleUserRepo.AddAsync(googleUser);
-               var res=  await _unitOfWork.SaveChangesAsync();
+                var res = await _unitOfWork.SaveChangesAsync();
                 if (res <= 0)
                     return Result<AuthResponse>.Failure(_localizer, "ServerError");
             }
 
+            // Reaches here only when googleUser exists but is NOT completed (resume),
+            // or a brand-new GoogleUser was just created. Issue the short-lived
+            // CompleteProfile token to drive the onboarding screen.
             var token = tokenService.GenerateCompleteProfileToken(googleUser);
 
-            var result = new AuthResponse()
+            return Result<AuthResponse>.Success(new AuthResponse
             {
                 accessToken = token,
                 refreshToken = null
-            };
-
-            return Result<AuthResponse>.Success(result, _localizer, "CompleteYourProfile");
+            }, _localizer, "CompleteYourProfile");
         }
         public async Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false)
         {
@@ -585,15 +539,22 @@ namespace Edvanz.Application.Services
                 googleUser.UserId = user.Id;
                 googleUser.IsCompleted = true;
                 await _unitOfWork.googleUserRepo.UpdateAsync(googleUser);
+
+                // Stage the refresh token INSIDE the creation transaction so the row
+                // is committed atomically with the User. These accounts are SSO-only
+                // (PasswordHashed = string.Empty) and cannot fall back to Login(), so a
+                // user committed without a refresh token would have no way to obtain one.
+                var refreshToken = await IssueAndStageRefreshTokenAsync(user);
+
                 await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitAsync();
 
-                // 6. Issue a real JWT, identical to the post-Login path.
+                // Issue a real JWT, identical to the post-Login path.
                 var (jwt, userDto) = await tokenService.BuildUserTokenData(user);
                 return Result<AuthResponse>.Success(new AuthResponse
                 {
                     accessToken = jwt,
-                    refreshToken = tokenService.GenerateRefreshToken(),
+                    refreshToken = refreshToken,   // now persisted (was: never saved)
                     userAccountData = userDto
                 }, _localizer, "RegisteredSuccessfully");
             }
@@ -603,7 +564,38 @@ namespace Edvanz.Application.Services
                 throw;
             }
         }
+        /// <summary>
+        /// Issues a new refresh token for <paramref name="user"/> and stages the
+        /// corresponding <see cref="RefreshToken"/> row on the unit of work.
+        ///
+        /// Does NOT call SaveChanges/Commit — the caller owns the commit boundary so
+        /// the row can join an existing transaction (e.g. CompleteProfile's user-creation
+        /// transaction) without a double-save conflict on the shared DbContext.
+        /// Returns the generated token string for the AuthResponse.
+        ///
+        /// Single source of truth for refresh-token issuance across Login, AdminLogin,
+        /// and CompleteProfile — keeps expiry, SecurityStamp binding, and revocation
+        /// defaults identical across every authentication flow.
+        /// </summary>
+        private async Task<string> IssueAndStageRefreshTokenAsync(User user)
+        {
+            var refreshToken = tokenService.GenerateRefreshToken();
 
+            var refreshTokenEntity = new RefreshToken
+            {
+                UserId = user.Id,
+                Token = refreshToken,
+                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays")),
+                CreatedAt = DateTime.UtcNow,
+                SecurityStamp = user.SecurityStamp,
+                IsRevoked = false,
+            };
+
+            await _unitOfWork.GetRepository<RefreshToken, long>()
+                .AddAsync(refreshTokenEntity);
+
+            return refreshToken;
+        }
 
     }
 }

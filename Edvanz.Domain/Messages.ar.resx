@@ -1143,4 +1143,7 @@
   <data name="PhoneNumberInvalidFormat" xml:space="preserve">
     <value>Phone number format is invalid.</value>
   </data>
+  <data name="AccountInactive" xml:space="preserve">
+    <value>الحساب غير مفعل </value>
+  </data>
 </root>
