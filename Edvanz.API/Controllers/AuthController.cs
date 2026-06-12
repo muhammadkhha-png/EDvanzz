@@ -113,9 +113,9 @@ namespace Edvanz.API.Controllers
         }
 
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout([FromBody] RefreshDto req)
+        public async Task<IActionResult> Logout([FromBody] LogoutDto req)
         {
-            var result = await authService.Logout(req.token);
+            var result = await authService.Logout(req.token, req.logoutAllSessions);
             return ToResponse(result);
         }
 
@@ -146,7 +146,7 @@ namespace Edvanz.API.Controllers
         /// 200 with an <c>AuthResponse</c> on successful admin login. 400 with
         /// "InvalidCredentials" on any failure path.
         /// </returns>
-      
+
         [HttpPost("admin-login")]
         public async Task<IActionResult> AdminLogin([FromBody] LoginDto req)
         {

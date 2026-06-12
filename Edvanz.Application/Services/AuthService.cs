@@ -41,11 +41,12 @@ namespace Edvanz.Application.Services
 
 
         private readonly IUserAuthCacheService _authCache;
+        private readonly IUserAuthInvalidationService _authInvalidation;
 
         public AuthService(
             IUnitOfWork unitOfWork,
             IStringLocalizer<Messages> localizer,
-            IPasswordService passwordService, ITokenService tokenService, ICurrentUserService currentUser, IAssistantService assistantService, IHttpContextAccessor httpContextAccessor, IConfiguration _configuration, IUserAuthCacheService authCache)
+            IPasswordService passwordService, ITokenService tokenService, ICurrentUserService currentUser, IAssistantService assistantService, IHttpContextAccessor httpContextAccessor, IConfiguration _configuration, IUserAuthCacheService authCache, IUserAuthInvalidationService authInvalidation)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
@@ -58,6 +59,7 @@ namespace Edvanz.Application.Services
             _httpContextAccessor = httpContextAccessor;
             configuration = _configuration;
             _authCache = authCache;
+            _authInvalidation = authInvalidation;
         }
 
         /// <summary>
@@ -365,7 +367,7 @@ namespace Edvanz.Application.Services
             }
             catch
             {
-                throw new UnauthorizedAccessException("Invalid Google token");
+                return Result<AuthResponse>.Failure(_localizer, "InvalidGoogletoken");
             }
             var googleUser = await _unitOfWork.googleUserRepo.GetByGoogleIdAsync(payload.Subject);
 
@@ -429,42 +431,118 @@ namespace Edvanz.Application.Services
                 refreshToken = null
             }, _localizer, "CompleteYourProfile");
         }
+        //public async Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false)
+        //{
+        //    var token = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
+
+        //    if (token == null)
+        //        return Result<string>.Success(null, _localizer, "LoggedOut"); // لو مش موجود اصلاً، اعتبره logout
+
+        //    // 2️⃣ جلب كل التوكنز لو requested
+        //    if (logoutAllSessions)
+        //    {
+        //        var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(token.UserId);
+        //        foreach (var t in allTokens)
+        //        {
+        //            t.IsRevoked = true;
+        //        }
+        //    }
+        //    else
+        //    {
+        //        token.IsRevoked = true;
+        //    }
+
+        //    await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
+        //    await _unitOfWork.SaveChangesAsync();
+
+        //    var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
+        //    if (user != null && user.UserType == UserType.Assistant)
+        //    {
+        //        var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+        //        if (assistant != null)
+        //        {
+        //            await assistantService.RecordLoginActivityAsync(
+        //                assistant.Id,
+        //                LoginAcitvityActionType.logOut,
+        //                _httpContextAccessor.HttpContext!
+        //            );
+        //        }
+        //    }
+
+        //    return Result<string>.Success(null, _localizer, "LoggedOut");
+        //}
         public async Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false)
         {
+            // Idempotent: an unknown / already-gone refresh token is treated as a successful logout.
             var token = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
-
             if (token == null)
-                return Result<string>.Success(null, _localizer, "LoggedOut"); // لو مش موجود اصلاً، اعتبره logout
+                return Result<string>.Success(null, _localizer, "LoggedOut");
 
-            // 2️⃣ جلب كل التوكنز لو requested
-            if (logoutAllSessions)
+            var userId = token.UserId;
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
             {
-                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(token.UserId);
-                foreach (var t in allTokens)
+                if (logoutAllSessions)
                 {
-                    t.IsRevoked = true;
+                    // All devices: hard-delete every refresh token for this user (mirrors
+                    // ChangePassword's all-devices path), then bump SecurityStamp + drop the
+                    // Redis snapshot via the invalidation service. Revoking refresh tokens alone
+                    // does NOT end live sessions — a device holding a valid JWT keeps calling
+                    // until it expires. The stamp bump is what rejects those JWTs on their next
+                    // request (SecurityStampValidationMiddleware).
+                    var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+                    await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
+
+                    // MUST run BEFORE SaveChangesAsync so the stamp bump joins this transaction.
+                    await _authInvalidation.InvalidateUserAsync(userId);
+                }
+                else
+                {
+                    // Single device: revoke only the supplied refresh token. Do NOT bump the
+                    // SecurityStamp — it is per-user, so bumping it would log out every device.
+                    // This device's access token stays valid until it expires
+                    // (Jwt:AccessTokenMinutes); revoking its refresh token only blocks renewal.
+                    token.IsRevoked = true;
+                    await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
+                }
+
+                var res = await _unitOfWork.SaveChangesAsync();
+                if (res <= 0)
+                {
+                    await _unitOfWork.RollbackAsync();
+                    return Result<string>.Failure(_localizer, "ServerError");
+                }
+
+                await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
+
+            // Best-effort logout-activity log (REQ-USR-028). Runs AFTER commit so a logging
+            // failure can never roll back a completed logout, and is wrapped so it can never
+            // surface as a 500 on an otherwise-successful logout.
+            try
+            {
+                var user = await _unitOfWork.Users.GetByIdAsync(userId);
+                if (user != null && user.UserType == UserType.Assistant)
+                {
+                    var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
+                    if (assistant != null)
+                    {
+                        await assistantService.RecordLoginActivityAsync(
+                            assistant.Id,
+                            LoginAcitvityActionType.logOut,
+                            _httpContextAccessor.HttpContext!);
+                    }
                 }
             }
-            else
+            catch
             {
-                token.IsRevoked = true;
-            }
-
-            await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
-            await _unitOfWork.SaveChangesAsync();
-
-            var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
-            if (user != null && user.UserType == UserType.Assistant)
-            {
-                var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
-                if (assistant != null)
-                {
-                    await assistantService.RecordLoginActivityAsync(
-                        assistant.Id,
-                        LoginAcitvityActionType.logOut,
-                        _httpContextAccessor.HttpContext!
-                    );
-                }
+                // Telemetry must not break logout.
             }
 
             return Result<string>.Success(null, _localizer, "LoggedOut");
