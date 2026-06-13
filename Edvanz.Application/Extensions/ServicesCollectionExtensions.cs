@@ -34,6 +34,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IPasswordService, PasswordService>();
         services.AddScoped<IOtpService, OtpService>();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
+        services.AddScoped<IAuditContext, AuditContext>();   // ← add
+
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IEncryptionService, EncryptionService>();
 
