@@ -29,6 +29,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Localization" Version="10.0.5" />
+    <PackageReference Include="QuestPDF" Version="2025.12.4" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.17.0" />
   </ItemGroup>
 

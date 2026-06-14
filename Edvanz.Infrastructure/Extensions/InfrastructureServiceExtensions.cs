@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using static Azure.Core.HttpHeader;
 using System.Net.Http;
+using TimeZoneService = Edvanz.Application.Services.TimeZoneService;
 namespace Edvanz.Infrastructure.Extensions;
 
 /// <summary>
@@ -140,5 +141,7 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IRecurringAssignmentMaterializerJob,
                            RecurringAssignmentMaterializerJob>();
         services.AddScoped<IExamHomeworkReportService, ExamHomeworkReportService>();
+        // Generic PDF export engine (QuestPDF) — reused across modules. First consumer: audit (REQ-USR-030).
+        services.AddScoped<IPdfExportService, PdfExportService>();
     }
 }

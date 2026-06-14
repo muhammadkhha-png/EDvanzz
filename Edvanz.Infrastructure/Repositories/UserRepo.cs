@@ -895,5 +895,13 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.StudentUsers
                 .FirstOrDefaultAsync(su => su.UserId == userId && su.DeletedAt == null);
         }
+        /// <inheritdoc />
+        public async Task<string?> GetTeacherDisplayNameAsync(long teacherId)
+        {
+            return await _context.Teachers
+                .Where(t => t.Id == teacherId)
+                .Select(t => t.User.FullName)
+                .FirstOrDefaultAsync();
+        }
     }
 }

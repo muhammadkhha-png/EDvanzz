@@ -1146,4 +1146,14 @@
   <data name="AccountInactive" xml:space="preserve">
     <value>الحساب غير مفعل </value>
   </data>
+  <data name="AuditReportTitle" xml:space="preserve"><value>سجل نشاط المساعدين</value></data>
+  <data name="AuditCol_Assistant" xml:space="preserve"><value>المساعد</value></data>
+  <data name="AuditCol_Module" xml:space="preserve"><value>الوحدة</value></data>
+  <data name="AuditCol_Action" xml:space="preserve"><value>الإجراء</value></data>
+  <data name="AuditCol_Description" xml:space="preserve"><value>الوصف</value></data>
+  <data name="AuditCol_CreatedAt" xml:space="preserve"><value>تاريخ الإنشاء</value></data>
+  <data name="AuditFilterRange" xml:space="preserve"><value>الفترة</value></data>
+  <data name="AuditFilterAll" xml:space="preserve"><value>الكل</value></data>
+  <data name="AuditGeneratedAt" xml:space="preserve"><value>تم الإنشاء</value></data>
+  <data name="AuditPdfTruncated" xml:space="preserve"><value>يتم عرض أول {0} من {1} صف — صدّر إلى Excel للحصول على السجل الكامل</value></data>
 </root>

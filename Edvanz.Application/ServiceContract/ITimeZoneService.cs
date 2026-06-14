@@ -33,4 +33,30 @@ public interface ITimeZoneService
     /// <param name="teacherId">The teacher's Id (for future per-teacher timezone lookup).</param>
     /// <returns>The teacher's current local date and time.</returns>
     DateTime GetTeacherLocalNow(long teacherId);
+    /// <summary>
+    /// Converts a UTC timestamp into the supplied IANA timezone for display.
+    /// Used when rendering UTC-stored timestamps (e.g. audit CreatedAt, REQ-USR-030)
+    /// and the generated-at stamp on exported files, where the static file has no
+    /// client to localize the value at view time.
+    /// </summary>
+    /// <param name="utcDateTime">The UTC timestamp to convert.</param>
+    /// <param name="timeZoneId">
+    /// IANA timezone id (e.g. "Africa/Cairo"). Falls back to Africa/Cairo when null,
+    /// empty, or not recognized by the host.
+    /// </param>
+    /// <returns>The timestamp expressed in the resolved timezone.</returns>
+    DateTime ConvertUtcToLocal(DateTime utcDateTime, string? timeZoneId = null);
+
+    /// <summary>
+    /// Converts a caller-supplied local date/time in the given IANA timezone to UTC.
+    /// Used to turn client-local filter bounds (From/To) into UTC before querying
+    /// against UTC-stored columns.
+    /// </summary>
+    /// <param name="localDateTime">The local date/time to convert.</param>
+    /// <param name="timeZoneId">
+    /// IANA timezone id (e.g. "Africa/Cairo"). Falls back to Africa/Cairo when null,
+    /// empty, or not recognized by the host.
+    /// </param>
+    /// <returns>The equivalent UTC timestamp.</returns>
+    DateTime ConvertLocalToUtc(DateTime localDateTime, string? timeZoneId = null);
 }

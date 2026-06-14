@@ -584,6 +584,12 @@ namespace Edvanz.Domain.Interfaces
         /// StudentTeacherLink lookup for the targeted teacher.
         /// </summary>
         Task<StudentUser?> GetActiveStudentUserByUserIdAsync(long userId);
+        /// <summary>
+        /// Returns the teacher's display name (User.FullName) for the given Teacher Id,
+        /// or null if no such teacher exists. Lean single-column projection used by report
+        /// headers (REQ-USR-030).
+        /// </summary>
+        Task<string?> GetTeacherDisplayNameAsync(long teacherId);
 
 
     }

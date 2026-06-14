@@ -1146,4 +1146,14 @@
   <data name="AccountInactive" xml:space="preserve">
     <value>Account Inactive</value>
   </data>
+  <data name="AuditReportTitle" xml:space="preserve"><value>Assistant audit trail</value></data>
+  <data name="AuditCol_Assistant" xml:space="preserve"><value>Assistant</value></data>
+  <data name="AuditCol_Module" xml:space="preserve"><value>Module</value></data>
+  <data name="AuditCol_Action" xml:space="preserve"><value>Action</value></data>
+  <data name="AuditCol_Description" xml:space="preserve"><value>Description</value></data>
+  <data name="AuditCol_CreatedAt" xml:space="preserve"><value>Created at</value></data>
+  <data name="AuditFilterRange" xml:space="preserve"><value>Range</value></data>
+  <data name="AuditFilterAll" xml:space="preserve"><value>All</value></data>
+  <data name="AuditGeneratedAt" xml:space="preserve"><value>Generated</value></data>
+  <data name="AuditPdfTruncated" xml:space="preserve"><value>First {0} of {1} rows shown — export to Excel for the full record</value></data>
 </root>
