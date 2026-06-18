@@ -62,10 +62,10 @@ public class TeacherStudentService : ITeacherStudentService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<TeacherStudentDto>> CreateStudentAsync(CreateTeacherStudentDto dto)
+    public async Task<Result<TeacherStudentDto>> CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto)
     {
         // 1. Validate teacher exists
-        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
@@ -74,12 +74,12 @@ public class TeacherStudentService : ITeacherStudentService
             return Result<TeacherStudentDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
 
         // 3. Check student capacity limit
-        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         if (activeCount >= teacher.StudentCapacity)
             return Result<TeacherStudentDto>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
 
         // 4. Resolve student code based on teacher configuration
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         string studentCode;
 
         if (config?.StudentCodeGenerationMode == GenerationMode.Manual)
@@ -97,7 +97,7 @@ public class TeacherStudentService : ITeacherStudentService
             studentCode = dto.StudentCode.Trim().ToUpperInvariant();
 
             // REQ-STU-010: Check uniqueness
-            bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(dto.TeacherId, studentCode);
+            bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(teacherId, studentCode);
             if (codeExists)
                 return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeDuplicate", HttpStatusCode.Conflict);
         }
@@ -106,7 +106,7 @@ public class TeacherStudentService : ITeacherStudentService
             // REQ-STU-008/009: Auto-generate code
             // FIX GAP-1: Pass the teacher's configured language preference (AAM-FR-04.2)
             var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
-            studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
+            studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
         }
 
         // 5. Generate hashed token (auto-generated, REQ-STU-004)
@@ -118,7 +118,7 @@ public class TeacherStudentService : ITeacherStudentService
         // 7. Create the entity
         var student = new TeacherStudent
         {
-            TeacherId = dto.TeacherId,
+            TeacherId = teacherId,
             StudentName = dto.StudentName.Trim(),
             StudentCode = studentCode,
             HashedToken = hashedToken,
@@ -303,12 +303,12 @@ public class TeacherStudentService : ITeacherStudentService
     }
 
     /// <inheritdoc />
-    public async Task<Result<int>> BulkSoftDeleteStudentsAsync(BulkStudentIdsDto dto)
+    public async Task<Result<int>> BulkSoftDeleteStudentsAsync(long teacherId, BulkStudentIdsDto dto)
     {
         if (dto.StudentIds.Count == 0)
             return Result<int>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
 
-        var students = await _unitOfWork.Students.GetActiveByIdsAndTeacherAsync(dto.TeacherId, dto.StudentIds);
+        var students = await _unitOfWork.Students.GetActiveByIdsAndTeacherAsync(teacherId, dto.StudentIds);
 
         if (students.Count == 0)
             return Result<int>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
@@ -390,23 +390,23 @@ public class TeacherStudentService : ITeacherStudentService
     }
 
     /// <inheritdoc />
-    public async Task<Result<int>> BulkRestoreStudentsAsync(BulkStudentIdsDto dto)
+    public async Task<Result<int>> BulkRestoreStudentsAsync(long teacherId, BulkStudentIdsDto dto)
     {
         if (dto.StudentIds.Count == 0)
             return Result<int>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
 
         // Check capacity before restoring
-        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is not null)
         {
-            int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+            int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
             int remaining = teacher.StudentCapacity - activeCount;
 
             if (dto.StudentIds.Count > remaining)
                 return Result<int>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
         }
 
-        var students = await _unitOfWork.Students.GetDeletedByIdsAndTeacherAsync(dto.TeacherId, dto.StudentIds);
+        var students = await _unitOfWork.Students.GetDeletedByIdsAndTeacherAsync(teacherId, dto.StudentIds);
 
         if (students.Count == 0)
             return Result<int>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
@@ -477,14 +477,14 @@ public class TeacherStudentService : ITeacherStudentService
     ///            auto-generating them. This ensures the bulk import respects the same business
     ///            rules as the single-entry form.
     /// </summary>
-    public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(BulkImportTeacherStudentsDto dto)
+    public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(long teacherId, BulkImportTeacherStudentsDto dto)
     {
         // 1. Validate teacher exists
-        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<BulkImportResultDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
 
         // FIX GAP-1: Resolve the teacher's configured code generation language
         var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
@@ -493,7 +493,7 @@ public class TeacherStudentService : ITeacherStudentService
         bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
 
         // 2. Check capacity
-        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(dto.TeacherId);
+        int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         int remainingCapacity = teacher.StudentCapacity - activeCount;
 
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
@@ -555,7 +555,7 @@ public class TeacherStudentService : ITeacherStudentService
                 }
 
                 // REQ-STU-018: Detect and reject duplicate codes against existing DB records
-                bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(dto.TeacherId, studentCode);
+                bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(teacherId, studentCode);
                 if (codeExists)
                 {
                     result.Failures.Add(new BulkImportFailureDto
@@ -589,12 +589,12 @@ public class TeacherStudentService : ITeacherStudentService
 
                 // Auto mode: generate the next sequential code
                 // FIX GAP-1: Pass the teacher's configured language (AAM-FR-04.2)
-                studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
+                studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
 
                 // Keep generating until we find one not already used in this batch
                 while (usedCodes.Contains(studentCode))
                 {
-                    studentCode = await _codeGenerator.GenerateNextCodeAsync(dto.TeacherId, codeLanguage);
+                    studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
                 }
             }
 
@@ -603,7 +603,7 @@ public class TeacherStudentService : ITeacherStudentService
             // Create entity
             var student = new TeacherStudent
             {
-                TeacherId = dto.TeacherId,
+                TeacherId = teacherId,
                 StudentName = row.StudentName.Trim(),
                 StudentCode = studentCode,
                 HashedToken = GenerateHashedToken(),

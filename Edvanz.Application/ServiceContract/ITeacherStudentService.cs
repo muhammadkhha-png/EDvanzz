@@ -28,7 +28,7 @@ public interface ITeacherStudentService
     /// REQ-STU-047: Auto-generates barcode at creation.
     /// Validates capacity limit, name not empty, code uniqueness, and code format.
     /// </summary>
-    Task<Result<TeacherStudentDto>> CreateStudentAsync(CreateTeacherStudentDto dto);
+    Task<Result<TeacherStudentDto>> CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto);
 
     /// <summary>
     /// Retrieves a single active student record by Id, scoped to the teacher.
@@ -77,7 +77,7 @@ public interface ITeacherStudentService
     /// Soft-deletes multiple students in a single operation.
     /// REQ-STU-022: Bulk delete via checkbox selection.
     /// </summary>
-    Task<Result<int>> BulkSoftDeleteStudentsAsync(BulkStudentIdsDto dto);
+    Task<Result<int>> BulkSoftDeleteStudentsAsync(long teacherId, BulkStudentIdsDto dto);
 
     /// <summary>
     /// Retrieves the paginated recycle bin contents for a teacher.
@@ -98,7 +98,7 @@ public interface ITeacherStudentService
     /// Restores multiple students from the recycle bin in a single action.
     /// REQ-STU-031.1: Bulk restore.
     /// </summary>
-    Task<Result<int>> BulkRestoreStudentsAsync(BulkStudentIdsDto dto);
+    Task<Result<int>> BulkRestoreStudentsAsync(long teacherId, BulkStudentIdsDto dto);
 
     /// <summary>
     /// Permanently deletes a single student from the recycle bin.
@@ -124,5 +124,5 @@ public interface ITeacherStudentService
     /// REQ-STU-018: Skips empty names, auto-generates codes, rejects duplicates.
     /// REQ-STU-054: Auto-generates barcode for each imported student.
     /// </summary>
-    Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(BulkImportTeacherStudentsDto dto);
+    Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(long teacherId, BulkImportTeacherStudentsDto dto);
 }

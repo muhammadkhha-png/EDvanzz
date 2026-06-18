@@ -16,11 +16,7 @@ namespace Edvanz.Application.Dtos.TeacherStudent;
 /// </summary>
 public class CreateTeacherStudentDto
 {
-    /// <summary>
-    /// The owning teacher's Id. All data is scoped to this teacher.
-    /// </summary>
-    [Required]
-    public long TeacherId { get; set; }
+  
 
     /// <summary>
     /// Student's full name. Mandatory.
@@ -53,6 +49,7 @@ public class CreateTeacherStudentDto
     /// BR-SES-002: A student may only be assigned to one session at a time.
     /// </summary>
     public long? SessionId { get; set; }
+
 }
 
 /// <summary>
@@ -124,11 +121,7 @@ public class BulkImportStudentRowDto
 /// </summary>
 public class BulkImportTeacherStudentsDto
 {
-    /// <summary>
-    /// The owning teacher's Id.
-    /// </summary>
-    [Required]
-    public long TeacherId { get; set; }
+   
 
     /// <summary>
     /// The list of student rows to import.
@@ -144,12 +137,7 @@ public class BulkImportTeacherStudentsDto
 /// </summary>
 public class BulkStudentIdsDto
 {
-    /// <summary>
-    /// The owning teacher's Id.
-    /// </summary>
-    [Required]
-    public long TeacherId { get; set; }
-
+   
     /// <summary>
     /// List of student record Ids to operate on.
     /// </summary>
