@@ -90,10 +90,10 @@ JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 // Process BOTH the default queue AND the notifications queue (§7.5).
 // Worker counts: default 5 workers on each queue. Tune via configuration if needed.
-builder.Services.AddHangfireServer(options =>
-{
-    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue,"assignment-materialization" };
-});
+//builder.Services.AddHangfireServer(options =>
+//{
+//    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue,"assignment-materialization" };
+//});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

@@ -20,6 +20,7 @@
 //}
 using Edvanz.Domain.ServiceContract;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Edvanz.Infrastructure.Persistence
@@ -40,6 +41,8 @@ namespace Edvanz.Infrastructure.Persistence
 
             var context = scope.ServiceProvider.GetRequiredService<EdvanzDbContext>();
             var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordService>();
+
+            await context.Database.MigrateAsync();   // create/upgrade schema before any query
 
             await DbInitializer.SeedAsync(context, passwordService);
         }
