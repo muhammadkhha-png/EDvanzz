@@ -103,7 +103,7 @@ public interface IVideoService
     ///         aggregates).</item>
     ///   <item>INSERT the <see cref="Domain.Entities.VideoAssetAudit"/> row.</item>
     ///   <item>DELETE the <see cref="Domain.Entities.VideoAsset"/> row —
-    ///         cascade FKs remove scopes, analytics, watch events.</item>
+    ///         NoAction FKs remove scopes, analytics, watch events.</item>
     ///   <item>COMMIT.</item>
     /// </list>
     ///
@@ -190,7 +190,7 @@ public interface IVideoService
     /// <summary>
     /// Hard-deletes every video owned by the given teacher, writes a
     /// <see cref="Domain.Entities.VideoAssetAudit"/> snapshot for each one, and
-    /// cascades through to scopes, analytics, and watch events. Returns the
+    /// NoActions through to scopes, analytics, and watch events. Returns the
     /// count of videos purged.
     ///
     /// CALLED BY: the admin "permanent-purge teacher" flow that owns the full
@@ -204,13 +204,13 @@ public interface IVideoService
     /// transaction (the admin purge flow always will), participates in it.
     /// When called standalone (e.g., manual ops cleanup), opens its own.
     ///
-    /// Audit rows survive the cascade by design — only when the teacher account
-    /// row itself is deleted (with cascade configured to remove audits) does
+    /// Audit rows survive the NoAction by design — only when the teacher account
+    /// row itself is deleted (with NoAction configured to remove audits) does
     /// audit history go.
     ///
     /// Phase 2.2 decision context: <c>Teachers → VideoAssets = NO_ACTION</c> at
-    /// the DB level, so the cascade chain does not auto-fire on teacher delete.
-    /// This service-layer method substitutes for that DB cascade.
+    /// the DB level, so the NoAction chain does not auto-fire on teacher delete.
+    /// This service-layer method substitutes for that DB NoAction.
     /// </summary>
     /// <param name="teacherId">The teacher being permanently purged.</param>
     /// <param name="actingAdminUserId">The admin user performing the purge.

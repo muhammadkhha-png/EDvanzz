@@ -53,7 +53,7 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     Task AddVideoAsync(VideoAsset video);
 
     /// <summary>
-    /// Hard-deletes a video. Cascades through the composite FK to remove
+    /// Hard-deletes a video. NoActions through the composite FK to remove
     /// scopes, analytics, and watch events. The service layer must persist
     /// the JSON snapshot to <see cref="VideoAssetAudit"/> in the SAME
     /// transaction before invoking this (REQ-VCM-BR-03).
@@ -389,7 +389,7 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
 
     /// <summary>
     /// Inserts the audit row that captures a deleted video's snapshot. Always
-    /// called inside the same transaction as the cascade-delete of the
+    /// called inside the same transaction as the NoAction-delete of the
     /// underlying VCM rows (Story E). If the surrounding transaction rolls
     /// back, the audit row rolls back too — no orphan audits.
     /// </summary>
@@ -401,9 +401,9 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
 
     /// <summary>
     /// Hard-deletes every <see cref="VideoAsset"/> belonging to the given
-    /// teacher, plus all VCM cascade-children (audits are kept by
+    /// teacher, plus all VCM NoAction-children (audits are kept by
     /// configuration). Used by the admin "permanent-purge teacher" flow,
-    /// which the DB cascade does NOT cover (Phase 2.2 cascade-graph decision:
+    /// which the DB NoAction does NOT cover (Phase 2.2 NoAction-graph decision:
     /// <c>Teachers → VideoAssets = NO_ACTION</c>).
     ///
     /// Service layer wraps this in a transaction and writes audit rows for

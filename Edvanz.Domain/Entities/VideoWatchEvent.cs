@@ -6,7 +6,7 @@ namespace Edvanz.Domain.Entities;
 
 /// <summary>
 /// Append-only log of every Open and Stop event raised by Flutter for a video.
-/// One row per event. Never updated, never deleted (except by the cascade when
+/// One row per event. Never updated, never deleted (except by the NoAction when
 /// the parent video is hard-deleted).
 ///
 /// PURPOSES:
@@ -47,7 +47,7 @@ public class VideoWatchEvent : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The video this event refers to. Cascade-deleted with the video via the
+    /// The video this event refers to. NoAction-deleted with the video via the
     /// composite FK in fluent API.
     /// </summary>
     public long VideoAssetId { get; set; }
@@ -64,7 +64,7 @@ public class VideoWatchEvent : BaseEntity
     public Teacher Teacher { get; set; } = null!;
 
     /// <summary>
-    /// The student who raised the event. Cascade-deleted with the student.
+    /// The student who raised the event. NoAction-deleted with the student.
     /// </summary>
     [ForeignKey(nameof(TeacherStudent))]
     public long TeacherStudentId { get; set; }

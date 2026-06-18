@@ -13,10 +13,10 @@ namespace Edvanz.Domain.Entities;
 /// an FK to <c>VideoAssets.Id</c>. The whole point is that the audit row exists
 /// because the parent is gone. <see cref="VideoAssetId"/> is preserved as a
 /// plain <c>bigint</c> for forensic queries ("show me audit for the video that
-/// used to be id 42"), but no FK and no cascade.
+/// used to be id 42"), but no FK and no NoAction.
 ///
 /// TRANSACTIONAL GUARANTEE (Story E):
-/// The audit row is INSERTED in the same transaction as the cascade DELETEs of
+/// The audit row is INSERTED in the same transaction as the NoAction DELETEs of
 /// the underlying video data. If any step fails, the audit row rolls back too —
 /// no orphan audits, no destroyed-but-unrecorded videos.
 ///
@@ -29,7 +29,7 @@ namespace Edvanz.Domain.Entities;
 ///
 /// FK MODELING: <see cref="TeacherId"/> and <see cref="DeletedByUserId"/>
 /// intentionally have NO <c>[ForeignKey]</c> attributes — fluent API in
-/// <c>OnModelCreating</c> is the single source of truth for cascade behavior.
+/// <c>OnModelCreating</c> is the single source of truth for NoAction behavior.
 /// </summary>
 public class VideoAssetAudit : BaseEntity
 {
@@ -50,7 +50,7 @@ public class VideoAssetAudit : BaseEntity
 
     /// <summary>
     /// Foreign key to the owning Teacher. Lets the audit dashboard scope by
-    /// tenant without joining anything that might be cascade-deleted later.
+    /// tenant without joining anything that might be NoAction-deleted later.
     /// Restrict-deleted: only when the teacher's whole account is hard-purged
     /// by app-layer code does this audit row go (and that code clears it
     /// explicitly in the same transaction).

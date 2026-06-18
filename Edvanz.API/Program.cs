@@ -82,18 +82,18 @@ builder.Services.AddSwaggerGen(c =>
 
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-//builder.Services.AddHangfire(config =>
-//{
-//    config.UseSqlServerStorage(
-//        builder.Configuration.GetConnectionString("con"));
-//});
+builder.Services.AddHangfire(config =>
+{
+    config.UseSqlServerStorage(
+        builder.Configuration.GetConnectionString("con"));
+});
 
 // Process BOTH the default queue AND the notifications queue (§7.5).
 // Worker counts: default 5 workers on each queue. Tune via configuration if needed.
-//builder.Services.AddHangfireServer(options =>
-//{
-//    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue,"assignment-materialization" };
-//});
+builder.Services.AddHangfireServer(options =>
+{
+    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue, "assignment-materialization" };
+});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -154,13 +154,13 @@ var app = builder.Build();
 
 // testing notes : for test assignment and hw materialization without waiting for the daily recurring job
 
-//using (var scope = app.Services.CreateScope())
-//{
-//    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
-//    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
-//        job => job.RunAsync(),
-//        TimeSpan.FromMinutes(1));
-//}
+using (var scope = app.Services.CreateScope())
+{
+    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
+    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
+        job => job.RunAsync(),
+        TimeSpan.FromMinutes(1));
+}
 await app.SeedDatabaseAsync();
 
 // Use localization middleware
@@ -174,54 +174,53 @@ app.UseSwagger();
         {
             c.SwaggerEndpoint("v1/swagger.json", "Edvanz v1");
         });
-//app.UseHangfireDashboard("/hangfire");
+app.UseHangfireDashboard("/hangfire");
 // ?? Subscription Module — Phase 08 recurring registrations ??
 
 // Daily reminder dispatcher (§7.1). 09:00 in Africa/Cairo by default.
-// CronExpression and TimeZoneId are bound from ReminderSchedulerOptions.
-//{
-//    var reminderOpts = app.Services
-//        .GetRequiredService<IOptions<ReminderSchedulerOptions>>().Value;
+{
+    var reminderOpts = app.Services
+        .GetRequiredService<IOptions<ReminderSchedulerOptions>>().Value;
 
-//    TimeZoneInfo timeZone;
-//    try
-//    {
-//        timeZone = TimeZoneInfo.FindSystemTimeZoneById(reminderOpts.TimeZoneId);
-//    }
-//    catch (TimeZoneNotFoundException)
-//    {
-//        timeZone = TimeZoneInfo.Utc;
-//    }
+    TimeZoneInfo timeZone;
+    try
+    {
+        timeZone = TimeZoneInfo.FindSystemTimeZoneById(reminderOpts.TimeZoneId);
+    }
+    catch (TimeZoneNotFoundException)
+    {
+        timeZone = TimeZoneInfo.Utc;
+    }
 
-//    RecurringJob.AddOrUpdate<SubscriptionReminderDispatcherJob>(
-//        SubscriptionConstants.ReminderDispatcherJobId,
-//        job => job.RunAsync(),
-//        reminderOpts.CronExpression,
-//        new RecurringJobOptions { TimeZone = timeZone });
-//}
+    RecurringJob.AddOrUpdate<SubscriptionReminderDispatcherJob>(
+        SubscriptionConstants.ReminderDispatcherJobId,
+        job => job.RunAsync(),
+        reminderOpts.CronExpression,
+        new RecurringJobOptions { TimeZone = timeZone });
+}   
 
 // Hourly pending-payment expiry sweep (EC-18). Runs at minute 0 of every hour.
-//RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
-//    SubscriptionConstants.PendingPaymentExpiryJobId,
-//    job => job.RunAsync(),
-//    Cron.Hourly);
-//RecurringJob.AddOrUpdate<AssistantCleanupJob>(
-//    "assistant-cleanup-job",
-//    job => job.ExecuteAsync(),
-//   Cron.Daily);
+RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
+    SubscriptionConstants.PendingPaymentExpiryJobId,
+    job => job.RunAsync(),
+    Cron.Hourly);
+RecurringJob.AddOrUpdate<AssistantCleanupJob>(
+    "assistant-cleanup-job",
+    job => job.ExecuteAsync(),
+   Cron.Daily);
 // ?? Recurring Assignment Materializer (Module 6) ??
 // Runs once daily at 06:00 Africa/Cairo. Earlier than the reminder dispatcher
 // (09:00) so tomorrow's occurrences are visible by morning.
-//RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
-//    recurringJobId: "recurring-assignment-materializer",
-//    methodCall: job => job.RunAsync(),
-//    cronExpression: "0 6 * * *",
-//    options: new RecurringJobOptions
-//    {
-//        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
-//    }
-//  );
-    
+RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
+    recurringJobId: "recurring-assignment-materializer",
+    methodCall: job => job.RunAsync(),
+    cronExpression: "0 6 * * *",
+    options: new RecurringJobOptions
+    {
+        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+    }
+  );
+
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 

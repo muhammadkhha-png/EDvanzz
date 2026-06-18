@@ -32,7 +32,7 @@ public class AssignmentScope : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The template this scope row belongs to. Cascade-deleted with the template.
+    /// The template this scope row belongs to. NoAction-deleted with the template.
     /// </summary>
     [ForeignKey(nameof(Template))]
     public long TemplateId { get; set; }

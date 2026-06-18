@@ -283,9 +283,9 @@ namespace Edvanz.Application.Services
                         }
 
                         // REQ-USR-013 (defensive): the current ProfileService
-                        // implementation cascades template edits to assigned
+                        // implementation NoActions template edits to assigned
                         // assistants' UsersPermissions rows. BR-USR-004 says
-                        // edits should NOT cascade — when that requirement is
+                        // edits should NOT NoAction — when that requirement is
                         // honored properly in a future refactor, this
                         // invalidation call can be removed. Until then we
                         // keep the cache consistent with reality.

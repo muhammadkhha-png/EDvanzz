@@ -301,7 +301,7 @@ public class SessionService : ISessionService
             await _unitOfWork.SaveChangesAsync();
 
             // REQ-SES-043: Remove all links where this session is on the Restrict side
-            // (the Cascade side is handled by the DB, but the Restrict side needs manual cleanup)
+            // (the NoAction side is handled by the DB, but the Restrict side needs manual cleanup)
             var linksAsTarget = await _unitOfWork.SessionsRepo.GetLinksBySessionAsync(sessionId);
             foreach (var link in linksAsTarget)
             {
@@ -309,7 +309,7 @@ public class SessionService : ISessionService
             }
 
             // REQ-SES-041: Hard delete the session
-            // REQ-SES-042: DB cascade SetNull clears TeacherStudents.SessionId automatically
+            // REQ-SES-042: DB NoAction SetNull clears TeacherStudents.SessionId automatically
             await _unitOfWork.SessionsRepo.DeleteAsync(session);
             await _unitOfWork.SaveChangesAsync();
 
@@ -532,7 +532,7 @@ public class SessionService : ISessionService
             return Result<bool>.Failure(_localizer, "SessionGroupNotFound", HttpStatusCode.NotFound);
 
         // REQ-SES-031: Deleting group does NOT delete sessions.
-        // Sessions become ungrouped via DB SetNull cascade on SessionGroupId FK.
+        // Sessions become ungrouped via DB SetNull NoAction on SessionGroupId FK.
         await _unitOfWork.SessionsRepo.DeleteGroupAsync(group);
         await _unitOfWork.SaveChangesAsync();
 

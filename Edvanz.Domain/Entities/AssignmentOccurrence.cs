@@ -22,7 +22,7 @@ namespace Edvanz.Domain.Entities;
 /// taken at occurrence-generation time. Reports and grade-entry logic always read from these
 /// snapshots, never from the live template.
 ///
-/// HARD DELETE per REQ-EXH-037 (cascade with template).
+/// HARD DELETE per REQ-EXH-037 (NoAction with template).
 /// </summary>
 public class AssignmentOccurrence : BaseEntity
 {
@@ -31,7 +31,7 @@ public class AssignmentOccurrence : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The template this occurrence was generated from. Cascade-deleted with the template.
+    /// The template this occurrence was generated from. NoAction-deleted with the template.
     /// </summary>
     [ForeignKey(nameof(Template))]
     public long TemplateId { get; set; }

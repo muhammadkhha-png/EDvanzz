@@ -80,7 +80,7 @@ public class TeacherStudent : BaseEntity
     /// <summary>
     /// Navigation property to the assigned Session.
     /// REQ-SES-016: Students are assigned to sessions.
-    /// REQ-SES-042: Set to null (via DB SetNull cascade) when session is deleted.
+    /// REQ-SES-042: Set to null (via DB SetNull NoAction) when session is deleted.
     /// </summary>
     public Session? Session { get; set; }
 

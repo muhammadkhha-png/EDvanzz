@@ -304,7 +304,7 @@ public sealed class VideoService : IVideoService
 
         try
         {
-            // Build the snapshot BEFORE the cascade fires — once we delete,
+            // Build the snapshot BEFORE the NoAction fires — once we delete,
             // the rows are gone forever (REQ-VCM-BR-03).
             var analyticsRows = await _unitOfWork.VideoAssetsRepo
                 .GetAnalyticsForAuditSnapshotAsync(videoAssetId);
@@ -706,7 +706,7 @@ public sealed class VideoService : IVideoService
                 audited++;
             }
 
-            // Bulk DELETE — cascade FKs remove scopes, analytics, watch events.
+            // Bulk DELETE — NoAction FKs remove scopes, analytics, watch events.
             await _unitOfWork.VideoAssetsRepo.DeleteAllVideosForTeacherAsync(teacherId);
             await _unitOfWork.SaveChangesAsync();
 

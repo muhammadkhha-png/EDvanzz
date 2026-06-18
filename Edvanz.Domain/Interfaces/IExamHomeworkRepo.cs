@@ -44,7 +44,7 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task UpdateTemplateAsync(AssignmentTemplate template);
 
     /// <summary>
-    /// Hard-deletes an assignment template. Cascades to AssignmentScopes,
+    /// Hard-deletes an assignment template. NoActions to AssignmentScopes,
     /// AssignmentOccurrences, and StudentAssignmentObligations per REQ-EXH-037.
     /// Service layer must persist the JSON snapshot to AssignmentDeletionLogs
     /// BEFORE invoking this in the same transaction.

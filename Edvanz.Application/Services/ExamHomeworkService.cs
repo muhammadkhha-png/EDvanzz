@@ -35,7 +35,7 @@ namespace Edvanz.Application.Services;
 /// - BR-EXH-002: stopping a recurrence preserves all previously generated occurrences.
 /// - REQ-EXH-037: hard delete is final, but a JSON snapshot survives in
 ///   <c>AssignmentDeletionLogs</c>; audit-log rows are archived into the snapshot then
-///   bulk-deleted (their FK to obligations is Restrict, so cascade would otherwise fail).
+///   bulk-deleted (their FK to obligations is Restrict, so NoAction would otherwise fail).
 ///
 /// ARCHITECTURAL RULE FOLLOWED:
 /// Every database operation goes through a NAMED method on a repo. No raw expression
@@ -348,12 +348,12 @@ public class ExamHomeworkService : IExamHomeworkService
             await _unitOfWork.ExamHomeworkRepo.AddDeletionLogAsync(deletionLog);
 
             // 2. Delete audit logs explicitly. Their FK to the obligation is Restrict,
-            //    so a cascade from template → occurrence → obligation would fail with
+            //    so a NoAction from template → occurrence → obligation would fail with
             //    a referential-integrity error if any audit row exists. We archive into
             //    the JSON snapshot above, then delete in bulk here.
             await _unitOfWork.ExamHomeworkRepo.DeleteAuditLogsForTemplateAsync(templateId);
 
-            // 3. Cascade hard delete — scopes, occurrences, obligations all go.
+            // 3. NoAction hard delete — scopes, occurrences, obligations all go.
             await _unitOfWork.ExamHomeworkRepo.DeleteTemplateAsync(template);
 
             await _unitOfWork.SaveChangesAsync();
@@ -1290,7 +1290,7 @@ public class ExamHomeworkService : IExamHomeworkService
                 MaxGradeSnapshot = a.MaxGradeSnapshot,
                 PassingThresholdSnapshot = a.PassingThresholdSnapshot,
                 ChangeReason = a.ChangeReason,
-                ChangedByUserId = a.ChangedByUserId,
+                ChangedByUserId = (long)a.ChangedByUserId,
                 ChangedByUserName = a.ChangedByUser?.FullName,
                 ChangedAt = a.ChangedAt,
             }).ToList();

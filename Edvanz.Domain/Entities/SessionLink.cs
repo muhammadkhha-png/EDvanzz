@@ -15,13 +15,13 @@ namespace Edvanz.Domain.Entities;
 ///   WHERE SessionId = @id OR LinkedSessionId = @id
 /// 
 /// REQ-SES-038: Accessible by the Attendance Module for cross-session attendance.
-/// REQ-SES-043: Cascade-deleted when either linked session is deleted.
+/// REQ-SES-043: NoAction-deleted when either linked session is deleted.
 /// </summary>
 public class SessionLink : BaseEntity
 {
     /// <summary>
     /// The session with the lower Id in the pair (canonical ordering).
-    /// FK to Sessions table with cascade delete.
+    /// FK to Sessions table with NoAction delete.
     /// </summary>
     [ForeignKey(nameof(Session))]
     public long SessionId { get; set; }
@@ -29,8 +29,8 @@ public class SessionLink : BaseEntity
 
     /// <summary>
     /// The session with the higher Id in the pair (canonical ordering).
-    /// FK to Sessions table with cascade delete (via trigger or application logic
-    /// since SQL Server doesn't allow multiple cascade paths — handled in OnModelCreating).
+    /// FK to Sessions table with NoAction delete (via trigger or application logic
+    /// since SQL Server doesn't allow multiple NoAction paths — handled in OnModelCreating).
     /// </summary>
     [ForeignKey(nameof(LinkedSession))]
     public long LinkedSessionId { get; set; }

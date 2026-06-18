@@ -61,9 +61,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     /// <inheritdoc />
     public async Task DeleteVideoAsync(VideoAsset video)
     {
-        // Hard delete per REQ-VCM-BR-03. Composite-FK CASCADE removes scopes,
+        // Hard delete per REQ-VCM-BR-03. Composite-FK NoAction removes scopes,
         // analytics, and watch events. Audit row is INSERTed by the service
-        // layer in the same transaction BEFORE this call — the cascade does
+        // layer in the same transaction BEFORE this call — the NoAction does
         // not touch VideoAssetAudits (no FK back to VideoAssets, by design).
         _context.VideoAssets.Remove(video);
         await Task.CompletedTask;
@@ -750,9 +750,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     /// <inheritdoc />
     public async Task DeleteAllVideosForTeacherAsync(long teacherId)
     {
-        // Phase 2.2 cascade-graph decision: Teachers → VideoAssets is
+        // Phase 2.2 NoAction-graph decision: Teachers → VideoAssets is
         // NO_ACTION. Admin teacher-purge flow calls this to clear VCM.
-        // ExecuteDeleteAsync — single SQL DELETE; cascade FKs cover scopes,
+        // ExecuteDeleteAsync — single SQL DELETE; NoAction FKs cover scopes,
         // analytics, watch events. Audits are kept (no FK back).
         await _context.VideoAssets
             .Where(v => v.TeacherId == teacherId)

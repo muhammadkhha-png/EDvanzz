@@ -849,7 +849,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (sessionGroupId.HasValue)
             // FIX H3: Use denormalized SessionGroupId field instead of navigating through
             // SessionOccurrence.Session.SessionGroupId. After session hard-delete,
-            // SessionOccurrence is cascade-deleted and the navigation returns null,
+            // SessionOccurrence is NoAction-deleted and the navigation returns null,
             // causing records from deleted sessions to be excluded from Report Type 5.
             query = query.Where(r => r.SessionGroupId == sessionGroupId.Value);
 

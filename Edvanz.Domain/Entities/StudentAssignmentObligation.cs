@@ -19,9 +19,9 @@ namespace Edvanz.Domain.Entities;
 /// REQ-EXH-NFR-001: Tracking screens render in &lt; 2 seconds — covering indexes on this
 /// table are critical and configured in fluent API.
 ///
-/// HARD DELETE per REQ-EXH-037 (cascade with occurrence and template). Status and grade
+/// HARD DELETE per REQ-EXH-037 (NoAction with occurrence and template). Status and grade
 /// changes are auditable via <see cref="StudentObligationAuditLog"/>; the audit log itself
-/// is not cascaded — service layer detaches audit before delete to retain history.
+/// is not NoActiond — service layer detaches audit before delete to retain history.
 /// </summary>
 public class StudentAssignmentObligation : BaseEntity
 {

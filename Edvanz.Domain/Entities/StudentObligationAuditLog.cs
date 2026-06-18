@@ -29,7 +29,7 @@ public class StudentObligationAuditLog : BaseEntity
 
     /// <summary>
     /// The obligation that was modified.
-    /// NOTE: This audit row is NOT cascade-deleted with the obligation.
+    /// NOTE: This audit row is NOT NoAction-deleted with the obligation.
     /// Service layer detaches audit logs (or copies them to a deletion archive) before
     /// hard-deleting the parent template per REQ-EXH-037, so audit history survives.
     /// </summary>
@@ -109,8 +109,8 @@ public class StudentObligationAuditLog : BaseEntity
     /// The User who performed the change.
     /// </summary>
     [ForeignKey(nameof(ChangedByUser))]
-    public long ChangedByUserId { get; set; }
-    public User ChangedByUser { get; set; } = null!;
+    public long? ChangedByUserId { get; set; }
+    public User? ChangedByUser { get; set; } = null!;
 
     /// <summary>
     /// UTC timestamp of the change. Designed as the future partition key

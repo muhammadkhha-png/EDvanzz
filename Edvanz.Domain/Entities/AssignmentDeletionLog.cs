@@ -15,7 +15,7 @@ namespace Edvanz.Domain.Entities;
 /// The parent template is hard-deleted, so <see cref="TemplateId"/> has NO foreign key —
 /// it is a plain bigint reference for historical lookup only. A complete JSON snapshot
 /// of the template (and its scopes / occurrence count / per-student summary) is stored in
-/// <see cref="TemplateSnapshotJson"/>. This lets the cascade delete the template cleanly
+/// <see cref="TemplateSnapshotJson"/>. This lets the NoAction delete the template cleanly
 /// while preserving everything needed for forensic queries.
 ///
 /// The Domain entity is intentionally ignorant of JSON serialization. The Application

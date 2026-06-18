@@ -18,7 +18,7 @@ namespace Edvanz.Domain.Entities;
 /// has student data recorded.
 /// REQ-EXH-NFR-004: All template data is scoped exclusively to the owning tutor.
 ///
-/// HARD DELETE per REQ-EXH-037. There is no IsDeleted flag — deletion is final and cascades
+/// HARD DELETE per REQ-EXH-037. There is no IsDeleted flag — deletion is final and NoActions
 /// to all related occurrences and obligations. A JSON snapshot is captured in
 /// <see cref="AssignmentDeletionLog"/> before deletion to preserve historical context.
 /// </summary>

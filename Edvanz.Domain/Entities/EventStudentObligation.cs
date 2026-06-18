@@ -27,7 +27,7 @@ public class EventStudentObligation : BaseEntity
 
     /// <summary>
     /// Foreign key to the payment event.
-    /// CASCADE: Obligation removed when event is deleted.
+    /// NoAction: Obligation removed when event is deleted.
     /// </summary>
     [ForeignKey(nameof(PaymentEvent))]
     public long PaymentEventId { get; set; }

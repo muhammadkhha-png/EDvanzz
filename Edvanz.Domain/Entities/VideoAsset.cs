@@ -29,10 +29,10 @@ namespace Edvanz.Domain.Entities;
 /// PERSISTED CONTRACT: column types, lengths, and FK behaviors are defined in
 /// <c>EdvanzDbContext.OnModelCreating</c>. <see cref="TeacherId"/> and
 /// <see cref="CreatedByUserId"/> intentionally have NO <c>[ForeignKey]</c>
-/// attributes — the fluent API is the single source of truth for cascade
+/// attributes — the fluent API is the single source of truth for NoAction
 /// behavior. With both annotation and fluent API present, EF Core 10 silently
 /// merges declarations and the explicit <c>OnDelete</c> from the fluent side is
-/// dropped (this caused the Cascade-everywhere bug in the initial migration).
+/// dropped (this caused the NoAction-everywhere bug in the initial migration).
 /// </summary>
 public class VideoAsset : BaseEntity
 {
@@ -42,7 +42,7 @@ public class VideoAsset : BaseEntity
 
     /// <summary>
     /// Foreign key to the owning Teacher. Every read and write of this row is
-    /// tenant-scoped on this column. Restrict-deleted (app-layer cascade on
+    /// tenant-scoped on this column. Restrict-deleted (app-layer NoAction on
     /// teacher purge); see <c>OnModelCreating</c> for FK behavior.
     /// </summary>
     public long TeacherId { get; set; }
@@ -122,7 +122,7 @@ public class VideoAsset : BaseEntity
     ///
     /// Nullable because of <c>SET_NULL</c> on the FK: when the actor's User
     /// account is permanently purged, this column becomes <c>NULL</c> rather
-    /// than cascade-deleting the video. The video survives because it belongs
+    /// than NoAction-deleting the video. The video survives because it belongs
     /// to the <c>Teacher</c> tenant, not the actor.
     /// </summary>
     public long? CreatedByUserId { get; set; }
@@ -137,7 +137,7 @@ public class VideoAsset : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// All scope rows targeting this video. Cascade-deleted with the video.
+    /// All scope rows targeting this video. NoAction-deleted with the video.
     /// REQ-VCM-FR-02: A video may have many scope rows resolving to a unique set
     /// of students.
     /// </summary>
@@ -145,12 +145,12 @@ public class VideoAsset : BaseEntity
 
     /// <summary>
     /// Per-student aggregate analytics for this video. One row per
-    /// <c>(VideoAssetId, TeacherStudentId)</c> pair, ever. Cascade-deleted.
+    /// <c>(VideoAssetId, TeacherStudentId)</c> pair, ever. NoAction-deleted.
     /// </summary>
     public ICollection<VideoAnalytics> Analytics { get; set; } = new List<VideoAnalytics>();
 
     /// <summary>
-    /// Append-only watch event log. Cascade-deleted.
+    /// Append-only watch event log. NoAction-deleted.
     /// </summary>
     public ICollection<VideoWatchEvent> WatchEvents { get; set; } = new List<VideoWatchEvent>();
 }

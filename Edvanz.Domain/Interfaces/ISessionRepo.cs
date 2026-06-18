@@ -130,7 +130,7 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// <summary>
     /// Deletes a session group (hard delete).
     /// REQ-SES-031: Sessions within become ungrouped (SessionGroupId set to null
-    /// via database SetNull cascade).
+    /// via database SetNull NoAction).
     /// </summary>
     Task DeleteGroupAsync(SessionGroup group);
 

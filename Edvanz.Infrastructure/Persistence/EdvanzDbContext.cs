@@ -312,7 +312,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(ts => ts.Teacher)
                 .WithMany(t => t.TeacherSubjects)
                 .HasForeignKey(ts => ts.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(ts => ts.Subject)
                 .WithMany(s => s.TeacherSubjects)
@@ -361,7 +361,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(tc => tc.Teacher)
                 .WithOne(t => t.Configuration)
                 .HasForeignKey<TeacherConfiguration>(tc => tc.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -381,7 +381,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(pt => pt.TeacherConfiguration)
                 .WithMany(tc => tc.ProratedTiers)
                 .HasForeignKey(pt => pt.TeacherConfigurationId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -393,7 +393,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         //    entity.HasOne(s => s.Teacher)
         //        .WithMany(t => t.Subscriptions)
         //        .HasForeignKey(s => s.TeacherId)
-        //        .OnDelete(DeleteBehavior.Cascade);
+        //        .OnDelete(DeleteBehavior.NoAction);
 
         //    entity.HasOne(s => s.CreatedByUser)
         //        .WithMany()
@@ -415,7 +415,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(s => s.Teacher)
                 .WithMany(t => t.Subscriptions)
                 .HasForeignKey(s => s.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(s => s.CreatedByUser)
                 .WithMany()
@@ -490,11 +490,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // EncryptedSubmittedDetails: nvarchar(max) by default — no explicit mapping needed.
 
             // ── Relationships ──
-            // Cascade on the owning Teacher: pending payments are tenant-scoped.
+            // NoAction on the owning Teacher: pending payments are tenant-scoped.
             entity.HasOne(p => p.Teacher)
                 .WithMany(t => t.PendingSubscriptionPayments)
                 .HasForeignKey(p => p.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ResolvedByUser is an audit FK — keep the row even if the admin user is removed.
             entity.HasOne(p => p.ResolvedByUser)
@@ -527,7 +527,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(a => a.Teacher)
                 .WithMany(t => t.SubscriptionAlerts)
                 .HasForeignKey(a => a.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ── Idempotency index (§9.1, FR-SUB-014) ──
             // Uniqueness is enforced at the DB so the per-teacher reminder job can race-safely
@@ -558,7 +558,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(n => n.User)
                 .WithMany(u => u.Notifications)
                 .HasForeignKey(n => n.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ── Indexes (§9.1, M-6) ──
             // Single covering index for both the bell-icon unread-count query and the
@@ -583,7 +583,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(d => d.User)
                 .WithMany(u => u.DeviceTokens)
                 .HasForeignKey(d => d.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ── Indexes (§9.1) ──
 
@@ -611,12 +611,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(a => a.Teacher)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherAccountId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(a => a.User)
                 .WithMany()
                 .HasForeignKey(a => a.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -672,11 +672,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(ts => ts.SessionId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Teacher FK: cascade delete when teacher account is removed
+            // Teacher FK: NoAction delete when teacher account is removed
             entity.HasOne(ts => ts.Teacher)
                 .WithMany()
                 .HasForeignKey(ts => ts.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Soft-delete filter: queries exclude deleted records by default
             entity.HasQueryFilter(ts => !ts.IsDeleted);
@@ -757,13 +757,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .IsUnique()
                 .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_TeacherId");
 
-            // StudentUser FK: cascade delete when student user account is removed
+            // StudentUser FK: NoAction delete when student user account is removed
             entity.HasOne(stl => stl.StudentUser)
                 .WithMany(su => su.StudentTeacherLinks)
                 .HasForeignKey(stl => stl.StudentUserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Teacher FK: restrict — don't cascade teacher deletion to student links
+            // Teacher FK: restrict — don't NoAction teacher deletion to student links
             entity.HasOne(stl => stl.Teacher)
                 .WithMany()
                 .HasForeignKey(stl => stl.TeacherId)
@@ -829,14 +829,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         {
             entity.ToTable("ParentChildren");
 
-            // ParentUser FK: cascade delete when parent account is removed
+            // ParentUser FK: NoAction delete when parent account is removed
             entity.HasOne(pc => pc.ParentUser)
                 .WithMany(pu => pu.Children)
                 .HasForeignKey(pc => pc.ParentUserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // StudentUser FK: optional (null for Method B manual profiles)
-            // Restrict: don't cascade student user deletion to parent child records
+            // Restrict: don't NoAction student user deletion to parent child records
             entity.HasOne(pc => pc.StudentUser)
                 .WithMany()
                 .HasForeignKey(pc => pc.StudentUserId)
@@ -879,13 +879,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .IsUnique()
                 .HasDatabaseName("IX_ParentChildTeacherLinks_ChildId_TeacherId");
 
-            // ParentChild FK: cascade delete when child record is removed
+            // ParentChild FK: NoAction delete when child record is removed
             entity.HasOne(pctl => pctl.ParentChild)
                 .WithMany(pc => pc.TeacherLinks)
                 .HasForeignKey(pctl => pctl.ParentChildId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Teacher FK: restrict — don't cascade teacher deletion to parent links
+            // Teacher FK: restrict — don't NoAction teacher deletion to parent links
             entity.HasOne(pctl => pctl.Teacher)
                 .WithMany()
                 .HasForeignKey(pctl => pctl.TeacherId)
@@ -932,7 +932,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(g => g.Teacher)
                 .WithMany()
                 .HasForeignKey(g => g.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -970,11 +970,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // DurationMinutes: smallint
             entity.Property(s => s.DurationMinutes).IsRequired();
 
-            // Teacher FK: cascade delete when teacher account is removed
+            // Teacher FK: NoAction delete when teacher account is removed
             entity.HasOne(s => s.Teacher)
                 .WithMany()
                 .HasForeignKey(s => s.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // SessionGroup FK: SetNull when group is deleted (REQ-SES-031)
             entity.HasOne(s => s.SessionGroup)
@@ -1017,13 +1017,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(sl => sl.LinkedSessionId)
                 .HasDatabaseName("IX_SessionLinks_LinkedSessionId");
 
-            // Session FK (lower Id side): cascade delete
+            // Session FK (lower Id side): NoAction delete
             entity.HasOne(sl => sl.Session)
                 .WithMany(s => s.SessionLinksAsSource)
                 .HasForeignKey(sl => sl.SessionId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // LinkedSession FK (higher Id side): restrict to avoid multiple cascade paths
+            // LinkedSession FK (higher Id side): restrict to avoid multiple NoAction paths
             // Application code handles cleanup when deleting the higher-Id session
             entity.HasOne(sl => sl.LinkedSession)
                 .WithMany(s => s.SessionLinksAsTarget)
@@ -1062,17 +1062,17 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(o => new { o.TeacherId, o.Status })
                 .HasDatabaseName("IX_SessionOccurrences_TeacherId_Status");
 
-            // Teacher FK: CASCADE — teacher deletion removes all occurrences
+            // Teacher FK: NoAction — teacher deletion removes all occurrences
             entity.HasOne(o => o.Teacher)
                 .WithMany()
                 .HasForeignKey(o => o.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Session FK: CASCADE — session hard-delete removes occurrences
+            // Session FK: NoAction — session hard-delete removes occurrences
             entity.HasOne(o => o.Session)
                 .WithMany()
                 .HasForeignKey(o => o.SessionId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -1111,11 +1111,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(a => new { a.TeacherId, a.TeacherStudentId })
                 .HasDatabaseName("IX_SSA_TeacherId_TeacherStudentId");
 
-            // Teacher FK: CASCADE
+            // Teacher FK: NoAction
             entity.HasOne(a => a.Teacher)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Audit Fix: TeacherStudent FK changed from NoAction to SetNull.
             // TeacherStudentId is now nullable (long?).
@@ -1223,11 +1223,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasFilter("[IsCrossSession] = 1")
                 .HasDatabaseName("IX_AR_CrossSession");
 
-            // Teacher FK: CASCADE
+            // Teacher FK: NoAction
             entity.HasOne(r => r.Teacher)
                 .WithMany()
                 .HasForeignKey(r => r.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // SessionOccurrence FK: SET NULL — preserves record after occurrence cleanup
             entity.HasOne(r => r.SessionOccurrence)
@@ -1268,7 +1268,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(l => l.AttendanceRecordId)
                 .HasDatabaseName("IX_AEL_AttendanceRecordId");
 
-            // Audit Fix: Changed from Cascade to SetNull.
+            // Audit Fix: Changed from NoAction to SetNull.
             // AttendanceRecordId is now nullable (long?).
             // When parent AttendanceRecord is deleted (REQ-ATT-024),
             // edit logs survive with null FK — preserving audit trail (BR-ATT-006).
@@ -1310,11 +1310,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(c => c.TeacherStudentId)
                 .HasDatabaseName("IX_SAC_TeacherStudentId");
 
-            // Teacher FK: CASCADE
+            // Teacher FK: NoAction
             entity.HasOne(c => c.Teacher)
                 .WithMany()
                 .HasForeignKey(c => c.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: NO ACTION — cleaned up via app logic on purge
             entity.HasOne(c => c.TeacherStudent)
@@ -1384,11 +1384,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             // ── FOREIGN KEYS ──
 
-            // Teacher FK: CASCADE — all payment data deleted with teacher account
+            // Teacher FK: NoAction — all payment data deleted with teacher account
             entity.HasOne(t => t.Teacher)
                 .WithMany()
                 .HasForeignKey(t => t.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: SET NULL — record survives student permanent purge
             // Denormalized StudentName/StudentCode preserve display data
@@ -1467,7 +1467,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(p => p.Teacher)
                 .WithMany()
                 .HasForeignKey(p => p.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Session FK: NO ACTION — app nullifies before session hard-delete
             entity.HasOne(p => p.Session)
@@ -1516,11 +1516,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(c => new { c.TeacherId, c.TotalOutstanding })
                 .HasDatabaseName("IX_SPC_TeacherId_TotalOutstanding");
 
-            // Teacher FK: CASCADE
+            // Teacher FK: NoAction
             entity.HasOne(c => c.Teacher)
                 .WithMany()
                 .HasForeignKey(c => c.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: NO ACTION — cleaned up via app logic on purge
             entity.HasOne(c => c.TeacherStudent)
@@ -1553,7 +1553,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(w => w.Teacher)
                 .WithMany()
                 .HasForeignKey(w => w.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Assistant FK: NO ACTION — wallet preserved for historical wallet reset logs.
             // App logic handles wallet cleanup when assistant is deactivated/deleted.
@@ -1579,7 +1579,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(l => l.Teacher)
                 .WithMany()
                 .HasForeignKey(l => l.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Assistant FK: NO ACTION — log survives assistant deletion for ledger permanence
             entity.HasOne(l => l.Assistant)
@@ -1637,7 +1637,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(d => d.Teacher)
                 .WithMany()
                 .HasForeignKey(d => d.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: SET NULL — departure record survives student purge
             entity.HasOne(d => d.TeacherStudent)
@@ -1675,7 +1675,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(t => t.Teacher)
                 .WithMany()
                 .HasForeignKey(t => t.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: SET NULL — transfer event survives student purge
             entity.HasOne(t => t.TeacherStudent)
@@ -1712,7 +1712,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(e => e.Teacher)
                 .WithMany()
                 .HasForeignKey(e => e.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 
@@ -1739,9 +1739,9 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(o => o.Teacher)
                 .WithMany()
                 .HasForeignKey(o => o.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // PaymentEvent FK: CASCADE — obligation removed when event is deleted
+            // PaymentEvent FK: NoAction — obligation removed when event is deleted
             entity.HasOne(o => o.PaymentEvent)
                 .WithMany(e => e.StudentObligations)
                 .HasForeignKey(o => o.PaymentEventId)
@@ -1773,7 +1773,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(t => t.Teacher)
                 .WithMany()
                 .HasForeignKey(t => t.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // PaymentEvent FK: SET NULL — transaction survives event deletion (REQ-EVT-022)
             entity.HasOne(t => t.PaymentEvent)
@@ -1874,11 +1874,11 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
     // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-    // Teacher FK: cascade — deleting a teacher deletes their templates.
+    // Teacher FK: NoAction — deleting a teacher deletes their templates.
     entity.HasOne(t => t.Teacher)
         .WithMany()
         .HasForeignKey(t => t.TeacherId)
-        .OnDelete(DeleteBehavior.Cascade);
+        .OnDelete(DeleteBehavior.NoAction);
 
     // CreatedByUser: audit FK — keep the row even if the creator is removed.
     entity.HasOne(t => t.CreatedByUser)
@@ -1914,15 +1914,15 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-            // Template FK: cascade — scope rows die with their template.
+            // Template FK: NoAction — scope rows die with their template.
             entity.HasOne(s => s.Template)
                 .WithMany(t => t.Scopes)
                 .HasForeignKey(s => s.TemplateId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Teacher FK: Restrict — Teacher → Template → Scope already cascades; this
+            // Teacher FK: Restrict — Teacher → Template → Scope already NoActions; this
             // FK exists only for the denormalized TeacherId. NoAction avoids the
-            // multiple-cascade-paths SQL Server restriction.
+            // multiple-NoAction-paths SQL Server restriction.
             entity.HasOne(s => s.Teacher)
                 .WithMany()
                 .HasForeignKey(s => s.TeacherId)
@@ -2022,13 +2022,13 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-            // Template FK: cascade — occurrence dies with template (REQ-EXH-037).
+            // Template FK: NoAction — occurrence dies with template (REQ-EXH-037).
             entity.HasOne(o => o.Template)
                 .WithMany(t => t.Occurrences)
                 .HasForeignKey(o => o.TemplateId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Teacher FK: NoAction — Teacher → Template → Occurrence already cascades;
+            // Teacher FK: NoAction — Teacher → Template → Occurrence already NoActions;
             // this FK exists only for the denormalized TeacherId.
             entity.HasOne(o => o.Teacher)
                 .WithMany()
@@ -2083,11 +2083,11 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-            // Occurrence FK: cascade — obligation dies with occurrence (REQ-EXH-037).
+            // Occurrence FK: NoAction — obligation dies with occurrence (REQ-EXH-037).
             entity.HasOne(o => o.Occurrence)
                 .WithMany(occ => occ.Obligations)
                 .HasForeignKey(o => o.OccurrenceId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // TeacherStudent FK: Restrict — student deletion does NOT auto-delete obligations.
             // Service layer must explicitly remove obligations for a student being purged
@@ -2098,7 +2098,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(o => o.TeacherStudentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Teacher FK: NoAction — denormalized only; cascade flows through the occurrence chain.
+            // Teacher FK: NoAction — denormalized only; NoAction flows through the occurrence chain.
             entity.HasOne(o => o.Teacher)
                 .WithMany()
                 .HasForeignKey(o => o.TeacherId)
@@ -2171,7 +2171,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-            // Obligation FK: Restrict — audit log is NOT cascade-deleted with the obligation.
+            // Obligation FK: Restrict — audit log is NOT NoAction-deleted with the obligation.
             // Per design decision 5.4, the service layer detaches audit logs (or copies them
             // to an archive table) BEFORE the cascading hard delete fires. This is the same
             // pattern the codebase already uses for AttendanceEditLog (Step 5.1 audit fix).
@@ -2180,11 +2180,11 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(a => a.StudentObligationId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Teacher FK: cascade — when a teacher is purged, their audit history goes with them.
+            // Teacher FK: NoAction — when a teacher is purged, their audit history goes with them.
             entity.HasOne(a => a.Teacher)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ChangedByUser FK: SetNull — keep the audit row if the user is removed.
             entity.HasOne(a => a.ChangedByUser)
@@ -2235,11 +2235,11 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
 
-            // Teacher FK: cascade — deletion logs are tenant-scoped.
+            // Teacher FK: NoAction — deletion logs are tenant-scoped.
             entity.HasOne(d => d.Teacher)
                 .WithMany()
                 .HasForeignKey(d => d.TeacherId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // DeletedByUser FK: SetNull — keep the log row if the user is removed.
             entity.HasOne(d => d.DeletedByUser)
@@ -2321,13 +2321,13 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
         //    index over (Id, TeacherId) on VideoAssets — declared as the FIRST index
         //    in the VideoAsset region.
         //
-        // 2. CASCADE CHAINS & SQL SERVER'S MULTIPLE-CASCADE-PATHS RULE:
-        //    SQL Server forbids two cascade paths from one parent to a single child.
-        //    Cascade paths in this module:
-        //      Teacher → VideoAsset (cascade)            ┐
-        //      Teacher → TeacherStudent (existing cascade) ├ both reach VideoAnalytics
-        //      VideoAsset → VideoAnalytics (cascade)       ┘   if both cascade
-        //    Resolution: VideoAsset → child cascades stay ON. Teacher → VideoAsset is
+        // 2. NoAction CHAINS & SQL SERVER'S MULTIPLE-NoAction-PATHS RULE:
+        //    SQL Server forbids two NoAction paths from one parent to a single child.
+        //    NoAction paths in this module:
+        //      Teacher → VideoAsset (NoAction)            ┐
+        //      Teacher → TeacherStudent (existing NoAction) ├ both reach VideoAnalytics
+        //      VideoAsset → VideoAnalytics (NoAction)       ┘   if both NoAction
+        //    Resolution: VideoAsset → child NoActions stay ON. Teacher → VideoAsset is
         //    set to Restrict; teacher hard-delete is an app-layer transactional flow
         //    (same pattern Module 6 uses for AssignmentOccurrence.Teacher → NoAction).
         //    TeacherStudent → VideoAnalytics is also Restrict for the same reason.
@@ -2382,15 +2382,15 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
             // Teacher FK: NO_ACTION at DB level.
             //
-            // Cascade chain decision: Option 2 from Phase 2.2 review.
-            // We do NOT cascade Teacher → VideoAssets at the DB level because we want
-            // CASCADE on TeacherStudents → VideoAnalytics/VideoWatchEvents (per
-            // architectural decision). SQL Server forbids two cascade paths from one
+            // NoAction chain decision: Option 2 from Phase 2.2 review.
+            // We do NOT NoAction Teacher → VideoAssets at the DB level because we want
+            // NoAction on TeacherStudents → VideoAnalytics/VideoWatchEvents (per
+            // architectural decision). SQL Server forbids two NoAction paths from one
             // parent (Teachers) to one child (VideoAnalytics / VideoWatchEvents), so
             // the Teacher → VideoAssets edge is broken at NO_ACTION and the app-layer
             // admin "hard-purge teacher" flow is responsible for clearing VCM rows in
             // the right order. Day-to-day teacher-deactivate uses soft-delete on the
-            // Teacher row (HasQueryFilter), which doesn't trigger DB cascades anyway.
+            // Teacher row (HasQueryFilter), which doesn't trigger DB NoActions anyway.
             entity.HasOne(v => v.Teacher)
                 .WithMany()
                 .HasForeignKey(v => v.TeacherId)
@@ -2450,7 +2450,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             //
             // (VideoAssetId, TeacherId) → VideoAssets(Id, TeacherId).
             // This single declaration covers BOTH:
-            //   - the structural relationship to the parent video (the child cascades
+            //   - the structural relationship to the parent video (the child NoActions
             //     when the video is hard-deleted)
             //   - the tenant-integrity guarantee (TeacherId on the child must equal
             //     TeacherId on the parent, enforced by the composite FK target index)
@@ -2462,21 +2462,21 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany(v => v.Scopes)
                 .HasForeignKey(s => new { s.VideoAssetId, s.TeacherId })
                 .HasPrincipalKey(v => new { v.Id, v.TeacherId })
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Three target FKs — each uses its own delete behavior because the parent
             // for each is a different entity (TeacherStudent / Session / SessionGroup),
             // and the columns don't collide with the composite FK above.
             //
-            // TeacherStudent: cascade — student permanent-purge takes their direct
+            // TeacherStudent: NoAction — student permanent-purge takes their direct
             // scope rows with them (matches the entity's class-remarks contract).
             entity.HasOne(s => s.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(s => s.TeacherStudentId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // Session: NoAction at DB level — session deletion is handled in the app
-            // layer because SQL Server forbids multiple cascade paths from Teacher.
+            // layer because SQL Server forbids multiple NoAction paths from Teacher.
             entity.HasOne(s => s.Session)
                 .WithMany()
                 .HasForeignKey(s => s.SessionId)
@@ -2513,7 +2513,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
-            // Cascade-delete & "load all scopes for this video" path.
+            // NoAction-delete & "load all scopes for this video" path.
             entity.HasIndex(s => s.VideoAssetId)
                 .IncludeProperties(s => new
                 {
@@ -2610,20 +2610,20 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany(v => v.Analytics)
                 .HasForeignKey(a => new { a.VideoAssetId, a.TeacherId })
                 .HasPrincipalKey(v => new { v.Id, v.TeacherId })
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // TeacherStudent FK: CASCADE at DB level.
+            // TeacherStudent FK: NoAction at DB level.
             //
-            // Cascade chain decision: Option 2 from Phase 2.2 review. The
+            // NoAction chain decision: Option 2 from Phase 2.2 review. The
             // Teacher → VideoAssets edge is set to NO_ACTION on the parent side to
-            // resolve SQL Server's multiple-cascade-paths rule, leaving this edge as
-            // the single live cascade chain reaching VideoAnalytics from a deleted
+            // resolve SQL Server's multiple-NoAction-paths rule, leaving this edge as
+            // the single live NoAction chain reaching VideoAnalytics from a deleted
             // student. When a TeacherStudent row is permanently purged, their watch
             // history goes with them.
             entity.HasOne(a => a.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(a => a.TeacherStudentId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
@@ -2700,20 +2700,20 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany(v => v.WatchEvents)
                 .HasForeignKey(e => new { e.VideoAssetId, e.TeacherId })
                 .HasPrincipalKey(v => new { v.Id, v.TeacherId })
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(e => e.Teacher)
                 .WithMany()
                 .HasForeignKey(e => e.TeacherId)
                 .HasPrincipalKey(t => t.Id)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // TeacherStudent FK: CASCADE — see VideoAnalytics region remarks for the
-            // cascade-graph reasoning.
+            // TeacherStudent FK: NoAction — see VideoAnalytics region remarks for the
+            // NoAction-graph reasoning.
             entity.HasOne(e => e.TeacherStudent)
                 .WithMany()
                 .HasForeignKey(e => e.TeacherStudentId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             // ── INDEXES ───────────────────────────────────────────────────────
 
@@ -2729,7 +2729,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .IsDescending(false, false, false, true)
                 .HasDatabaseName("IX_VWE_Student_Video_Device_TimeDesc");
 
-            // Per-video timeline reporting + speeds the cascade-delete scan.
+            // Per-video timeline reporting + speeds the NoAction-delete scan.
             entity.HasIndex(e => new { e.VideoAssetId, e.EventUtc })
                 .IsDescending(false, true)
                 .HasDatabaseName("IX_VWE_VideoAssetId_EventUtcDesc");

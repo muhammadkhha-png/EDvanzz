@@ -39,7 +39,7 @@ public class VideoScope : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The video this scope row belongs to. Cascade-deleted with the video.
+    /// The video this scope row belongs to. NoAction-deleted with the video.
     /// </summary>
     [ForeignKey(nameof(VideoAsset))]
     public long VideoAssetId { get; set; }

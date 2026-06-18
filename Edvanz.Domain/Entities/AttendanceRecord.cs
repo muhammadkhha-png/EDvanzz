@@ -128,7 +128,7 @@ public class AttendanceRecord : BaseEntity
     /// <summary>
     /// FIX H3: Denormalized session group Id at recording time.
     /// REQ-ATT-040 Type 5 (SessionGroupAttendance) requires filtering by session group.
-    /// After session hard-delete, SessionOccurrence is cascade-deleted and
+    /// After session hard-delete, SessionOccurrence is NoAction-deleted and
     /// the navigation path r.SessionOccurrence.Session.SessionGroupId becomes null.
     /// This denormalized field enables Report Type 5 to include records from deleted sessions,
     /// satisfying BR-ATT-005.

@@ -32,7 +32,7 @@ public class SessionOccurrence : BaseEntity
 
     /// <summary>
     /// Foreign key to the Session this occurrence belongs to.
-    /// Cascade-deleted when the session is hard-deleted (BR-SES-004).
+    /// NoAction-deleted when the session is hard-deleted (BR-SES-004).
     /// </summary>
     [ForeignKey(nameof(Session))]
     public long SessionId { get; set; }

@@ -190,11 +190,11 @@ public sealed class VideosController : ModuleSixApiBaseController
     //
     // WHAT IT DOES:
     //   Hard-deletes the video and writes a JSON audit snapshot in the same
-    //   transaction. Cascade FKs remove scopes, analytics, and watch events.
+    //   transaction. NoAction FKs remove scopes, analytics, and watch events.
     //
     // TABLES WRITTEN:
     //   VideoAssetAudits (INSERT 1)
-    //   VideoAssets (DELETE — cascade removes children)
+    //   VideoAssets (DELETE — NoAction removes children)
     //
     // ══════════════════════════════════════════════════════════════════════
     [HttpDelete("{videoAssetId:long}")]

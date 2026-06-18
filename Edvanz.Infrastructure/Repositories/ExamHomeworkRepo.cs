@@ -52,7 +52,7 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     /// <inheritdoc />
     public async Task DeleteTemplateAsync(AssignmentTemplate template)
     {
-        // Hard delete per REQ-EXH-037. Cascade configured in fluent API removes
+        // Hard delete per REQ-EXH-037. NoAction configured in fluent API removes
         // scopes, occurrences, and obligations. Audit logs survive (Restrict FK)
         // and must be archived by the service layer before this call.
         _context.AssignmentTemplates.Remove(template);

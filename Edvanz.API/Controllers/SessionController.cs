@@ -150,11 +150,11 @@ public class SessionController : ApiBaseController
     //
     // WHAT IT DOES:
     //   Permanently deletes a session. Hard delete — no recovery (REQ-SES-041).
-    //   REQ-SES-042: Unassigns all students (SessionId → null via DB cascade).
+    //   REQ-SES-042: Unassigns all students (SessionId → null via DB NoAction).
     //   REQ-SES-043: Removes all membership links.
     //   BR-SES-004: Irreversible.
     //
-    // TABLES WRITTEN: Sessions (delete), SessionLinks (cascade), TeacherStudents (cascade SetNull)
+    // TABLES WRITTEN: Sessions (delete), SessionLinks (NoAction), TeacherStudents (NoAction SetNull)
     //
     // SAMPLE REQUEST:
     //   DELETE /api/session/1/sessions/5
@@ -312,7 +312,7 @@ public class SessionController : ApiBaseController
     //   Deletes a session group. Sessions become ungrouped (REQ-SES-031).
     //   Does NOT delete sessions within the group.
     //
-    // TABLES WRITTEN: SessionGroups (delete), Sessions (cascade SetNull on SessionGroupId)
+    // TABLES WRITTEN: SessionGroups (delete), Sessions (NoAction SetNull on SessionGroupId)
     //
     // SAMPLE REQUEST:
     //   DELETE /api/session/1/groups/3

@@ -52,7 +52,7 @@ public class VideoAnalytics : BaseEntity
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// The video these analytics describe. Cascade-deleted with the video via
+    /// The video these analytics describe. NoAction-deleted with the video via
     /// the composite FK in fluent API.
     /// </summary>
     public long VideoAssetId { get; set; }
@@ -70,7 +70,7 @@ public class VideoAnalytics : BaseEntity
     public Teacher Teacher { get; set; } = null!;
 
     /// <summary>
-    /// The student whose watch activity is aggregated here. Cascade-deleted when
+    /// The student whose watch activity is aggregated here. NoAction-deleted when
     /// the student is permanently purged — their watch history goes with them.
     /// </summary>
     [ForeignKey(nameof(TeacherStudent))]
