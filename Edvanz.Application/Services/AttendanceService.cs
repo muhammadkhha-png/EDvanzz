@@ -1855,22 +1855,21 @@ public class AttendanceService : IAttendanceService
 
     /// <inheritdoc />
     public async Task<Result<MonthlyAttendanceSummaryDto>> GetStudentViewAttendanceAsync(
-        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request)
+        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request, AttendanceViewerType viewer)
     {
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        if (config is null || (!config.StudentVisibilityAttendance && !config.ParentVisibilityAttendance))
+        if (!IsAttendanceVisibleTo(config, viewer))
             return Result<MonthlyAttendanceSummaryDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceVisibilityDisabled, HttpStatusCode.Forbidden);
 
         return await GetStudentTimelineMonthAsync(teacherId, teacherStudentId, request);
     }
-
     /// <inheritdoc />
     public async Task<Result<StudentAttendanceSummaryDto>> GetStudentViewAttendanceSummaryAsync(
-        long teacherId, long teacherStudentId)
+        long teacherId, long teacherStudentId, AttendanceViewerType viewer)
     {
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        if (config is null || (!config.StudentVisibilityAttendance && !config.ParentVisibilityAttendance))
+        if (!IsAttendanceVisibleTo(config, viewer))
             return Result<StudentAttendanceSummaryDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceVisibilityDisabled, HttpStatusCode.Forbidden);
 
@@ -2247,5 +2246,20 @@ public class AttendanceService : IAttendanceService
             current = current.InnerException;
         }
         return false;
+    }
+    /// <summary>
+    /// Per-viewer visibility gate (AAM-FR-04.8 vs AAM-FR-04.9 — independent toggles).
+    /// Each caller is checked against only its own flag. Fail-closed when no
+    /// configuration row exists (preserves the previous deny-on-null behavior).
+    /// </summary>
+    private static bool IsAttendanceVisibleTo(TeacherConfiguration? config, AttendanceViewerType viewer)
+    {
+        if (config is null) return false;
+        return viewer switch
+        {
+            AttendanceViewerType.Student => config.StudentVisibilityAttendance,
+            AttendanceViewerType.Parent => config.ParentVisibilityAttendance,
+            _ => false
+        };
     }
 }

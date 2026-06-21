@@ -1,23 +1,43 @@
+using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.Attendance;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// API controller for the Attendance Module (Module 3).
-/// Manages attendance taking, editing, absence tracking, cross-session attendance,
-/// student attendance timeline, and reporting.
-/// All endpoints are teacher-scoped via the teacherId route parameter.
+/// API controller for the Attendance Module (Module 3) — teacher and assistant
+/// endpoints. Inherits <see cref="ModuleSixApiBaseController"/> for JWT-to-teacher
+/// resolution (<c>ResolveTeacherIdAsync</c>, <c>GetActingUserId</c>, <c>TeacherNotResolved</c>).
 ///
-/// All endpoint documentation follows the existing project pattern:
+/// AUTH &amp; TENANCY: class-level [Authorize] + per-action
+/// [ModulePermission(AttendanceConstants.ModuleName, ...)]. The acting teacherId is
+/// ALWAYS derived from the JWT via ResolveTeacherIdAsync — never read from the route
+/// or body (Catalog §1.3 / REQ-ATT-NFR-003). Teachers pass on the module claim alone;
+/// assistants additionally require the named permission (REQ-USR-017); SuperAdmin bypasses.
+/// The acting user id comes from GetActingUserId() for audit attribution
+/// (BR-USR-003 / BR-ATT-006), never from the request body.
+///
+/// STUDENT/PARENT-FACING ENDPOINTS LIVE ELSEWHERE: see StudentAttendanceController
+/// (Phase 3) — their auth (roleOnly) and caller-scoping differ.
+///
+/// Endpoint documentation follows the existing pattern:
 /// WHAT IT DOES → TABLES READ/WRITTEN → SAMPLE REQUEST.
 /// </summary>
-public class AttendanceController : ApiBaseController
+[Authorize]
+public class AttendanceController : ModuleSixApiBaseController
 {
     private readonly IAttendanceService _attendanceService;
 
-    public AttendanceController(IAttendanceService attendanceService)
+    public AttendanceController(
+        IAttendanceService attendanceService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
+        : base(currentUser, unitOfWork)
     {
         _attendanceService = attendanceService;
     }
@@ -35,14 +55,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: Sessions
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/sessions/{sessionId:long}/occurrences/generate")]
+    [HttpPost("sessions/{sessionId:long}/occurrences/generate")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GenerateOccurrences(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+    public async Task<IActionResult> GenerateOccurrences([FromRoute] long sessionId)
     {
-        var result = await _attendanceService.GenerateOccurrencesAsync(teacherId, sessionId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GenerateOccurrencesAsync(teacherId.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -58,14 +82,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: SessionOccurrences, Sessions, AttendanceRecords, StudentSessionAssignments
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/dashboard")]
+    [HttpGet("dashboard")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetDashboard(
-        [FromRoute] long teacherId,
-        [FromQuery] AttendanceDashboardRequest request)
+    public async Task<IActionResult> GetDashboard([FromQuery] AttendanceDashboardRequest request)
     {
-        var result = await _attendanceService.GetDashboardAsync(teacherId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetDashboardAsync(teacherId.Value, request);
         return ToResponse(result);
     }
 
@@ -80,19 +108,25 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: StudentSessionAssignments, AttendanceRecords, SessionLinks, StudentAbsenceCounters
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/students")]
+    [HttpGet("sessions/{sessionId:long}/students")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAttendanceStudentList(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionId,
         [FromQuery] DateTime? occurrenceDate,
         [FromQuery] AttendanceStudentListRequest request)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
         var result = await _attendanceService.GetAttendanceStudentListAsync(
-            teacherId, sessionId, occurrenceDate, request);
+            teacherId.Value, sessionId, occurrenceDate, request);
         return ToResponse(result);
     }
+
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 4: MARK SINGLE STUDENT ATTENDANCE
@@ -108,16 +142,24 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> MarkAttendance([FromBody] MarkAttendanceDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.MarkAttendanceAsync(dto);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 5: BULK MARK ATTENDANCE
     // ══════════════════════════════════════════════════════════════════════════
@@ -132,15 +174,23 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark-bulk")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> BulkMarkAttendance([FromBody] BulkMarkAttendanceDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.BulkMarkAttendanceAsync(dto);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 6: GET OCCURRENCE CALENDAR
     // ══════════════════════════════════════════════════════════════════════════
@@ -152,14 +202,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: SessionOccurrences, AttendanceRecords, StudentSessionAssignments
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/occurrences/calendar")]
+    [HttpGet("sessions/{sessionId:long}/occurrences/calendar")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetOccurrenceCalendar(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+    public async Task<IActionResult> GetOccurrenceCalendar([FromRoute] long sessionId)
     {
-        var result = await _attendanceService.GetOccurrenceCalendarAsync(teacherId, sessionId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetOccurrenceCalendarAsync(teacherId.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -179,15 +233,20 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: Sessions, SessionOccurrences, AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/occurrences/{occurrenceDate:datetime}/students")]
+    [HttpGet("sessions/{sessionId:long}/occurrences/{occurrenceDate:datetime}/students")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetOccurrenceStudents(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId,
-        [FromRoute] DateTime occurrenceDate)
+          [FromRoute] long sessionId,
+          [FromRoute] DateTime occurrenceDate)
     {
-        var result = await _attendanceService.GetOccurrenceStudentsAsync(teacherId, sessionId, occurrenceDate);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetOccurrenceStudentsAsync(teacherId.Value, sessionId, occurrenceDate);
         return ToResponse(result);
     }
 
@@ -204,14 +263,22 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("edit")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> EditAttendance([FromBody] EditAttendanceDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.EditedByUserId = GetActingUserId();
+
         var result = await _attendanceService.EditAttendanceAsync(dto);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 8: ADD ATTENDANCE RECORD (VIA EDIT)
     // ══════════════════════════════════════════════════════════════════════════
@@ -225,12 +292,21 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("add")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> AddAttendanceRecord([FromBody] AddAttendanceRecordDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.AddAttendanceRecordAsync(dto);
         return ToResponse(result);
     }
@@ -247,14 +323,21 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("delete")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteAttendanceRecord([FromBody] DeleteAttendanceRecordDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+
         var result = await _attendanceService.DeleteAttendanceRecordAsync(dto);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 10: GET EDIT HISTORY
     // ══════════════════════════════════════════════════════════════════════════
@@ -266,14 +349,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: AttendanceRecords, AttendanceEditLogs
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/records/{recordId:long}/history")]
+    [HttpGet("records/{recordId:long}/history")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetEditHistory(
-        [FromRoute] long teacherId,
-        [FromRoute] long recordId)
+    public async Task<IActionResult> GetEditHistory([FromRoute] long recordId)
     {
-        var result = await _attendanceService.GetEditHistoryAsync(teacherId, recordId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetEditHistoryAsync(teacherId.Value, recordId);
         return ToResponse(result);
     }
 
@@ -288,18 +375,22 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: StudentAbsenceCounters, TeacherStudents, SessionLinks, AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/absences")]
+    [HttpGet("sessions/{sessionId:long}/absences")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewAbsenceOverview)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAbsenceOverview(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionId,
         [FromQuery] AbsenceOverviewRequest request)
     {
-        var result = await _attendanceService.GetAbsenceOverviewAsync(teacherId, sessionId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetAbsenceOverviewAsync(teacherId.Value, sessionId, request);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 12: GET TIMELINE STUDENT LIST
     // ══════════════════════════════════════════════════════════════════════════
@@ -311,14 +402,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: StudentSessionAssignments, TeacherStudents, StudentAbsenceCounters
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/timeline/students")]
+    [HttpGet("timeline/students")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetTimelineStudentList(
-        [FromRoute] long teacherId,
-        [FromQuery] AttendanceTimelineRequest request)
+    public async Task<IActionResult> GetTimelineStudentList([FromQuery] AttendanceTimelineRequest request)
     {
-        var result = await _attendanceService.GetTimelineStudentListAsync(teacherId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetTimelineStudentListAsync(teacherId.Value, request);
         return ToResponse(result);
     }
 
@@ -333,14 +428,18 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: TeacherStudents, StudentAbsenceCounters, StudentSessionAssignments
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/timeline/students/{studentId:long}")]
+    [HttpGet("timeline/students/{studentId:long}")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentAttendanceSummary(
-        [FromRoute] long teacherId,
-        [FromRoute] long studentId)
+    public async Task<IActionResult> GetStudentAttendanceSummary([FromRoute] long studentId)
     {
-        var result = await _attendanceService.GetStudentAttendanceSummaryAsync(teacherId, studentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetStudentAttendanceSummaryAsync(teacherId.Value, studentId);
         return ToResponse(result);
     }
 
@@ -355,15 +454,20 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: AttendanceRecords, TeacherStudents
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/timeline/students/{studentId:long}/month")]
+    [HttpGet("timeline/students/{studentId:long}/month")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStudentTimelineMonth(
-        [FromRoute] long teacherId,
         [FromRoute] long studentId,
         [FromQuery] StudentTimelineMonthRequest request)
     {
-        var result = await _attendanceService.GetStudentTimelineMonthAsync(teacherId, studentId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetStudentTimelineMonthAsync(teacherId.Value, studentId, request);
         return ToResponse(result);
     }
 
@@ -378,63 +482,22 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: AttendanceRecords, TeacherStudents, Sessions, SessionLinks
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports")]
+    [HttpPost("reports")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionGenerateReports)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GenerateReport(
-        [FromRoute] long teacherId,
-        [FromBody] AttendanceReportRequest request)
+    public async Task<IActionResult> GenerateReport([FromBody] AttendanceReportRequest request)
     {
-        var result = await _attendanceService.GenerateReportAsync(teacherId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GenerateReportAsync(teacherId.Value, request);
         return ToResponse(result);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 16: STUDENT VIEW — ATTENDANCE SUMMARY
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Returns attendance summary for a student/parent view.
-    //   Gated by TeacherConfiguration visibility settings.
-    //
-    // TABLES READ: TeacherConfigurations, StudentAbsenceCounters, StudentSessionAssignments
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/student-view/{studentId:long}/summary")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentViewSummary(
-        [FromRoute] long teacherId,
-        [FromRoute] long studentId)
-    {
-        var result = await _attendanceService.GetStudentViewAttendanceSummaryAsync(teacherId, studentId);
-        return ToResponse(result);
-    }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 17: STUDENT VIEW — MONTHLY DATA
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Returns one month of attendance for student/parent view.
-    //   Gated by TeacherConfiguration visibility settings.
-    //
-    // TABLES READ: TeacherConfigurations, AttendanceRecords
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/student-view/{studentId:long}/month")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentViewMonth(
-        [FromRoute] long teacherId,
-        [FromRoute] long studentId,
-        [FromQuery] StudentTimelineMonthRequest request)
-    {
-        var result = await _attendanceService.GetStudentViewAttendanceAsync(teacherId, studentId, request);
-        return ToResponse(result);
-    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 18: HOLD STUDENT (FIX 4.1 — REQ-ATT-061)
@@ -450,11 +513,20 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark-hold")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> HoldStudent([FromBody] HoldStudentDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.HoldStudentAsync(dto);
         return ToResponse(result);
     }
@@ -472,15 +544,23 @@ public class AttendanceController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("release-hold")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ReleaseHold([FromBody] ReleaseHoldDto dto)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.ReleaseHoldAsync(dto);
         return ToResponse(result);
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 20: EXPORT REPORT (FIX 4.2 — REQ-ATT-041)
     // ══════════════════════════════════════════════════════════════════════════
@@ -493,15 +573,20 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: AttendanceRecords, TeacherStudents, Sessions, SessionLinks
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports/export")]
+    [HttpPost("reports/export")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionGenerateReports)]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ExportReport(
-        [FromRoute] long teacherId,
-        [FromBody] AttendanceReportRequest request,
-        [FromQuery] string format = "xlsx")
+         [FromBody] AttendanceReportRequest request,
+         [FromQuery] string format = "xlsx")
     {
-        var result = await _attendanceService.ExportReportAsync(teacherId, request, format);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.ExportReportAsync(teacherId.Value, request, format);
         if (!result.IsSuccess)
             return ToResponse(result);
 
@@ -512,7 +597,6 @@ public class AttendanceController : ApiBaseController
 
         return File(result.Data!, contentType, $"attendance_report.{extension}");
     }
-
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 21: EXPORT STUDENT TIMELINE (FIX 4.2 — REQ-ATT-081)
     // ══════════════════════════════════════════════════════════════════════════
@@ -524,18 +608,23 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: TeacherStudents, StudentAbsenceCounters, AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/timeline/students/{studentId:long}/export")]
+    [HttpGet("timeline/students/{studentId:long}/export")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionGenerateReports)]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ExportTimeline(
-        [FromRoute] long teacherId,
-        [FromRoute] long studentId,
-        [FromQuery] DateTime? startDate,
-        [FromQuery] DateTime? endDate,
-        [FromQuery] string format = "xlsx")
+         [FromRoute] long studentId,
+         [FromQuery] DateTime? startDate,
+         [FromQuery] DateTime? endDate,
+         [FromQuery] string format = "xlsx")
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
         var result = await _attendanceService.ExportTimelineAsync(
-            teacherId, studentId, startDate, endDate, format);
+            teacherId.Value, studentId, startDate, endDate, format);
         if (!result.IsSuccess)
             return ToResponse(result);
 
@@ -560,14 +649,20 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: Sessions, TeacherStudents, SessionOccurrences, AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/sync")]
+    [HttpPost("sync")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> SyncOfflineRecords(
-        [FromRoute] long teacherId,
-        [FromBody] OfflineSyncRequestDto dto)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SyncOfflineRecords([FromBody] OfflineSyncRequestDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.RecordedByUserId = GetActingUserId();
+
         var result = await _attendanceService.SyncOfflineRecordsAsync(dto);
         return ToResponse(result);
     }
@@ -583,15 +678,20 @@ public class AttendanceController : ApiBaseController
     // TABLES READ: SessionOccurrences, StudentSessionAssignments, AttendanceRecords
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/unmarked-count")]
+    [HttpGet("sessions/{sessionId:long}/unmarked-count")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetUnmarkedCount(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId,
-        [FromQuery] DateTime? occurrenceDate)
+         [FromRoute] long sessionId,
+         [FromQuery] DateTime? occurrenceDate)
     {
-        var result = await _attendanceService.GetUnmarkedCountAsync(teacherId, sessionId, occurrenceDate);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetUnmarkedCountAsync(teacherId.Value, sessionId, occurrenceDate);
         return ToResponse(result);
     }
 }

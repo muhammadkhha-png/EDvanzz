@@ -590,6 +590,14 @@ namespace Edvanz.Domain.Interfaces
         /// headers (REQ-USR-030).
         /// </summary>
         Task<string?> GetTeacherDisplayNameAsync(long teacherId);
+        /// <summary>
+        /// Finds an active (non-deleted) parent user by their underlying User.Id.
+        /// Distinct from <see cref="GetActiveParentUserByIdAsync"/>, which takes the
+        /// ParentUser table PK — this takes the User table PK carried by the JWT,
+        /// mirroring <see cref="GetActiveStudentUserByUserIdAsync"/>. Used by the
+        /// parent attendance controller to resolve the JWT principal to a ParentUser.
+        /// </summary>
+        Task<ParentUser?> GetActiveParentUserByUserIdAsync(long userId);
 
 
     }

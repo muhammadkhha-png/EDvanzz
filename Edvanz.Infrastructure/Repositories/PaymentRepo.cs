@@ -301,9 +301,17 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
     public async Task UpdatePaymentCounterAsync(StudentPaymentCounter counter)
     {
-        _context.Entry(counter).State = EntityState.Modified;
+        // A counter created earlier in this same unit of work is still in the Added
+        // state with a temporary key; forcing it to Modified throws. Leave Added entities
+        // as-is — SaveChanges INSERTs them with the totals already set on the instance.
+        // Only already-tracked/persisted rows need the explicit Modified flag.
+        var entry = _context.Entry(counter);
+        if (entry.State != EntityState.Added)
+            entry.State = EntityState.Modified;
+
         await Task.CompletedTask;
     }
 

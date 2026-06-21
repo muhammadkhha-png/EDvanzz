@@ -130,4 +130,41 @@ public static class AttendanceConstants
         /// </summary>
         public const string AttendanceDuplicateRecordExists = "AttendanceDuplicateRecordExists";
     }
+
+    // ══════════════════════════════════════════════
+    // MODULE IDENTITY
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Module name as registered in the <c>Models</c> seed table
+    /// (DbInitializer.SeedModulesAsync) and emitted in the per-request
+    /// <c>UserAuthSnapshot.Modules</c> set. This exact string is what
+    /// PermissionHandler step 5 matches against, so it MUST equal the seeded row.
+    /// Used in every [ModulePermission(ModuleName, ...)] on the attendance endpoints.
+    /// Same single-sourcing pattern as <see cref="VideoConstants"/> / StudentConstants —
+    /// change it in exactly one place: here.
+    /// </summary>
+    public const string ModuleName = "Attendance";
+
+    // ══════════════════════════════════════════════
+    // PERMISSION NAMES (seeded under the "Attendance" module — REQ-USR-017)
+    // Values MUST match DbInitializer.SeedPermissionsAsync exactly. The snapshot
+    // stores them qualified as "Attendance.{Name}" and the handler re-forms that
+    // same key, so any drift here silently locks assistants out.
+    // ══════════════════════════════════════════════
+
+    /// <summary>REQ-USR-017 "Take Attendance" — record attendance for session occurrences.</summary>
+    public const string PermissionTake = "Take";
+
+    /// <summary>REQ-USR-017 "Edit Attendance" — modify previously recorded attendance records.</summary>
+    public const string PermissionEdit = "Edit";
+
+    /// <summary>REQ-USR-017 "View Attendance History" — view student/session attendance history.</summary>
+    public const string PermissionViewHistory = "ViewHistory";
+
+    /// <summary>REQ-USR-017 "View Absence Overview" — view the absence overview panel and consecutive-absence data.</summary>
+    public const string PermissionViewAbsenceOverview = "ViewAbsenceOverview";
+
+    /// <summary>REQ-USR-017 "Generate Attendance Reports" — generate and export attendance reports.</summary>
+    public const string PermissionGenerateReports = "GenerateReports";
 }

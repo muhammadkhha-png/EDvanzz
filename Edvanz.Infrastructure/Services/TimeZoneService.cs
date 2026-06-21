@@ -51,14 +51,19 @@ namespace Edvanz.Application.Services
         private static readonly TimeZoneInfo EgyptTimeZone =
             TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo");
 
-        public DateTime GetTeacherLocalDate(long teacherId)
-        {
-            throw new NotImplementedException();
-        }
-
+        /// <inheritdoc />
         public DateTime GetTeacherLocalNow(long teacherId)
         {
-            throw new NotImplementedException();
+            // teacherId is reserved for the future per-teacher timezone lookup documented on
+            // ITimeZoneService. Until TeacherConfiguration exposes a configurable timezone,
+            // every teacher resolves to Africa/Cairo. Routing through ConvertUtcToLocal keeps
+            // the DST-gap handling and timezone resolution in a single place — when the
+            // per-teacher lookup lands, only the timeZoneId argument here needs to change.
+            return ConvertUtcToLocal(DateTime.UtcNow);
         }
+
+        /// <inheritdoc />
+        public DateTime GetTeacherLocalDate(long teacherId)
+            => GetTeacherLocalNow(teacherId).Date;
     }
 }

@@ -903,5 +903,12 @@ namespace Edvanz.Infrastructure.Repositories
                 .Select(t => t.User.FullName)
                 .FirstOrDefaultAsync();
         }
+
+        /// <inheritdoc />
+        public async Task<ParentUser?> GetActiveParentUserByUserIdAsync(long userId)
+        {
+            return await _context.Set<ParentUser>()
+                .FirstOrDefaultAsync(p => p.UserId == userId && p.DeletedAt == null);
+        }
     }
 }

@@ -523,7 +523,9 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     /// <inheritdoc />
     public async Task UpdateAbsenceCounterAsync(StudentAbsenceCounter counter)
     {
-        _context.Entry(counter).State = EntityState.Modified;
+        var entry = _context.Entry(counter);
+        if (entry.State != EntityState.Added)
+            entry.State = EntityState.Modified;
         await Task.CompletedTask;
     }
 

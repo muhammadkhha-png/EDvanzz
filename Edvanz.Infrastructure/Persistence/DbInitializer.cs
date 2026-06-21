@@ -1,4 +1,5 @@
-﻿using Edvanz.Domain.Entities;
+﻿using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.ServiceContract;
 using Microsoft.EntityFrameworkCore;
@@ -54,15 +55,18 @@ namespace Edvanz.Infrastructure.Persistence
         /// </summary>
         /// <param name="context">The application DbContext.</param>
         /// <param name="passwordService">Hashing service shared with the runtime app.</param>
-        public static async Task SeedAsync(EdvanzDbContext context, IPasswordService passwordService)
+        public static async Task SeedAsync(
+     EdvanzDbContext context,
+     IPasswordService passwordService,
+     ISessionService sessionService)
         {
             await SeedModulesAsync(context);
             await SeedPermissionsAsync(context);
             await SeedStudentCapacityPackagesAsync(context);
             await SeedUsersAsync(context, passwordService);
-            await SeedUsersAsync(context, passwordService);
-            await SeedTeacherSubscriptionsAsync(context);      // ← add
-            await SeedTeacherStudentAndLinksAsync(context);    // ← add
+            await SeedTeacherSubscriptionsAsync(context);
+            await SeedTeacherStudentAndLinksAsync(context);
+            await SeedOperationalSessionsAsync(context, sessionService);   // ← new
         }
 
         // ════════════════════════════════════════════════
