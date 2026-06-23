@@ -1,27 +1,59 @@
+using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// API controller for the Payment Module (Module 4).
-/// Manages payment collection, editing, deletion, unpaid overview,
-/// custom amounts, assistant wallets, dashboard, departure, transfer,
-/// offline sync, and student/parent payment views.
-/// All endpoints are teacher-scoped via the teacherId route parameter.
+/// Payment Module (Module 4) — teacher and assistant endpoints.
 ///
-/// All endpoint documentation follows the existing project pattern:
-/// WHAT IT DOES → TABLES READ/WRITTEN → SAMPLE REQUEST.
+/// ARCHITECTURE CHANGES (auth rebase):
+/// <list type="bullet">
+///   <item>Base class changed from <see cref="ApiBaseController"/> →
+///         <see cref="ModuleSixApiBaseController"/> to gain
+///         <c>ResolveTeacherIdAsync()</c> and <c>GetActingUserId()</c>.</item>
+///   <item>Class-level <c>[Authorize]</c> added — every action now requires a
+///         valid JWT.</item>
+///   <item><c>{teacherId}</c> removed from every route. The tenant id is
+///         derived from the JWT only (catalog §1.3 / REQ-PAY-NFR-001).</item>
+///   <item>Every action carries <c>[ModulePermission]</c>:
+///         teacher → module-only; assistant → module + named permission;
+///         SuperAdmin → bypass (per PermissionHandler decision matrix).</item>
+///   <item>Actor-identity fields (<c>CollectedByUserId</c>,
+///         <c>EditedByUserId</c>, <c>ResetByUserId</c>,
+///         <c>ConfirmedByUserId</c>, <c>TransferredByUserId</c>) are now
+///         always populated from <c>GetActingUserId()</c> — never from the
+///         request body or query string (REQ-PAY-011 / BR-PAY-004).</item>
+/// </list>
+///
+/// ABSOLUTE TUTOR-ONLY GATES (BR-PAY-002 / REQ-PAY-014 / REQ-PAY-027 /
+/// REQ-PAY-036):
+///   Edit, Delete, Custom-Amount Set, Wallets (view + reset), Dashboard,
+///   Departure, Transfer — all use <c>roleOnly: ["Teacher","SuperAdmin"]</c>
+///   and cannot be delegated to assistants under any configuration.
+///
+/// ASSISTANT-DELEGATABLE GATES (REQ-USR-018):
+///   Collect, View History, View Unpaid Students, View Collector Summary,
+///   Generate Reports, Sync — use named <c>[ModulePermission]</c> attributes
+///   and are accessible to assistants when the permission is granted.
 /// </summary>
-public class PaymentController : ApiBaseController
+[Authorize]
+public sealed class PaymentController : ModuleSixApiBaseController
 {
     private readonly IPaymentService _paymentService;
     private readonly IPaymentReportService _reportService;
 
     public PaymentController(
         IPaymentService paymentService,
-        IPaymentReportService reportService)
+        IPaymentReportService reportService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
+        : base(currentUser, unitOfWork)
     {
         _paymentService = paymentService;
         _reportService = reportService;
@@ -29,417 +61,731 @@ public class PaymentController : ApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: COLLECT PAYMENT
+    // POST api/payment/collect
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
     //   Collects a payment from a student for a session.
     //   REQ-PAY-001/002: All four collection methods produce a unified record.
-    //   REQ-PAY-018/019: Automatically assigned to earliest unpaid period.
+    //   REQ-PAY-011: CollectedByUserId always sourced from JWT (acting user).
+    //   REQ-PAY-018/019: Auto-assigned to earliest unpaid period (BR-PAY-001).
     //   REQ-PAY-020/026: Duplicate and already-paid detection.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect permission.
     //
     // TABLES WRITTEN: PaymentTransactions, PaymentPeriods, StudentPaymentCounters, AssistantWallets
     // TABLES READ: Teachers, Sessions, TeacherStudents, StudentSessionAssignments, PaymentPeriods
     //
-    // SAMPLE: POST /api/payment/123/collect
-    //   { "teacherStudentId": 456, "sessionId": 789, "amount": 200.00,
-    //     "paymentMethod": "BarcodeScan" }
-    //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/collect")]
+    [HttpPost("collect")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> CollectPayment(
-        [FromRoute] long teacherId,
-        [FromBody] CollectPaymentDto dto)
+    public async Task<IActionResult> CollectPayment([FromBody] CollectPaymentDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // REQ-PAY-011: actor identity is always the authenticated user — never client-supplied.
+        dto.TeacherId = teacherId.Value;
+        dto.CollectedByUserId = GetActingUserId();
+
         var result = await _paymentService.CollectPaymentAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 2: GET STUDENT PAYMENT STATUS
+    // GET api/payment/students/{teacherStudentId}/payment-status
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
     //   Returns the payment status for a student on the collection screen.
-    //   REQ-PAY-NFR-006: Displayed immediately after student identification.
+    //   REQ-PAY-NFR-006: Status shown immediately after student identification.
     //
-    // TABLES READ: TeacherStudents, StudentPaymentCounters, PaymentPeriods
-    //
-    // SAMPLE: GET /api/payment/123/students/456/status
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/status")]
+    [HttpGet("students/{teacherStudentId:long}/payment-status")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentPaymentStatus(
-        [FromRoute] long teacherId,
-        [FromRoute] long teacherStudentId)
+    public async Task<IActionResult> GetStudentPaymentStatus([FromRoute] long teacherStudentId)
     {
-        var result = await _paymentService.GetStudentPaymentStatusAsync(teacherId, teacherStudentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetStudentPaymentStatusAsync(teacherId.Value, teacherStudentId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 3: CHECK DUPLICATE PAYMENT
+    // GET api/payment/students/{teacherStudentId}/duplicate-check
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Checks for same-day duplicate or already-paid period before collection.
-    //   REQ-PAY-020/026: Pre-collection validation.
+    //   Checks for same-day or already-paid-period duplicates before collection.
+    //   REQ-PAY-020/026: Pre-collection safety check.
     //
-    // TABLES READ: PaymentTransactions, PaymentPeriods
-    //
-    // SAMPLE: GET /api/payment/123/students/456/duplicate-check
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/duplicate-check")]
+    [HttpGet("students/{teacherStudentId:long}/duplicate-check")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> CheckDuplicate(
-        [FromRoute] long teacherId,
-        [FromRoute] long teacherStudentId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> CheckDuplicatePayment([FromRoute] long teacherStudentId)
     {
-        var result = await _paymentService.CheckDuplicatePaymentAsync(teacherId, teacherStudentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.CheckDuplicatePaymentAsync(teacherId.Value, teacherStudentId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 4: EDIT PAYMENT
+    // PUT api/payment/transactions/{transactionId}
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Edits an existing payment transaction (amount, status, period reassignment).
-    //   BR-PAY-002: Only the tutor role may edit.
+    //   Edits an existing payment transaction.
+    //   BR-PAY-002: ABSOLUTE — only the tutor role may edit payment records.
+    //   This restriction cannot be delegated to assistants under any configuration.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
     //
     // TABLES WRITTEN: PaymentTransactions, PaymentEditLogs, PaymentPeriods, StudentPaymentCounters
-    // TABLES READ: PaymentTransactions
-    //
-    // SAMPLE: PUT /api/payment/123/transactions/789
-    //   { "newAmount": 150.00, "editReason": "Correction" }
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPut("{teacherId:long}/transactions/{transactionId:long}")]
+    [HttpPut("transactions/{transactionId:long}")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> EditPayment(
-        [FromRoute] long teacherId,
         [FromRoute] long transactionId,
         [FromBody] EditPaymentDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Actor identity from JWT — never from request body (BR-PAY-002).
+        dto.TeacherId = teacherId.Value;
         dto.TransactionId = transactionId;
+        dto.EditedByUserId = GetActingUserId();
+
         var result = await _paymentService.EditPaymentAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 5: DELETE PAYMENT
+    // DELETE api/payment/transactions/{transactionId}
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
     //   Soft-deletes a payment transaction.
-    //   BR-PAY-002: Only the tutor role may delete.
+    //   BR-PAY-002: ABSOLUTE — only the tutor role may delete payment records.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //   deletedByUserId is sourced from JWT — no longer a query param.
     //
     // TABLES WRITTEN: PaymentTransactions, PaymentEditLogs, PaymentPeriods, StudentPaymentCounters
     //
-    // SAMPLE: DELETE /api/payment/123/transactions/789
-    //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpDelete("{teacherId:long}/transactions/{transactionId:long}")]
+    [HttpDelete("transactions/{transactionId:long}")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeletePayment(
-        [FromRoute] long teacherId,
-        [FromRoute] long transactionId,
-        [FromQuery] long deletedByUserId)
+    public async Task<IActionResult> DeletePayment([FromRoute] long transactionId)
     {
-        var result = await _paymentService.DeletePaymentAsync(teacherId, transactionId, deletedByUserId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // deletedByUserId is the authenticated user — never a client-supplied query param.
+        long actingUserId = GetActingUserId();
+        var result = await _paymentService.DeletePaymentAsync(teacherId.Value, transactionId, actingUserId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 5b: PAYMENT EDIT HISTORY
+    // GET api/payment/transactions/{transactionId}/edit-logs
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Returns the edit/modification history for a specific payment transaction.
-    //   REQ-PAY-027: Edit history accessible to tutor.
+    //   Returns the edit/modification log for a specific payment transaction.
+    //   REQ-PAY-027: Audit trail of changes.
     //
-    // TABLES READ: PaymentEditLogs
-    //
-    // SAMPLE: GET /api/payment/123/transactions/789/edit-logs
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/transactions/{transactionId:long}/edit-logs")]
+    [HttpGet("transactions/{transactionId:long}/edit-logs")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetPaymentEditLogs(
-        [FromRoute] long teacherId,
-        [FromRoute] long transactionId)
+    public async Task<IActionResult> GetPaymentEditLogs([FromRoute] long transactionId)
     {
-        var result = await _paymentService.GetPaymentEditHistoryAsync(teacherId, transactionId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetPaymentEditHistoryAsync(teacherId.Value, transactionId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 6: STUDENT PAYMENT HISTORY
+    // GET api/payment/students/{teacherStudentId}/history
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
     //   Returns complete payment history for a student across all sessions.
-    //   REQ-PAY-052: Unified timeline with periods, transfers, departures.
+    //   REQ-PAY-052/092: Unified timeline.
     //
-    // TABLES READ: PaymentTransactions, PaymentPeriods, SessionTransferEvents, StudentDepartures
-    //
-    // SAMPLE: GET /api/payment/123/students/456/history?page=1&pageSize=20
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/history")]
+    [HttpGet("students/{teacherStudentId:long}/history")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStudentHistory(
-        [FromRoute] long teacherId,
         [FromRoute] long teacherStudentId,
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
         var result = await _paymentService.GetStudentPaymentHistoryAsync(
-            teacherId, teacherStudentId, startDate, endDate, page, pageSize);
+            teacherId.Value, teacherStudentId, startDate, endDate, page, pageSize);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 7/8: CUSTOM AMOUNT (GET/SET)
+    // ENDPOINT 7: GET CUSTOM AMOUNT
+    // GET api/payment/students/{teacherStudentId}/custom-amount
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/custom-amount")]
+    //
+    // WHAT IT DOES:
+    //   Returns the student's current custom payment amount (null = session default).
+    //   REQ-PAY-016: Custom amount override per student.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("students/{teacherStudentId:long}/custom-amount")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetCustomAmount(
-        [FromRoute] long teacherId,
-        [FromRoute] long teacherStudentId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetCustomAmount([FromRoute] long teacherStudentId)
     {
-        var result = await _paymentService.GetCustomAmountAsync(teacherId, teacherStudentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetCustomAmountAsync(teacherId.Value, teacherStudentId);
         return ToResponse(result);
     }
 
-    [HttpPut("{teacherId:long}/students/{teacherStudentId:long}/custom-amount")]
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 8: SET CUSTOM AMOUNT
+    // PUT api/payment/students/{teacherStudentId}/custom-amount
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Sets a custom payment amount for a student.
+    //   REQ-PAY-016 / BR-PAY-003: Tutor-only; overrides session default permanently.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("students/{teacherStudentId:long}/custom-amount")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SetCustomAmount(
-        [FromRoute] long teacherId,
         [FromRoute] long teacherStudentId,
         [FromBody] SetCustomAmountDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
         dto.TeacherStudentId = teacherStudentId;
+
         var result = await _paymentService.SetCustomAmountAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 9: UNPAID STUDENTS OVERVIEW
+    // GET api/payment/unpaid
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/unpaid")]
+    //
+    // WHAT IT DOES:
+    //   Returns paginated unpaid students view with filters.
+    //   REQ-PAY-031/032/033: Filterable, searchable, with consecutive count.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewUnpaidStudents permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("unpaid")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetUnpaidStudents(
-        [FromRoute] long teacherId,
-        [FromQuery] UnpaidStudentsFilterDto filter)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetUnpaidStudents([FromQuery] UnpaidStudentsFilterDto filter)
     {
-        var result = await _paymentService.GetUnpaidStudentsAsync(teacherId, filter);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetUnpaidStudentsAsync(teacherId.Value, filter);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 10: UNPAID COUNT BY SESSION (badge)
+    // ENDPOINT 10: UNPAID COUNT BADGE (PER SESSION)
+    // GET api/payment/sessions/{sessionId}/unpaid-count
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/unpaid-count")]
+    //
+    // WHAT IT DOES:
+    //   Returns the unpaid student count badge for a session.
+    //   REQ-PAY-028: Notification badge on session view.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewUnpaidStudents permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/{sessionId:long}/unpaid-count")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetUnpaidCount(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetUnpaidCountBySession([FromRoute] long sessionId)
     {
-        var result = await _paymentService.GetUnpaidCountBySessionAsync(teacherId, sessionId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetUnpaidCountBySessionAsync(teacherId.Value, sessionId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 11: COLLECTOR VIEW
+    // ENDPOINT 11: COLLECTOR SUMMARY
+    // GET api/payment/collectors
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/collectors")]
+    //
+    // WHAT IT DOES:
+    //   Returns per-user collection breakdown.
+    //   REQ-PAY-013: User Collection View.
+    //   REQ-PAY-014 / REQ-USR-018: Full view is tutor-only; the service layer
+    //   MUST filter results to the assistant's own records when caller is Assistant.
+    //   TODO (service gap): PaymentService.GetCollectorSummaryAsync does not yet
+    //   filter by caller role — add caller role + userId parameter and filter there.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewCollectorSummary permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("collectors")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetCollectorSummary(
-        [FromRoute] long teacherId,
         [FromQuery] DateTime? startDate,
         [FromQuery] DateTime? endDate)
     {
-        var result = await _paymentService.GetCollectorSummaryAsync(teacherId, startDate, endDate);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetCollectorSummaryAsync(teacherId.Value, startDate, endDate);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 12/13/14: WALLET MANAGEMENT
+    // ENDPOINT 12: GET ALL WALLETS
+    // GET api/payment/wallets
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/wallets")]
+    //
+    // WHAT IT DOES:
+    //   Returns all assistant wallets for the teacher.
+    //   REQ-PAY-035: Tutor views current wallet balance of each assistant.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("wallets")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllWallets([FromRoute] long teacherId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAllWallets()
     {
-        var result = await _paymentService.GetAllWalletsAsync(teacherId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetAllWalletsAsync(teacherId.Value);
         return ToResponse(result);
     }
 
-    [HttpGet("{teacherId:long}/wallets/{assistantId:long}")]
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 13: GET WALLET DETAIL
+    // GET api/payment/wallets/{assistantId}
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns the itemized wallet detail for a specific assistant.
+    //   REQ-PAY-035: Full collection list per assistant.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("wallets/{assistantId:long}")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetWalletDetail(
-        [FromRoute] long teacherId,
-        [FromRoute] long assistantId)
+    public async Task<IActionResult> GetWalletDetail([FromRoute] long assistantId)
     {
-        var result = await _paymentService.GetWalletDetailAsync(teacherId, assistantId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetWalletDetailAsync(teacherId.Value, assistantId);
         return ToResponse(result);
     }
 
-    [HttpPost("{teacherId:long}/wallets/{assistantId:long}/reset")]
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 14: RESET WALLET
+    // POST api/payment/wallets/{assistantId}/reset
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Resets an assistant's wallet to zero (cash handover confirmed).
+    //   REQ-PAY-036/037: Permanent ledger event — never deleted.
+    //   REQ-PAY-NFR-009: Confirmation UI required before calling this endpoint.
+    //   BR-PAY-002: ABSOLUTE — only the tutor role may reset wallets.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //   ResetByUserId sourced from JWT — never from request body.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("wallets/{assistantId:long}/reset")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ResetWallet(
-        [FromRoute] long teacherId,
         [FromRoute] long assistantId,
         [FromBody] WalletResetDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Actor identity from JWT — WalletResetDto.ResetByUserId is never trusted from the body.
+        dto.TeacherId = teacherId.Value;
         dto.AssistantId = assistantId;
+        dto.ResetByUserId = GetActingUserId();
+
         var result = await _paymentService.ResetWalletAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 15: DASHBOARD
+    // ENDPOINT 15: PAYMENT OVERVIEW DASHBOARD
+    // GET api/payment/dashboard
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/dashboard")]
+    //
+    // WHAT IT DOES:
+    //   Returns expected/collected/remaining revenue with session and collector
+    //   breakdowns.
+    //   REQ-PAY-039–044: Payment Overview Dashboard, tutor-facing.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("dashboard")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetDashboard(
-        [FromRoute] long teacherId,
-        [FromQuery] PaymentDashboardFilterDto filter)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetDashboard([FromQuery] PaymentDashboardFilterDto filter)
     {
-        var result = await _paymentService.GetDashboardAsync(teacherId, filter);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetDashboardAsync(teacherId.Value, filter);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 16/17: DEPARTURE
+    // ENDPOINT 16: DEPARTURE SUMMARY
+    // GET api/payment/students/{teacherStudentId}/departure-summary
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/departure-summary")]
+    //
+    // WHAT IT DOES:
+    //   Calculates and returns the pre-departure financial summary.
+    //   REQ-PAY-067/068/072: Pro-rated obligation, departure summary screen.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("students/{teacherStudentId:long}/departure-summary")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GetDepartureSummary(
-        [FromRoute] long teacherId,
-        [FromRoute] long teacherStudentId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetDepartureSummary([FromRoute] long teacherStudentId)
     {
-        var result = await _paymentService.GetDepartureSummaryAsync(teacherId, teacherStudentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetDepartureSummaryAsync(teacherId.Value, teacherStudentId);
         return ToResponse(result);
     }
 
-    [HttpPost("{teacherId:long}/departure/confirm")]
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 17: CONFIRM DEPARTURE
+    // POST api/payment/departure/confirm
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Confirms a student departure: unassigns, records event, handles refund/charge.
+    //   REQ-PAY-073/075: Departure confirmed, optional tutor override.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //   ConfirmedByUserId sourced from JWT — never from request body.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("departure/confirm")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> ConfirmDeparture(
-        [FromRoute] long teacherId,
-        [FromBody] ConfirmDepartureDto dto)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ConfirmDeparture([FromBody] ConfirmDepartureDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.ConfirmedByUserId = GetActingUserId();
+
         var result = await _paymentService.ConfirmDepartureAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 18/19: SESSION TRANSFER
+    // ENDPOINT 18: TRANSFER SUMMARY
+    // GET api/payment/students/{teacherStudentId}/transfer-summary
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/transfer-summary")]
+    //
+    // WHAT IT DOES:
+    //   Calculates the pre-transfer financial summary.
+    //   REQ-PAY-088: Pre-transfer summary shown before confirmation.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("students/{teacherStudentId:long}/transfer-summary")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTransferSummary(
-        [FromRoute] long teacherId,
         [FromRoute] long teacherStudentId,
         [FromQuery] long sourceSessionId,
         [FromQuery] long destinationSessionId)
     {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
         var result = await _paymentService.GetTransferSummaryAsync(
-            teacherId, teacherStudentId, sourceSessionId, destinationSessionId);
+            teacherId.Value, teacherStudentId, sourceSessionId, destinationSessionId);
         return ToResponse(result);
     }
 
-    [HttpPost("{teacherId:long}/transfer/confirm")]
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 19: CONFIRM TRANSFER
+    // POST api/payment/transfer/confirm
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Confirms a session transfer with full payment data continuity.
+    //   REQ-PAY-085–092: History preserved, balance carried forward.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    //   TransferredByUserId sourced from JWT — never from request body.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("transfer/confirm")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> ConfirmTransfer(
-        [FromRoute] long teacherId,
-        [FromBody] ConfirmTransferDto dto)
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ConfirmTransfer([FromBody] ConfirmTransferDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+        dto.TransferredByUserId = GetActingUserId();
+
         var result = await _paymentService.ConfirmTransferAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 20: OFFLINE SYNC
+    // POST api/payment/sync
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/sync")]
+    //
+    // WHAT IT DOES:
+    //   Syncs offline-collected payment records to the server.
+    //   REQ-PAY-080/081: Background sync on reconnection.
+    //   REQ-PAY-082: Conflict detection and resolution.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect permission.
+    //   CollectedByUserId on each offline record is set to the authenticated
+    //   user — the same person who collected and is now syncing.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("sync")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> SyncOfflinePayments(
-        [FromRoute] long teacherId,
-        [FromBody] OfflinePaymentSyncRequestDto dto)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> SyncOfflinePayments([FromBody] OfflinePaymentSyncRequestDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        long actingUserId = GetActingUserId();
+        dto.TeacherId = teacherId.Value;
+
+        // Actor identity applied to every offline record — client-supplied CollectedByUserId is discarded.
+        foreach (var record in dto.OfflineRecords)
+        {
+            record.TeacherId = teacherId.Value;
+            record.CollectedByUserId = actingUserId;
+        }
+
         var result = await _paymentService.SyncOfflinePaymentsAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 21: STUDENT/PARENT PAYMENT VIEW
+    // GET api/payment/students/{teacherStudentId}/payment-view
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/students/{teacherStudentId:long}/payment-view")]
+    //
+    // WHAT IT DOES:
+    //   Returns payment data for a student/parent viewing their own payments.
+    //   Gated by TeacherConfiguration visibility settings (service-side).
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("students/{teacherStudentId:long}/payment-view")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    public async Task<IActionResult> GetStudentPaymentView(
-        [FromRoute] long teacherId,
-        [FromRoute] long teacherStudentId)
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentPaymentView([FromRoute] long teacherStudentId)
     {
-        var result = await _paymentService.GetStudentPaymentViewAsync(teacherId, teacherStudentId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetStudentPaymentViewAsync(teacherId.Value, teacherStudentId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 22: GENERATE REPORT
+    // POST api/payment/reports/generate
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports/generate")]
+    //
+    // WHAT IT DOES:
+    //   Generates one of the 10 payment report types (REQ-PAY-052–061).
+    //   REQ-PAY-048/049: Standard header on all reports.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.GenerateReports permission.
+    //
+    // NOTE (P2): IPaymentReportExportService is a stub — PDF/Excel export
+    //   (REQ-PAY-050) is not yet implemented. Returns stub bytes.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("reports/generate")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionGenerateReports)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GenerateReport(
-        [FromRoute] long teacherId,
-        [FromBody] PaymentReportRequestDto request)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GenerateReport([FromBody] PaymentReportRequestDto request)
     {
-        var result = await _reportService.GenerateReportAsync(teacherId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _reportService.GenerateReportAsync(teacherId.Value, request);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 23: EXPORT REPORT
+    // POST api/payment/reports/export
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports/export")]
+    //
+    // WHAT IT DOES:
+    //   Exports a generated payment report as PDF or XLSX.
+    //   REQ-PAY-050: Exportable formats.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.GenerateReports permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("reports/export")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionGenerateReports)]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ExportReport(
-        [FromRoute] long teacherId,
         [FromBody] PaymentReportRequestDto request,
         [FromQuery] string format = "xlsx")
     {
-        var result = await _reportService.ExportReportAsync(teacherId, request, format);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _reportService.ExportReportAsync(teacherId.Value, request, format);
         if (!result.IsSuccess)
             return ToResponse(result);
 
-        var contentType = format == "pdf" ? "application/pdf"
+        var contentType = format == "pdf"
+            ? "application/pdf"
             : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         var fileName = $"payment-report-{DateTime.UtcNow:yyyyMMdd-HHmmss}.{format}";
 

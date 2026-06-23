@@ -166,4 +166,90 @@ public static class PaymentConstants
         // Assistants
         public const string AssistantNotFound = "AssistantNotFound";
     }
+    // ─────────────────────────────────────────────────────────────────────────────
+    // INSERT THE FOLLOWING BLOCK AT THE TOP OF PaymentConstants, BEFORE
+    // the "CONFIGURATION LIMITS" region.  Everything else in the file stays.
+    // File: Edvanz.Domain/Constants/PaymentConstants.cs
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    // ══════════════════════════════════════════════
+    // MODULE IDENTITY
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Module name as registered in the Modules seed table and emitted in JWT
+    /// module claims. Matches <c>DbInitializer</c> seed row exactly.
+    /// Used in every <c>[ModulePermission(PaymentConstants.ModuleName, ...)]</c>
+    /// attribute and in <c>IModuleTeacherRepo.IsModuleActiveAsync</c> calls.
+    /// </summary>
+    public const string ModuleName = "Payment";
+
+    /// <summary>
+    /// Module name for the Event-Based Payment module (Module 5).
+    /// Matches the seeded <c>"Event-Based Payment"</c> row exactly — note the hyphen.
+    /// </summary>
+    public const string EventModuleName = "Event-Based Payment";
+
+    // ══════════════════════════════════════════════
+    // PERMISSION NAMES — PAYMENT MODULE
+    // Values MUST match the Names seeded under the "Payment" module in
+    // DbInitializer.SeedPermissionsAsync.  Change here → change seeder together.
+    // ══════════════════════════════════════════════
+
+    /// <summary>Collect Payment — allows tutor/assistant to collect payments (REQ-USR-018).</summary>
+    public const string PermissionCollect = "Collect";
+
+    /// <summary>View Payment History — allows tutor/assistant to view student payment records (REQ-USR-018).</summary>
+    public const string PermissionViewHistory = "ViewHistory";
+
+    /// <summary>
+    /// Edit Payment History — restricted permission; assistant can modify payment records.
+    /// Carries a visible warning in the permission UI (REQ-USR-018).
+    /// BR-PAY-002 makes this absolute tutor-only at the API gate; this constant exists
+    /// only so the seeder and permission catalogue stay compile-time-checked.
+    /// </summary>
+    public const string PermissionEditHistory = "EditHistory";
+
+    /// <summary>View Unpaid Students — allows tutor/assistant to view the unpaid overview (REQ-USR-018).</summary>
+    public const string PermissionViewUnpaidStudents = "ViewUnpaidStudents";
+
+    /// <summary>
+    /// View Collector Summary — allows assistant to view their own collection summary (REQ-USR-018).
+    /// REQ-PAY-014: full User Collection View (all collectors) is tutor-only;
+    /// the service layer must filter to own records when the caller is an assistant.
+    /// </summary>
+    public const string PermissionViewCollectorSummary = "ViewCollectorSummary";
+
+    /// <summary>Generate Payment Reports — allows tutor/assistant to generate and export reports (REQ-USR-018).</summary>
+    public const string PermissionGenerateReports = "GenerateReports";
+
+    // ══════════════════════════════════════════════
+    // PERMISSION NAMES — EVENT-BASED PAYMENT MODULE
+    // Values MUST match the Names seeded under the "Event-Based Payment" module.
+    // ══════════════════════════════════════════════
+
+    /// <summary>View Events — allows assistant to view event list and tracking (REQ-USR-019).</summary>
+    public const string EventPermissionView = "View";
+
+    /// <summary>Create Event — allows assistant to create new payment events (REQ-USR-019).</summary>
+    public const string EventPermissionCreate = "Create";
+
+    /// <summary>Edit Event — allows assistant to modify event configuration (REQ-USR-019).
+    /// NOTE: BR-EVT-003 additionally restricts student removal to tutor-only;
+    /// the service layer must enforce this on UpdateEventDto.StudentIdsToRemove.</summary>
+    public const string EventPermissionEdit = "Edit";
+
+    /// <summary>
+    /// Delete Event — BR-EVT-003 makes deletion absolute tutor-only.
+    /// This constant is kept so the seeder and permission catalogue stay
+    /// compile-time-checked, but the <c>DeleteEvent</c> endpoint gate is
+    /// <c>roleOnly: ["Teacher","SuperAdmin"]</c>, not this permission.
+    /// </summary>
+    public const string EventPermissionDelete = "Delete";
+
+    /// <summary>Collect Event Payment — allows assistant to collect payments for events (REQ-USR-019).</summary>
+    public const string EventPermissionCollectPayment = "CollectPayment";
+
+    /// <summary>Generate Event Reports — allows assistant to generate and export event reports (REQ-USR-019).</summary>
+    public const string EventPermissionGenerateReports = "GenerateReports";
 }

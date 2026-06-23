@@ -1,29 +1,63 @@
+using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// API controller for the Event-Based Payment Module (Module 5).
-/// Manages one-time payment events: creation, collection, tracking,
-/// management (update/delete), and reporting.
-/// All endpoints are teacher-scoped via the teacherId route parameter.
+/// Event-Based Payment Module (Module 5) — teacher and assistant endpoints.
 ///
-/// All endpoint documentation follows the existing project pattern:
-/// WHAT IT DOES → TABLES READ/WRITTEN → SAMPLE REQUEST.
+/// ARCHITECTURE CHANGES (auth rebase):
+/// <list type="bullet">
+///   <item>Base class changed from <see cref="ApiBaseController"/> →
+///         <see cref="ModuleSixApiBaseController"/> to gain
+///         <c>ResolveTeacherIdAsync()</c> and <c>GetActingUserId()</c>.</item>
+///   <item>Class-level <c>[Authorize]</c> added — every action requires a
+///         valid JWT.</item>
+///   <item><c>{teacherId}</c> removed from every route. Tenant id is derived
+///         from the JWT only (catalog §1.3 / REQ-EVT-NFR-001).</item>
+///   <item>Every action carries <c>[ModulePermission]</c>.</item>
+///   <item><c>CollectedByUserId</c> is always set from <c>GetActingUserId()</c>
+///         — never from the request body (REQ-EVT-013).</item>
+/// </list>
+///
+/// ABSOLUTE TUTOR-ONLY GATES (BR-EVT-003):
+///   DeleteEvent uses <c>roleOnly: ["Teacher","SuperAdmin"]</c> and cannot
+///   be delegated to assistants under any configuration.
+///
+/// ASSISTANT-DELEGATABLE GATES (REQ-USR-019):
+///   View, Create, Edit, CollectPayment, GenerateReports — accessible to
+///   assistants when the named permission is granted.
+///
+/// SERVICE-LEVEL GAP (flagged for future fix):
+///   <c>UpdateEventDto.StudentIdsToRemove</c> is handled inside the same
+///   endpoint as <c>StudentIdsToAdd</c>. BR-EVT-003 restricts student removal
+///   to tutor-only, but the current <c>EventPaymentService.UpdateEventAsync</c>
+///   does not check caller role before processing removals. Once this endpoint
+///   is wired to the authenticated role the service must enforce that check.
 /// </summary>
-public class EventPaymentController : ApiBaseController
+[Authorize]
+public sealed class EventPaymentController : ModuleSixApiBaseController
 {
     private readonly IEventPaymentService _eventService;
 
-    public EventPaymentController(IEventPaymentService eventService)
+    public EventPaymentController(
+        IEventPaymentService eventService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
+        : base(currentUser, unitOfWork)
     {
         _eventService = eventService;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: CREATE EVENT
+    // POST api/eventpayment/events
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
@@ -31,223 +65,289 @@ public class EventPaymentController : ApiBaseController
     //   REQ-EVT-001/002: Event name, Amount, Target Scope, Date are mandatory.
     //   BR-EVT-001: Obligations created for students in scope at creation time.
     //
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.Create permission.
+    //
     // TABLES WRITTEN: PaymentEvents, EventStudentObligations
     // TABLES READ: TeacherStudents, Sessions, SessionGroups
     //
-    // SAMPLE: POST /api/eventpayment/123/events
-    //   { "eventName": "Book Purchase — Term 1", "eventAmount": 50.00,
-    //     "targetScopeType": "Session", "targetScopeIds": [789],
-    //     "eventDate": "2025-01-15" }
-    //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/events")]
+    [HttpPost("events")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionCreate)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CreateEvent(
-        [FromRoute] long teacherId,
-        [FromBody] CreateEventDto dto)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> CreateEvent([FromBody] CreateEventDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
+
         var result = await _eventService.CreateEventAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 2: LIST EVENTS
+    // GET api/eventpayment/events
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Returns paginated list of active (non-deleted) events for the teacher.
-    //   REQ-EVT-014: Event list with tracking summary.
+    //   Returns paginated, filtered list of active events for the teacher.
+    //   REQ-EVT-017/018: Event Overview — searchable, filterable by scope and completion.
     //
-    // TABLES READ: PaymentEvents
-    //
-    // SAMPLE: GET /api/eventpayment/123/events?page=1&pageSize=20
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.View permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/events")]
+    [HttpGet("events")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionView)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetEvents(
-        [FromRoute] long teacherId,
-        [FromQuery] EventListFilterDto filter)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetEvents([FromQuery] EventListFilterDto filter)
     {
-        var result = await _eventService.GetEventsAsync(teacherId, filter);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _eventService.GetEventsAsync(teacherId.Value, filter);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 3: EVENT TRACKING DETAIL
+    // GET api/eventpayment/events/{eventId}/tracking
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Returns detailed tracking view for a specific event with paid/unpaid lists.
-    //   REQ-EVT-014/015: Full tracking with paid student list and unpaid student list.
+    //   Returns the detailed tracking view for a specific event, with separate
+    //   paid/unpaid student lists, search, and pagination.
+    //   REQ-EVT-014/015/016: Full tracking view.
     //
-    // TABLES READ: PaymentEvents, EventStudentObligations
-    //
-    // SAMPLE: GET /api/eventpayment/123/events/456/tracking?page=1&pageSize=20
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.View permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{teacherId:long}/events/{eventId:long}/tracking")]
+    [HttpGet("events/{eventId:long}/tracking")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionView)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetEventTracking(
-        [FromRoute] long teacherId,
         [FromRoute] long eventId,
         [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var result = await _eventService.GetEventTrackingAsync(teacherId, eventId, search, page, pageSize);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _eventService.GetEventTrackingAsync(teacherId.Value, eventId, search, page, pageSize);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 4: UPDATE EVENT
+    // PUT api/eventpayment/events/{eventId}
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Updates an event: name, amount, and add/remove students.
-    //   REQ-EVT-020: Add students to event after creation.
-    //   BR-EVT-003: Only tutor may remove students or modify events.
+    //   Updates an event: name, amount, notes, and add/remove students.
+    //   REQ-EVT-019: Edit name, amount, notes.
+    //   REQ-EVT-020: Add more students after creation.
+    //   REQ-EVT-021: Remove students (unpaid only — service enforces).
     //
-    // TABLES WRITTEN: PaymentEvents, EventStudentObligations
-    // TABLES READ: PaymentEvents, TeacherStudents
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.Edit permission.
     //
-    // SAMPLE: PUT /api/eventpayment/123/events/456
-    //   { "studentIdsToAdd": [101, 102] }
+    // SERVICE-LEVEL GAP: StudentIdsToRemove processing must additionally check
+    //   that the caller is Teacher/SuperAdmin (BR-EVT-003). This check is missing
+    //   in EventPaymentService.UpdateEventAsync — flagged for a follow-up fix.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPut("{teacherId:long}/events/{eventId:long}")]
+    [HttpPut("events/{eventId:long}")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateEvent(
-        [FromRoute] long teacherId,
         [FromRoute] long eventId,
         [FromBody] UpdateEventDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
         dto.EventId = eventId;
+
         var result = await _eventService.UpdateEventAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 5: DELETE EVENT
+    // DELETE api/eventpayment/events/{eventId}
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Soft-deletes an event. Collected payments are retained.
-    //   REQ-EVT-022: Confirmation required. Deletion is irreversible.
+    //   Soft-deletes an event. Collected EventPaymentTransactions are retained.
+    //   REQ-EVT-022: Confirmation required before calling; deletion is irreversible.
+    //   BR-EVT-003/005: ABSOLUTE — only the tutor role may delete events.
     //
-    // TABLES WRITTEN: PaymentEvents
-    //
-    // SAMPLE: DELETE /api/eventpayment/123/events/456
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpDelete("{teacherId:long}/events/{eventId:long}")]
+    [HttpDelete("events/{eventId:long}")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteEvent(
-        [FromRoute] long teacherId,
-        [FromRoute] long eventId)
+    public async Task<IActionResult> DeleteEvent([FromRoute] long eventId)
     {
-        var result = await _eventService.DeleteEventAsync(teacherId, eventId);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _eventService.DeleteEventAsync(teacherId.Value, eventId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 5b: SET CUSTOM AMOUNT FOR STUDENT IN EVENT
+    // PUT api/eventpayment/events/{eventId}/students/{teacherStudentId}/custom-amount
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
     //   Overrides the event amount for a specific student.
     //   REQ-EVT-007: Custom amount per student within event.
     //
-    // TABLES WRITTEN: EventStudentObligations
-    //
-    // SAMPLE: PUT /api/eventpayment/123/events/456/students/789/custom-amount
-    //   { "customAmount": 75.00 }
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.Edit permission.
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPut("{teacherId:long}/events/{eventId:long}/students/{teacherStudentId:long}/custom-amount")]
+    [HttpPut("events/{eventId:long}/students/{teacherStudentId:long}/custom-amount")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionEdit)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SetEventStudentCustomAmount(
-        [FromRoute] long teacherId,
         [FromRoute] long eventId,
         [FromRoute] long teacherStudentId,
         [FromBody] SetEventStudentCustomAmountDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        dto.TeacherId = teacherId.Value;
         dto.EventId = eventId;
         dto.TeacherStudentId = teacherStudentId;
+
         var result = await _eventService.SetEventStudentCustomAmountAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 6: COLLECT EVENT PAYMENT
+    // POST api/eventpayment/events/{eventId}/collect
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Collects a payment from a student for an event.
+    //   Collects a payment for an event from a student.
     //   REQ-EVT-009: Same collection methods as regular payments.
+    //   REQ-EVT-011: Supports partial payments.
     //   REQ-EVT-012: Already-paid duplicate warning.
-    //   REQ-EVT-013: Included in collector's wallet balance.
+    //   REQ-EVT-013: CollectedByUserId always sourced from JWT (acting user).
+    //
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.CollectPayment permission.
     //
     // TABLES WRITTEN: EventPaymentTransactions, EventStudentObligations, PaymentEvents, AssistantWallets
-    // TABLES READ: PaymentEvents, EventStudentObligations, TeacherStudents
-    //
-    // SAMPLE: POST /api/eventpayment/123/events/456/collect
-    //   { "teacherStudentId": 789, "amount": 50.00, "paymentMethod": "ManualCode" }
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/events/{eventId:long}/collect")]
+    [HttpPost("events/{eventId:long}/collect")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionCollectPayment)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CollectEventPayment(
-        [FromRoute] long teacherId,
         [FromRoute] long eventId,
         [FromBody] CollectEventPaymentDto dto)
     {
-        dto.TeacherId = teacherId;
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // REQ-EVT-013: actor identity is always the authenticated user — never client-supplied.
+        dto.TeacherId = teacherId.Value;
         dto.EventId = eventId;
+        dto.CollectedByUserId = GetActingUserId();
+
         var result = await _eventService.CollectEventPaymentAsync(dto);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 7: GENERATE EVENT REPORT
+    // POST api/eventpayment/reports/generate
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports/generate")]
+    //
+    // WHAT IT DOES:
+    //   Generates a Single Event Report (REQ-EVT-023) or All Events Summary
+    //   Report (REQ-EVT-024).
+    //
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.GenerateReports permission.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("reports/generate")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionGenerateReports)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> GenerateEventReport(
-        [FromRoute] long teacherId,
-        [FromBody] EventReportRequestDto request)
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GenerateEventReport([FromBody] EventReportRequestDto request)
     {
-        var result = await _eventService.GenerateEventReportAsync(teacherId, request);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _eventService.GenerateEventReportAsync(teacherId.Value, request);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 8: EXPORT EVENT REPORT
+    // POST api/eventpayment/reports/export
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{teacherId:long}/reports/export")]
+    //
+    // WHAT IT DOES:
+    //   Exports an event report as PDF or Excel.
+    //   REQ-EVT-025: Exportable in PDF or Excel format.
+    //   REQ-EVT-026: Standard header in all exported reports.
+    //
+    // AUTH: Teacher (module) OR Assistant with Event-Based Payment.GenerateReports permission.
+    //
+    // NOTE (P2): IPaymentReportExportService is a stub — real PDF/Excel rendering
+    //   is not yet implemented.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("reports/export")]
+    [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionGenerateReports)]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ExportEventReport(
-        [FromRoute] long teacherId,
         [FromBody] EventReportRequestDto request,
         [FromQuery] string format = "xlsx")
     {
-        var result = await _eventService.ExportEventReportAsync(teacherId, request, format);
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _eventService.ExportEventReportAsync(teacherId.Value, request, format);
         if (!result.IsSuccess)
             return ToResponse(result);
 
-        var contentType = format == "pdf" ? "application/pdf"
+        var contentType = format == "pdf"
+            ? "application/pdf"
             : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         var fileName = $"event-report-{DateTime.UtcNow:yyyyMMdd-HHmmss}.{format}";
 

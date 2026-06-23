@@ -86,7 +86,7 @@ namespace Edvanz.Application.Services
                 // ── Student phone ──────────────────────────────────────
                 if (template.RecipientTarget is RecipientTarget.Student or RecipientTarget.Both)
                 {
-                    if (!string.IsNullOrEmpty(student.ParentPhoneNumber))
+                    if (!string.IsNullOrEmpty(student.StudentPhoneNumber))
                     {
                         EnqueueOrSchedule(new MessageSendPayload
                         {

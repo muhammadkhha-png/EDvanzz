@@ -1,5 +1,6 @@
-using DocumentFormat.OpenXml.Wordprocessing;
+ï»¿using DocumentFormat.OpenXml.Wordprocessing;
 using Edvanz.API.Authorization;
+using Edvanz.API.Controllers;
 using Edvanz.API.Filters;
 using Edvanz.API.Middleware;
 using Edvanz.Application.Extensions;
@@ -21,9 +22,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+
 using System;
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
@@ -73,13 +76,52 @@ builder.Services.AddCors(options =>
 
 
 });
+
 builder.Services.AddSwaggerGen(c =>
 {
+    // JWT Bearer Authentication
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token. Example: \"Bearer 12345abcdef\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    //c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    //{
+    //    {
+    //        new OpenApiSecurityScheme
+    //        {
+    //            Reference = new OpenApiReference // <-- Use fully qualified name if needed
+    //            {
+    //                Type = ReferenceType.SecurityScheme,
+    //                Id = "Bearer"
+    //            }
+    //        },
+    //        new List<string>()
+    //    }
+    //});
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
     c.OperationFilter<SwaggerExamplesFilter>();
     c.UseInlineDefinitionsForEnums();
 
+    // --- ðŸ‘‡ Add these lines ---
+    var basePath = AppContext.BaseDirectory;
+
+    // 1) XML from the API project (controllers)
+    var apiXml = $"{typeof(AttendanceController).Assembly.GetName().Name}.xml";
+    var apiPath = Path.Combine(basePath, apiXml);
+    if (File.Exists(apiPath))
+        c.IncludeXmlComments(apiPath);
+
+    // 2) XML from the Application project (DTOs) â€“ adjust assembly name if needed
+    var appXml = "Edvanz.Application.xml";
+    var appPath = Path.Combine(basePath, appXml);
+    if (File.Exists(appPath))
+        c.IncludeXmlComments(appPath);
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 builder.Services.AddHangfire(config =>
@@ -88,7 +130,7 @@ builder.Services.AddHangfire(config =>
         builder.Configuration.GetConnectionString("con"));
 });
 
-// Process BOTH the default queue AND the notifications queue (§7.5).
+// Process BOTH the default queue AND the notifications queue (Â§7.5).
 // Worker counts: default 5 workers on each queue. Tune via configuration if needed.
 builder.Services.AddHangfireServer(options =>
 {
@@ -131,14 +173,14 @@ options =>
 });
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // ????????????????????????????????????????????????
-// SUBSCRIPTION MANAGEMENT MODULE — Phase 07 (Authorization)
+// SUBSCRIPTION MANAGEMENT MODULE â€” Phase 07 (Authorization)
 // ????????????????????????????????????????????????
 //
-// The ActiveSubscriptionHandler enforces the §8 policy: every authenticated
+// The ActiveSubscriptionHandler enforces the Â§8 policy: every authenticated
 // request requires an Active or ExpiringSoon subscription unless the endpoint
 // carries [AllowExpiredSubscription].
 //
-// Singleton is the right scope here — the handler is stateless; per-request
+// Singleton is the right scope here â€” the handler is stateless; per-request
 // dependencies (ICurrentUserService, IUnitOfWork) are injected fresh on each
 // HandleRequirementAsync call via the request-scoped scope.
 // (Note: ASP.NET Core resolves IAuthorizationHandler instances per request
@@ -167,17 +209,25 @@ await app.SeedDatabaseAsync();
 var locOptions = app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>();
 app.UseRequestLocalization(locOptions.Value);
 app.UseMiddleware<ExceptionMiddleware>();
-
-app.UseSwagger();
-    app.UseSwaggerUI(
-        c =>
-        {
-            c.SwaggerEndpoint("v1/swagger.json", "Edvanz v1");
-        });
+if (app.Environment.IsDevelopment() || app.Environment.IsStaging())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+else
+{
+    // Production: only serve the raw JSON, or add authentication
+    app.UseSwagger();   // still serves /swagger/v1/swagger.json
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Edvanz v1");
+        // Protect the UI with a custom middleware if needed
+    });
+}
 app.UseHangfireDashboard("/hangfire");
-// ?? Subscription Module — Phase 08 recurring registrations ??
+// ?? Subscription Module â€” Phase 08 recurring registrations ??
 
-// Daily reminder dispatcher (§7.1). 09:00 in Africa/Cairo by default.
+// Daily reminder dispatcher (Â§7.1). 09:00 in Africa/Cairo by default.
 {
     var reminderOpts = app.Services
         .GetRequiredService<IOptions<ReminderSchedulerOptions>>().Value;

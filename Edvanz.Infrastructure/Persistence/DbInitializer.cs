@@ -96,6 +96,7 @@ namespace Edvanz.Infrastructure.Persistence
         // EXISTING SEED — PERMISSIONS (preserved)
         // ════════════════════════════════════════════════
 
+
         private static async Task SeedPermissionsAsync(EdvanzDbContext context)
         {
             if (context.Permissions.Any()) return;
@@ -132,7 +133,7 @@ namespace Edvanz.Infrastructure.Persistence
                 new Permission { Name = "GenerateReports", ModuleId = modules["Attendance"], IsRestricted = false },
                 // Payment
                 new Permission { Name = "Collect", ModuleId = modules["Payment"], IsRestricted = false },
-                new Permission { Name = "ViewHistor", ModuleId = modules["Payment"], IsRestricted = false },
+                new Permission { Name = "ViewHistory", ModuleId = modules["Payment"], IsRestricted = false },
                 new Permission { Name = "EditHistory", ModuleId = modules["Payment"], IsRestricted = true },
                 new Permission { Name = "ViewUnpaidStudents", ModuleId = modules["Payment"], IsRestricted = false },
                 new Permission { Name = "ViewCollectorSummary", ModuleId = modules["Payment"], IsRestricted = false },
