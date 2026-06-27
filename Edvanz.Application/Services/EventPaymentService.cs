@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
@@ -27,15 +28,17 @@ public class EventPaymentService : IEventPaymentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPaymentReportExportService _exportService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly IPaymentNotifier paymanetNotifier;
 
     public EventPaymentService(
         IUnitOfWork unitOfWork,
         IPaymentReportExportService exportService,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,IPaymentNotifier paymanetNotifier)
     {
         _unitOfWork = unitOfWork;
         _exportService = exportService;
         _localizer = localizer;
+        this.paymanetNotifier = paymanetNotifier;
     }
 
     /// <inheritdoc />
@@ -392,7 +395,7 @@ public class EventPaymentService : IEventPaymentService
             await _unitOfWork.PaymentsRepo.UpdatePaymentEventAsync(paymentEvent);
 
             // REQ-EVT-013: Update assistant wallet
-            var paymentService = new PaymentService(_unitOfWork, _localizer, null!);
+            var paymentService = new PaymentService(_unitOfWork, _localizer, null!, paymanetNotifier);
             // Use repo directly for wallet update instead
             var wallet = await _unitOfWork.PaymentsRepo
                 .GetAssistantWalletByUserIdAsync(dto.TeacherId, dto.CollectedByUserId!.Value);
