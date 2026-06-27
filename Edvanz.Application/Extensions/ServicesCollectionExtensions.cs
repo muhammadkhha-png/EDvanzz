@@ -53,7 +53,6 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IAttendanceService, AttendanceService>();
         services.AddScoped<IAssistantService, AssistantService>();
         services.AddScoped<IUserPermissionService, UserPermissionService>();
-        services.AddScoped<IMessagingIntegrationService, StubMessagingIntegrationService>();
         services.AddScoped<IAttendanceNotifier, AttendanceNotifier>();
         services.AddScoped<IPaymentNotifier, PaymentNotifier>();
         services.AddScoped<IExamHomeworkNotifier, ExamHomeworkNotifier>();
