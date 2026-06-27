@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Attendance;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
@@ -51,17 +52,16 @@ public class AttendanceService : IAttendanceService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IOccurrenceGeneratorService _occurrenceGenerator;
     private readonly IAttendanceReportExportService _exportService;
-    private readonly IMessagingIntegrationService _messagingService;
+    private readonly IAttendanceNotifier _attendanceNotifier;      // ← Phase 3
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
-    // FIX L1: Logger for capturing messaging errors instead of silently swallowing them.
     private readonly ILogger<AttendanceService> _logger;
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
         IOccurrenceGeneratorService occurrenceGenerator,
         IAttendanceReportExportService exportService,
-        IMessagingIntegrationService messagingService,
+        IAttendanceNotifier attendanceNotifier,                    // ← Phase 3
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
         ILogger<AttendanceService> logger)
@@ -69,11 +69,12 @@ public class AttendanceService : IAttendanceService
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
         _exportService = exportService;
-        _messagingService = messagingService;
+        _attendanceNotifier = attendanceNotifier;                  // ← Phase 3
         _localizer = localizer;
         _timeZoneService = timeZoneService;
         _logger = logger;
     }
+
 
     // ══════════════════════════════════════════════
     // SESSION OCCURRENCE MANAGEMENT
@@ -223,6 +224,7 @@ public class AttendanceService : IAttendanceService
 
     /// <inheritdoc />
     public async Task<Result<MarkAttendanceResultDto>> MarkAttendanceAsync(MarkAttendanceDto dto)
+
     {
         // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
         dto.RecordedByUserId ??= dto.TeacherId;
@@ -447,25 +449,16 @@ public class AttendanceService : IAttendanceService
             await UpdateAbsenceCounterForNewRecord(dto.TeacherId, dto.TeacherStudentId,
                 attendanceStatus, date, session.SessionName, dto.SessionId);
 
-            // Step 7.1: Fire messaging notification for absence events
+            // Phase 3: Capture absence count while the counter entity is still in EF
+            // tracking memory (after UpdateAbsenceCounterForNewRecord, before SaveChanges).
+            // The value is used by the notifier after commit — not before — so that
+            // Hangfire jobs are never enqueued for data that hasn't been committed.
+            int consecutiveAbsencesForNotifier = 0;
             if (attendanceStatus == AttendanceStatus.Absent)
             {
-                var updatedCounter = await _unitOfWork.AttendanceRepo
+                var counterSnapshot = await _unitOfWork.AttendanceRepo
                     .GetAbsenceCounterAsync(dto.TeacherId, dto.TeacherStudentId);
-                // FIX L1: Log errors from messaging instead of silently discarding.
-                _ = SafeFireMessagingAsync(() => _messagingService.NotifyStudentAbsenceAsync(
-                    dto.TeacherId, dto.TeacherStudentId, student.StudentName,
-                    updatedCounter?.ConsecutiveAbsences ?? 1, session.SessionName, date));
-
-                // FIX M1: Fire consecutive absence threshold notification.
-                // REQ-ATT-029: The system shall track consecutive absence streaks.
-                // NotifyConsecutiveAbsenceThresholdAsync was defined but never called.
-                if (updatedCounter is not null && updatedCounter.ConsecutiveAbsences >= 3)
-                {
-                    _ = SafeFireMessagingAsync(() => _messagingService.NotifyConsecutiveAbsenceThresholdAsync(
-                        dto.TeacherId, dto.TeacherStudentId, student.StudentName,
-                        updatedCounter.ConsecutiveAbsences, session.SessionName));
-                }
+                consecutiveAbsencesForNotifier = counterSnapshot?.ConsecutiveAbsences ?? 1;
             }
 
             // FIX H8: SaveChanges BEFORE UpdateOccurrenceStatusAsync.
@@ -483,10 +476,30 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
+            // Phase 3: Notify messaging engine post-commit.
+            // AttendanceNotifier is self-contained safe (try/catch + log internally),
+            // so a messaging failure never propagates back to the attendance caller.
+            // ownsTransaction guard: nested callers (offline sync) do not notify;
+            // the outermost transaction owner is solely responsible for notification.
+            if (ownsTransaction)
+            {
+                if (attendanceStatus == AttendanceStatus.Absent)
+                    await _attendanceNotifier.OnStudentAbsentAsync(
+                        dto.TeacherId, dto.TeacherStudentId,
+                        dto.SessionId, session.SessionName, date,
+                        consecutiveAbsencesForNotifier);
+                else if (attendanceStatus is AttendanceStatus.Present
+                                          or AttendanceStatus.CrossSessionPresent)
+                    await _attendanceNotifier.OnStudentAttendedAsync(
+                        dto.TeacherId, dto.TeacherStudentId,
+                        dto.SessionId, session.SessionName, date);
+            }
+
             result.Record = MapToRecordDto(record, student.StudentName, student.StudentCode);
 
             return Result<MarkAttendanceResultDto>.Success(
                 result, _localizer, AttendanceConstants.Messages.AttendanceMarkedSuccess);
+
         }
         catch
         {
@@ -671,19 +684,6 @@ public class AttendanceService : IAttendanceService
             if (modifiedCounters.Count > 0)
                 await _unitOfWork.AttendanceRepo.UpdateAbsenceCountersRangeAsync(modifiedCounters);
 
-            // AUDIT FIX Step 3: Fire messaging notifications for absent students
-            // REQ-ATT-027/028: Absence alerts must fire for all attendance methods including multi-select
-            if (dto.Status == AttendanceStatus.Absent)
-            {
-                foreach (var alert in absenceAlerts)
-                {
-                    // FIX L1: Log errors from messaging instead of silently discarding.
-                    _ = SafeFireMessagingAsync(() => _messagingService.NotifyStudentAbsenceAsync(
-                        dto.TeacherId, alert.TeacherStudentId, alert.StudentName,
-                        alert.ConsecutiveAbsences, session.SessionName, date));
-                }
-            }
-
             // FIX H8: SaveChanges BEFORE UpdateOccurrenceStatusAsync.
             // The occurrence status query uses AsNoTracking, so it needs the records
             // flushed to the database first to get an accurate count.
@@ -698,9 +698,21 @@ public class AttendanceService : IAttendanceService
             int totalPresent = allRecords.Count(r => r.Status == AttendanceStatus.Present
                 || r.Status == AttendanceStatus.CrossSessionPresent);
             int totalAbsent = allRecords.Count(r => r.Status == AttendanceStatus.Absent);
-
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
+
+            // Phase 3: Batch notify absent students post-commit.
+            // One OnStudentsAbsentAsync call issues a single DispatchRequest that
+            // the dispatcher fans out per student (BR-MSG-003) — replaces the old
+            // per-alert loop that fired N individual stub calls pre-commit.
+            if (ownsTransaction && dto.Status == AttendanceStatus.Absent && absenceAlerts.Count > 0)
+            {
+                await _attendanceNotifier.OnStudentsAbsentAsync(
+                    dto.TeacherId, dto.SessionId, session.SessionName, date,
+                    absenceAlerts
+                        .Select(a => (a.TeacherStudentId, a.ConsecutiveAbsences))
+                        .ToList());
+            }
 
             var resultDto = new BulkMarkAttendanceResultDto
             {
@@ -2211,22 +2223,7 @@ public class AttendanceService : IAttendanceService
         };
     }
 
-    /// <summary>
-    /// FIX L1: Fire-and-forget wrapper that logs exceptions instead of silently discarding them.
-    /// Previously messaging calls used the discard pattern (underscore) which swallowed all errors.
-    /// When the real messaging module replaces the stub, exceptions would be lost.
-    /// </summary>
-    private async Task SafeFireMessagingAsync(Func<Task> messagingAction)
-    {
-        try
-        {
-            await messagingAction();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Messaging notification failed. The attendance record was saved successfully but the notification was not delivered.");
-        }
-    }
+    
 
     /// <summary>
     /// FIX H7: Architecture-safe concurrency exception detection.
