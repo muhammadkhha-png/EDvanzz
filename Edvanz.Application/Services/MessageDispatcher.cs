@@ -1,4 +1,4 @@
-﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.DispatcherDtos;
 using Edvanz.Application.Dtos.MessageResolver;
 using Edvanz.Application.IservicesContract;
@@ -27,16 +27,17 @@ namespace Edvanz.Application.Services
             IUnitOfWork unitOfWork,
             IAutomatedTriggerService triggerService,
             IBlockResolver resolver,
-            IStringLocalizer<Messages> localizer,IMessageLogService logService)
+            IStringLocalizer<Messages> localizer,
+            IMessageLogService logService)
         {
             _unitOfWork = unitOfWork;
             _triggerService = triggerService;
             _resolver = resolver;
             _localizer = localizer;
-            this._logService = logService;
+            _logService = logService;
         }
 
-        // ── AUTOMATED DISPATCH ────────────────────────────────────────
+        // ── AUTOMATED DISPATCH ────────────────────────────────────────────────
 
         public async Task DispatchAsync(DispatchRequest request)
         {
@@ -64,26 +65,58 @@ namespace Edvanz.Application.Services
 
             if (channel is null) return;
 
-            // 4. Load students in bulk
+            // ── PHASE 2: THRESHOLD GATE ───────────────────────────────────────
+            //
+            // For threshold-based events (ConsecutiveAbsenceAlert, GradeBelowThreshold),
+            // filter StudentIds to only those who meet the tutor's configured value
+            // BEFORE loading student records from the database.
+            //
+            // Evaluated using PerStudentContext first (bulk absence — each student
+            // has their own consecutive count), then SharedContext (single-student
+            // events like grade entry where context is the same for all).
+            //
+            // ThresholdValue null → no gate configured → all students pass through.
+            //
+            // ConsecutiveNonPayment is intentionally excluded here — it is
+            // time-based and will be handled by a scheduled scanning job.
+            // ─────────────────────────────────────────────────────────────────
+            if (IsThresholdEvent(trigger.EventType) && trigger.ThresholdValue is int threshold)
+            {
+                request.StudentIds = request.StudentIds
+                    .Where(id =>
+                    {
+                        var ctx = request.PerStudentContext?.GetValueOrDefault(id)
+                               ?? request.SharedContext;
+                        return MeetsThreshold(trigger.EventType, threshold, ctx);
+                    })
+                    .ToList();
+
+                // All students filtered out → no message to send.
+                if (request.StudentIds.Count == 0) return;
+            }
+
+            // 4. Load students in bulk (post-gate — only qualifying students loaded)
             var students = await _unitOfWork.Students
                 .GetActiveByIdsAndTeacherAsync(request.TeacherId, request.StudentIds);
 
             var orderedBlocks = template.Blocks.OrderBy(b => b.SortOrder).ToList();
 
-            // 5. One Hangfire job per student (BR-MSG-003)
+            // 5. One Hangfire job per student per recipient target (BR-MSG-003)
             foreach (var student in students)
             {
                 var ctx = request.PerStudentContext?.GetValueOrDefault(student.Id)
                        ?? request.SharedContext
                        ?? new MessageResolveContext();
 
+                // Dispatcher always overwrites identity fields from the loaded entity
+                // so the notifier never needs to supply them.
                 ctx.StudentId = student.Id;
                 ctx.StudentName = student.StudentName ?? string.Empty;
                 ctx.StudentCode = student.StudentCode ?? string.Empty;
 
                 var resolved = _resolver.Resolve(orderedBlocks, ctx);
 
-                // ── Student phone ──────────────────────────────────────
+                // ── Student phone ──────────────────────────────────────────────
                 if (template.RecipientTarget is RecipientTarget.Student or RecipientTarget.Both)
                 {
                     if (!string.IsNullOrEmpty(student.StudentPhoneNumber))
@@ -93,6 +126,7 @@ namespace Edvanz.Application.Services
                             TeacherId = request.TeacherId,
                             StudentId = student.Id,
                             StudentName = ctx.StudentName,
+                            StudentCode = ctx.StudentCode,
                             RecipientPhone = student.StudentPhoneNumber,
                             RecipientType = RecipientTarget.Student,
                             ResolvedContent = resolved,
@@ -105,12 +139,13 @@ namespace Edvanz.Application.Services
                     }
                     else
                     {
-                        await LogMissingPhoneAsync(request.TeacherId, student.Id,
+                        await LogMissingPhoneAsync(
+                            request.TeacherId, student.Id,
                             RecipientTarget.Student, template.Id, trigger.EventType);
                     }
                 }
 
-                // ── Parent phone ───────────────────────────────────────
+                // ── Parent phone ───────────────────────────────────────────────
                 if (template.RecipientTarget is RecipientTarget.Parent or RecipientTarget.Both)
                 {
                     if (!string.IsNullOrEmpty(student.ParentPhoneNumber))
@@ -120,6 +155,7 @@ namespace Edvanz.Application.Services
                             TeacherId = request.TeacherId,
                             StudentId = student.Id,
                             StudentName = ctx.StudentName,
+                            StudentCode = ctx.StudentCode,
                             RecipientPhone = student.ParentPhoneNumber,
                             RecipientType = RecipientTarget.Parent,
                             ResolvedContent = resolved,
@@ -132,14 +168,15 @@ namespace Edvanz.Application.Services
                     }
                     else
                     {
-                        await LogMissingPhoneAsync(request.TeacherId, student.Id,
+                        await LogMissingPhoneAsync(
+                            request.TeacherId, student.Id,
                             RecipientTarget.Parent, template.Id, trigger.EventType);
                     }
                 }
             }
         }
 
-        // ── MANUAL DISPATCH  ────────────────────
+        // ── MANUAL DISPATCH ───────────────────────────────────────────────────
 
         public async Task<Result<ManualSendSummaryDto>> DispatchManualAsync(ManualMessageRequests request)
         {
@@ -152,7 +189,7 @@ namespace Edvanz.Application.Services
             var channel = request.ChannelOverride ?? template.Channel;
             var recipientTarget = request.RecipientTargetOverride ?? template.RecipientTarget;
 
-            // Verify channel active
+            // Verify channel is active
             var channelEntity = await _unitOfWork.GetRepository<MessagingChannel, long>()
                 .FindAsync(c => c.TeacherId == request.TeacherId
                              && c.ChannelType == channel
@@ -195,21 +232,20 @@ namespace Edvanz.Application.Services
 
                 var resolved = _resolver.Resolve(orderedBlocks, ctx);
 
-                // ── Student phone ──────────────────────────────────────
+                // ── Student phone ──────────────────────────────────────────────
                 if (recipientTarget is RecipientTarget.Student or RecipientTarget.Both)
                 {
                     if (string.IsNullOrWhiteSpace(student.StudentPhoneNumber))
                     {
                         summary.SkippedNoPhone++;
                         await _logService.LogMissingPhoneAsync(
-                                               request.TeacherId,
-                                                  student.Id,
-                                                  student.StudentName,
-                                                 student.StudentCode,
-                                                 RecipientTarget.Student,
-                                                 template.Id,
-                                                 channel
-                                             );
+                            request.TeacherId,
+                            student.Id,
+                            student.StudentName,
+                            student.StudentCode,
+                            RecipientTarget.Student,
+                            template.Id,
+                            channel);
                     }
                     else
                     {
@@ -218,6 +254,7 @@ namespace Edvanz.Application.Services
                             TeacherId = request.TeacherId,
                             StudentId = student.Id,
                             StudentName = ctx.StudentName,
+                            StudentCode = ctx.StudentCode,
                             RecipientPhone = student.StudentPhoneNumber,
                             RecipientType = RecipientTarget.Student,
                             ResolvedContent = resolved,
@@ -230,25 +267,21 @@ namespace Edvanz.Application.Services
                         summary.StudentCount++;
                     }
                 }
-                // ── Parent phone ───────────────────────────────────────
+
+                // ── Parent phone ───────────────────────────────────────────────
                 if (recipientTarget is RecipientTarget.Parent or RecipientTarget.Both)
                 {
                     if (string.IsNullOrWhiteSpace(student.ParentPhoneNumber))
                     {
                         summary.SkippedNoPhone++;
-
-
                         await _logService.LogMissingPhoneAsync(
-                          request.TeacherId,
-                             student.Id,
-                             student.StudentName,
-                             student.StudentCode,
-                            RecipientTarget.Student,
+                            request.TeacherId,
+                            student.Id,
+                            student.StudentName,
+                            student.StudentCode,
+                            RecipientTarget.Parent,   // ← was RecipientTarget.Student in original (pre-existing bug, fixed here)
                             template.Id,
-                            channel
-                            
-                          
-                        );
+                            channel);
                     }
                     else
                     {
@@ -257,6 +290,7 @@ namespace Edvanz.Application.Services
                             TeacherId = request.TeacherId,
                             StudentId = student.Id,
                             StudentName = ctx.StudentName,
+                            StudentCode = ctx.StudentCode,
                             RecipientPhone = student.ParentPhoneNumber,
                             RecipientType = RecipientTarget.Parent,
                             ResolvedContent = resolved,
@@ -276,7 +310,7 @@ namespace Edvanz.Application.Services
             return Result<ManualSendSummaryDto>.Success(summary, _localizer);
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────
+        // ── HELPERS ───────────────────────────────────────────────────────────
 
         /// <summary>
         /// Immediate → BackgroundJob.Enqueue (fires right away — REQ-MSG-034)
@@ -296,18 +330,66 @@ namespace Edvanz.Application.Services
         }
 
         /// <summary>
-        /// Builds the absolute DateTime to send at, based on trigger timing config.
-        /// Returns null for Immediate triggers.
+        /// Builds the absolute UTC DateTime to send at, from the trigger's timing config.
+        /// Returns null for Immediate triggers (Hangfire enqueues immediately).
         /// </summary>
         private static DateTime? BuildScheduledTime(SendTimingType timing, TimeSpan? scheduledTime)
         {
             if (timing == SendTimingType.Immediate || scheduledTime is null)
                 return null;
 
-            // Fire at the configured clock time today (or tomorrow if already past)
+            // Fire at the configured clock time today; push to tomorrow if already past.
             var todayAt = DateTime.UtcNow.Date.Add(scheduledTime.Value);
             return todayAt > DateTime.UtcNow ? todayAt : todayAt.AddDays(1);
         }
+
+        // ── PHASE 2: THRESHOLD HELPERS ────────────────────────────────────────
+
+        /// <summary>
+        /// Returns true when the event type carries a configurable threshold
+        /// that must be evaluated per-student before enqueuing.
+        /// </summary>
+        private static bool IsThresholdEvent(TriggerEventType eventType) =>
+            eventType is TriggerEventType.ConsecutiveAbsenceAlert
+                      or TriggerEventType.GradeBelowThreshold;
+        // ConsecutiveNonPayment is time-based → handled by a scheduled scanning job, not here.
+
+        /// <summary>
+        /// Evaluates whether a student's context value meets the tutor-configured threshold.
+        /// Returns false when context is null (safe default — do not send).
+        /// </summary>
+        /// <param name="eventType">The threshold-based event type.</param>
+        /// <param name="threshold">The tutor's configured AutomatedTrigger.ThresholdValue.</param>
+        /// <param name="ctx">
+        /// The student's resolved context. May come from PerStudentContext (bulk absence)
+        /// or SharedContext (single-student grade events). Null → false.
+        /// </param>
+        private static bool MeetsThreshold(
+            TriggerEventType eventType, int threshold, MessageResolveContext? ctx)
+        {
+            if (ctx is null) return false;
+
+            return eventType switch
+            {
+                // Student's consecutive absence count must be AT OR ABOVE the configured value.
+                // AbsenceCount null (context populated without it) → false (safe default).
+                TriggerEventType.ConsecutiveAbsenceAlert =>
+                    ctx.AbsenceCount.HasValue
+                    && ctx.AbsenceCount.Value >= threshold,
+
+                // Student's grade must be STRICTLY BELOW the configured value.
+                // Cast threshold (int) to decimal for comparison with ExamGrade (decimal?).
+                // ExamGrade null (grade not yet entered) → false (safe default).
+                TriggerEventType.GradeBelowThreshold =>
+                    ctx.ExamGrade.HasValue
+                    && ctx.ExamGrade.Value < (decimal)threshold,
+
+                // Unknown threshold event — pass through rather than silently drop.
+                _ => true
+            };
+        }
+
+        // ── MISSING PHONE LOG ────────────────────────────────────────────────
 
         private async Task LogMissingPhoneAsync(
             long teacherId, long studentId, RecipientTarget target,
@@ -318,6 +400,7 @@ namespace Edvanz.Application.Services
                 TeacherId = teacherId,
                 StudentId = studentId,
                 StudentName = string.Empty,
+                StudentCode = string.Empty,
                 RecipientPhone = string.Empty,
                 RecipientType = target,
                 MessageTemplateId = templateId,
@@ -334,9 +417,5 @@ namespace Edvanz.Application.Services
             await _unitOfWork.GetRepository<MessageLog, long>().AddAsync(log);
             await _unitOfWork.SaveChangesAsync();
         }
-
-
-
-       
     }
 }
