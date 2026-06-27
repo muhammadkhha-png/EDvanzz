@@ -1,6 +1,7 @@
 ﻿using DocumentFormat.OpenXml.Vml.Office;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Entities.Chat;
 using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
 using FluentAssertions.Execution;
@@ -165,12 +166,21 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// </summary>
     public DbSet<VideoWatchEvent> VideoWatchEvents => Set<VideoWatchEvent>();
 
-    /// <summary>
-    /// Video Content Management Module (Module 14) — permanent JSON-snapshot record
-    /// of deleted videos (REQ-VCM-BR-03). Survives the parent video's deletion
-    /// because there is no FK back to <c>VideoAssets</c>.
-    /// </summary>
     public DbSet<VideoAssetAudit> VideoAssetAudits => Set<VideoAssetAudit>();
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // DIRECT CHAT (1:1 two-way messaging — supersedes AAM-FR-07 one-way)
+    // ════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 1:1 direct-message conversations. One row per canonical participant pair.
+    /// </summary>
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+
+    /// <summary>
+    /// Messages within a 1:1 conversation.
+    /// </summary>
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -2798,6 +2808,82 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             entity.HasIndex(a => a.VideoAssetId)
                 .HasDatabaseName("IX_VideoAssetAudits_VideoAssetId");
+        });
+        #endregion
+        // ════════════════════════════════════════════════
+        // DIRECT CHAT CONFIGURATION (1:1 two-way messaging)
+        // ════════════════════════════════════════════════
+
+        #region Conversation (direct-chat pair)
+        modelBuilder.Entity<Conversation>(entity =>
+        {
+            entity.ToTable("Conversations");
+
+            entity.Property(c => c.LastMessagePreview)
+                .HasMaxLength(200);
+
+            // Participant A (smaller User.Id). NoAction — app-layer cascade.
+            entity.HasOne(c => c.ParticipantAUser)
+                .WithMany()
+                .HasForeignKey(c => c.ParticipantAUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Participant B (larger User.Id). NoAction — second path to Users, so it
+            // MUST be NoAction (SQL Server forbids multiple cascade paths).
+            entity.HasOne(c => c.ParticipantBUser)
+                .WithMany()
+                .HasForeignKey(c => c.ParticipantBUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // One LIVE conversation per pair. Filtered so a future soft-delete +
+            // recreate does not collide on the historical row.
+            entity.HasIndex(c => new { c.ParticipantAUserId, c.ParticipantBUserId })
+                .IsUnique()
+                .HasFilter("[IsDeleted] = 0")
+                .HasDatabaseName("UX_Conversations_Participants");
+
+            // Conversation-list queries: "my conversations ordered by recency" hits
+            // either participant side, so index both.
+            entity.HasIndex(c => new { c.ParticipantAUserId, c.LastMessageAt })
+                .HasDatabaseName("IX_Conversations_ParticipantA_LastMessageAt");
+
+            entity.HasIndex(c => new { c.ParticipantBUserId, c.LastMessageAt })
+                .HasDatabaseName("IX_Conversations_ParticipantB_LastMessageAt");
+
+            entity.HasQueryFilter(c => !c.IsDeleted);
+        });
+        #endregion
+
+        #region ChatMessage (direct-chat message)
+        modelBuilder.Entity<ChatMessage>(entity =>
+        {
+            entity.ToTable("ChatMessages");
+
+            entity.Property(m => m.Body)
+                .HasMaxLength(4000)
+                .IsRequired();
+
+            // Conversation FK: NoAction (app-layer). Soft-delete handled in services.
+            entity.HasOne(m => m.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(m => m.ConversationId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Sender FK: NoAction on account purge.
+            entity.HasOne(m => m.SenderUser)
+                .WithMany()
+                .HasForeignKey(m => m.SenderUserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Thread paging (newest-first / oldest-first by SentAt within a conversation).
+            entity.HasIndex(m => new { m.ConversationId, m.SentAt })
+                .HasDatabaseName("IX_ChatMessages_ConversationId_SentAt");
+
+            // Unread-for-me: messages in a conversation NOT sent by the reader and unread.
+            entity.HasIndex(m => new { m.ConversationId, m.SenderUserId, m.IsRead })
+                .HasDatabaseName("IX_ChatMessages_Conversation_Sender_IsRead");
+
+            entity.HasQueryFilter(m => !m.IsDeleted);
         });
         #endregion
     }
