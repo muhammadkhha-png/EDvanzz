@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
@@ -35,15 +36,18 @@ public class PaymentService : IPaymentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
+    private readonly IPaymentNotifier _paymentNotifier;              // ← Phase 4
 
     public PaymentService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Domain.Resources.Messages> localizer,
-        ITimeZoneService timeZoneService)
+        ITimeZoneService timeZoneService,
+        IPaymentNotifier paymentNotifier)                            // ← Phase 4
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
+        _paymentNotifier = paymentNotifier;                          // ← Phase 4
     }
 
     // ══════════════════════════════════════════════
@@ -216,8 +220,38 @@ public class PaymentService : IPaymentService
 
             await _unitOfWork.SaveChangesAsync();
 
+            await _unitOfWork.SaveChangesAsync();
+
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
+
+            // Phase 4: Notify messaging engine post-commit.
+            // Guard: period null means no unpaid period existed (e.g. overpayment path) —
+            // skip notification in that case.
+            // Guard: ownsTransaction ensures nested callers (SyncOfflinePaymentsAsync)
+            // do not double-fire; the outermost owner is solely responsible.
+            // PaymentNotifier.SafeDispatchAsync swallows its own errors — a messaging
+            // failure never rolls back or fails an already-committed payment.
+            //
+            // isPartial: period.PaymentStatus is already updated to Paid/PartiallyPaid/Unpaid
+            // by step 10 before SaveChangesAsync, so it reflects the post-collection state.
+            //
+            // Concurrency retry: the DbUpdateConcurrencyException catch rolls back and
+            // calls CollectPaymentAsync recursively. The retry is a fresh call with
+            // ownsTransaction = true, so the notifier fires exactly once — on the
+            // attempt that successfully commits.
+            if (ownsTransaction && period is not null)
+            {
+               
+                await _paymentNotifier.OnPaymentRecordedAsync(
+                    dto.TeacherId,
+                    dto.TeacherStudentId,
+                    dto.SessionId,
+                    session.SessionName,
+                    dto.Amount,
+                    FormatPeriodLabel(period),
+                    isPartial = period.PaymentStatus == PaymentStatus.PartiallyPaid);
+            }
 
             var resultDto = new CollectPaymentResultDto
             {
