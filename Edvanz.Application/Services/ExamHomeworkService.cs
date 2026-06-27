@@ -1,7 +1,6 @@
-using System.Net;
-using System.Text.Json;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
@@ -9,6 +8,8 @@ using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using System.Net;
+using System.Text.Json;
 
 namespace Edvanz.Application.Services;
 
@@ -78,15 +79,18 @@ public class ExamHomeworkService : IExamHomeworkService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IAssignmentScopeResolver _scopeResolver;
+    private readonly IExamHomeworkNotifier _examHomeworkNotifier;    // ← Phase 5
 
     public ExamHomeworkService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Messages> localizer,
-        IAssignmentScopeResolver scopeResolver)
+        IAssignmentScopeResolver scopeResolver,
+        IExamHomeworkNotifier examHomeworkNotifier)                  // ← Phase 5
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _scopeResolver = scopeResolver;
+        _examHomeworkNotifier = examHomeworkNotifier;                // ← Phase 5
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1255,10 +1259,16 @@ public class ExamHomeworkService : IExamHomeworkService
                 _localizer, "ObligationConcurrencyConflict", HttpStatusCode.Conflict);
         }
 
+        // Phase 5: Notify messaging engine after the save succeeds.
+        await NotifyOnGradeEntryAsync(obligation, occurrence, dto.GradeValue);
+
         return Result<TrackingViewRowDto>.Success(
             BuildTrackingViewRowDtoFromObligation(obligation, occurrence),
             _localizer, "GradeEntered");
     }
+
+     
+    
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<ObligationAuditEntryDto>>>> GetObligationAuditLogAsync(
@@ -1786,9 +1796,15 @@ public class ExamHomeworkService : IExamHomeworkService
                 _localizer, "ObligationConcurrencyConflict", HttpStatusCode.Conflict);
         }
 
+        // Phase 5: Notify messaging engine after the save succeeds.
+        // ExamHomeworkNotifier.SafeDispatchAsync swallows its own errors — a
+        // messaging failure never fails an already-committed status update.
+        // Scope: null for sessionId/sessionGroupId — assignment scopes are multi-valued;
+        // the dispatcher matches TriggerScope.All triggers only. Documented limitation.
+        await NotifyOnStatusUpdateAsync(obligation, occurrence, newStatus, gradeValue);
         return Result<TrackingViewRowDto>.Success(
-            BuildTrackingViewRowDtoFromObligation(obligation, occurrence),
-            _localizer, "StatusUpdated");
+                    BuildTrackingViewRowDtoFromObligation(obligation, occurrence),
+                    _localizer, "StatusUpdated");
     }
 
     /// <summary>Mutates the obligation in-place with the new status/grade/scan flags.</summary>
@@ -1964,7 +1980,90 @@ public class ExamHomeworkService : IExamHomeworkService
 RowVersion = Convert.ToBase64String(obligation.RowVersion),
         };
     }
+    /// <summary>
+    /// Phase 5: dispatches the appropriate notifier after ApplyStatusUpdateAsync commits.
+    /// Scope: null for both — templates span multiple scopes; dispatcher matches TriggerScope.All only.
+    /// </summary>
+    private async Task NotifyOnStatusUpdateAsync(
+        StudentAssignmentObligation obligation,
+        AssignmentOccurrence occurrence,
+        ObligationStatus newStatus,
+        decimal? gradeValue)
+    {
+        bool isExam = occurrence.Template.AssignmentType == AssignmentType.Exam;
+        string assignmentName = occurrence.Template.Name;
 
+        if (isExam)
+        {
+            switch (newStatus)
+            {
+                case ObligationStatus.AttendedWithGrade when gradeValue.HasValue:
+                    await _examHomeworkNotifier.OnExamGradeRecordedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName, gradeValue.Value, occurrence.MaxGradeSnapshot);
+                    break;
+                case ObligationStatus.DidNotAttend:
+                    await _examHomeworkNotifier.OnExamNotAttendedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName);
+                    break;
+            }
+        }
+        else
+        {
+            switch (newStatus)
+            {
+                case ObligationStatus.Done:
+                case ObligationStatus.DoneWithoutGrade:
+                    await _examHomeworkNotifier.OnHomeworkStatusRecordedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName, isDone: true);
+                    break;
+                case ObligationStatus.DoneWithGrade when gradeValue.HasValue:
+                    await _examHomeworkNotifier.OnHomeworkStatusRecordedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName, isDone: true);
+                    await _examHomeworkNotifier.OnHomeworkGradeRecordedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName, gradeValue.Value, occurrence.MaxGradeSnapshot);
+                    break;
+                case ObligationStatus.NotDone:
+                    await _examHomeworkNotifier.OnHomeworkStatusRecordedAsync(
+                        obligation.TeacherId, obligation.TeacherStudentId,
+                        sessionId: null, sessionGroupId: null,
+                        assignmentName, isDone: false);
+                    break;
+            }
+        }
+    }
+    /// <summary>
+    /// Phase 5: dispatches the grade-recorded notifier after EnterGradeAsync commits.
+    /// Two-step path: student was already marked Attended/DoneWithoutGrade; grade entered separately.
+    /// </summary>
+    private async Task NotifyOnGradeEntryAsync(
+        StudentAssignmentObligation obligation,
+        AssignmentOccurrence occurrence,
+        decimal gradeValue)
+    {
+        bool isExam = occurrence.Template.AssignmentType == AssignmentType.Exam;
+        string assignmentName = occurrence.Template.Name;
+
+        if (isExam)
+            await _examHomeworkNotifier.OnExamGradeRecordedAsync(
+                obligation.TeacherId, obligation.TeacherStudentId,
+                sessionId: null, sessionGroupId: null,
+                assignmentName, gradeValue, occurrence.MaxGradeSnapshot);
+        else
+            await _examHomeworkNotifier.OnHomeworkGradeRecordedAsync(
+                obligation.TeacherId, obligation.TeacherStudentId,
+                sessionId: null, sessionGroupId: null,
+                assignmentName, gradeValue, occurrence.MaxGradeSnapshot);
+    }
     private Result<AssignmentTemplateDto> Failure(string key) =>
         Result<AssignmentTemplateDto>.Failure(_localizer, key, HttpStatusCode.BadRequest);
 }
