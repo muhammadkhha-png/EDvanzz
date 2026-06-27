@@ -39,4 +39,15 @@ public abstract class ApiBaseController : ControllerBase
             StatusCode = (int)result.StatusCode
         };
     }
+    // <summary>
+    /// Returns 401 Unauthorized when the JWT principal cannot be resolved to a User.Id.
+    /// Use at the top of any action that requires a known caller identity.
+    /// Promoted from per-controller private helpers to the base so every controller
+    /// inherits it without duplication.
+    /// </summary>
+    protected IActionResult UserNotResolved() =>
+        new ObjectResult(new { success = false, message = "User could not be resolved from token." })
+        {
+            StatusCode = StatusCodes.Status401Unauthorized
+        };
 }

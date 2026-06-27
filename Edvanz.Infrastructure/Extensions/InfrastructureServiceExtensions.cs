@@ -55,6 +55,8 @@ public static class InfrastructureServiceExtensions
         // REQ-EVT-025: Event reports exportable as PDF or Excel.
         // TODO: Replace stub with ClosedXML/QuestPDF implementation when packages are added.
         services.AddScoped<IPaymentReportExportService, PaymentReportExportService>();
+        // Direct Chat — dispatcher (holds IBackgroundJobClient; Infrastructure only)
+        services.AddScoped<IChatPushDispatcher, ChatPushDispatcher>();
         // ════════════════════════════════════════════════
         // SUBSCRIPTION MANAGEMENT MODULE — Phase 05 (v1.2)
         // ════════════════════════════════════════════════

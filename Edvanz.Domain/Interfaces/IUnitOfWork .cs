@@ -145,5 +145,9 @@ namespace Edvanz.Domain.Interfaces
         /// teacher-purge integration hook.
         /// </summary>
         IVideoAssetRepo VideoAssetsRepo { get; }
+        /// <summary>
+        /// 1:1 direct-chat repository — conversations and messages.
+        /// </summary>
+        IChatRepo ChatRepo { get; }
     }
 }

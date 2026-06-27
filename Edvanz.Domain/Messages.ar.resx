@@ -1146,6 +1146,42 @@
   <data name="AccountInactive" xml:space="preserve">
     <value>الحساب غير مفعل </value>
   </data>
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- DIRECT CHAT MODULE                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="Chat_CannotMessageSelf" xml:space="preserve">
+    <value>لا يمكنك إرسال رسالة لنفسك.</value>
+  </data>
+  <data name="Chat_CallerNotFound" xml:space="preserve">
+    <value>تعذّر التحقق من حسابك.</value>
+  </data>
+  <data name="Chat_TargetNotFound" xml:space="preserve">
+    <value>المستخدم المحدد غير موجود.</value>
+  </data>
+  <data name="Chat_StudentToStudentNotSupported" xml:space="preserve">
+    <value>المراسلة المباشرة بين الطلاب غير متاحة حالياً.</value>
+  </data>
+  <data name="Chat_NoLinkFound" xml:space="preserve">
+    <value>لا توجد صلة نشطة بينك وبين هذا المستخدم.</value>
+  </data>
+  <data name="Chat_ConversationCreated" xml:space="preserve">
+    <value>تم بدء المحادثة بنجاح.</value>
+  </data>
+  <data name="Chat_MessageBodyRequired" xml:space="preserve">
+    <value>نص الرسالة لا يمكن أن يكون فارغاً.</value>
+  </data>
+  <data name="Chat_MessageBodyTooLong" xml:space="preserve">
+    <value>نص الرسالة يجب ألا يتجاوز 4000 حرف.</value>
+  </data>
+  <data name="Chat_ConversationNotFound" xml:space="preserve">
+    <value>المحادثة غير موجودة أو أنت لست أحد أطرافها.</value>
+  </data>
+  <data name="Chat_MessageSent" xml:space="preserve">
+    <value>تم إرسال الرسالة بنجاح.</value>
+  </data>
+  <data name="Chat_MarkedRead" xml:space="preserve">
+    <value>تم تعليم الرسائل كمقروءة.</value>
+  </data>
   <data name="AuditReportTitle" xml:space="preserve"><value>سجل نشاط المساعدين</value></data>
   <data name="AuditCol_Assistant" xml:space="preserve"><value>المساعد</value></data>
   <data name="AuditCol_Module" xml:space="preserve"><value>الوحدة</value></data>

@@ -54,6 +54,8 @@ namespace Edvanz.Infrastructure
         // Exam & Homework Module repo (Module 6: templates, occurrences, obligations,
         // audit logs, deletion logs, tracking and grade-entry views, reports)
         private IExamHomeworkRepo? _examHomeworkRepo;
+        private IChatRepo
+            ? _chatRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -216,6 +218,8 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public IVideoAssetRepo VideoAssetsRepo
             => _videoAssetsRepo ??= new Repositories.VideoAssetRepo(_Context);
+
+        public IChatRepo ChatRepo =>_chatRepo ??= new Repositories.ChatRepo(_Context);
     }
 
 

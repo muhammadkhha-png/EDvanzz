@@ -1146,6 +1146,42 @@
   <data name="AccountInactive" xml:space="preserve">
     <value>Account Inactive</value>
   </data>
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- DIRECT CHAT MODULE                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="Chat_CannotMessageSelf" xml:space="preserve">
+    <value>You cannot start a conversation with yourself.</value>
+  </data>
+  <data name="Chat_CallerNotFound" xml:space="preserve">
+    <value>Your account could not be resolved.</value>
+  </data>
+  <data name="Chat_TargetNotFound" xml:space="preserve">
+    <value>The specified user does not exist.</value>
+  </data>
+  <data name="Chat_StudentToStudentNotSupported" xml:space="preserve">
+    <value>Direct messaging between students is not supported.</value>
+  </data>
+  <data name="Chat_NoLinkFound" xml:space="preserve">
+    <value>You do not have an active connection with this user.</value>
+  </data>
+  <data name="Chat_ConversationCreated" xml:space="preserve">
+    <value>Conversation started successfully.</value>
+  </data>
+  <data name="Chat_MessageBodyRequired" xml:space="preserve">
+    <value>Message body cannot be empty.</value>
+  </data>
+  <data name="Chat_MessageBodyTooLong" xml:space="preserve">
+    <value>Message body must not exceed 4000 characters.</value>
+  </data>
+  <data name="Chat_ConversationNotFound" xml:space="preserve">
+    <value>Conversation not found or you are not a participant.</value>
+  </data>
+  <data name="Chat_MessageSent" xml:space="preserve">
+    <value>Message sent successfully.</value>
+  </data>
+  <data name="Chat_MarkedRead" xml:space="preserve">
+    <value>Messages marked as read.</value>
+  </data>
   <data name="AuditReportTitle" xml:space="preserve"><value>Assistant audit trail</value></data>
   <data name="AuditCol_Assistant" xml:space="preserve"><value>Assistant</value></data>
   <data name="AuditCol_Module" xml:space="preserve"><value>Module</value></data>

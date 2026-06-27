@@ -598,6 +598,61 @@ namespace Edvanz.Domain.Interfaces
         /// parent attendance controller to resolve the JWT principal to a ParentUser.
         /// </summary>
         Task<ParentUser?> GetActiveParentUserByUserIdAsync(long userId);
+        // ══════════════════════════════════════════════
+        // DIRECT CHAT — ELIGIBILITY GATE QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// Returns the <see cref="UserType"/> for a given User.Id, or null when
+        /// no user exists with that id. Used by the chat eligibility gate to determine
+        /// whether a Student is involved before running link-graph checks.
+        /// </summary>
+        Task<UserType?> GetUserTypeByUserIdAsync(long userId);
+
+        /// <summary>
+        /// Returns true when an active <see cref="StudentTeacherLink"/> exists between
+        /// the student (identified by User.Id) and the teacher (identified by User.Id).
+        /// Resolves: student User.Id → StudentUser.Id → StudentTeacherLink.TeacherId,
+        ///           teacher User.Id → Teacher.Id.
+        /// </summary>
+        Task<bool> AreStudentAndTeacherLinkedByUserIdsAsync(
+            long studentUserId, long teacherUserId);
+
+        /// <summary>
+        /// Returns true when an active Method-A <see cref="ParentChild"/> record links
+        /// the student (User.Id) to the parent (User.Id). Method-B children have no
+        /// StudentUser account and cannot participate in chat.
+        /// Resolves: student User.Id → StudentUser.Id → ParentChild.StudentUserId,
+        ///           parent User.Id → ParentUser.Id → ParentChild.ParentUserId.
+        /// </summary>
+        Task<bool> AreStudentAndParentLinkedByUserIdsAsync(
+            long studentUserId, long parentUserId);
+
+        /// <summary>
+        /// Returns true when an active <see cref="StudentTeacherLink"/> exists between
+        /// the student (User.Id) and the teacher that OWNS the assistant (User.Id).
+        /// Resolves: assistant User.Id → Assistant.TeacherAccountId (Teacher.Id),
+        ///           student User.Id → StudentUser.Id,
+        ///           then checks StudentTeacherLink(StudentUser.Id, TeacherId).
+        /// </summary>
+        Task<bool> AreStudentAndAssistantLinkedByUserIdsAsync(
+            long studentUserId, long assistantUserId);
+
+        // ── NAME RESOLUTION ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns User.FullName for a single User.Id. Null when the user does not exist.
+        /// Single-column projection; no entity load.
+        /// </summary>
+        Task<string?> GetUserFullNameByUserIdAsync(long userId);
+
+        /// <summary>
+        /// Returns a FullName dictionary keyed by User.Id for the supplied ids.
+        /// Single round-trip: WHERE Id IN (...) SELECT Id, FullName.
+        /// Used by the chat thread mapping to resolve sender names without N+1 queries.
+        /// </summary>
+        Task<Dictionary<long, string>> GetUserFullNamesByUserIdsAsync(
+            IEnumerable<long> userIds);
 
 
     }

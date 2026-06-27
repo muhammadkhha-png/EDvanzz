@@ -98,6 +98,8 @@ public static class ServicesCollectionExtensions
         // ── Hangfire job implementations (Phase 08) ──
         // These are activated by Hangfire's job activator via DI. Scoped lifetime
         // so each job execution gets a fresh DbContext.
+        services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<IChatPushJob, ChatPushJob>();
         services.AddScoped<ISubscriptionReminderJob, SubscriptionReminderJob>();
         services.AddScoped<IRenewalNotificationJob, RenewalNotificationJob>();
         services.AddScoped<IPendingPaymentRejectedNotificationJob, PendingPaymentRejectedNotificationJob>();

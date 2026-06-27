@@ -910,5 +910,93 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Set<ParentUser>()
                 .FirstOrDefaultAsync(p => p.UserId == userId && p.DeletedAt == null);
         }
+        // ══════════════════════════════════════════════
+        // DIRECT CHAT — ELIGIBILITY GATE QUERIES
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<UserType?> GetUserTypeByUserIdAsync(long userId)
+        {
+            // Single-column projection; no entity materialization.
+            return await _context.Users
+                .Where(u => u.Id == userId)
+                .Select(u => (UserType?)u.UserType)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> AreStudentAndTeacherLinkedByUserIdsAsync(
+            long studentUserId, long teacherUserId)
+        {
+            // student User.Id → StudentUser.Id (via StudentTeacherLink.StudentUser.UserId)
+            // teacher User.Id → Teacher.Id    (via StudentTeacherLink.Teacher.UserId)
+            // EF Core translates navigation property access in AnyAsync to JOINs.
+            return await _context.Set<StudentTeacherLink>()
+                .AnyAsync(l =>
+                    l.StudentUser.UserId == studentUserId &&
+                    l.Teacher.UserId == teacherUserId &&
+                    l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> AreStudentAndParentLinkedByUserIdsAsync(
+            long studentUserId, long parentUserId)
+        {
+            // Method-A only: ParentChild.StudentUserId is set (child has a StudentUser account).
+            // Method-B children have no StudentUser account — they cannot participate in chat.
+            // student User.Id → StudentUser.Id (via ParentChild.StudentUser.UserId)
+            // parent  User.Id → ParentUser.Id  (via ParentChild.ParentUser.UserId)
+            return await _context.Set<ParentChild>()
+                .AnyAsync(pc =>
+                    pc.StudentUserId.HasValue &&
+                    pc.StudentUser!.UserId == studentUserId &&
+                    pc.ParentUser.UserId == parentUserId &&
+                    pc.LinkMethod == ChildLinkMethod.StudentAccount &&
+                    pc.IsActive);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> AreStudentAndAssistantLinkedByUserIdsAsync(
+            long studentUserId, long assistantUserId)
+        {
+            // assistant User.Id → Assistant.TeacherAccountId (Teacher.Id)
+            // student   User.Id → StudentUser.Id → StudentTeacherLink.TeacherId
+            // A student can chat with an assistant if they share the same teacher.
+            return await (
+                from link in _context.Set<StudentTeacherLink>()
+                join su in _context.StudentUsers on link.StudentUserId equals su.Id
+                join asst in _context.Set<Assistant>() on link.TeacherId equals asst.TeacherAccountId
+                where su.UserId == studentUserId &&
+                      asst.UserId == assistantUserId &&
+                      link.LinkStatus == LinkStatus.Active
+                select link
+            ).AnyAsync();
+        }
+
+        // ── NAME RESOLUTION ──────────────────────────────────────────────────
+
+        /// <inheritdoc />
+        public async Task<string?> GetUserFullNameByUserIdAsync(long userId)
+        {
+            return await _context.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.FullName)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, string>> GetUserFullNamesByUserIdsAsync(
+            IEnumerable<long> userIds)
+        {
+            var idList = userIds.ToList();
+            if (idList.Count == 0)
+                return new Dictionary<long, string>();
+
+            // Single round-trip: WHERE Id IN (...) SELECT Id, FullName.
+            return await _context.Users
+                .Where(u => idList.Contains(u.Id))
+                .AsNoTracking()
+                .ToDictionaryAsync(u => u.Id, u => u.FullName);
+        }
     }
 }
