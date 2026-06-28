@@ -16,9 +16,13 @@ using Edvanz.Infrastructure.BackGroundJobs;
 using Edvanz.Infrastructure.Extensions;
 using Edvanz.Infrastructure.Persistence;
 using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -29,7 +33,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
+using HangfireDashboardAuthFilter = Edvanz.API.Filters.HangfireDashboardAuthFilter;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,9 +47,15 @@ builder.Services.AddControllers()
     });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-var x = builder.Configuration.GetConnectionString("con");
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("con")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("con"),
+        sqlOpts => sqlOpts
+            .EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
+                errorNumbersToAdd: null)   // null = use EF's default transient-error list
+            .CommandTimeout(30)));
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -66,15 +76,19 @@ builder.Services.Configure<RequestLocalizationOptions>(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("Edvanz", policy =>
     {
-        policy
-            .AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+        // Origins are configured per-environment in appsettings.Production.json
+        // (Cors:Origins array). Flutter mobile clients are not browser-bound
+        // so they don't need CORS — this list is for any web admin surface only.
+        var origins = builder.Configuration
+            .GetSection("Cors:Origins")
+            .Get<string[]>() ?? Array.Empty<string>();
+
+        policy.WithOrigins(origins)
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
-
-
 });
 
 builder.Services.AddSwaggerGen(c =>
@@ -124,17 +138,41 @@ builder.Services.AddSwaggerGen(c =>
         c.IncludeXmlComments(appPath);
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+// ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────
+// QueuePollInterval at 15s: the default is already 15s in Hangfire 1.8;
+// we pin it explicitly so a library upgrade never silently lowers it.
+// DisableGlobalLocks: reduces lock contention on Azure SQL — recommended
+// for cloud-hosted SQL where distributed locks incur extra round-trips.
+// WorkerCount = 4: on a 1-vCPU B1 the default (ProcessorCount × 5 ≈ 5-10)
+// competes with the API for the same core and the same 5 DTU.
 builder.Services.AddHangfire(config =>
-{
-    config.UseSqlServerStorage(
-        builder.Configuration.GetConnectionString("con"));
-});
+    config
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(
+            builder.Configuration.GetConnectionString("con"),
+            new SqlServerStorageOptions
+            {
+                QueuePollInterval = TimeSpan.FromSeconds(15),
+                SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                JobExpirationCheckInterval = TimeSpan.FromHours(1),
+                CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+                UseRecommendedIsolationLevel = true,
+                DisableGlobalLocks = true,
+                SchemaName = "HangFire"
+            }));
 
-// Process BOTH the default queue AND the notifications queue (§7.5).
-// Worker counts: default 5 workers on each queue. Tune via configuration if needed.
 builder.Services.AddHangfireServer(options =>
 {
-    options.Queues = new[] { "default", SubscriptionConstants.NotificationsQueue, "assignment-materialization" };
+    options.Queues = new[]
+    {
+        "default",
+        SubscriptionConstants.NotificationsQueue,
+        "assignment-materialization"
+    };
+    options.WorkerCount = 4;
+    options.ServerName = $"edvanz-{Environment.MachineName}";
 });
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -192,17 +230,63 @@ builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
+
+// ── Rate limiting (built-in, no Redis needed for single instance) ─────────
+// "auth" policy: 10 login/register attempts per IP per minute.
+// Applied via [EnableRateLimiting("auth")] on AuthController.
+builder.Services.AddRateLimiter(o =>
+{
+    // General auth surface: login, sign-up, OTP, Google sign-up, change-password.
+    o.AddFixedWindowLimiter("auth", opts =>
+    {
+        opts.Window = TimeSpan.FromMinutes(1);
+        opts.PermitLimit = 10;
+        opts.QueueLimit = 0;
+        opts.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+    });
+
+    // Admin login: stricter — admin credentials are the highest-value target.
+    o.AddFixedWindowLimiter("admin-auth", opts =>
+    {
+        opts.Window = TimeSpan.FromMinutes(1);
+        opts.PermitLimit = 5;
+        opts.QueueLimit = 0;
+        opts.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
+    });
+
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
+
+// ── Health checks ─────────────────────────────────────────────────────────
+// /health/live  — always 200 if the process is up (no dependencies checked)
+// /health/ready — checks SQL Server connectivity; tagged "ready"
+builder.Services.AddHealthChecks()
+    .AddAsyncCheck("sqldb", async ct =>
+    {
+        try
+        {
+            var cs = builder.Configuration.GetConnectionString("con")!;
+            await using var conn = new Microsoft.Data.SqlClient.SqlConnection(cs);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1";
+            await cmd.ExecuteScalarAsync(ct);
+            return HealthCheckResult.Healthy();
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy("SQL Server unreachable", ex);
+        }
+    }, tags: new[] { "ready" })
+    .AddCheck("hangfire", () =>
+        JobStorage.Current?.GetMonitoringApi().Servers().Count > 0
+            ? HealthCheckResult.Healthy()
+            : HealthCheckResult.Unhealthy("Hangfire server not running"),
+        tags: new[] { "ready" });
+   
 var app = builder.Build();
 
-// testing notes : for test assignment and hw materialization without waiting for the daily recurring job
 
-using (var scope = app.Services.CreateScope())
-{
-    var backgroundJobClient = scope.ServiceProvider.GetRequiredService<IBackgroundJobClient>();
-    backgroundJobClient.Schedule<RecurringAssignmentDispatcherJob>(
-        job => job.RunAsync(),
-        TimeSpan.FromMinutes(1));
-}
 await app.SeedDatabaseAsync();
 
 // Use localization middleware
@@ -224,7 +308,6 @@ else
         // Protect the UI with a custom middleware if needed
     });
 }
-app.UseHangfireDashboard("/hangfire");
 // ?? Subscription Module — Phase 08 recurring registrations ??
 
 // Daily reminder dispatcher (§7.1). 09:00 in Africa/Cairo by default.
@@ -254,10 +337,16 @@ RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
     SubscriptionConstants.PendingPaymentExpiryJobId,
     job => job.RunAsync(),
     Cron.Hourly);
+// assistant-cleanup runs at 01:00 Africa/Cairo — off-peak, avoids DTU
+// contention with the 06:00 materializer and 09:00 reminder dispatcher.
 RecurringJob.AddOrUpdate<AssistantCleanupJob>(
     "assistant-cleanup-job",
     job => job.ExecuteAsync(),
-   Cron.Daily);
+    "0 1 * * *",
+    new RecurringJobOptions
+    {
+        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo")
+    });
 // ?? Recurring Assignment Materializer (Module 6) ??
 // Runs once daily at 06:00 Africa/Cairo. Earlier than the reminder dispatcher
 // (09:00) so tomorrow's occurrences are visible by morning.
@@ -272,9 +361,34 @@ RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
   );
 
 app.UseHttpsRedirection();
-app.UseCors("AllowAll");
+
+// HSTS — tells browsers to only use HTTPS for the next year.
+// Excluded in Development so localhost still works over HTTP.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+// Security headers — defence-in-depth for any browser-based surface.
+app.Use(async (ctx, next) =>
+{
+    ctx.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    ctx.Response.Headers.Append("X-Frame-Options", "DENY");
+    ctx.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    ctx.Response.Headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    await next();
+});
+
+app.UseCors("Edvanz");
+
+// Rate limiting — applied before auth so unauthenticated callers are
+// throttled on the login/register surface. Policy "auth" is registered
+// in AddRateLimiter above and applied via [EnableRateLimiting("auth")]
+// on AuthController endpoints.
+app.UseRateLimiter();
 
 app.UseAuthentication();
+
 // Live permission / module-revocation enforcement (REQ-USR-013 / REQ-USR-027 /
 // REQ-USR-008 / BR-ADM-010). Runs after UseAuthentication so HttpContext.User
 // is populated, and before UseAuthorization so PermissionHandler and
@@ -282,7 +396,42 @@ app.UseAuthentication();
 app.UseMiddleware<SecurityStampValidationMiddleware>();
 app.UseAuthorization();
 
+// ── Hangfire dashboard — MUST be after UseAuthentication + UseAuthorization ──
+// Placing it here ensures HttpContext.User is fully populated by the time
+// HangfireDashboardAuthFilter.Authorize() runs. A SuperAdmin-role JWT is
+// required; an IP restriction on /hangfire in App Service Access Restrictions
+// adds a belt-and-braces defence at the network layer.
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[] { new HangfireDashboardAuthFilter() },
+    IsReadOnlyFunc = _ => false
+});
+
 app.MapControllers();
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false   // process-up only — no dependency checks
+});
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("ready"),
+    ResponseWriter = async (ctx, report) =>
+    {
+        ctx.Response.ContentType = "application/json";
+        var result = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                error = e.Value.Exception?.Message
+            })
+        });
+        await ctx.Response.WriteAsync(result);
+    }
+});
 
 app.Run();
 

@@ -1,0 +1,107 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Edvanz — Production deployment pipeline
+#
+# Trigger : push to main (or manual dispatch)
+# Stages  : restore → build → azure-login (OIDC) → migrate → publish → deploy
+#
+# Auth model: OIDC federated credentials — no stored passwords or publish
+# profiles. The workflow requests a short-lived token from GitHub's OIDC
+# provider; Azure trusts it via the federated credential on the App
+# Registration. See SETUP section in README for one-time Azure configuration.
+#
+# IMPORTANT: migrations run BEFORE the new app version starts. Since
+# Database.MigrateAsync() was removed from startup (ApplicationBuilderExtensions),
+# this step is the ONLY place schema changes are applied to production.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy — Edvanz Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:            # allow manual trigger from GitHub UI
+
+permissions:
+  id-token: write               # required for OIDC token request
+  contents: read
+
+env:
+  DOTNET_VERSION:      '10.x'
+  AZURE_WEBAPP_NAME:   'app-edvanz-api-prod'
+  API_PROJECT:         'Edvanz.API/Edvanz.API.csproj'
+  INFRA_PROJECT:       'Edvanz.Infrastructure/Edvanz.Infrastructure.csproj'
+  STARTUP_PROJECT:     'Edvanz.API/Edvanz.API.csproj'
+  PUBLISH_OUTPUT:      './publish'
+  DOTNET_EF_VERSION:   '10.0.9'
+
+jobs:
+  deploy:
+    name: Build, migrate and deploy
+    runs-on: ubuntu-latest
+    environment: production      # maps to GitHub Environment "production" for approval gates (optional)
+
+    steps:
+
+      # ── 1. Source ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Runtime ─────────────────────────────────────────────────────────
+      - name: Set up .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # ── 3. Dependencies ────────────────────────────────────────────────────
+      - name: Restore NuGet packages
+        run: dotnet restore Edvanz.slnx
+
+      # ── 4. Build ───────────────────────────────────────────────────────────
+      - name: Build (Release)
+        run: dotnet build Edvanz.slnx --configuration Release --no-restore
+
+      # ── 5. Azure login (OIDC — no stored password) ─────────────────────────
+      # Requires three GitHub secrets (set once, see README):
+      #   AZURE_CLIENT_ID       — App Registration client id
+      #   AZURE_TENANT_ID       — your Entra tenant id
+      #   AZURE_SUBSCRIPTION_ID — your Azure subscription id
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── 6. EF Core migrations ──────────────────────────────────────────────
+      # Installs dotnet-ef globally (same version pinned in dotnet-tools.json).
+      # Passes --connection explicitly so the pipeline uses SQL auth while the
+      # app runtime uses Managed Identity — two separate auth paths, same DB.
+      # AZURE_SQL_CS secret must be the full ADO.NET connection string including
+      # User Id and Password (SQL auth for the pipeline runner).
+      - name: Install dotnet-ef
+        run: dotnet tool install --global dotnet-ef --version ${{ env.DOTNET_EF_VERSION }}
+
+      - name: Apply EF Core migrations
+        run: |
+          dotnet ef database update \
+            --project ${{ env.INFRA_PROJECT }} \
+            --startup-project ${{ env.STARTUP_PROJECT }} \
+            --connection "${{ secrets.AZURE_SQL_CS }}" \
+            --verbose
+        env:
+          ASPNETCORE_ENVIRONMENT: Production
+
+      # ── 7. Publish ─────────────────────────────────────────────────────────
+      - name: Publish
+        run: |
+          dotnet publish ${{ env.API_PROJECT }} \
+            --configuration Release \
+            --no-build \
+            --output ${{ env.PUBLISH_OUTPUT }}
+
+      # ── 8. Deploy to App Service ───────────────────────────────────────────
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package:  ${{ env.PUBLISH_OUTPUT }}

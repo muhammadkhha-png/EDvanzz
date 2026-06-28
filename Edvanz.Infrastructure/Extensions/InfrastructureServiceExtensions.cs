@@ -72,6 +72,7 @@ public static class InfrastructureServiceExtensions
         services.Configure<UserAuthCacheOptions>(configuration.GetSection(UserAuthCacheOptions.Section));
 
         // ── Payment gateway: stub vs Paymob, selected by PaymobOptions.Enabled ──
+        // ── Payment gateway: stub vs Paymob, selected by PaymobOptions.Enabled ──
         // FR-SUB-034 / D-04: Paymob is stubbed off in v1; the real adapter ships
         // dormant and is activated by flipping configuration only — no code change.
         var paymobEnabled = configuration

@@ -7,6 +7,7 @@ using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.ComponentModel.DataAnnotations;
 
 namespace Edvanz.API.Controllers
@@ -55,6 +56,8 @@ namespace Edvanz.API.Controllers
         /// <param name="req">Registration data including user type, credentials, and optional ID image.</param>
         /// <returns>Result containing the registration data on success.</returns>
         [HttpPost("sign-up")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> Signup([FromForm] SigupDto req)
         {
             var result = await _userService.AddUser(req);
@@ -68,6 +71,8 @@ namespace Edvanz.API.Controllers
         /// <param name="phoneNumber">The phone number to generate an OTP for.</param>
         /// <returns>Result containing the plain-text OTP code on success.</returns>
         [HttpPost("generate-otp")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> GenerateOtp([FromQuery] string phoneNumber)
         {
             var result = await _otpService.AskForOtp(phoneNumber);
@@ -81,12 +86,16 @@ namespace Edvanz.API.Controllers
         /// <param name="req">Verification data containing phone number and OTP code.</param>
         /// <returns>Result indicating success or failure of verification.</returns>
         [HttpPost("verify-otp")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> VerifyOtp(OtpVerificationDto req)
         {
             var result = await _otpService.VerifyOtp(req);
             return ToResponse(result);
         }
         [HttpPost("login")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> Login(LoginDto req)
         {
             var result = await authService.Login(req);
@@ -94,18 +103,24 @@ namespace Edvanz.API.Controllers
         }
         [Authorize]
         [HttpPost("change-password")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> ChangePassword(ChangePasswordDto req)
         {
             var result = await authService.ChangePassword(req);
             return ToResponse(result);
         }
         [HttpPost("refresh")]
+      
+
         public async Task<IActionResult> RefreshToken(RefreshDto req)
         {
             var result = await authService.Refresh(req.token);
             return ToResponse(result);
         }
         [HttpPost("sigup-by-google")]
+        [EnableRateLimiting("auth")]
+
         public async Task<IActionResult> GoogleSignUp(SigUpByGoogle req)
         {
             var result = await authService.SigUpByGoogle(req.clientDeviceToken);
@@ -148,6 +163,7 @@ namespace Edvanz.API.Controllers
         /// </returns>
 
         [HttpPost("admin-login")]
+        [EnableRateLimiting("auth")]
         public async Task<IActionResult> AdminLogin([FromBody] LoginDto req)
         {
             var result = await authService.AdminLoginAsync(req);
