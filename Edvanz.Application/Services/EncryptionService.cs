@@ -14,9 +14,21 @@ namespace Edvanz.Application.Services
 
         public EncryptionService(IConfiguration config)
         {
-           
-            _key = Convert.FromBase64String(config["Encryption:Key"]!);
-            _iv = Convert.FromBase64String(config["Encryption:IV"]!);
+            var key = config["Encryption:Key"];
+            var iv = config["Encryption:IV"];
+
+            if (string.IsNullOrWhiteSpace(key))
+                throw new InvalidOperationException(
+                    "Encryption:Key is not configured. " +
+                    "Add it to appsettings.Development.json locally or to Key Vault in production.");
+
+            if (string.IsNullOrWhiteSpace(iv))
+                throw new InvalidOperationException(
+                    "Encryption:IV is not configured. " +
+                    "Add it to appsettings.Development.json locally or to Key Vault in production.");
+
+            _key = Convert.FromBase64String(key);
+            _iv = Convert.FromBase64String(iv);
         }
 
         public string Encrypt(string plainText)

@@ -26,7 +26,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
-
+using Microsoft.ApplicationInsights.Extensibility;
+using Microsoft.ApplicationInsights.AspNetCore.Extensions;
+    
 using System;
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
@@ -230,6 +232,7 @@ builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
+builder.Services.AddApplicationInsightsTelemetry();
 
 // ── Rate limiting (built-in, no Redis needed for single instance) ─────────
 // "auth" policy: 10 login/register attempts per IP per minute.
@@ -380,6 +383,7 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseCors("Edvanz");
+
 
 // Rate limiting — applied before auth so unauthenticated callers are
 // throttled on the login/register surface. Policy "auth" is registered

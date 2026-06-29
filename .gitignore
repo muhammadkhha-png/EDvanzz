@@ -373,3 +373,11 @@ whatsapp-service/node_modules/
 .wwebjs_auth/
 .wwebjs_cache/
 node_modules/
+# Local dev secrets — never commit
+appsettings.Development.json
+appsettings.Local.json
+
+# Published output
+**/publish/
+**/obj/
+**/bin/
