@@ -36,8 +36,11 @@ public partial class DbInitializer
         string hashedPassword = passwordService.HashPassword(DefaultSeedPassword);
         DateTime now = DateTime.UtcNow;
 
-        await using var transaction = await context.Database.BeginTransactionAsync();
-        try
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            try
         {
             var superAdmin = await SeedSuperAdminAsync(context, hashedPassword, now);
 
@@ -95,9 +98,10 @@ public partial class DbInitializer
         }
         catch
         {
-            await transaction.RollbackAsync();
-            throw;
-        }
+                await transaction.RollbackAsync();
+                throw;
+            }
+        });
     }
 
     // ════════════════════════════════════════════════
