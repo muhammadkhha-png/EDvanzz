@@ -1,0 +1,37 @@
+on:
+  push:
+    branches: [ master_integration ]   # was: main
+
+permissions: { id-token: write, contents: read }   # OIDC
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build
+
+      # Idempotent migration script (apply before swapping app in)
+      - run: dotnet tool install --global dotnet-ef
+      - run: dotnet ef migrations script --idempotent --project Edvanz.Infrastructure --startup-project Edvanz.API -o migrate.sql
+
+      # SELF-CONTAINED publish (bundles .NET 10 runtime — immune to platform rollout)
+      - run: dotnet publish Edvanz.API -c Release -r linux-x64 --self-contained true -o ./publish
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Apply migration (uses the same login; SQL must allow the runner IP or use Entra)
+      - run: sqlcmd -S tcp:sql-edvanz-prod-weu.database.windows.net,1433 -d sqldb-edvanz-prod -G -i migrate.sql
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: app-edvanz-api-prod
+          package: ./publish

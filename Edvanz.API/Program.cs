@@ -1,5 +1,4 @@
-﻿using DocumentFormat.OpenXml.Wordprocessing;
-using Edvanz.API.Authorization;
+﻿using Edvanz.API.Authorization;
 using Edvanz.API.Controllers;
 using Edvanz.API.Filters;
 using Edvanz.API.Middleware;
@@ -26,13 +25,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
-using Microsoft.ApplicationInsights.Extensibility;
-using Microsoft.ApplicationInsights.AspNetCore.Extensions;
-    
-using System;
 using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
-using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using HangfireDashboardAuthFilter = Edvanz.API.Filters.HangfireDashboardAuthFilter;
@@ -49,6 +43,8 @@ builder.Services.AddControllers()
     });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
+var x = builder.Configuration.GetConnectionString("con");
+
 builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("con"),
@@ -232,7 +228,19 @@ builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
-builder.Services.AddApplicationInsightsTelemetry();
+//builder.Services.AddApplicationInsightsTelemetry();
+//var aiConnectionString =
+//    builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+//    ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+
+//if (!string.IsNullOrWhiteSpace(aiConnectionString))
+//{
+//    builder.Services.AddOpenTelemetry()
+//        .WithTracing(tracing =>
+//        {
+//            tracing.AddAzureMonitorTraceExporter(o => o.ConnectionString = aiConnectionString);
+//        });
+//}
 
 // ── Rate limiting (built-in, no Redis needed for single instance) ─────────
 // "auth" policy: 10 login/register attempts per IP per minute.
