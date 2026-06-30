@@ -49,10 +49,10 @@ builder.Services.AddDbContext<EdvanzDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("con"),
         sqlOpts => sqlOpts
-            .EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30),
-                errorNumbersToAdd: null)   // null = use EF's default transient-error list
+            //.EnableRetryOnFailure(
+            //    maxRetryCount: 5,
+            //    maxRetryDelay: TimeSpan.FromSeconds(30),
+            //    errorNumbersToAdd: null)   // null = use EF's default transient-error list
             .CommandTimeout(30)));
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
 builder.Services.AddApplication();
