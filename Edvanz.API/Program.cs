@@ -294,11 +294,12 @@ builder.Services.AddHealthChecks()
             ? HealthCheckResult.Healthy()
             : HealthCheckResult.Unhealthy("Hangfire server not running"),
         tags: new[] { "ready" });
-   
+
 var app = builder.Build();
-
-
 await app.SeedDatabaseAsync();
+
+
+
 
 // Use localization middleware
 var locOptions = app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>();
