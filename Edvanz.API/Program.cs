@@ -135,6 +135,10 @@ builder.Services.AddSwaggerGen(c =>
     if (File.Exists(appPath))
         c.IncludeXmlComments(appPath);
 });
+// Swagger example providers — one per module (composed by SwaggerExamplesFilter).
+// Add a new registration here to document a new module; the filter never changes.
+builder.Services.AddSingleton<IEndpointExampleProvider, SubscriptionExampleProvider>();
+builder.Services.AddSingleton<IEndpointExampleProvider, AuthExampleProvider>();
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 // ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────
 // QueuePollInterval at 15s: the default is already 15s in Hangfire 1.8;
