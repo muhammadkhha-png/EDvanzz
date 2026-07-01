@@ -22,6 +22,7 @@ public sealed class EndpointExampleSet
     // <summary>
     /// Named response examples per status: status code → (example name → example).
     /// For any status present here, this takes precedence over <see cref="Responses"/>.
+    /// 
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode>>? ResponseExamples { get; init; }
 }
