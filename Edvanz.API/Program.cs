@@ -117,7 +117,7 @@ builder.Services.AddSwaggerGen(c =>
     //});
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
-    c.OperationFilter<SwaggerExamplesFilter>();
+     c.OperationFilter<SwaggerExamplesFilter>();
     c.UseInlineDefinitionsForEnums();
 
     // --- 👇 Add these lines ---

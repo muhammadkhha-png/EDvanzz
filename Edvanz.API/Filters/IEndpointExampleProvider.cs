@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Nodes;
+﻿using Edvanz.API.Filters;
+using System.Text.Json.Nodes;
 
 namespace Edvanz.API.Filters;
 
@@ -10,10 +11,21 @@ public sealed class EndpointExampleSet
 {
     /// <summary>Request-body example, or null for endpoints with no body (e.g. query-only).</summary>
     public JsonNode? RequestBody { get; init; }
+    /// <summary>
+    /// Named request-body examples → rendered as a selectable dropdown in Swagger UI.
+    /// When set, takes precedence over <see cref="RequestBody"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, JsonNode>? RequestBodyExamples { get; init; }
 
     /// <summary>Response examples keyed by HTTP status code string ("200", "400", ...).</summary>
     public IReadOnlyDictionary<string, JsonNode>? Responses { get; init; }
+    // <summary>
+    /// Named response examples per status: status code → (example name → example).
+    /// For any status present here, this takes precedence over <see cref="Responses"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, JsonNode>>? ResponseExamples { get; init; }
 }
+
 
 /// <summary>
 /// Supplies Swagger request/response examples for a cohesive set of endpoints

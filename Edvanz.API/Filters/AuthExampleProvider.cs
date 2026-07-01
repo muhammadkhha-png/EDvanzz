@@ -110,17 +110,74 @@ public sealed class AuthExampleProvider : EndpointExampleProvider
 
     private EndpointExampleSet Login() => new()
     {
-        RequestBody = new JsonObject
+        RequestBodyExamples = new Dictionary<string, JsonNode>
         {
-            ["userName"] = "teacher1",
-            ["password"] = "Edvanz@2026"
+            ["teacher1 — Ahmed Mostafa (all 8 modules)"] =
+              new JsonObject { ["userName"] = "teacher1", ["password"] = "Edvanz@2026" },
+            ["teacher2 — Mariam Hassan (Student/Session/Attendance)"] =
+              new JsonObject { ["userName"] = "teacher2", ["password"] = "Edvanz@2026" },
+            ["assistant1a — Sara Ibrahim (full delegate of teacher1)"] =
+              new JsonObject { ["userName"] = "assistant1a", ["password"] = "Edvanz@2026" },
+            ["assistant1b — Khaled Nasser (read-mostly under teacher1)"] =
+              new JsonObject { ["userName"] = "assistant1b", ["password"] = "Edvanz@2026" },
+            ["assistant2a — Nour Adel (under teacher2)"] =
+              new JsonObject { ["userName"] = "assistant2a", ["password"] = "Edvanz@2026" },
+        },
+        ResponseExamples = new Dictionary<string, IReadOnlyDictionary<string, JsonNode>>
+        {
+            ["200"] = new Dictionary<string, JsonNode>
+            {
+                ["teacher1 (Teacher — all modules)"] = SuccessEnvelope(
+                  "Logged in successfully.",
+                  AuthData(2, "teacher1", "Ahmed Mostafa", "Teacher",
+                           AllModules(), permissions: null, teacherIds: new JsonArray(1))),
+
+                ["teacher2 (Teacher — limited modules)"] = SuccessEnvelope(
+                  "Logged in successfully.",
+                  AuthData(3, "teacher2", "Mariam Hassan", "Teacher",
+                           new JsonArray("Student", "Session", "Attendance"),
+                           permissions: null, teacherIds: new JsonArray(2))),
+
+                // Assistant resolves to its OWNING tutor: teacherIds points at teacher1.
+                // models/permissions reflect the assistant's granted profile (representative here).
+                ["assistant1a (Assistant of teacher1)"] = SuccessEnvelope(
+                  "Logged in successfully.",
+                  AuthData(4, "assistant1a", "Sara Ibrahim", "Assistant",
+                           AllModules(),
+                           permissions: new JsonArray("Add", "ViewProfile"),
+                           teacherIds: new JsonArray(1))),
+            }
         },
         Responses = new Dictionary<string, JsonNode>
         {
-            ["200"] = SuccessEnvelope("Logged in successfully.", TeacherAuthData()),
             ["400"] = FailureEnvelope("Invalid username or password.")
         }
     };
+
+    /// <summary>Fresh array of the 8 module names (teacher1's full grant). New instance per call
+    /// so JsonNodes are never re-parented across examples.</summary>
+    private static JsonArray AllModules() => new(
+        "Student", "Session", "Attendance", "Payment",
+        "Event-Based Payment", "Exams And Homework", "Messaging", "Videos");
+
+    /// <summary>Builds an AuthResponse payload. Numeric ids/tokens are illustrative only.</summary>
+    private static JsonObject AuthData(
+        long accountId, string userName, string fullName, string accountType,
+        JsonArray? models, JsonArray? permissions, JsonArray teacherIds) => new()
+        {
+            ["accessToken"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.<header>.<signature>",
+            ["refreshToken"] = "a7f3c1e0-9b2d-4c8a-bf11-6e2d0c4a9d31",
+            ["userAccountData"] = new JsonObject
+            {
+                ["accountId"] = accountId,
+                ["userName"] = userName,
+                ["fullName"] = fullName,
+                ["accountType"] = accountType,
+                ["models"] = models,
+                ["permissions"] = permissions,
+                ["teacherIds"] = teacherIds
+            }
+        };
 
     private EndpointExampleSet AdminLogin() => new()
     {

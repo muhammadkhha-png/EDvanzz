@@ -1,23 +1,108 @@
+using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
 using System.Text.Json.Nodes;
 
 namespace Edvanz.API.Filters;
 
 /// <summary>
-/// Swagger request/response examples for the Subscription Management Module
-/// (§4.1 / §4.4 / §6.5) — SubscriptionController, AdminSubscriptionController,
-/// and PaymobWebhookController.
+/// Injects request-body and response examples into Swagger UI for the Subscription
+/// Management Module (§4.1 / §4.4 / §6.5). Mirrors the project's existing
+/// IOperationFilter approach — see <see cref="AcceptLanguageHeaderFilter"/>.
 ///
-/// Lookup is by (HTTP method + normalized route). Routes not in the table return
-/// null, so the composing <see cref="SwaggerExamplesFilter"/> leaves them untouched.
+/// Lookup is by (HTTP method + route template). Routes that aren't in the table
+/// are left untouched, so this filter is safe to register globally and only
+/// affects endpoints it knows about.
+///
+/// Phase 9 deliverable — covers every Subscription endpoint enumerated in
+/// SubscriptionController, AdminSubscriptionController, and PaymobWebhookController.
+///
+/// REGISTRATION (Program.cs alongside AcceptLanguageHeaderFilter):
+///   builder.Services.AddSwaggerGen(options =&gt;
+///   {
+///       options.OperationFilter&lt;AcceptLanguageHeaderFilter&gt;();
+///       options.OperationFilter&lt;SwaggerExamplesFilter&gt;();
+///   });
 /// </summary>
-public sealed class SubscriptionExampleProvider : EndpointExampleProvider
+public class SwaggerExamplesFilter : IOperationFilter
 {
-    public override EndpointExampleSet? GetExamples(string method, string route)
+    /// <summary>
+    /// Applies known examples to the operation. Routes are normalized (lowercased,
+    /// leading slash stripped) before lookup so route casing variations don't break matching.
+    /// </summary>
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        string method = context.ApiDescription.HttpMethod ?? string.Empty;
+        string route = NormalizeRoute(context.ApiDescription.RelativePath);
+
+        var examples = ResolveExamples(method, route);
+        if (examples is null) return;
+
+        ApplyRequestExample(operation, examples.RequestBody);
+        ApplyResponseExamples(operation, examples.Responses);
+    }
+
+    // ════════════════════════════════════════════════
+    // ROUTE NORMALIZATION
+    // ════════════════════════════════════════════════
+
+    private static string NormalizeRoute(string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return string.Empty;
+
+        // Strip query string and trailing slash, then lowercase. ASP.NET Core surfaces
+        // route templates with placeholders like "api/subscription/renew/status/{pendingPaymentId}"
+        // which we keep intact — placeholders are the lookup key.
+        int queryIndex = relativePath.IndexOf('?');
+        string path = queryIndex >= 0 ? relativePath[..queryIndex] : relativePath;
+
+        path = path.TrimStart('/').TrimEnd('/').ToLowerInvariant();
+        return path;
+    }
+
+    // ════════════════════════════════════════════════
+    // EXAMPLE APPLICATION
+    // ════════════════════════════════════════════════
+
+    private static void ApplyRequestExample(OpenApiOperation operation, JsonNode? requestExample)
+    {
+        if (requestExample is null) return;
+        if (operation.RequestBody?.Content is null) return;
+
+        foreach (var mediaType in operation.RequestBody.Content.Values)
+        {
+            mediaType.Example = requestExample;
+        }
+    }
+
+    private static void ApplyResponseExamples(
+        OpenApiOperation operation,
+        IReadOnlyDictionary<string, JsonNode>? responseExamples)
+    {
+        if (responseExamples is null || responseExamples.Count == 0) return;
+        if (operation.Responses is null) return;
+
+        foreach (var (statusCode, example) in responseExamples)
+        {
+            if (!operation.Responses.TryGetValue(statusCode, out var response)) continue;
+            if (response?.Content is null) continue;
+
+            foreach (var mediaType in response.Content.Values)
+            {
+                mediaType.Example = example;
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════
+    // EXAMPLE TABLE
+    // ════════════════════════════════════════════════
+
+    private static SubscriptionExampleSet? ResolveExamples(string method, string route)
     {
         // ─────────── SUBSCRIPTION CONTROLLER (teacher-facing) ───────────
 
         if (method == "GET" && route == "api/subscription/current")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 Responses = new Dictionary<string, JsonNode>
                 {
@@ -37,7 +122,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "GET" && route == "api/subscription/history")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 Responses = new Dictionary<string, JsonNode>
                 {
@@ -67,7 +152,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "POST" && route == "api/subscription/renew/initiate")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -95,7 +180,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "POST" && route == "api/subscription/renew/manual-submit")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -120,7 +205,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "GET" && route == "api/subscription/renew/status/{pendingpaymentid}")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 Responses = new Dictionary<string, JsonNode>
                 {
@@ -140,7 +225,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
         // ─────────── ADMIN SUBSCRIPTION CONTROLLER ───────────
 
         if (method == "POST" && route == "api/admin/subscriptions/activate")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -165,7 +250,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "POST" && route == "api/admin/subscriptions/extend")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -190,7 +275,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "PUT" && route == "api/admin/subscriptions/end-date")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -214,7 +299,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "GET" && route == "api/admin/subscriptions/pending")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 Responses = new Dictionary<string, JsonNode>
                 {
@@ -245,7 +330,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "POST" && route == "api/admin/subscriptions/pending/{pendingpaymentid}/approve")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 Responses = new Dictionary<string, JsonNode>
                 {
@@ -263,7 +348,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "POST" && route == "api/admin/subscriptions/pending/{pendingpaymentid}/reject")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -277,7 +362,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         if (method == "PUT" && route == "api/admin/subscriptions/packages/{packageid}/price")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -293,7 +378,7 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
         // ─────────── PAYMOB WEBHOOK ───────────
 
         if (method == "POST" && route == "api/webhooks/paymob")
-            return new EndpointExampleSet
+            return new SubscriptionExampleSet
             {
                 RequestBody = new JsonObject
                 {
@@ -317,5 +402,36 @@ public sealed class SubscriptionExampleProvider : EndpointExampleProvider
             };
 
         return null;
+    }
+
+    // ════════════════════════════════════════════════
+    // ENVELOPE HELPERS — match ApiBaseController.ToResponse shape
+    // ════════════════════════════════════════════════
+
+    private static JsonObject SuccessEnvelope(string message, JsonNode data) => new()
+    {
+        ["success"] = true,
+        ["message"] = message,
+        ["data"] = data
+    };
+
+    private static JsonObject FailureEnvelope(string message) => new()
+    {
+        ["success"] = false,
+        ["message"] = message
+    };
+
+    // ════════════════════════════════════════════════
+    // INTERNAL TYPES
+    // ════════════════════════════════════════════════
+
+    /// <summary>
+    /// Holds a single endpoint's example set: request body example (optional)
+    /// and a response-code-keyed map of response examples.
+    /// </summary>
+    private sealed class SubscriptionExampleSet
+    {
+        public JsonNode? RequestBody { get; init; }
+        public IReadOnlyDictionary<string, JsonNode>? Responses { get; init; }
     }
 }
