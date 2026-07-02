@@ -265,4 +265,16 @@ public interface IPaymentService
     /// <param name="assistantUserId">The assistant's User.Id for wallet lookup.</param>
     Task<Result<bool>> EnsureAssistantWalletExistsAsync(
         long teacherId, long assistantId, long assistantUserId);
+    /// <summary>
+    /// Collects payments for multiple students in a single request ("Mark N students as Paid").
+    /// Best-effort partial success: each student is processed independently via
+    /// <see cref="CollectPaymentAsync"/> — the single source of truth for all payment
+    /// business rules — and reported as Collected, NeedsConfirmation, or Failed.
+    /// No explicit REQ-PAY covers batch collection (it is UI-derived); per-student behavior
+    /// is governed by REQ-PAY-001/002/018/019/020/026 and BR-PAY-001 via the reused path.
+    /// <paramref name="teacherId"/> and <paramref name="collectedByUserId"/> are supplied
+    /// by the presentation layer from the JWT, never from the request body.
+    /// </summary>
+    Task<Result<BatchCollectResultDto>> BatchCollectPaymentAsync(
+        BatchCollectPaymentDto dto, long teacherId, long collectedByUserId);
 }

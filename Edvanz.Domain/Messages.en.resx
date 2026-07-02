@@ -270,6 +270,12 @@
   <data name="StudentCodeTooLong" xml:space="preserve">
     <value>Student code cannot exceed 10 characters</value>
   </data>
+<data name="PaymentBatchCollectedSuccess" xml:space="preserve">
+  <value>Batch payment collection completed.</value>
+</data>
+<data name="PaymentBatchEmpty" xml:space="preserve">
+  <value>The batch must contain at least one student.</value>
+</data>
   <data name="StudentCodeInvalidFormat" xml:space="preserve">
     <value>Student code can only contain letters (A-Z) and numbers (0-9). Spaces, special characters, and Arabic letters are not allowed</value>
   </data>

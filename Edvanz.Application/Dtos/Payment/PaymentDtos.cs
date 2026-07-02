@@ -585,3 +585,66 @@ public class StudentPaymentViewDto
     public decimal Outstanding { get; set; }
     public List<PaymentPeriodDto> Periods { get; set; } = new();
 }
+// ══════════════════════════════════════════════════════════════════════════
+// BATCH COLLECTION DTOs (UI: "Mark N students as Paid")
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Input DTO for collecting payments from multiple students in one request.
+/// SessionId and PaymentMethod are shared across all items (the collection screen
+/// is session-scoped). TeacherId and CollectedByUserId are intentionally absent —
+/// both are resolved from the JWT by the presentation layer, matching the single
+/// collect endpoint (REQ-PAY-011 / BR-PAY-004).
+/// </summary>
+public class BatchCollectPaymentDto
+{
+    public long SessionId { get; set; }
+    public PaymentCollectionMethod PaymentMethod { get; set; }
+
+    /// <summary>Cascades to each item's same-day duplicate confirmation (REQ-PAY-020).</summary>
+    public bool ConfirmAllDuplicates { get; set; } = false;
+
+    /// <summary>Cascades to each item's already-paid confirmation (REQ-PAY-026).</summary>
+    public bool ConfirmAllAlreadyPaid { get; set; } = false;
+
+    public List<BatchCollectItemDto> Items { get; set; } = new();
+}
+
+/// <summary>A single student entry within a batch collection request.</summary>
+public class BatchCollectItemDto
+{
+    public long TeacherStudentId { get; set; }
+    public decimal Amount { get; set; }
+    /// <summary>Online payment reference, for online collection methods only (REQ-PAY-008).</summary>
+    public string? OnlineTransactionRef { get; set; }
+}
+
+/// <summary>
+/// Aggregated result of a batch collection.
+/// Mirrors the offline-sync result shape: totals plus a per-student outcome list.
+/// </summary>
+public class BatchCollectResultDto
+{
+    public int TotalRequested { get; set; }
+    public int CollectedCount { get; set; }
+    public int NeedsConfirmationCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<BatchCollectItemResultDto> Results { get; set; } = new();
+}
+
+/// <summary>Per-student outcome within a batch collection.</summary>
+public class BatchCollectItemResultDto
+{
+    public long TeacherStudentId { get; set; }
+    public BatchCollectItemStatus Status { get; set; }
+    /// <summary>Localized outcome message (reused from the single-collect path).</summary>
+    public string? Message { get; set; }
+    /// <summary>The created transaction — populated only when Status is Collected.</summary>
+    public PaymentTransactionDto? Transaction { get; set; }
+    /// <summary>REQ-PAY-020: same-day duplicate — requires ConfirmAllDuplicates to proceed.</summary>
+    public bool IsSameDayDuplicate { get; set; }
+    /// <summary>REQ-PAY-026: period already fully paid — requires ConfirmAllAlreadyPaid to proceed.</summary>
+    public bool IsAlreadyPaid { get; set; }
+    /// <summary>Total already collected today for this student, when a same-day duplicate is detected.</summary>
+    public decimal? TodayPaidAmount { get; set; }
+}

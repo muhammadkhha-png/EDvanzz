@@ -53,6 +53,116 @@ public class PaymentService : IPaymentService
     // ══════════════════════════════════════════════
     // PAYMENT COLLECTION
     // ══════════════════════════════════════════════
+    // ══════════════════════════════════════════════
+    // BATCH COLLECTION (UI: "Mark N students as Paid")
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<BatchCollectResultDto>> BatchCollectPaymentAsync(
+        BatchCollectPaymentDto dto, long teacherId, long collectedByUserId)
+    {
+        if (dto.Items is null || dto.Items.Count == 0)
+            return Result<BatchCollectResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentBatchEmpty, HttpStatusCode.BadRequest);
+
+        var results = new List<BatchCollectItemResultDto>(dto.Items.Count);
+
+        foreach (var item in dto.Items)
+        {
+            // Fan the shared batch fields + JWT-resolved identity onto a single-collect DTO.
+            var itemDto = new CollectPaymentDto
+            {
+                TeacherId = teacherId,
+                CollectedByUserId = collectedByUserId,
+                SessionId = dto.SessionId,
+                PaymentMethod = dto.PaymentMethod,
+                TeacherStudentId = item.TeacherStudentId,
+                Amount = item.Amount,
+                OnlineTransactionRef = item.OnlineTransactionRef,
+                DuplicateConfirmed = dto.ConfirmAllDuplicates,
+                AlreadyPaidConfirmed = dto.ConfirmAllAlreadyPaid
+            };
+
+            // Each item runs as its own owned transaction inside CollectPaymentAsync:
+            // best-effort — one student's failure never rolls back the others, and the
+            // existing per-student notification behavior is preserved unchanged.
+            try
+            {
+                var itemResult = await CollectPaymentAsync(itemDto);
+                results.Add(MapBatchItemResult(item.TeacherStudentId, itemResult));
+            }
+            catch (Exception)
+            {
+                // CollectPaymentAsync rethrows genuinely exceptional (non-business) errors.
+                // Capture as a per-item failure so one bad record can't abort the batch.
+                // NOTE: no ILogger is injected into PaymentService; if one is added, log here.
+                results.Add(new BatchCollectItemResultDto
+                {
+                    TeacherStudentId = item.TeacherStudentId,
+                    Status = BatchCollectItemStatus.Failed,
+                    Message = _localizer["ServerError"] // existing global resource key
+                });
+            }
+        }
+
+        var envelope = new BatchCollectResultDto
+        {
+            TotalRequested = dto.Items.Count,
+            CollectedCount = results.Count(r => r.Status == BatchCollectItemStatus.Collected),
+            NeedsConfirmationCount = results.Count(r => r.Status == BatchCollectItemStatus.NeedsConfirmation),
+            FailedCount = results.Count(r => r.Status == BatchCollectItemStatus.Failed),
+            Results = results
+        };
+
+        return Result<BatchCollectResultDto>.Success(
+            envelope, _localizer, PaymentConstants.Messages.PaymentBatchCollectedSuccess);
+    }
+
+    /// <summary>
+    /// Classifies a single-collect result into a batch item outcome.
+    /// result.Message is already localized by CollectPaymentAsync, so no localizer is needed.
+    /// </summary>
+    private static BatchCollectItemResultDto MapBatchItemResult(
+        long teacherStudentId, Result<CollectPaymentResultDto> result)
+    {
+        if (!result.IsSuccess)
+            return new BatchCollectItemResultDto
+            {
+                TeacherStudentId = teacherStudentId,
+                Status = BatchCollectItemStatus.Failed,
+                Message = result.Message
+            };
+
+        var data = result.Data;
+
+        if (data?.Transaction is not null)
+            return new BatchCollectItemResultDto
+            {
+                TeacherStudentId = teacherStudentId,
+                Status = BatchCollectItemStatus.Collected,
+                Message = result.Message,
+                Transaction = data.Transaction
+            };
+
+        if (data is not null && (data.IsSameDayDuplicate || data.IsAlreadyPaid))
+            return new BatchCollectItemResultDto
+            {
+                TeacherStudentId = teacherStudentId,
+                Status = BatchCollectItemStatus.NeedsConfirmation,
+                Message = result.Message,
+                IsSameDayDuplicate = data.IsSameDayDuplicate,
+                IsAlreadyPaid = data.IsAlreadyPaid,
+                TodayPaidAmount = data.TodayPaidAmount
+            };
+
+        // Defensive: success with neither a transaction nor a known warning flag.
+        return new BatchCollectItemResultDto
+        {
+            TeacherStudentId = teacherStudentId,
+            Status = BatchCollectItemStatus.Failed,
+            Message = result.Message
+        };
+    }
 
     /// <inheritdoc />
     public async Task<Result<CollectPaymentResultDto>> CollectPaymentAsync(CollectPaymentDto dto)

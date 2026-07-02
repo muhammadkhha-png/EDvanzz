@@ -267,6 +267,12 @@
   <data name="StudentCodeDuplicate" xml:space="preserve">
     <value>الكود ده موجود بالفعل في حسابك. من فضلك استخدم كود تاني</value>
   </data>
+<data name="PaymentBatchCollectedSuccess" xml:space="preserve">
+  <value>تم تنفيذ التحصيل الجماعي للمدفوعات.</value>
+</data>
+<data name="PaymentBatchEmpty" xml:space="preserve">
+  <value>لازم العملية تحتوي على طالب واحد على الأقل.</value>
+</data>
   <data name="StudentCodeTooLong" xml:space="preserve">
     <value>كود الطالب مينفعش يزيد عن 10 حروف</value>
   </data>

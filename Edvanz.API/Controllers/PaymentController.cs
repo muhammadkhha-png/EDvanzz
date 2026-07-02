@@ -791,4 +791,45 @@ public sealed class PaymentController : ModuleSixApiBaseController
 
         return File(result.Data!, contentType, fileName);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 1b: BATCH COLLECT PAYMENT
+    // POST api/payment/collect/batch
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Collects payments for multiple students in one request ("Mark N students
+    //   as Paid" — the multi-select collection screen). Best-effort partial success:
+    //   each student is processed independently and reported as Collected,
+    //   NeedsConfirmation, or Failed. Delegates every business rule to
+    //   CollectPaymentAsync (single source of truth) — no logic duplicated.
+    //
+    //   No explicit REQ-PAY covers batch collection; it is UI-derived. Per-student
+    //   behavior is governed by REQ-PAY-001/002/018/019/020/026 and BR-PAY-001.
+    //
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect permission.
+    //   TeacherId and CollectedByUserId come from the JWT, never the request body
+    //   (REQ-PAY-011 / BR-PAY-004).
+    //
+    // TABLES WRITTEN (per collected item): PaymentTransactions, PaymentPeriods,
+    //   StudentPaymentCounters, AssistantWallets
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("collect/batch")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> BatchCollectPayment([FromBody] BatchCollectPaymentDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // REQ-PAY-011: actor identity is always the authenticated user — never client-supplied.
+        long actingUserId = GetActingUserId();
+
+        var result = await _paymentService.BatchCollectPaymentAsync(dto, teacherId.Value, actingUserId);
+        return ToResponse(result);
+    }
 }

@@ -79,7 +79,11 @@ public static class PaymentConstants
     // ══════════════════════════════════════════════
     // LOCALIZATION KEYS — PAYMENT MODULE
     // ══════════════════════════════════════════════
-
+    // Collection
+        public const string PaymentCollectedSuccess = "PaymentCollectedSuccess";
+        public const string PaymentBatchCollectedSuccess = "PaymentBatchCollectedSuccess"; // NEW — batch envelope
+        public const string PaymentBatchEmpty = "PaymentBatchEmpty";                        // NEW — see flag below
+        public const string PaymentStudentNotAssigned = "PaymentStudentNotAssigned";
     public static class Messages
     {
         public const string TeacherNotFound = "TeacherNotFound";
@@ -105,7 +109,9 @@ public static class PaymentConstants
         public const string PaymentDeleteSuccess = "PaymentDeleteSuccess";
         public const string PaymentNotFound = "PaymentNotFound";
         public const string PaymentEditNotAuthorized = "PaymentEditNotAuthorized";
-
+        // Collection
+        public const string PaymentBatchCollectedSuccess = "PaymentBatchCollectedSuccess"; // NEW — batch envelope
+        public const string PaymentBatchEmpty = "PaymentBatchEmpty";                        // NEW — see flag below
         // Custom Amount
         public const string CustomAmountSetSuccess = "CustomAmountSetSuccess";
 
