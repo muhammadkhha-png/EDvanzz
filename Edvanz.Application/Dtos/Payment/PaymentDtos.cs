@@ -648,3 +648,100 @@ public class BatchCollectItemResultDto
     /// <summary>Total already collected today for this student, when a same-day duplicate is detected.</summary>
     public decimal? TodayPaidAmount { get; set; }
 }
+// ══════════════════════════════════════════════════════════════════════════
+// BATCH EDIT DTOs  (UI: "Saved N changes" / "Submit N students" — D2)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Input DTO for batch-editing payment transactions (D2).
+/// Mirrors the batch-collect request shape: TeacherId and EditedByUserId are
+/// intentionally ABSENT — both are resolved from the JWT by the presentation layer,
+/// never trusted from the body (BR-PAY-002). Each item is applied independently via
+/// EditPaymentAsync — the single source of truth for all edit business rules.
+/// </summary>
+public class BatchEditPaymentDto
+{
+    public List<BatchEditItemDto> Items { get; set; } = new();
+}
+
+/// <summary>A single transaction edit within a batch request.</summary>
+public class BatchEditItemDto
+{
+    public long TransactionId { get; set; }
+    /// <summary>New paid amount; null leaves the amount unchanged.</summary>
+    public decimal? NewAmount { get; set; }
+    /// <summary>New status (reversal is a status change → logged as Reversed); null leaves it unchanged.</summary>
+    public PaymentStatus? NewStatus { get; set; }
+    /// <summary>Reassign the transaction to a different period; null leaves it unchanged.</summary>
+    public long? NewPaymentPeriodId { get; set; }
+    /// <summary>Optional audit reason recorded on the PaymentEditLog (≤ EditReasonMaxLength).</summary>
+    public string? EditReason { get; set; }
+}
+
+/// <summary>
+/// Aggregated result of a batch edit. Mirrors BatchCollectResultDto:
+/// totals plus a per-transaction outcome list.
+/// (Requirement wording: TotalRequested / Successful / Failed.)
+/// </summary>
+public class BatchEditResultDto
+{
+    public int TotalRequested { get; set; }
+    public int SucceededCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<BatchEditItemResultDto> Results { get; set; } = new();
+}
+
+/// <summary>Per-transaction outcome within a batch edit.</summary>
+public class BatchEditItemResultDto
+{
+    public long TransactionId { get; set; }
+    public BatchEditItemStatus Status { get; set; }
+    /// <summary>Underlying HTTP status from the reused edit path:
+    /// 200 success, 400 validation, 404 not found/not owned, 500 unexpected.</summary>
+    public int StatusCode { get; set; }
+    /// <summary>Localized outcome message (reused from the single-edit path).</summary>
+    public string? Message { get; set; }
+    /// <summary>The updated transaction — populated only when Status is Succeeded.</summary>
+    public PaymentTransactionDto? Transaction { get; set; }
+}
+// ══════════════════════════════════════════════════════════════════════════
+// BATCH REVERT DTOs  (UI: "Revert (N students)" — D1)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Input DTO for batch-reverting payment transactions (D1).
+/// A revert is expressed as an edit that zeroes the collected amount and marks the
+/// transaction Unpaid, reusing EditPaymentAsync (single source of truth). TeacherId and
+/// EditedByUserId are resolved from the JWT by the presentation layer, never from the body
+/// (BR-PAY-002). One Reason applies to every transaction in the batch and is recorded on
+/// each PaymentEditLog.
+/// </summary>
+public class BatchRevertPaymentDto
+{
+    public List<long> TransactionIds { get; set; } = new();
+    /// <summary>Audit reason recorded on every reverted transaction's PaymentEditLog (≤ EditReasonMaxLength).</summary>
+    public string? Reason { get; set; }
+}
+
+/// <summary>Aggregated result of a batch revert. Mirrors BatchEditResultDto.</summary>
+public class BatchRevertResultDto
+{
+    public int TotalRequested { get; set; }
+    public int RevertedCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<BatchRevertItemResultDto> Results { get; set; } = new();
+}
+
+/// <summary>Per-transaction outcome within a batch revert.</summary>
+public class BatchRevertItemResultDto
+{
+    public long TransactionId { get; set; }
+    /// <summary>Reuses BatchEditItemStatus — a revert has the same binary Succeeded/Failed outcome as an edit.</summary>
+    public BatchEditItemStatus Status { get; set; }
+    /// <summary>Underlying HTTP status from the reused edit path: 200 success, 404 not found/not owned, 500 unexpected.</summary>
+    public int StatusCode { get; set; }
+    /// <summary>Localized outcome message (reused from the single-edit path).</summary>
+    public string? Message { get; set; }
+    /// <summary>The reverted transaction (amount 0, status Unpaid) — populated only when Status is Succeeded.</summary>
+    public PaymentTransactionDto? Transaction { get; set; }
+}

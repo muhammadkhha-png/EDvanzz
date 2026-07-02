@@ -100,7 +100,7 @@ public static class PaymentConstants
         public const string PaymentSameDayWarning = "PaymentSameDayWarning";
         public const string PaymentAmountInvalid = "PaymentAmountInvalid";
         public const string PaymentStudentInRecycleBin = "PaymentStudentInRecycleBin";
-
+        public const string PaymentBatchRevertSuccess = "PaymentBatchRevertSuccess";   // NEW — batch-revert envelope (D1)
         // Pro-rating
         public const string PaymentProRatedApplied = "PaymentProRatedApplied";
 
@@ -171,6 +171,7 @@ public static class PaymentConstants
 
         // Assistants
         public const string AssistantNotFound = "AssistantNotFound";
+        public const string PaymentBatchEditSuccess = "PaymentBatchEditSuccess";   // NEW — batch-edit envelope (D2)
     }
     // ─────────────────────────────────────────────────────────────────────────────
     // INSERT THE FOLLOWING BLOCK AT THE TOP OF PaymentConstants, BEFORE

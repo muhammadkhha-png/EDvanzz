@@ -1198,4 +1198,10 @@
   <data name="AuditFilterAll" xml:space="preserve"><value>الكل</value></data>
   <data name="AuditGeneratedAt" xml:space="preserve"><value>تم الإنشاء</value></data>
   <data name="AuditPdfTruncated" xml:space="preserve"><value>يتم عرض أول {0} من {1} صف — صدّر إلى Excel للحصول على السجل الكامل</value></data>
+  <data name="PaymentBatchEditSuccess" xml:space="preserve">
+  <value>تم تنفيذ تعديل الدفعات المحددة.</value>
+</data>
+<data name="PaymentBatchRevertSuccess" xml:space="preserve">
+  <value>تم التراجع عن الدفعات المحددة.</value>
+</data>
 </root>

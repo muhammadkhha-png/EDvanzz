@@ -7,6 +7,7 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace Edvanz.Application.Services;
@@ -37,17 +38,19 @@ public class PaymentService : IPaymentService
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
     private readonly IPaymentNotifier _paymentNotifier;              // ← Phase 4
+    private readonly ILogger<PaymentService> _logger;          // ← strengthen batch exception handling
 
     public PaymentService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
-        IPaymentNotifier paymentNotifier)                            // ← Phase 4
+        IPaymentNotifier paymentNotifier, ILogger<PaymentService> logger)                            // ← Phase 4
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
-        _paymentNotifier = paymentNotifier;                          // ← Phase 4
+        _paymentNotifier = paymentNotifier;
+        _logger = logger;// ← Phase 4
     }
 
     // ══════════════════════════════════════════════
@@ -1768,4 +1771,196 @@ public class PaymentService : IPaymentService
         start == end
             ? start.ToString("dd MMM yyyy")
             : $"{start:MMMM yyyy}";
+
+    // ══════════════════════════════════════════════
+    // BATCH EDIT (UI: "Saved N changes" — D2)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<BatchEditResultDto>> BatchEditPaymentAsync(
+        BatchEditPaymentDto dto, long teacherId, long editedByUserId)
+    {
+        if (dto.Items is null || dto.Items.Count == 0)
+            return Result<BatchEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentBatchEmpty, HttpStatusCode.BadRequest);
+
+        var results = new List<BatchEditItemResultDto>(dto.Items.Count);
+
+        foreach (var item in dto.Items)
+        {
+            // Fan the per-item edit fields + JWT-resolved identity onto a single EditPaymentDto.
+            // EditPaymentAsync is the single source of truth for edit business rules
+            // (PaymentEditLog, period/counter reversal, transaction ownership).
+            var itemDto = new EditPaymentDto
+            {
+                TeacherId = teacherId,             // JWT — never from body (BR-PAY-002)
+                EditedByUserId = editedByUserId,   // JWT — never from body
+                TransactionId = item.TransactionId,
+                NewAmount = item.NewAmount,
+                NewStatus = item.NewStatus,
+                NewPaymentPeriodId = item.NewPaymentPeriodId,
+                EditReason = item.EditReason
+            };
+
+            // Each item runs as its own owned transaction inside EditPaymentAsync
+            // (ownsTransaction = true, since the batch opens no ambient transaction):
+            // best-effort — one item's failure never rolls back the others.
+            try
+            {
+                var itemResult = await EditPaymentAsync(itemDto);
+                results.Add(MapBatchEditItemResult(item.TransactionId, itemResult));
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is not a per-item failure — never swallow it. Abort the whole batch.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Reaching here means a genuinely exceptional (non-business) fault for THIS item —
+                // business failures come back as Result.Failure, not thrown. EditPaymentAsync has
+                // already rolled back its own owned transaction. Log with context, then record a
+                // per-item failure so one bad record can't abort the batch (best-effort contract).
+                _logger.LogError(ex,
+                    "Batch edit: unexpected fault editing transaction {TransactionId} for teacher {TeacherId}.",
+                    item.TransactionId, teacherId);
+
+                results.Add(new BatchEditItemResultDto
+                {
+                    TransactionId = item.TransactionId,
+                    Status = BatchEditItemStatus.Failed,
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Message = _localizer["ServerError"]
+                });
+            }
+        }
+
+        var envelope = new BatchEditResultDto
+        {
+            TotalRequested = dto.Items.Count,
+            SucceededCount = results.Count(r => r.Status == BatchEditItemStatus.Succeeded),
+            FailedCount = results.Count(r => r.Status == BatchEditItemStatus.Failed),
+            Results = results
+        };
+
+        return Result<BatchEditResultDto>.Success(
+            envelope, _localizer, PaymentConstants.Messages.PaymentBatchEditSuccess);
+    }
+
+    /// <summary>
+    /// Classifies a single EditPaymentAsync result into a batch item outcome.
+    /// result.Message is already localized by EditPaymentAsync, so no localizer is needed here.
+    /// </summary>
+    private static BatchEditItemResultDto MapBatchEditItemResult(
+        long transactionId, Result<PaymentTransactionDto> result)
+    {
+        if (!result.IsSuccess)
+            return new BatchEditItemResultDto
+            {
+                TransactionId = transactionId,
+                Status = BatchEditItemStatus.Failed,
+                StatusCode = (int)result.StatusCode, // 400 = validation, 404 = not found/not owned
+                Message = result.Message
+            };
+
+        return new BatchEditItemResultDto
+        {
+            TransactionId = transactionId,
+            Status = BatchEditItemStatus.Succeeded,
+            StatusCode = (int)result.StatusCode,
+            Message = result.Message,
+            Transaction = result.Data
+        };
+    }
+
+
+    // ══════════════════════════════════════════════
+    // BATCH REVERT (UI: "Revert (N students)" — D1)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<BatchRevertResultDto>> BatchRevertPaymentAsync(
+        BatchRevertPaymentDto dto, long teacherId, long editedByUserId)
+    {
+        if (dto.TransactionIds is null || dto.TransactionIds.Count == 0)
+            return Result<BatchRevertResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentBatchEmpty, HttpStatusCode.BadRequest);
+
+        var results = new List<BatchRevertItemResultDto>(dto.TransactionIds.Count);
+
+        foreach (var transactionId in dto.TransactionIds)
+        {
+            // A revert is an edit that zeroes the collected amount and marks the transaction
+            // Unpaid — reusing EditPaymentAsync verbatim (single source of truth for PaymentEditLog,
+            // period reversal, counter reversal, ownership, transaction ownership). NewAmount = 0
+            // drives the amountDiff branch that reverses period + counter; NewStatus keeps the
+            // reverted row coherent instead of leaving a stale Paid status. No new reversal logic.
+            var itemDto = new EditPaymentDto
+            {
+                TeacherId = teacherId,              // JWT — never from body (BR-PAY-002)
+                EditedByUserId = editedByUserId,    // JWT — never from body
+                TransactionId = transactionId,
+                NewAmount = 0m,
+                NewStatus = PaymentStatus.Unpaid,
+                EditReason = dto.Reason             // shared revert reason → recorded on each PaymentEditLog
+            };
+
+            try
+            {
+                var itemResult = await EditPaymentAsync(itemDto);
+                results.Add(MapBatchRevertItemResult(transactionId, itemResult));
+            }
+            catch (Exception)
+            {
+                // EditPaymentAsync rolls back its own owned transaction then rethrows genuinely
+                // exceptional (non-business) errors. Capture as a per-item failure so one bad
+                // record can't abort the batch.
+                // NOTE: no ILogger is injected into PaymentService; if one is added, log here.
+                results.Add(new BatchRevertItemResultDto
+                {
+                    TransactionId = transactionId,
+                    Status = BatchEditItemStatus.Failed,
+                    StatusCode = (int)HttpStatusCode.InternalServerError,
+                    Message = _localizer["ServerError"] // existing global resource key
+                });
+            }
+        }
+
+        var envelope = new BatchRevertResultDto
+        {
+            TotalRequested = dto.TransactionIds.Count,
+            RevertedCount = results.Count(r => r.Status == BatchEditItemStatus.Succeeded),
+            FailedCount = results.Count(r => r.Status == BatchEditItemStatus.Failed),
+            Results = results
+        };
+
+        return Result<BatchRevertResultDto>.Success(
+            envelope, _localizer, PaymentConstants.Messages.PaymentBatchRevertSuccess);
+    }
+
+    /// <summary>
+    /// Classifies a single EditPaymentAsync result into a batch revert item outcome.
+    /// result.Message is already localized by EditPaymentAsync, so no localizer is needed here.
+    /// </summary>
+    private static BatchRevertItemResultDto MapBatchRevertItemResult(
+        long transactionId, Result<PaymentTransactionDto> result)
+    {
+        if (!result.IsSuccess)
+            return new BatchRevertItemResultDto
+            {
+                TransactionId = transactionId,
+                Status = BatchEditItemStatus.Failed,
+                StatusCode = (int)result.StatusCode, // 404 = not found/not owned
+                Message = result.Message
+            };
+
+        return new BatchRevertItemResultDto
+        {
+            TransactionId = transactionId,
+            Status = BatchEditItemStatus.Succeeded,
+            StatusCode = (int)result.StatusCode,
+            Message = result.Message,
+            Transaction = result.Data
+        };
+    }
 }

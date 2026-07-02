@@ -832,4 +832,82 @@ public sealed class PaymentController : ModuleSixApiBaseController
         var result = await _paymentService.BatchCollectPaymentAsync(dto, teacherId.Value, actingUserId);
         return ToResponse(result);
     }
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 4b: BATCH EDIT PAYMENTS
+    // PUT api/payment/transactions/batch
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Edits multiple payment transactions in one request ("Saved N changes" — the
+    //   multi-row edit screen, D2). Best-effort partial success: each transaction is
+    //   edited independently and reported as Succeeded or Failed. Delegates every
+    //   business rule to EditPaymentAsync (single source of truth) — no logic duplicated.
+    //   Reversal is expressed as a status change per item and logged as Reversed.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate) — BR-PAY-002, identical to Edit.
+    //   TeacherId and EditedByUserId come from the JWT, never the request body.
+    //
+    // TABLES WRITTEN (per succeeded item): PaymentTransactions, PaymentEditLogs,
+    //   PaymentPeriods, StudentPaymentCounters
+    //
+    // ROUTING: "transactions/batch" cannot collide with "transactions/{transactionId:long}"
+    //   — the :long constraint rejects the non-numeric "batch" segment.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("transactions/batch")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> BatchEditPayment([FromBody] BatchEditPaymentDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Actor identity is always the authenticated user — never client-supplied (BR-PAY-002).
+        long actingUserId = GetActingUserId();
+
+        var result = await _paymentService.BatchEditPaymentAsync(dto, teacherId.Value, actingUserId);
+        return ToResponse(result);
+    }
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 5c: BATCH REVERT PAYMENTS
+    // POST api/payment/transactions/batch-revert
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Reverts multiple payment transactions in one request ("Revert (N students)" — D1).
+    //   A revert zeroes the collected amount and marks the transaction Unpaid, reusing
+    //   EditPaymentAsync (single source of truth) — no new reversal logic. Best-effort
+    //   partial success: each transaction is reverted independently and reported as
+    //   Succeeded or Failed. The shared Reason is recorded on every PaymentEditLog.
+    //
+    //   NOTE: reverts log as PaymentEditAction.AmountChanged today — the Reversed enum
+    //   value is not yet emitted by the edit path (see follow-up R2).
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate) — BR-PAY-002, identical to Edit/Delete.
+    //   TeacherId and EditedByUserId come from the JWT, never the request body.
+    //
+    // TABLES WRITTEN (per reverted item): PaymentTransactions, PaymentEditLogs,
+    //   PaymentPeriods, StudentPaymentCounters
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("transactions/batch-revert")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> BatchRevertPayment([FromBody] BatchRevertPaymentDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Actor identity is always the authenticated user — never client-supplied (BR-PAY-002).
+        long actingUserId = GetActingUserId();
+
+        var result = await _paymentService.BatchRevertPaymentAsync(dto, teacherId.Value, actingUserId);
+        return ToResponse(result);
+    }
 }

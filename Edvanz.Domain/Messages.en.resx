@@ -1198,4 +1198,10 @@
   <data name="AuditFilterAll" xml:space="preserve"><value>All</value></data>
   <data name="AuditGeneratedAt" xml:space="preserve"><value>Generated</value></data>
   <data name="AuditPdfTruncated" xml:space="preserve"><value>First {0} of {1} rows shown — export to Excel for the full record</value></data>
+  <data name="PaymentBatchEditSuccess" xml:space="preserve">
+  <value>Batch payment edit completed.</value>
+</data>
+<data name="PaymentBatchRevertSuccess" xml:space="preserve">
+  <value>Batch payment revert completed.</value>
+</data>
 </root>

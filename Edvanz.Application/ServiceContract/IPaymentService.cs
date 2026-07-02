@@ -277,4 +277,27 @@ public interface IPaymentService
     /// </summary>
     Task<Result<BatchCollectResultDto>> BatchCollectPaymentAsync(
         BatchCollectPaymentDto dto, long teacherId, long collectedByUserId);
+
+    /// <summary>
+    /// Batch-edits multiple payment transactions in a single request (D2 — UI "Saved N changes").
+    /// Best-effort partial success: each transaction is edited independently via
+    /// <see cref="EditPaymentAsync"/> — the single source of truth for all edit business rules
+    /// (PaymentEditLog, period/counter reversal, transaction ownership) — and reported as
+    /// Succeeded or Failed. One item's failure never rolls back the others.
+    /// BR-PAY-002: tutor-only; <paramref name="teacherId"/> and <paramref name="editedByUserId"/>
+    /// are supplied by the presentation layer from the JWT, never from the request body.
+    /// </summary>
+    Task<Result<BatchEditResultDto>> BatchEditPaymentAsync(
+        BatchEditPaymentDto dto, long teacherId, long editedByUserId);
+    /// <summary>
+    /// Batch-reverts multiple payment transactions in a single request (D1 — UI "Revert (N students)").
+    /// A revert is expressed as an edit that zeroes the collected amount and marks the transaction
+    /// Unpaid, applied independently per item via <see cref="EditPaymentAsync"/> — the single source
+    /// of truth for PaymentEditLog, period reversal, counter reversal, ownership, and transaction
+    /// ownership. No new reversal logic is introduced. Best-effort partial success: one item's
+    /// failure never rolls back the others. BR-PAY-002: tutor-only; <paramref name="teacherId"/> and
+    /// <paramref name="editedByUserId"/> come from the JWT, never the request body.
+    /// </summary>
+    Task<Result<BatchRevertResultDto>> BatchRevertPaymentAsync(
+        BatchRevertPaymentDto dto, long teacherId, long editedByUserId);
 }

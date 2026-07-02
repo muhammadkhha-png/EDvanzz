@@ -29,16 +29,18 @@ public class EventPaymentService : IEventPaymentService
     private readonly IPaymentReportExportService _exportService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly IPaymentNotifier paymanetNotifier;
+    private readonly IPaymentService paymentService;
 
     public EventPaymentService(
         IUnitOfWork unitOfWork,
         IPaymentReportExportService exportService,
-        IStringLocalizer<Domain.Resources.Messages> localizer,IPaymentNotifier paymanetNotifier)
+        IStringLocalizer<Domain.Resources.Messages> localizer,IPaymentNotifier paymanetNotifier,IPaymentService paymentService)
     {
         _unitOfWork = unitOfWork;
         _exportService = exportService;
         _localizer = localizer;
         this.paymanetNotifier = paymanetNotifier;
+        this.paymentService = paymentService;
     }
 
     /// <inheritdoc />
@@ -394,8 +396,7 @@ public class EventPaymentService : IEventPaymentService
             paymentEvent.TotalCollectedRevenue += dto.Amount;
             await _unitOfWork.PaymentsRepo.UpdatePaymentEventAsync(paymentEvent);
 
-            // REQ-EVT-013: Update assistant wallet
-            var paymentService = new PaymentService(_unitOfWork, _localizer, null!, paymanetNotifier);
+        
             // Use repo directly for wallet update instead
             var wallet = await _unitOfWork.PaymentsRepo
                 .GetAssistantWalletByUserIdAsync(dto.TeacherId, dto.CollectedByUserId!.Value);
