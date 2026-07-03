@@ -250,6 +250,35 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(
+        long teacherId)
+    {
+        int totalStudentsWithPeriods = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue)
+            .Select(p => p.TeacherStudentId!.Value)
+            .Distinct()
+            .CountAsync();
+
+        // Per student, whether their earliest outstanding period (lowest
+        // PeriodSequence among non-Paid periods) is prorated. Same "earliest
+        // unpaid" concept as GetEarliestUnpaidPeriodAsync, computed for every
+        // student in one round trip instead of one query per student.
+        var earliestOutstandingIsProRated = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId.HasValue
+                && p.PaymentStatus != PaymentStatus.Paid)
+            .GroupBy(p => p.TeacherStudentId!.Value)
+            .Select(g => g.OrderBy(p => p.PeriodSequence).First().IsProRated)
+            .ToListAsync();
+
+        int proRated = earliestOutstandingIsProRated.Count(isProRated => isProRated);
+        int unpaid = earliestOutstandingIsProRated.Count - proRated;
+        int paid = totalStudentsWithPeriods - earliestOutstandingIsProRated.Count;
+
+        return (paid, proRated, unpaid);
+    }
+
+    /// <inheritdoc />
     public async Task<int> GetMaxPeriodSequenceAsync(
         long teacherId, long teacherStudentId, long sessionId)
     {
@@ -590,6 +619,78 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return result
             .Select(r => (r.SessionId, r.SessionName, r.Expected, r.Collected, r.Expected - r.Collected))
             .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ActiveSessionCollectionSummaryRow>> GetActiveSessionsCollectionSummaryAsync(
+        long teacherId)
+    {
+        var today = DateTime.UtcNow.Date;
+
+        var sessions = await _context.Sessions
+            .Where(s => s.TeacherId == teacherId && s.EndDate >= today)
+            .OrderBy(s => s.StartTime)
+            .Select(s => new
+            {
+                s.Id,
+                s.SessionName,
+                s.OccurrenceType,
+                s.SelectedDays,
+                s.MonthlyDayOfMonth,
+                s.StartTime,
+                TotalStudents = s.TeacherStudents.Count
+            })
+            .ToListAsync();
+
+        if (sessions.Count == 0)
+            return Array.Empty<ActiveSessionCollectionSummaryRow>();
+
+        var sessionIds = sessions.Select(s => s.Id).ToList();
+
+        var financials = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.SessionId.HasValue && sessionIds.Contains(p.SessionId.Value))
+            .GroupBy(p => p.SessionId!.Value)
+            .Select(g => new
+            {
+                SessionId = g.Key,
+                Expected = g.Sum(p => p.AmountDue),
+                Collected = g.Sum(p => p.AmountPaid)
+            })
+            .ToDictionaryAsync(x => x.SessionId, x => x);
+
+        // Distinct-student unpaid count per session (same pattern as
+        // CountUnpaidStudentsBySessionAsync). PaidStudents = TotalStudents - unpaid.
+        var unpaidCounts = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.SessionId.HasValue && sessionIds.Contains(p.SessionId.Value)
+                && p.TeacherStudentId.HasValue
+                && p.PaymentStatus != PaymentStatus.Paid)
+            .Select(p => new { SessionId = p.SessionId!.Value, p.TeacherStudentId })
+            .Distinct()
+            .GroupBy(p => p.SessionId)
+            .Select(g => new { SessionId = g.Key, UnpaidCount = g.Count() })
+            .ToDictionaryAsync(x => x.SessionId, x => x.UnpaidCount);
+
+        return sessions.Select(s =>
+        {
+            financials.TryGetValue(s.Id, out var fin);
+            unpaidCounts.TryGetValue(s.Id, out var unpaidCount);
+
+            return new ActiveSessionCollectionSummaryRow
+            {
+                SessionId = s.Id,
+                SessionName = s.SessionName,
+                OccurrenceType = s.OccurrenceType,
+                SelectedDays = s.SelectedDays,
+                MonthlyDayOfMonth = s.MonthlyDayOfMonth,
+                StartTime = s.StartTime,
+                TotalStudents = s.TotalStudents,
+                PaidStudents = Math.Max(0, s.TotalStudents - unpaidCount),
+                ExpectedAmount = fin?.Expected ?? 0,
+                CollectedAmount = fin?.Collected ?? 0
+            };
+        }).ToList();
     }
 
     /// <inheritdoc />

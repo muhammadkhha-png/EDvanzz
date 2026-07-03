@@ -123,6 +123,16 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<int> GetMaxPeriodSequenceAsync(long teacherId, long teacherStudentId, long sessionId);
 
     /// <summary>
+    /// Gets student payment status counts for the Paid / Pro-rated / Unpaid
+    /// overview card. Classification is per student, based on the same
+    /// "earliest outstanding period" concept as <see cref="GetEarliestUnpaidPeriodAsync"/>
+    /// (BR-PAY-001): no outstanding period → Paid; earliest outstanding period
+    /// is prorated (REQ-PAY-021/022 first-period proration) → Pro-rated;
+    /// otherwise → Unpaid. Students with no payment periods at all are not counted.
+    /// </summary>
+    Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(long teacherId);
+
+    /// <summary>
     /// Adds a new payment period.
     /// </summary>
     Task AddPaymentPeriodAsync(PaymentPeriod period);
@@ -296,6 +306,17 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
             long? sessionGroupId,
             PaymentType? paymentType,
             DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
+    /// Gets the collection summary for every currently active session
+    /// (<c>EndDate &gt;= today</c>): collected/expected amounts and
+    /// paid/total student counts, alongside the schedule fields needed to
+    /// build the display label.
+    /// REQ-PAY-043: "Collected by Sessions" card — per-session collection
+    /// progress while the session is active.
+    /// </summary>
+    Task<IReadOnlyList<ActiveSessionCollectionSummaryRow>> GetActiveSessionsCollectionSummaryAsync(
+        long teacherId);
 
     /// <summary>
     /// Gets per-collector breakdown of collected amounts.

@@ -1,8 +1,52 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # CLAUDE.md — Edvanz Project Brain
 
 > Drop this file in the **repo root** (`/`). Claude Code reads it automatically on every
 > invocation. It is the authoritative source of architectural decisions, enforced patterns,
 > known bugs, and active work items. Keep it updated as decisions evolve.
+
+---
+
+## 0. Commands
+
+**Build / run (from repo root, solution file is `Edvanz.slnx`):**
+
+```bash
+dotnet restore Edvanz.slnx
+dotnet build Edvanz.slnx
+dotnet run --project Edvanz.API      # Swagger UI at /swagger (Development/Staging)
+```
+
+**EF Core migrations** (tool pinned in `Edvanz.API/dotnet-tools.json`, run once per clone):
+
+```bash
+dotnet tool restore
+dotnet ef migrations add <Name> --project Edvanz.Infrastructure --startup-project Edvanz.API
+dotnet ef database update --project Edvanz.Infrastructure --startup-project Edvanz.API
+```
+
+`migrate.sql` at repo root is a generated migration script (EF `script` output), not
+hand-written seed SQL — don't edit it directly. `deploy-prod.yml` is the authoritative
+CI/CD sequence (restore → build → `dotnet ef database update` against Azure SQL → publish →
+deploy via OIDC) if you need to see how migrations reach production.
+
+**Tests:** there is no automated test project in this solution. Validate changes with
+`dotnet build` plus manual exercise via Swagger UI or the root `EDvanz.postman_collection.json`
+(Postman collection) — that collection is the de facto test suite until one is added.
+
+**WhatsApp microservice** (`whatsapp-service/`): a standalone Node/Express process
+(`whatsapp-web.js` + Puppeteer) the API calls over HTTP via `IWhatsAppSender`
+(`AddHttpClient<IWhatsAppSender, WhatsAppSender>()` in `Program.cs`). It is **not** part of
+the .NET solution/build — run it separately:
+
+```bash
+cd whatsapp-service
+npm install
+node index.js   # first run prints a QR code to link WhatsApp Web
+```
 
 ---
 
@@ -36,6 +80,20 @@ other project.
 | PDF export | QuestPDF (Community license, Noto Sans Arabic for RTL) |
 | Localization | `IStringLocalizer`, `Messages_en.resx` + `Messages_ar.resx` (Egyptian Arabic) |
 | Hosting | MonsterASP.NET free tier (IIS/Windows Server, Let's Encrypt HTTPS) |
+
+### 2.1 Program.cs Wiring Points
+
+Cross-cutting registrations live in `Edvanz.API/Program.cs`, not auto-discovered — check here
+before assuming something is missing:
+
+- Recurring Hangfire jobs are registered inline via `RecurringJob.AddOrUpdate<T>(...)`:
+  subscription reminder dispatcher (09:00 Africa/Cairo), pending-payment expiry sweep
+  (hourly), assistant cleanup (01:00 Africa/Cairo), recurring-assignment materializer
+  (06:00 Africa/Cairo). A new recurring job needs its own registration here.
+- Swagger example providers (see `IEndpointExampleProvider`, §3.7-adjacent Swagger tooling)
+  are added one `AddSingleton<IEndpointExampleProvider, ...>()` call at a time.
+- `/health/live` (process-up only) and `/health/ready` (checks SQL Server + Hangfire) are
+  the health-check endpoints; `/hangfire` is the dashboard, gated to the `SuperAdmin` role.
 
 ---
 

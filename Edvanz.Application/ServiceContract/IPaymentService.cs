@@ -116,6 +116,12 @@ public interface IPaymentService
     /// </summary>
     Task<Result<int>> GetUnpaidCountBySessionAsync(long teacherId, long sessionId);
 
+    /// <summary>
+    /// Gets the Paid / Pro-rated / Unpaid students overview counts.
+    /// REQ-PAY-031: Overview counts alongside the filterable unpaid list.
+    /// </summary>
+    Task<Result<StudentPaymentStatusCountsDto>> GetStudentPaymentStatusCountsAsync(long teacherId);
+
     // ══════════════════════════════════════════════
     // COLLECTOR VIEW (REQ-PAY-013/014)
     // ══════════════════════════════════════════════
@@ -133,10 +139,11 @@ public interface IPaymentService
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// Gets all assistant wallets for a teacher.
+    /// Gets all assistant wallets for a teacher, plus the combined total currently
+    /// held across all assistants.
     /// REQ-PAY-035: View current wallet balance of each assistant.
     /// </summary>
-    Task<Result<List<AssistantWalletDto>>> GetAllWalletsAsync(long teacherId);
+    Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(long teacherId);
 
     /// <summary>
     /// Gets detailed wallet for a specific assistant.
@@ -163,6 +170,14 @@ public interface IPaymentService
     /// </summary>
     Task<Result<PaymentDashboardDto>> GetDashboardAsync(
         long teacherId, PaymentDashboardFilterDto filter);
+
+    /// <summary>
+    /// Gets the "Collected by Sessions" card data: one row per currently
+    /// active session, with collected amount, paid/total student counts,
+    /// and progress percentage.
+    /// REQ-PAY-043: Per-session collection progress while the session is active.
+    /// </summary>
+    Task<Result<List<SessionCollectionSummaryDto>>> GetSessionsCollectionSummaryAsync(long teacherId);
 
     // ══════════════════════════════════════════════
     // DEPARTURE (REQ-PAY-066 through 075)

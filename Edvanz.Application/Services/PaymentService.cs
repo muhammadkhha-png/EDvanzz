@@ -868,11 +868,12 @@ public class PaymentService : IPaymentService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<List<AssistantWalletDto>>> GetAllWalletsAsync(long teacherId)
+    public async Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(long teacherId)
     {
         var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
         var dtos = wallets.Select(w => new AssistantWalletDto
-        {
+        
+
             AssistantId = w.AssistantId,
             AssistantName = w.Assistant?.User?.FullName ?? "Unknown",
             CurrentBalance = w.CurrentBalance,
@@ -881,8 +882,14 @@ public class PaymentService : IPaymentService
             LastCollectionAt = w.LastCollectionAt
         }).ToList();
 
-        return Result<List<AssistantWalletDto>>.Success(
-            dtos, _localizer, PaymentConstants.Messages.Success);
+        var summary = new AssistantWalletsSummaryDto
+        {
+            TotalCurrentBalance = dtos.Sum(d => d.CurrentBalance),
+            Assistants = dtos
+        };
+
+        return Result<AssistantWalletsSummaryDto>.Success(
+            summary, _localizer, PaymentConstants.Messages.Success);
     }
 
     /// <inheritdoc />
@@ -1001,6 +1008,67 @@ public class PaymentService : IPaymentService
 
         return Result<PaymentDashboardDto>.Success(
             dashboard, _localizer, PaymentConstants.Messages.DashboardLoaded);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<SessionCollectionSummaryDto>>> GetSessionsCollectionSummaryAsync(
+        long teacherId)
+    {
+        var rows = await _unitOfWork.PaymentsRepo.GetActiveSessionsCollectionSummaryAsync(teacherId);
+
+        var dtos = rows.Select(r => new SessionCollectionSummaryDto
+        {
+            SessionId = r.SessionId,
+            SessionName = r.SessionName,
+            ScheduleLabel = BuildSessionScheduleLabel(r),
+            CollectedAmount = r.CollectedAmount,
+            ExpectedAmount = r.ExpectedAmount,
+            PaidStudentCount = r.PaidStudents,
+            TotalStudentCount = r.TotalStudents,
+            PercentCollected = r.ExpectedAmount > 0
+                ? Math.Round(r.CollectedAmount / r.ExpectedAmount * 100, 0)
+                : 0
+        }).ToList();
+
+        return Result<List<SessionCollectionSummaryDto>>.Success(
+            dtos, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// Day indices per Session.SelectedDays: "0,3,5" where 0=Saturday … 6=Friday
+    /// (see Session.SelectedDays doc comment).
+    /// </summary>
+    private static readonly string[] WeekDayNames =
+    {
+        "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"
+    };
+
+    private static string BuildSessionScheduleLabel(ActiveSessionCollectionSummaryRow row)
+    {
+        var timeLabel = DateTime.MinValue.Add(row.StartTime).ToString("h:mm tt");
+
+        string dayLabel;
+        if (row.OccurrenceType == OccurrenceType.Monthly)
+        {
+            dayLabel = row.MonthlyDayOfMonth.HasValue
+                ? $"Day {row.MonthlyDayOfMonth.Value}"
+                : "Monthly";
+        }
+        else
+        {
+            var dayNames = (row.SelectedDays ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(d => int.TryParse(d, out var i) && i >= 0 && i < WeekDayNames.Length
+                    ? WeekDayNames[i]
+                    : null)
+                .Where(name => name is not null);
+
+            dayLabel = string.Join(", ", dayNames);
+            if (string.IsNullOrEmpty(dayLabel))
+                dayLabel = "Weekly";
+        }
+
+        return $"{dayLabel} - {timeLabel} - {row.SessionName}";
     }
 
     // ══════════════════════════════════════════════

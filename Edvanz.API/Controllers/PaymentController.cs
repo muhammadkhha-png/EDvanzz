@@ -427,7 +427,8 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Returns all assistant wallets for the teacher.
+    //   Returns all assistant wallets for the teacher, plus the combined total
+    //   currently held across all assistants (sum of each wallet's CurrentBalance).
     //   REQ-PAY-035: Tutor views current wallet balance of each assistant.
     //
     // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
@@ -535,6 +536,35 @@ public sealed class PaymentController : ModuleSixApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _paymentService.GetDashboardAsync(teacherId.Value, filter);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 15b: SESSIONS COLLECTION SUMMARY
+    // GET api/payment/sessions/collection-summary
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns the "Collected by Sessions" card: one row per currently active
+    //   session (EndDate >= today) with collected amount, paid/total student
+    //   counts, and progress percentage.
+    //   REQ-PAY-043: Per-session collection progress while the session is active.
+    //
+    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate) — same tutor-only gate
+    // as Dashboard/Wallets.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/collection-summary")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetSessionsCollectionSummary()
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetSessionsCollectionSummaryAsync(teacherId.Value);
         return ToResponse(result);
     }
 

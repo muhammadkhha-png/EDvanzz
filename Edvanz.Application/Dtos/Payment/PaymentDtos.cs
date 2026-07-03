@@ -272,6 +272,20 @@ public class UnpaidStudentDto
     public List<string> UnpaidPeriodLabels { get; set; } = new();
 }
 
+/// <summary>
+/// Counts for the Paid / Pro-rated / Unpaid students overview card.
+/// A student is Paid when they have no outstanding period; among students
+/// with an outstanding period, Pro-rated breaks out those whose earliest
+/// outstanding period is a prorated first period (REQ-PAY-021/022) from the
+/// remaining regular Unpaid students.
+/// </summary>
+public class StudentPaymentStatusCountsDto
+{
+    public int PaidCount { get; set; }
+    public int ProRatedCount { get; set; }
+    public int UnpaidCount { get; set; }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // COLLECTOR VIEW DTOs
 // ══════════════════════════════════════════════════════════════════════════
@@ -306,6 +320,18 @@ public class AssistantWalletDto
     public decimal TotalCollected { get; set; }
     public int TransactionCount { get; set; }
     public DateTime? LastCollectionAt { get; set; }
+}
+
+/// <summary>
+/// Aggregated view of all assistant wallets for a teacher.
+/// REQ-PAY-035: Tutor views current wallet balance of each assistant, plus the
+/// combined total currently held across all assistants.
+/// </summary>
+public class AssistantWalletsSummaryDto
+{
+    /// <summary>Sum of <see cref="AssistantWalletDto.CurrentBalance"/> across all assistants.</summary>
+    public decimal TotalCurrentBalance { get; set; }
+    public List<AssistantWalletDto> Assistants { get; set; } = new();
 }
 
 /// <summary>
@@ -385,6 +411,27 @@ public class CollectorRevenueBreakdownDto
     public string? UserName { get; set; }
     public decimal Collected { get; set; }
     public int TransactionCount { get; set; }
+}
+
+/// <summary>
+/// Display DTO for the "Collected by Sessions" card — one row per currently
+/// active session (<c>EndDate &gt;= today</c>).
+/// REQ-PAY-043: Per-session collection progress while the session is active.
+/// </summary>
+public class SessionCollectionSummaryDto
+{
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = null!;
+
+    /// <summary>e.g. "Saturday - 5:00 PM - prep3".</summary>
+    public string ScheduleLabel { get; set; } = null!;
+    public decimal CollectedAmount { get; set; }
+    public decimal ExpectedAmount { get; set; }
+    public int PaidStudentCount { get; set; }
+    public int TotalStudentCount { get; set; }
+
+    /// <summary>Rounded 0-100. <c>CollectedAmount / ExpectedAmount</c>; 0 when nothing is due yet.</summary>
+    public decimal PercentCollected { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
