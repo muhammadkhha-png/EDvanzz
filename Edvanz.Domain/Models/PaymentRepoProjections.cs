@@ -29,3 +29,19 @@ public sealed class ActiveSessionCollectionSummaryRow
     public decimal ExpectedAmount { get; set; }
     public decimal CollectedAmount { get; set; }
 }
+
+/// <summary>
+/// Projection row for the CollectPayment student list (api/v1 screens). One row per
+/// student with the payment-status fields the screen needs, LEFT-joined to the
+/// student's <c>StudentPaymentCounter</c> (a student with no counter → paid, 0 unpaid).
+/// </summary>
+public sealed class CollectStudentRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public bool IsAssigned { get; set; }
+    public decimal Amount { get; set; }
+    public bool IsUnpaid { get; set; }
+    public int UnpaidMonths { get; set; }
+}

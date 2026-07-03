@@ -27,4 +27,12 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
         long teacherId, long assistantId, int page, int limit);
+
+    /// <summary>
+    /// Screen: CollectPayment. Searchable/filterable (all|assigned|unassigned) paginated
+    /// student list with payment status + per-tab counts. Reuses <c>GetCollectStudentsPagedAsync</c>.
+    /// Returns 422 for an invalid filter.
+    /// </summary>
+    Task<Result<CollectStudentsResponse>> GetCollectStudentsAsync(
+        long teacherId, string? filter, string? search, int page, int limit);
 }

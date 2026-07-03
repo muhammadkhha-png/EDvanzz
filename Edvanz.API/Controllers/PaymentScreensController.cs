@@ -90,4 +90,30 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
             teacherId.Value, assistantId, page, limit);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: CollectPayment (student list)
+    // GET /api/v1/payments/collect/students?filter=&search=&page=&limit=
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/payments/collect/students")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetCollectStudents(
+        [FromQuery] string? filter = "all",
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.GetCollectStudentsAsync(
+            teacherId.Value, filter, search, page, limit);
+        return ToResponse(result);
+    }
 }

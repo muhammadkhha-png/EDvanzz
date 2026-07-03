@@ -92,3 +92,36 @@ public class AssistantWalletCollectionItemDto
     public decimal Amount { get; set; }
     public DateTime CollectedAt { get; set; }
 }
+
+// ── Screen: CollectPayment (student list) ──────────────────────────────────
+
+/// <summary>Searchable, filterable, paginated student list for collecting payments.</summary>
+public class CollectStudentsResponse
+{
+    public CollectStudentsCountsDto Counts { get; set; } = new();
+    public int Page { get; set; }
+    public int Limit { get; set; }
+    public int TotalItems { get; set; }
+    public int TotalPages { get; set; }
+    public List<CollectStudentDto> Students { get; set; } = new();
+}
+
+public class CollectStudentsCountsDto
+{
+    public int All { get; set; }
+    public int Assigned { get; set; }
+    public int Unassigned { get; set; }
+}
+
+public class CollectStudentDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? AvatarUrl { get; set; }
+    public decimal Amount { get; set; }
+    /// <summary>assigned | unassigned</summary>
+    public string Assignment { get; set; } = "unassigned";
+    /// <summary>paid | unpaid</summary>
+    public string Status { get; set; } = "paid";
+    public int UnpaidMonths { get; set; }
+}

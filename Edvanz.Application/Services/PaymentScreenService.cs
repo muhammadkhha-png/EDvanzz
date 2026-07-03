@@ -152,6 +152,49 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<CollectStudentsResponse>> GetCollectStudentsAsync(
+        long teacherId, string? filter, string? search, int page, int limit)
+    {
+        filter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+        if (filter != "all" && filter != "assigned" && filter != "unassigned")
+            return Result<CollectStudentsResponse>.Failure(
+                "Invalid filter; expected all | assigned | unassigned.", HttpStatusCode.UnprocessableEntity);
+
+        (page, limit) = NormalizePaging(page, limit);
+
+        var (rows, total, cAll, cAssigned, cUnassigned) = await _unitOfWork.PaymentsRepo
+            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit);
+
+        var students = new List<CollectStudentDto>(rows.Count);
+        foreach (var r in rows)
+        {
+            students.Add(new CollectStudentDto
+            {
+                Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
+                Name = r.StudentName,
+                AvatarUrl = null,
+                Amount = r.Amount,
+                Assignment = r.IsAssigned ? "assigned" : "unassigned",
+                Status = r.IsUnpaid ? "unpaid" : "paid",
+                UnpaidMonths = r.UnpaidMonths
+            });
+        }
+
+        var response = new CollectStudentsResponse
+        {
+            Counts = new CollectStudentsCountsDto { All = cAll, Assigned = cAssigned, Unassigned = cUnassigned },
+            Page = page,
+            Limit = limit,
+            TotalItems = total,
+            TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)limit),
+            Students = students
+        };
+
+        return Result<CollectStudentsResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>Clamps paging to sane bounds (page ≥ 1; 1 ≤ limit ≤ 100, default 20).</summary>
     private static (int page, int limit) NormalizePaging(int page, int limit)
     {

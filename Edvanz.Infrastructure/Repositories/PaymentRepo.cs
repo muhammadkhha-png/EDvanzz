@@ -410,6 +410,73 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     // ══════════════════════════════════════════════
+    // SCREEN QUERIES (api/v1 — frontend payment.json)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
+        GetCollectStudentsPagedAsync(
+            long teacherId, string filter, string? search, int page, int pageSize)
+    {
+        // Global !IsDeleted query filter on TeacherStudent applies automatically.
+        var baseQuery = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string s = search.Trim().ToLower();
+            baseQuery = baseQuery.Where(ts =>
+                ts.StudentName.ToLower().Contains(s) || ts.StudentCode.ToLower().Contains(s));
+        }
+
+        // Per-tab counts reflect the current search.
+        int countAll = await baseQuery.CountAsync();
+        int countAssigned = await baseQuery.CountAsync(ts => ts.SessionId != null);
+        int countUnassigned = countAll - countAssigned;
+
+        var filtered = baseQuery;
+        if (string.Equals(filter, "assigned", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(ts => ts.SessionId != null);
+        else if (string.Equals(filter, "unassigned", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(ts => ts.SessionId == null);
+
+        int totalCount = await filtered.CountAsync();
+
+        // Page first, then LEFT-join each row to its counter (correlated TOP-1 subquery,
+        // bounded to pageSize rows — no N+1 across the full set).
+        var raw = await filtered
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new
+            {
+                ts.Id,
+                ts.StudentName,
+                ts.StudentCode,
+                IsAssigned = ts.SessionId != null,
+                SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null,
+                Counter = _context.StudentPaymentCounters
+                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                    .Select(c => new { c.TotalOutstanding, c.TotalUnpaidPeriods, c.CustomPaymentAmount })
+                    .FirstOrDefault()
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var items = raw.Select(r => new CollectStudentRow
+        {
+            TeacherStudentId = r.Id,
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            IsAssigned = r.IsAssigned,
+            Amount = r.Counter?.CustomPaymentAmount ?? r.SessionAmount ?? 0m,
+            IsUnpaid = (r.Counter?.TotalOutstanding ?? 0m) > 0m,
+            UnpaidMonths = r.Counter?.TotalUnpaidPeriods ?? 0
+        }).ToList();
+
+        return (items, totalCount, countAll, countAssigned, countUnassigned);
+    }
+
+    // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════
 

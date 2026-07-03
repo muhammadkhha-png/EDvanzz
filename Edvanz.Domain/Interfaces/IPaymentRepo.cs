@@ -188,6 +188,20 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<decimal> GetTotalOutstandingAmountAsync(long teacherId, long? sessionId);
 
     // ══════════════════════════════════════════════
+    // SCREEN QUERIES (api/v1 — frontend payment.json)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// CollectPayment screen student list: students filtered by assignment
+    /// (all | assigned | unassigned) + name/code search, paginated, each with
+    /// payment status/amount/unpaid-months from their counter. Also returns the
+    /// per-tab counts (all/assigned/unassigned) for the current search.
+    /// </summary>
+    Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
+        GetCollectStudentsPagedAsync(
+            long teacherId, string filter, string? search, int page, int pageSize);
+
+    // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════
 
