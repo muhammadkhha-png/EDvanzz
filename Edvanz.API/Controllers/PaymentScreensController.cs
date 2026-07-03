@@ -116,4 +116,30 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
             teacherId.Value, filter, search, page, limit);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: PaymentTracking (students by status)
+    // GET /api/v1/payments/students?month=YYYY-MM&status=paid|prorated|unpaid&page=&limit=
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewUnpaidStudents.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/payments/students")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetStudentsByStatus(
+        [FromQuery] string? month,
+        [FromQuery] string? status,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.GetStudentsByStatusAsync(
+            teacherId.Value, month, status, page, limit);
+        return ToResponse(result);
+    }
 }

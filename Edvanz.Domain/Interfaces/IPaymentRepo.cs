@@ -201,6 +201,20 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         GetCollectStudentsPagedAsync(
             long teacherId, string filter, string? search, int page, int pageSize);
 
+    /// <summary>
+    /// PaymentTracking "students by status" list: students whose current status
+    /// (by the earliest-outstanding-period rule, same as
+    /// <see cref="GetStudentPaymentStatusCountsAsync"/>) matches
+    /// <paramref name="status"/> (paid | prorated | unpaid), paginated, each with that
+    /// month's paid/due amounts and their counter's outstanding/unpaid-months. Also
+    /// returns the group's month-scoped collected/expected totals and total outstanding.
+    /// </summary>
+    Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
+        GetStudentsByPaymentStatusPagedAsync(
+            long teacherId, string status,
+            DateTime monthStart, DateTime monthEnd,
+            int page, int pageSize);
+
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════

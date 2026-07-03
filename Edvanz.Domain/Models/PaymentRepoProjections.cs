@@ -45,3 +45,19 @@ public sealed class CollectStudentRow
     public bool IsUnpaid { get; set; }
     public int UnpaidMonths { get; set; }
 }
+
+/// <summary>
+/// Projection row for the PaymentTracking "students by status" list (api/v1 screens).
+/// One row per student in the requested status group, with that month's paid/due amounts
+/// and the student's outstanding balance/unpaid-month count from their counter.
+/// </summary>
+public sealed class StudentByStatusRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public decimal AmountPerMonth { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal AmountDue { get; set; }
+    public decimal UnpaidAmount { get; set; }
+    public int UnpaidMonths { get; set; }
+}

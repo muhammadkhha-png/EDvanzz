@@ -125,3 +125,34 @@ public class CollectStudentDto
     public string Status { get; set; } = "paid";
     public int UnpaidMonths { get; set; }
 }
+
+// ── Screen: PaymentTracking (students by status) ───────────────────────────
+
+/// <summary>Paginated student list filtered by payment status for a month.</summary>
+public class StudentsByStatusResponse
+{
+    public string Month { get; set; } = string.Empty;
+    public string MonthLabel { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public decimal TotalCollected { get; set; }
+    public decimal MonthAmount { get; set; }
+    public decimal AmountPerMonth { get; set; }
+    public decimal TotalUnpaidAmount { get; set; }
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int Limit { get; set; }
+    public List<StudentByStatusDto> Students { get; set; } = new();
+}
+
+public class StudentByStatusDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? AvatarUrl { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public decimal AmountPerMonth { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal AmountDue { get; set; }
+    public decimal UnpaidAmount { get; set; }
+    public int UnpaidMonths { get; set; }
+}

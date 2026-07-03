@@ -195,6 +195,76 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
+        long teacherId, string? month, string? status, int page, int limit)
+    {
+        if (!TryParseYearMonth(month, out int year, out int mon))
+            return Result<StudentsByStatusResponse>.Failure(
+                "Invalid month; expected YYYY-MM.", HttpStatusCode.UnprocessableEntity);
+
+        status = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
+        if (status != "paid" && status != "prorated" && status != "unpaid")
+            return Result<StudentsByStatusResponse>.Failure(
+                "Invalid status; expected paid | prorated | unpaid.", HttpStatusCode.UnprocessableEntity);
+
+        (page, limit) = NormalizePaging(page, limit);
+        var monthStart = new DateTime(year, mon, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+        var (rows, total, groupCollected, groupExpected, groupUnpaid) = await _unitOfWork.PaymentsRepo
+            .GetStudentsByPaymentStatusPagedAsync(teacherId, status, monthStart, monthEnd, page, limit);
+
+        var students = new List<StudentByStatusDto>(rows.Count);
+        foreach (var r in rows)
+        {
+            students.Add(new StudentByStatusDto
+            {
+                Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
+                Name = r.StudentName,
+                AvatarUrl = null,
+                Status = status,
+                AmountPerMonth = r.AmountPerMonth,
+                AmountPaid = r.AmountPaid,
+                AmountDue = r.AmountDue,
+                UnpaidAmount = r.UnpaidAmount,
+                UnpaidMonths = r.UnpaidMonths
+            });
+        }
+
+        var response = new StudentsByStatusResponse
+        {
+            Month = $"{year:D4}-{mon:D2}",
+            MonthLabel = monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            Status = status,
+            TotalCollected = groupCollected,
+            MonthAmount = groupExpected,
+            // Ambiguous top-level "default fee": no single value exists (per-session/per-student).
+            // The per-student amountPerMonth is authoritative; confirm intended meaning with FE.
+            AmountPerMonth = 0m,
+            TotalUnpaidAmount = status == "paid" ? 0m : groupUnpaid,
+            Total = total,
+            Page = page,
+            Limit = limit,
+            Students = students
+        };
+
+        return Result<StudentsByStatusResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
+    private static bool TryParseYearMonth(string? value, out int year, out int month)
+    {
+        year = 0; month = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var parts = value.Trim().Split('-');
+        if (parts.Length != 2) return false;
+        if (!int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out year)) return false;
+        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out month)) return false;
+        return year >= 2000 && year <= 2100 && month >= 1 && month <= 12;
+    }
+
     /// <summary>Clamps paging to sane bounds (page ≥ 1; 1 ≤ limit ≤ 100, default 20).</summary>
     private static (int page, int limit) NormalizePaging(int page, int limit)
     {

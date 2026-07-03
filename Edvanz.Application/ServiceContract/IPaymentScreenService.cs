@@ -35,4 +35,12 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<CollectStudentsResponse>> GetCollectStudentsAsync(
         long teacherId, string? filter, string? search, int page, int limit);
+
+    /// <summary>
+    /// Screen: PaymentTracking "View" cards. Paginated students filtered by status
+    /// (paid|prorated|unpaid) for a month (YYYY-MM), with per-student month amounts and
+    /// group totals. Reuses <c>GetStudentsByPaymentStatusPagedAsync</c>. 422 on bad month/status.
+    /// </summary>
+    Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
+        long teacherId, string? month, string? status, int page, int limit);
 }
