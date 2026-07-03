@@ -1,0 +1,8 @@
+name: Local
+values:
+  - key: BaseUrl
+    value: https://localhost:7032/api/
+    enabled: true
+  - key: token
+    value: ""
+    enabled: true

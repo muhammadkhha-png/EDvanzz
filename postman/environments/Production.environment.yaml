@@ -1,0 +1,8 @@
+name: Production
+values:
+  - key: BaseUrl
+    value: https://app-edvanz-api-prod.azurewebsites.net/api/
+    enabled: true
+  - key: token
+    value: ""
+    enabled: true

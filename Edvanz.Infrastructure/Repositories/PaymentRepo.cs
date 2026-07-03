@@ -410,6 +410,303 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     // ══════════════════════════════════════════════
+    // SCREEN QUERIES (api/v1 — frontend payment.json)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
+        GetCollectStudentsPagedAsync(
+            long teacherId, string filter, string? search, int page, int pageSize)
+    {
+        // Global !IsDeleted query filter on TeacherStudent applies automatically.
+        var baseQuery = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string s = search.Trim().ToLower();
+            baseQuery = baseQuery.Where(ts =>
+                ts.StudentName.ToLower().Contains(s) || ts.StudentCode.ToLower().Contains(s));
+        }
+
+        // Per-tab counts reflect the current search.
+        int countAll = await baseQuery.CountAsync();
+        int countAssigned = await baseQuery.CountAsync(ts => ts.SessionId != null);
+        int countUnassigned = countAll - countAssigned;
+
+        var filtered = baseQuery;
+        if (string.Equals(filter, "assigned", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(ts => ts.SessionId != null);
+        else if (string.Equals(filter, "unassigned", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(ts => ts.SessionId == null);
+
+        int totalCount = await filtered.CountAsync();
+
+        // Page first, then LEFT-join each row to its counter (correlated TOP-1 subquery,
+        // bounded to pageSize rows — no N+1 across the full set).
+        var raw = await filtered
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new
+            {
+                ts.Id,
+                ts.StudentName,
+                ts.StudentCode,
+                IsAssigned = ts.SessionId != null,
+                SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null,
+                Counter = _context.StudentPaymentCounters
+                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                    .Select(c => new { c.TotalOutstanding, c.TotalUnpaidPeriods, c.CustomPaymentAmount })
+                    .FirstOrDefault()
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var items = raw.Select(r => new CollectStudentRow
+        {
+            TeacherStudentId = r.Id,
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            IsAssigned = r.IsAssigned,
+            Amount = r.Counter?.CustomPaymentAmount ?? r.SessionAmount ?? 0m,
+            IsUnpaid = (r.Counter?.TotalOutstanding ?? 0m) > 0m,
+            UnpaidMonths = r.Counter?.TotalUnpaidPeriods ?? 0
+        }).ToList();
+
+        return (items, totalCount, countAll, countAssigned, countUnassigned);
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
+        GetStudentsByPaymentStatusPagedAsync(
+            long teacherId, string status,
+            DateTime monthStart, DateTime monthEnd,
+            int page, int pageSize)
+    {
+        var withPeriods = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue);
+
+        // Per-student classification by the earliest outstanding period (same rule as
+        // GetStudentPaymentStatusCountsAsync). One row per student with an outstanding period.
+        var earliestOutstanding = withPeriods
+            .Where(p => p.PaymentStatus != PaymentStatus.Paid)
+            .GroupBy(p => p.TeacherStudentId!.Value)
+            .Select(g => new
+            {
+                StudentId = g.Key,
+                IsProRated = g.OrderBy(p => p.PeriodSequence).First().IsProRated
+            });
+
+        // Materialize the target student-id set for the requested status (bounded to the
+        // teacher's students; avoids deeply-nested subqueries the provider may not translate).
+        List<long> targetIds;
+        if (string.Equals(status, "paid", StringComparison.OrdinalIgnoreCase))
+        {
+            var allIds = await withPeriods.Select(p => p.TeacherStudentId!.Value).Distinct().ToListAsync();
+            var outstanding = (await earliestOutstanding.Select(e => e.StudentId).ToListAsync()).ToHashSet();
+            targetIds = allIds.Where(id => !outstanding.Contains(id)).ToList();
+        }
+        else if (string.Equals(status, "prorated", StringComparison.OrdinalIgnoreCase))
+        {
+            targetIds = await earliestOutstanding.Where(e => e.IsProRated).Select(e => e.StudentId).ToListAsync();
+        }
+        else // unpaid
+        {
+            targetIds = await earliestOutstanding.Where(e => !e.IsProRated).Select(e => e.StudentId).ToListAsync();
+        }
+
+        int totalCount = targetIds.Count;
+
+        // Group aggregates: month-scoped collected/expected, plus total outstanding.
+        var groupMonthPeriods = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId.HasValue
+                && targetIds.Contains(p.TeacherStudentId!.Value)
+                && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd);
+
+        decimal groupCollected = await groupMonthPeriods.SumAsync(p => (decimal?)p.AmountPaid) ?? 0m;
+        decimal groupExpected = await groupMonthPeriods.SumAsync(p => (decimal?)p.AmountDue) ?? 0m;
+        decimal groupUnpaid = await _context.StudentPaymentCounters
+            .Where(c => c.TeacherId == teacherId && targetIds.Contains(c.TeacherStudentId))
+            .SumAsync(c => (decimal?)c.TotalOutstanding) ?? 0m;
+
+        // Page the students (name order) with their month amounts + counter fields.
+        var items = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && targetIds.Contains(ts.Id))
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new StudentByStatusRow
+            {
+                TeacherStudentId = ts.Id,
+                StudentName = ts.StudentName,
+                AmountPerMonth =
+                    (_context.StudentPaymentCounters
+                        .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                        .Select(c => c.CustomPaymentAmount).FirstOrDefault())
+                    ?? (ts.Session != null ? ts.Session.SessionAmount : 0m),
+                AmountPaid = _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                        && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd)
+                    .Sum(p => (decimal?)p.AmountPaid) ?? 0m,
+                AmountDue = _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                        && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd)
+                    .Sum(p => (decimal?)p.AmountDue) ?? 0m,
+                UnpaidAmount = _context.StudentPaymentCounters
+                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                    .Select(c => (decimal?)c.TotalOutstanding).FirstOrDefault() ?? 0m,
+                UnpaidMonths = _context.StudentPaymentCounters
+                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                    .Select(c => (int?)c.TotalUnpaidPeriods).FirstOrDefault() ?? 0
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount, groupCollected, groupExpected, groupUnpaid);
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<YearlyStudentRow> Items, int TotalCount)>
+        GetYearlyCollectionsPagedAsync(
+            long teacherId, DateTime yearStart, DateTime yearEnd, int page, int pageSize)
+    {
+        // Students with at least one period in the year.
+        var studentIdsInYear = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && p.PeriodStart >= yearStart && p.PeriodStart <= yearEnd)
+            .Select(p => p.TeacherStudentId!.Value)
+            .Distinct();
+
+        int totalCount = await _context.TeacherStudents
+            .CountAsync(ts => ts.TeacherId == teacherId && studentIdsInYear.Contains(ts.Id));
+
+        var pageStudents = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && studentIdsInYear.Contains(ts.Id))
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new { ts.Id, ts.StudentName })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var pageIds = pageStudents.Select(s => s.Id).ToList();
+
+        // Aggregate the page students' year periods per (student, calendar month). Count-based
+        // paid/prorated flags (not All/Any) so the whole thing translates to a single GROUP BY.
+        var monthAgg = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && pageIds.Contains(p.TeacherStudentId!.Value)
+                && p.PeriodStart >= yearStart && p.PeriodStart <= yearEnd)
+            .GroupBy(p => new { StudentId = p.TeacherStudentId!.Value, Month = p.PeriodStart.Month })
+            .Select(g => new
+            {
+                g.Key.StudentId,
+                g.Key.Month,
+                AmountDue = g.Sum(x => x.AmountDue),
+                AmountPaid = g.Sum(x => x.AmountPaid),
+                Periods = g.Count(),
+                PaidCount = g.Sum(x => x.PaymentStatus == PaymentStatus.Paid ? 1 : 0),
+                ProRatedCount = g.Sum(x => x.IsProRated ? 1 : 0)
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var cellsByStudent = monthAgg
+            .GroupBy(m => m.StudentId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(m => m.Month).Select(m => new YearlyMonthCell
+                {
+                    Month = m.Month,
+                    AmountDue = m.AmountDue,
+                    AmountPaid = m.AmountPaid,
+                    IsPaid = m.Periods == m.PaidCount,
+                    IsProRated = m.ProRatedCount > 0
+                }).ToList());
+
+        var items = pageStudents.Select(s => new YearlyStudentRow
+        {
+            TeacherStudentId = s.Id,
+            StudentName = s.StudentName,
+            Months = cellsByStudent.TryGetValue(s.Id, out var cells) ? cells : new List<YearlyMonthCell>()
+        }).ToList();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<CollectLookupRow?> ResolveCollectLookupAsync(
+        long teacherId, string? qr, string? code, string? name)
+    {
+        var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
+
+        // Resolution priority: QR/barcode → student code → name (first match).
+        if (!string.IsNullOrWhiteSpace(qr))
+        {
+            string barcode = qr.Trim();
+            q = q.Where(ts => ts.Barcode == barcode || ts.StudentCode == barcode);
+        }
+        else if (!string.IsNullOrWhiteSpace(code))
+        {
+            string c = code.Trim().ToUpper(); // codes stored uppercase (REQ-STU-CODE-003)
+            q = q.Where(ts => ts.StudentCode == c);
+        }
+        else if (!string.IsNullOrWhiteSpace(name))
+        {
+            string n = name.Trim().ToLower();
+            q = q.Where(ts => ts.StudentName.ToLower().Contains(n));
+        }
+        else
+        {
+            return null;
+        }
+
+        var student = await q
+            .OrderBy(ts => ts.StudentName)
+            .Select(ts => new
+            {
+                ts.Id,
+                ts.StudentName,
+                ts.StudentCode,
+                Group = ts.Session != null ? ts.Session.SessionName : null,
+                SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null
+            })
+            .FirstOrDefaultAsync();
+
+        if (student is null) return null;
+
+        var counter = await _context.StudentPaymentCounters
+            .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == student.Id)
+            .Select(c => new { c.CustomPaymentAmount, c.TotalOutstanding })
+            .FirstOrDefaultAsync();
+
+        // Earliest unpaid period's remaining balance (lowest PeriodSequence among non-Paid).
+        var earliestUnpaid = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
+                && p.PaymentStatus != PaymentStatus.Paid)
+            .OrderBy(p => p.PeriodSequence)
+            .Select(p => new { p.AmountDue, p.AmountPaid })
+            .FirstOrDefaultAsync();
+
+        decimal amountDue =
+            counter?.CustomPaymentAmount
+            ?? (earliestUnpaid != null ? earliestUnpaid.AmountDue - earliestUnpaid.AmountPaid : (decimal?)null)
+            ?? student.SessionAmount
+            ?? 0m;
+
+        return new CollectLookupRow
+        {
+            TeacherStudentId = student.Id,
+            StudentName = student.StudentName,
+            StudentCode = student.StudentCode,
+            Group = student.Group,
+            AmountDue = amountDue,
+            IsUnpaid = (counter?.TotalOutstanding ?? 0m) > 0m
+        };
+    }
+
+    // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════
 

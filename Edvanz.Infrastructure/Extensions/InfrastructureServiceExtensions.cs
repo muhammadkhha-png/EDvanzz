@@ -126,6 +126,10 @@ public static class InfrastructureServiceExtensions
         // (REQ-USR-013 / REQ-USR-027 / REQ-USR-008 / BR-ADM-010)
         services.AddScoped<IUserAuthCacheService, RedisUserAuthCacheService>();
 
+        // Idempotency guard for the api/v1 money endpoints (double-submit protection). Same
+        // IDistributedCache backend, separate "idem:" key namespace. Fails open on cache errors.
+        services.AddScoped<Edvanz.Application.ServiceContract.IIdempotencyService, RedisIdempotencyService>();
+
         // Two-step invalidation orchestrator (stamp bump + cache drop). Every
         // service that mutates a user's effective access calls this — keeps the
         // two steps coupled at a single call site so neither can be forgotten.

@@ -188,6 +188,52 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<decimal> GetTotalOutstandingAmountAsync(long teacherId, long? sessionId);
 
     // ══════════════════════════════════════════════
+    // SCREEN QUERIES (api/v1 — frontend payment.json)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// CollectPayment screen student list: students filtered by assignment
+    /// (all | assigned | unassigned) + name/code search, paginated, each with
+    /// payment status/amount/unpaid-months from their counter. Also returns the
+    /// per-tab counts (all/assigned/unassigned) for the current search.
+    /// </summary>
+    Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
+        GetCollectStudentsPagedAsync(
+            long teacherId, string filter, string? search, int page, int pageSize);
+
+    /// <summary>
+    /// PaymentTracking "students by status" list: students whose current status
+    /// (by the earliest-outstanding-period rule, same as
+    /// <see cref="GetStudentPaymentStatusCountsAsync"/>) matches
+    /// <paramref name="status"/> (paid | prorated | unpaid), paginated, each with that
+    /// month's paid/due amounts and their counter's outstanding/unpaid-months. Also
+    /// returns the group's month-scoped collected/expected totals and total outstanding.
+    /// </summary>
+    Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
+        GetStudentsByPaymentStatusPagedAsync(
+            long teacherId, string status,
+            DateTime monthStart, DateTime monthEnd,
+            int page, int pageSize);
+
+    /// <summary>
+    /// SessionPaymentCollectedByYear matrix: students who have at least one payment period in
+    /// the given year, paginated by student name, each with their per-calendar-month cells
+    /// (aggregated across sessions). Returns the total student count for paging.
+    /// </summary>
+    Task<(IReadOnlyList<YearlyStudentRow> Items, int TotalCount)>
+        GetYearlyCollectionsPagedAsync(
+            long teacherId, DateTime yearStart, DateTime yearEnd, int page, int pageSize);
+
+    /// <summary>
+    /// CollectPaymentSession lookup: resolves a single student for collection by QR/barcode,
+    /// then student code, then name (first match by name), returning the amount they should pay
+    /// (custom amount → earliest-unpaid-period remaining → session amount) and paid/unpaid state.
+    /// Returns null when nothing matches or no lookup key is supplied.
+    /// </summary>
+    Task<CollectLookupRow?> ResolveCollectLookupAsync(
+        long teacherId, string? qr, string? code, string? name);
+
+    // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════
 
