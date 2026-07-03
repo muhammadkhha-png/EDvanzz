@@ -681,7 +681,7 @@
   "variable": [
     {
       "key": "BaseUrl",
-      "value": ""
+      "value": "https://localhost:7032/api/"
     }
   ]
 }
