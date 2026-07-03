@@ -156,3 +156,42 @@ public class StudentByStatusDto
     public decimal UnpaidAmount { get; set; }
     public int UnpaidMonths { get; set; }
 }
+
+// ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────
+
+/// <summary>Per-student month-by-month collection matrix for a selected year.</summary>
+public class YearlyCollectionsResponse
+{
+    public int Year { get; set; }
+    public int Page { get; set; }
+    public int Limit { get; set; }
+    public int TotalItems { get; set; }
+    public int TotalPages { get; set; }
+    public List<YearlyStudentDto> Items { get; set; } = new();
+}
+
+public class YearlyStudentDto
+{
+    public string Id { get; set; } = string.Empty;
+    public int Index { get; set; }
+    public string? StudentName { get; set; }
+    public YearlyStudentSummaryDto Summary { get; set; } = new();
+    /// <summary>Only months the student has a period for; months with no period are absent.</summary>
+    public List<YearlyMonthDto> Months { get; set; } = new();
+}
+
+public class YearlyStudentSummaryDto
+{
+    public int PaidMonths { get; set; }
+    public int UnpaidMonths { get; set; }
+    public decimal TotalCollected { get; set; }
+    public string Label { get; set; } = string.Empty;
+}
+
+public class YearlyMonthDto
+{
+    public int Month { get; set; }
+    /// <summary>paid | unpaid | prorated</summary>
+    public string Status { get; set; } = "unpaid";
+    public decimal Amount { get; set; }
+}

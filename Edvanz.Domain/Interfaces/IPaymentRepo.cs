@@ -215,6 +215,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
             DateTime monthStart, DateTime monthEnd,
             int page, int pageSize);
 
+    /// <summary>
+    /// SessionPaymentCollectedByYear matrix: students who have at least one payment period in
+    /// the given year, paginated by student name, each with their per-calendar-month cells
+    /// (aggregated across sessions). Returns the total student count for paging.
+    /// </summary>
+    Task<(IReadOnlyList<YearlyStudentRow> Items, int TotalCount)>
+        GetYearlyCollectionsPagedAsync(
+            long teacherId, DateTime yearStart, DateTime yearEnd, int page, int pageSize);
+
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════

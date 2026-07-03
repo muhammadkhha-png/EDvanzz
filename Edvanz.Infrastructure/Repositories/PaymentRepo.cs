@@ -566,6 +566,75 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return (items, totalCount, groupCollected, groupExpected, groupUnpaid);
     }
 
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<YearlyStudentRow> Items, int TotalCount)>
+        GetYearlyCollectionsPagedAsync(
+            long teacherId, DateTime yearStart, DateTime yearEnd, int page, int pageSize)
+    {
+        // Students with at least one period in the year.
+        var studentIdsInYear = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && p.PeriodStart >= yearStart && p.PeriodStart <= yearEnd)
+            .Select(p => p.TeacherStudentId!.Value)
+            .Distinct();
+
+        int totalCount = await _context.TeacherStudents
+            .CountAsync(ts => ts.TeacherId == teacherId && studentIdsInYear.Contains(ts.Id));
+
+        var pageStudents = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && studentIdsInYear.Contains(ts.Id))
+            .OrderBy(ts => ts.StudentName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(ts => new { ts.Id, ts.StudentName })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var pageIds = pageStudents.Select(s => s.Id).ToList();
+
+        // Aggregate the page students' year periods per (student, calendar month). Count-based
+        // paid/prorated flags (not All/Any) so the whole thing translates to a single GROUP BY.
+        var monthAgg = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && pageIds.Contains(p.TeacherStudentId!.Value)
+                && p.PeriodStart >= yearStart && p.PeriodStart <= yearEnd)
+            .GroupBy(p => new { StudentId = p.TeacherStudentId!.Value, Month = p.PeriodStart.Month })
+            .Select(g => new
+            {
+                g.Key.StudentId,
+                g.Key.Month,
+                AmountDue = g.Sum(x => x.AmountDue),
+                AmountPaid = g.Sum(x => x.AmountPaid),
+                Periods = g.Count(),
+                PaidCount = g.Sum(x => x.PaymentStatus == PaymentStatus.Paid ? 1 : 0),
+                ProRatedCount = g.Sum(x => x.IsProRated ? 1 : 0)
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var cellsByStudent = monthAgg
+            .GroupBy(m => m.StudentId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(m => m.Month).Select(m => new YearlyMonthCell
+                {
+                    Month = m.Month,
+                    AmountDue = m.AmountDue,
+                    AmountPaid = m.AmountPaid,
+                    IsPaid = m.Periods == m.PaidCount,
+                    IsProRated = m.ProRatedCount > 0
+                }).ToList());
+
+        var items = pageStudents.Select(s => new YearlyStudentRow
+        {
+            TeacherStudentId = s.Id,
+            StudentName = s.StudentName,
+            Months = cellsByStudent.TryGetValue(s.Id, out var cells) ? cells : new List<YearlyMonthCell>()
+        }).ToList();
+
+        return (items, totalCount);
+    }
+
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════

@@ -43,4 +43,11 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
         long teacherId, string? month, string? status, int page, int limit);
+
+    /// <summary>
+    /// Screen: SessionPaymentCollectedByYear. Per-student month-by-month collection matrix for a
+    /// year, paginated over students. Reuses <c>GetYearlyCollectionsPagedAsync</c>. 422 on bad year.
+    /// </summary>
+    Task<Result<YearlyCollectionsResponse>> GetYearlyCollectionsAsync(
+        long teacherId, int year, int page, int limit);
 }

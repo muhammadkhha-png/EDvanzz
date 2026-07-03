@@ -253,6 +253,67 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<YearlyCollectionsResponse>> GetYearlyCollectionsAsync(
+        long teacherId, int year, int page, int limit)
+    {
+        if (year < 2000 || year > 2100)
+            return Result<YearlyCollectionsResponse>.Failure(
+                "Invalid year.", HttpStatusCode.UnprocessableEntity);
+
+        (page, limit) = NormalizePaging(page, limit);
+        var yearStart = new DateTime(year, 1, 1);
+        var yearEnd = new DateTime(year, 12, 31);
+
+        var (rows, total) = await _unitOfWork.PaymentsRepo
+            .GetYearlyCollectionsPagedAsync(teacherId, yearStart, yearEnd, page, limit);
+
+        int baseIndex = (page - 1) * limit;
+        var items = new List<YearlyStudentDto>(rows.Count);
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var r = rows[i];
+            var months = r.Months.Select(m => new YearlyMonthDto
+            {
+                Month = m.Month,
+                Status = m.IsPaid ? "paid" : (m.IsProRated ? "prorated" : "unpaid"),
+                Amount = m.AmountPaid
+            }).ToList();
+
+            int paidMonths = months.Count(m => m.Status == "paid");
+            int unpaidMonths = months.Count(m => m.Status == "unpaid");
+            decimal totalCollected = months.Sum(m => m.Amount);
+
+            items.Add(new YearlyStudentDto
+            {
+                Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
+                Index = baseIndex + i + 1,
+                StudentName = r.StudentName,
+                Summary = new YearlyStudentSummaryDto
+                {
+                    PaidMonths = paidMonths,
+                    UnpaidMonths = unpaidMonths,
+                    TotalCollected = totalCollected,
+                    Label = $"Paid {paidMonths} months, unpaid {unpaidMonths} months"
+                },
+                Months = months
+            });
+        }
+
+        var response = new YearlyCollectionsResponse
+        {
+            Year = year,
+            Page = page,
+            Limit = limit,
+            TotalItems = total,
+            TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)limit),
+            Items = items
+        };
+
+        return Result<YearlyCollectionsResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
     private static bool TryParseYearMonth(string? value, out int year, out int month)
     {
