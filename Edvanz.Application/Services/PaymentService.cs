@@ -863,6 +863,23 @@ public class PaymentService : IPaymentService
             dtos, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<StudentPaymentStatusCountsDto>> GetStudentPaymentStatusCountsAsync(long teacherId)
+    {
+        var (paid, proRated, unpaid) = await _unitOfWork.PaymentsRepo
+            .GetStudentPaymentStatusCountsAsync(teacherId);
+
+        var dto = new StudentPaymentStatusCountsDto
+        {
+            PaidCount = paid,
+            ProRatedCount = proRated,
+            UnpaidCount = unpaid
+        };
+
+        return Result<StudentPaymentStatusCountsDto>.Success(
+            dto, _localizer, PaymentConstants.Messages.Success);
+    }
+
     // ══════════════════════════════════════════════
     // WALLET MANAGEMENT
     // ══════════════════════════════════════════════
@@ -872,8 +889,7 @@ public class PaymentService : IPaymentService
     {
         var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
         var dtos = wallets.Select(w => new AssistantWalletDto
-        
-
+        {
             AssistantId = w.AssistantId,
             AssistantName = w.Assistant?.User?.FullName ?? "Unknown",
             CurrentBalance = w.CurrentBalance,
