@@ -1,0 +1,219 @@
+{
+  "info": {
+    "name": "EDvanz Payment Screens (api/v1)",
+    "description": "Screen-oriented payment endpoints (payment.json spec) under /api/v1. Run 'Auth > Login' first to capture the JWT into the {{token}} collection variable; every other request inherits Bearer {{token}}. BaseUrl must end with '/api/' (e.g. http://localhost:5079/api/). Money requests send a fresh Idempotency-Key ({{$guid}}) per run.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+  },
+  "variable": [
+    { "key": "BaseUrl", "value": "http://localhost:5079/api/" },
+    { "key": "token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (teacher1)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"teacher1\",\n  \"password\": \"Edvanz@2026\"\n}" },
+            "url": "{{BaseUrl}}Auth/login"
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('login 200', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json().data;",
+              "pm.test('has accessToken', () => pm.expect(d).to.have.property('accessToken'));",
+              "if (d && d.accessToken) { pm.collectionVariables.set('token', d.accessToken); }"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PaymentTracking",
+      "item": [
+        {
+          "name": "Get tracking (month)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/tracking?month=2026-07" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('shape', () => { pm.expect(d).to.have.all.keys('month','monthLabel','summary','statusBreakdown','collectedByAssistant','collectedBySessions'); });",
+            "pm.test('summary numeric', () => pm.expect(d.summary.collectedAmount).to.be.a('number'));",
+            "pm.test('fast (<2000ms)', () => pm.expect(pm.response.responseTime).to.be.below(2000));"
+          ] } } ]
+        },
+        {
+          "name": "Get tracking - invalid month (422)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/tracking?month=bad" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('422', () => pm.response.to.have.status(422));"
+          ] } } ]
+        },
+        {
+          "name": "Students by status",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/students?month=2026-07&status=unpaid&page=1&limit=20" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('status echoed', () => pm.expect(d.status).to.eql('unpaid'));",
+            "pm.test('students array', () => pm.expect(d.students).to.be.an('array'));",
+            "pm.test('fast (<1500ms)', () => pm.expect(pm.response.responseTime).to.be.below(1500));"
+          ] } } ]
+        },
+        {
+          "name": "Students by status - invalid status (422)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/students?month=2026-07&status=bogus" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('422', () => pm.response.to.have.status(422));"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "AssistantWallet",
+      "item": [
+        {
+          "name": "Get wallet",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/assistants/1/wallet?page=1&limit=20" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 or 404', () => pm.expect([200,404]).to.include(pm.response.code));",
+            "if (pm.response.code === 200) { const d = pm.response.json().data; pm.test('has wallet + collections', () => { pm.expect(d).to.have.property('wallet'); pm.expect(d).to.have.property('collections'); }); }"
+          ] } } ]
+        },
+        {
+          "name": "Withdraw (money, tutor-only, idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 10\n}" },
+            "url": "{{BaseUrl}}v1/assistants/1/wallet/withdraw"
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 / 404 / 409', () => pm.expect([200,404,409]).to.include(pm.response.code));",
+            "if (pm.response.code === 200) { const d = pm.response.json().data; pm.test('completed + balanceAfter', () => { pm.expect(d.status).to.eql('completed'); pm.expect(d.walletBalanceAfter).to.be.a('number'); }); }"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "SessionPaymentCollected",
+      "item": [
+        {
+          "name": "By month",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/collections?month=7&year=2026&page=1&limit=20" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('items array', () => pm.expect(d.items).to.be.an('array'));",
+            "pm.test('paging fields', () => { pm.expect(d).to.have.property('totalItems'); pm.expect(d).to.have.property('totalPages'); });"
+          ] } } ]
+        },
+        {
+          "name": "By year (12-month matrix)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/collections/yearly?year=2026&page=1&limit=20" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('items array', () => pm.expect(d.items).to.be.an('array'));",
+            "if (d.items.length) { pm.test('row has summary + months', () => { pm.expect(d.items[0]).to.have.property('summary'); pm.expect(d.items[0]).to.have.property('months'); }); }"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "CollectPayment",
+      "item": [
+        {
+          "name": "List students (filter)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/payments/collect/students?filter=all&page=1&limit=20" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('counts + students', () => { pm.expect(d.counts).to.have.all.keys('all','assigned','unassigned'); pm.expect(d.students).to.be.an('array'); });"
+          ] } } ]
+        },
+        {
+          "name": "Mark paid (money, idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"studentIds\": [\"1\"]\n}" },
+            "url": "{{BaseUrl}}v1/payments/collect/mark-paid"
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('results array', () => pm.expect(d.results).to.be.an('array'));",
+            "pm.test('has markedPaidCount', () => pm.expect(d).to.have.property('markedPaidCount'));"
+          ] } } ]
+        },
+        {
+          "name": "Mark paid - empty (422)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"studentIds\": []\n}" },
+            "url": "{{BaseUrl}}v1/payments/collect/mark-paid"
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('422', () => pm.response.to.have.status(422));"
+          ] } } ]
+        }
+      ]
+    },
+    {
+      "name": "CollectPaymentSession",
+      "item": [
+        {
+          "name": "Lookup (by code)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/collect/lookup?code=A1" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200 or 404', () => pm.expect([200,404]).to.include(pm.response.code));",
+            "if (pm.response.code === 200) { const d = pm.response.json().data; pm.test('student + amountDue + status', () => { pm.expect(d.student).to.have.property('id'); pm.expect(d).to.have.property('amountDue'); pm.expect(d).to.have.property('paymentStatus'); }); }"
+          ] } } ]
+        },
+        {
+          "name": "Lookup - no key (422)",
+          "request": { "method": "GET", "url": "{{BaseUrl}}v1/collect/lookup" },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('422', () => pm.response.to.have.status(422));"
+          ] } } ]
+        },
+        {
+          "name": "Submit (money, idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "Idempotency-Key", "value": "{{$guid}}" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"classSessionId\": 1,\n  \"students\": [ { \"studentId\": \"1\", \"amount\": 30 } ]\n}" },
+            "url": "{{BaseUrl}}v1/collect/submit"
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('200', () => pm.response.to.have.status(200));",
+            "const d = pm.response.json().data;",
+            "pm.test('submittedCount + totalCollected', () => { pm.expect(d).to.have.property('submittedCount'); pm.expect(d).to.have.property('totalCollected'); });"
+          ] } } ]
+        },
+        {
+          "name": "Submit - empty (409)",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"students\": []\n}" },
+            "url": "{{BaseUrl}}v1/collect/submit"
+          },
+          "event": [ { "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('409', () => pm.response.to.have.status(409));"
+          ] } } ]
+        }
+      ]
+    }
+  ]
+}
