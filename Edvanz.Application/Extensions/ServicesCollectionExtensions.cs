@@ -61,6 +61,8 @@ public static class ServicesCollectionExtensions
         // Payment Module (Module 4: payment collection, editing, wallets, dashboard, reports)
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<IPaymentReportService, PaymentReportService>();
+        // Payment "Screens" API (api/v1/*) — screen-oriented BFF endpoints (frontend payment.json)
+        services.AddScoped<IPaymentScreenService, PaymentScreenService>();
         // Event Payment Module (Module 5: one-time event payments)
         services.AddScoped<IEventPaymentService, EventPaymentService>();
         // Profile Permission Module 
