@@ -266,4 +266,30 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
             request?.Students ?? new List<SubmitCollectionItem>(), idempotencyKey);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: AssistantWallet — withdraw  (MONEY, TUTOR-ONLY)
+    // POST /api/v1/assistants/{assistantId}/wallet/withdraw   body { amount? }
+    // Header: Idempotency-Key (optional). The tutor takes collected cash from the assistant.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("/api/v1/assistants/{assistantId:long}/wallet/withdraw")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> WithdrawFromWallet(
+        long assistantId,
+        [FromBody] WalletWithdrawRequest? request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.WithdrawAsync(
+            teacherId.Value, assistantId, request?.Amount, GetActingUserId(), idempotencyKey);
+        return ToResponse(result);
+    }
 }

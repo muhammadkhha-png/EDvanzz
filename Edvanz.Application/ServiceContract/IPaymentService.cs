@@ -159,6 +159,16 @@ public interface IPaymentService
     /// </summary>
     Task<Result<WalletResetLogDto>> ResetWalletAsync(WalletResetDto dto);
 
+    /// <summary>
+    /// Partial assistant-wallet withdrawal (api/v1 screens) — the tutor takes an amount of
+    /// collected cash from an assistant. Generalizes <see cref="ResetWalletAsync"/> to a partial
+    /// amount (defaults to the full balance): validates funds (409 on insufficient), decrements
+    /// the balance, logs a WalletResetLog ledger entry, and is RowVersion-concurrency-safe
+    /// (clean 409 on a concurrent update). Tutor-only at the controller. No schema change.
+    /// </summary>
+    Task<Result<WalletWithdrawalResult>> WithdrawFromWalletAsync(
+        long teacherId, long assistantId, decimal? amount, long withdrawnByUserId);
+
     // ══════════════════════════════════════════════
     // DASHBOARD (REQ-PAY-039 through 044)
     // ══════════════════════════════════════════════

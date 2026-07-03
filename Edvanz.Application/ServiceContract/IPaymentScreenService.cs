@@ -80,4 +80,12 @@ public interface IPaymentScreenService
     Task<Result<SubmitCollectionResponse>> SubmitCollectionAsync(
         long teacherId, long actingUserId, string? month, long? classSessionId,
         List<SubmitCollectionItem> students, string? idempotencyKey);
+
+    /// <summary>
+    /// Screen: AssistantWallet "Withdraw" (MONEY, tutor-only). Partial wallet withdrawal delegating
+    /// to <c>IPaymentService.WithdrawFromWalletAsync</c>. Idempotent via <paramref name="idempotencyKey"/>.
+    /// 404 unknown wallet, 409 insufficient balance / concurrent update, 422 non-positive amount.
+    /// </summary>
+    Task<Result<WalletWithdrawResponse>> WithdrawAsync(
+        long teacherId, long assistantId, decimal? amount, long actingUserId, string? idempotencyKey);
 }

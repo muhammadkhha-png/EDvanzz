@@ -979,6 +979,78 @@ public class PaymentService : IPaymentService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<Result<WalletWithdrawalResult>> WithdrawFromWalletAsync(
+        long teacherId, long assistantId, decimal? amount, long withdrawnByUserId)
+    {
+        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
+        if (wallet is null)
+            return Result<WalletWithdrawalResult>.Failure(
+                _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
+
+        // Amount defaults to the full current balance (a "take everything" handover).
+        decimal withdrawAmount = amount ?? wallet.CurrentBalance;
+        if (withdrawAmount <= 0m)
+            return Result<WalletWithdrawalResult>.Failure(
+                "Withdrawal amount must be greater than zero.", HttpStatusCode.UnprocessableEntity);
+        if (withdrawAmount > wallet.CurrentBalance)
+            return Result<WalletWithdrawalResult>.Failure(
+                "Insufficient wallet balance.", HttpStatusCode.Conflict);
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
+        {
+            // Withdraw and full-reset are the same real-world event (tutor takes the cash), so a
+            // partial withdrawal is recorded in the same WalletResetLog ledger — with AmountReset
+            // set to the withdrawn amount rather than the full balance.
+            var log = new WalletResetLog
+            {
+                TeacherId = teacherId,
+                AssistantId = assistantId,
+                AssistantWalletId = wallet.Id,
+                AmountReset = withdrawAmount,
+                ResetByUserId = withdrawnByUserId,
+                ResetAt = DateTime.UtcNow,
+                AssistantName = wallet.Assistant?.User?.FullName,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.PaymentsRepo.AddWalletResetLogAsync(log);
+
+            wallet.CurrentBalance -= withdrawAmount;
+            await _unitOfWork.PaymentsRepo.UpdateAssistantWalletAsync(wallet);
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            return Result<WalletWithdrawalResult>.Success(new WalletWithdrawalResult
+            {
+                WithdrawalId = log.Id,
+                Amount = withdrawAmount,
+                WalletBalanceAfter = wallet.CurrentBalance,
+                RequestedAt = log.ResetAt
+            }, _localizer, PaymentConstants.Messages.Success);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException")
+        {
+            // A concurrent collection bumped the wallet's RowVersion — roll back and let the
+            // caller retry with a fresh read (idempotency-key retries are safe). Clean 409, not 500.
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            return Result<WalletWithdrawalResult>.Failure(
+                "Wallet was updated concurrently; please retry.", HttpStatusCode.Conflict);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
     // ══════════════════════════════════════════════
     // DASHBOARD
     // ══════════════════════════════════════════════

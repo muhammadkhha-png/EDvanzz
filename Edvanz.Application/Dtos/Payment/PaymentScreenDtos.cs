@@ -333,3 +333,31 @@ public class SubmitCollectionResultDto
     public string Status { get; set; } = "failed";
     public string? Reason { get; set; }
 }
+
+// ── Money: assistant wallet withdraw (AssistantWallet screen) ──────────────
+
+public class WalletWithdrawRequest
+{
+    /// <summary>Defaults to the full current balance when omitted.</summary>
+    public decimal? Amount { get; set; }
+}
+
+/// <summary>Frontend response for a wallet withdrawal (ids as strings).</summary>
+public class WalletWithdrawResponse
+{
+    public string WithdrawalId { get; set; } = string.Empty;
+    /// <summary>Always "completed" — withdrawal is an instant cash handover (no pending state).</summary>
+    public string Status { get; set; } = "completed";
+    public decimal Amount { get; set; }
+    public decimal WalletBalanceAfter { get; set; }
+    public DateTime RequestedAt { get; set; }
+}
+
+/// <summary>Service-level result of a wallet withdrawal (from IPaymentService).</summary>
+public class WalletWithdrawalResult
+{
+    public long WithdrawalId { get; set; }
+    public decimal Amount { get; set; }
+    public decimal WalletBalanceAfter { get; set; }
+    public DateTime RequestedAt { get; set; }
+}

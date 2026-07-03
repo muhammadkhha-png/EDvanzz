@@ -618,6 +618,35 @@ public class PaymentScreenService : IPaymentScreenService
         return Result<SubmitCollectionResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<WalletWithdrawResponse>> WithdrawAsync(
+        long teacherId, long assistantId, decimal? amount, long actingUserId, string? idempotencyKey)
+    {
+        var stored = await _idempotency.GetStoredResultAsync("withdraw", teacherId, idempotencyKey);
+        if (stored is not null)
+            return Result<WalletWithdrawResponse>.Success(
+                JsonSerializer.Deserialize<WalletWithdrawResponse>(stored, IdempotencyJson)!,
+                _localizer, PaymentConstants.Messages.Success);
+
+        var result = await _paymentService.WithdrawFromWalletAsync(teacherId, assistantId, amount, actingUserId);
+        if (!result.IsSuccess || result.Data is null)
+            return Result<WalletWithdrawResponse>.Failure(result.Message ?? "Withdrawal failed.", result.StatusCode);
+
+        var r = result.Data;
+        var response = new WalletWithdrawResponse
+        {
+            WithdrawalId = r.WithdrawalId.ToString(CultureInfo.InvariantCulture),
+            Status = "completed",
+            Amount = r.Amount,
+            WalletBalanceAfter = r.WalletBalanceAfter,
+            RequestedAt = r.RequestedAt
+        };
+        // Only successful withdrawals are cached (a failed attempt can be retried freely).
+        await _idempotency.StoreResultAsync("withdraw", teacherId, idempotencyKey,
+            JsonSerializer.Serialize(response, IdempotencyJson));
+        return Result<WalletWithdrawResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>
     private static string FormatTime(TimeSpan t) =>
         new DateTime(1, 1, 1).Add(t).ToString("h:mm tt", CultureInfo.InvariantCulture);
