@@ -224,6 +224,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         GetYearlyCollectionsPagedAsync(
             long teacherId, DateTime yearStart, DateTime yearEnd, int page, int pageSize);
 
+    /// <summary>
+    /// CollectPaymentSession lookup: resolves a single student for collection by QR/barcode,
+    /// then student code, then name (first match by name), returning the amount they should pay
+    /// (custom amount → earliest-unpaid-period remaining → session amount) and paid/unpaid state.
+    /// Returns null when nothing matches or no lookup key is supplied.
+    /// </summary>
+    Task<CollectLookupRow?> ResolveCollectLookupAsync(
+        long teacherId, string? qr, string? code, string? name);
+
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════

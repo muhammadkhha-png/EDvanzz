@@ -314,6 +314,37 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<CollectLookupResponse>> ResolveLookupAsync(
+        long teacherId, string? qr, string? code, string? name)
+    {
+        if (string.IsNullOrWhiteSpace(qr) && string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name))
+            return Result<CollectLookupResponse>.Failure(
+                "Provide a qr, code, or name to look up.", HttpStatusCode.UnprocessableEntity);
+
+        var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(teacherId, qr, code, name);
+        if (row is null)
+            return Result<CollectLookupResponse>.Failure(
+                "No student found for the given QR/code/name.", HttpStatusCode.NotFound);
+
+        var response = new CollectLookupResponse
+        {
+            Student = new CollectLookupStudentDto
+            {
+                Id = row.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
+                Name = row.StudentName,
+                Code = row.StudentCode,
+                Group = row.Group,
+                AvatarUrl = null
+            },
+            AmountDue = row.AmountDue,
+            PaymentStatus = row.IsUnpaid ? "unpaid" : "paid"
+        };
+
+        return Result<CollectLookupResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
     private static bool TryParseYearMonth(string? value, out int year, out int month)
     {

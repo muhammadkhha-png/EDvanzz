@@ -635,6 +635,77 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return (items, totalCount);
     }
 
+    /// <inheritdoc />
+    public async Task<CollectLookupRow?> ResolveCollectLookupAsync(
+        long teacherId, string? qr, string? code, string? name)
+    {
+        var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
+
+        // Resolution priority: QR/barcode → student code → name (first match).
+        if (!string.IsNullOrWhiteSpace(qr))
+        {
+            string barcode = qr.Trim();
+            q = q.Where(ts => ts.Barcode == barcode || ts.StudentCode == barcode);
+        }
+        else if (!string.IsNullOrWhiteSpace(code))
+        {
+            string c = code.Trim().ToUpper(); // codes stored uppercase (REQ-STU-CODE-003)
+            q = q.Where(ts => ts.StudentCode == c);
+        }
+        else if (!string.IsNullOrWhiteSpace(name))
+        {
+            string n = name.Trim().ToLower();
+            q = q.Where(ts => ts.StudentName.ToLower().Contains(n));
+        }
+        else
+        {
+            return null;
+        }
+
+        var student = await q
+            .OrderBy(ts => ts.StudentName)
+            .Select(ts => new
+            {
+                ts.Id,
+                ts.StudentName,
+                ts.StudentCode,
+                Group = ts.Session != null ? ts.Session.SessionName : null,
+                SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null
+            })
+            .FirstOrDefaultAsync();
+
+        if (student is null) return null;
+
+        var counter = await _context.StudentPaymentCounters
+            .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == student.Id)
+            .Select(c => new { c.CustomPaymentAmount, c.TotalOutstanding })
+            .FirstOrDefaultAsync();
+
+        // Earliest unpaid period's remaining balance (lowest PeriodSequence among non-Paid).
+        var earliestUnpaid = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
+                && p.PaymentStatus != PaymentStatus.Paid)
+            .OrderBy(p => p.PeriodSequence)
+            .Select(p => new { p.AmountDue, p.AmountPaid })
+            .FirstOrDefaultAsync();
+
+        decimal amountDue =
+            counter?.CustomPaymentAmount
+            ?? (earliestUnpaid != null ? earliestUnpaid.AmountDue - earliestUnpaid.AmountPaid : (decimal?)null)
+            ?? student.SessionAmount
+            ?? 0m;
+
+        return new CollectLookupRow
+        {
+            TeacherStudentId = student.Id,
+            StudentName = student.StudentName,
+            StudentCode = student.StudentCode,
+            Group = student.Group,
+            AmountDue = amountDue,
+            IsUnpaid = (counter?.TotalOutstanding ?? 0m) > 0m
+        };
+    }
+
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
     // ══════════════════════════════════════════════

@@ -195,3 +195,23 @@ public class YearlyMonthDto
     public string Status { get; set; } = "unpaid";
     public decimal Amount { get; set; }
 }
+
+// ── Screen: CollectPaymentSession (lookup) ─────────────────────────────────
+
+/// <summary>Resolves a scanned/typed student to a student + amount owed + paid state.</summary>
+public class CollectLookupResponse
+{
+    public CollectLookupStudentDto Student { get; set; } = new();
+    public decimal AmountDue { get; set; }
+    /// <summary>paid | unpaid</summary>
+    public string PaymentStatus { get; set; } = "unpaid";
+}
+
+public class CollectLookupStudentDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? Code { get; set; }
+    public string? Group { get; set; }
+    public string? AvatarUrl { get; set; }
+}

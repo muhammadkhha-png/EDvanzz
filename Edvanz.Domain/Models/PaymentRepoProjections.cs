@@ -84,3 +84,17 @@ public sealed class YearlyMonthCell
     public bool IsPaid { get; set; }      // every period that month is fully Paid
     public bool IsProRated { get; set; }  // any period that month is prorated
 }
+
+/// <summary>
+/// Projection for the CollectPaymentSession QR/code/name lookup (api/v1 screens): the resolved
+/// student plus the amount they should pay and their current paid/unpaid state.
+/// </summary>
+public sealed class CollectLookupRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+    public string? Group { get; set; }
+    public decimal AmountDue { get; set; }
+    public bool IsUnpaid { get; set; }
+}

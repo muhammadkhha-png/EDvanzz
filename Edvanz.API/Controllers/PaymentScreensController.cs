@@ -167,4 +167,28 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
             teacherId.Value, year, page, limit);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: CollectPaymentSession (lookup)
+    // GET /api/v1/collect/lookup?qr=&code=&name=
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/collect/lookup")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ResolveLookup(
+        [FromQuery] string? qr,
+        [FromQuery] string? code,
+        [FromQuery] string? name)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.ResolveLookupAsync(teacherId.Value, qr, code, name);
+        return ToResponse(result);
+    }
 }

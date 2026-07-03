@@ -50,4 +50,11 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<YearlyCollectionsResponse>> GetYearlyCollectionsAsync(
         long teacherId, int year, int page, int limit);
+
+    /// <summary>
+    /// Screen: CollectPaymentSession. Resolves a student by QR/code/name → student + amount owed
+    /// + paid state. Reuses <c>ResolveCollectLookupAsync</c>. 422 when no key given; 404 when unmatched.
+    /// </summary>
+    Task<Result<CollectLookupResponse>> ResolveLookupAsync(
+        long teacherId, string? qr, string? code, string? name);
 }
