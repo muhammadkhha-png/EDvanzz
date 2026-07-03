@@ -1,4 +1,5 @@
 using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
@@ -210,6 +211,59 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetTrackingAsync(teacherId.Value, month);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: CollectPayment — bulk mark-paid  (MONEY)
+    // POST /api/v1/payments/collect/mark-paid   body { studentIds: [] }
+    // Header: Idempotency-Key (optional) — replay returns the original result.
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("/api/v1/payments/collect/mark-paid")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> MarkPaid(
+        [FromBody] MarkPaidRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.MarkPaidAsync(
+            teacherId.Value, GetActingUserId(),
+            request?.StudentIds ?? new List<long>(), idempotencyKey);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: CollectPaymentSession — submit batch  (MONEY)
+    // POST /api/v1/collect/submit   body { month?, classSessionId?, students: [{studentId, amount}] }
+    // Header: Idempotency-Key (optional) — replay returns the original result. 409 on empty batch.
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("/api/v1/collect/submit")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitCollection(
+        [FromBody] SubmitCollectionRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.SubmitCollectionAsync(
+            teacherId.Value, GetActingUserId(),
+            request?.Month, request?.ClassSessionId,
+            request?.Students ?? new List<SubmitCollectionItem>(), idempotencyKey);
         return ToResponse(result);
     }
 }

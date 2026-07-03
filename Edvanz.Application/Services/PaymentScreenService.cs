@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
 
@@ -20,15 +22,26 @@ namespace Edvanz.Application.Services;
 /// </summary>
 public class PaymentScreenService : IPaymentScreenService
 {
+    private static readonly JsonSerializerOptions IdempotencyJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly IPaymentService _paymentService;
+    private readonly IIdempotencyService _idempotency;
 
     public PaymentScreenService(
         IUnitOfWork unitOfWork,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        IPaymentService paymentService,
+        IIdempotencyService idempotency)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
+        _paymentService = paymentService;
+        _idempotency = idempotency;
     }
 
     /// <inheritdoc />
@@ -440,6 +453,169 @@ public class PaymentScreenService : IPaymentScreenService
         };
 
         return Result<TrackingResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<MarkPaidResponse>> MarkPaidAsync(
+        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey)
+    {
+        if (studentIds is null || studentIds.Count == 0)
+            return Result<MarkPaidResponse>.Failure(
+                "No students selected.", HttpStatusCode.UnprocessableEntity);
+
+        // Idempotent replay: return the stored result instead of re-collecting.
+        var stored = await _idempotency.GetStoredResultAsync("mark-paid", teacherId, idempotencyKey);
+        if (stored is not null)
+            return Result<MarkPaidResponse>.Success(
+                JsonSerializer.Deserialize<MarkPaidResponse>(stored, IdempotencyJson)!,
+                _localizer, PaymentConstants.Messages.Success);
+
+        var results = new List<MarkPaidResultDto>();
+        int markedPaid = 0;
+
+        foreach (var studentId in studentIds.Distinct())
+        {
+            string idStr = studentId.ToString(CultureInfo.InvariantCulture);
+
+            var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+            if (student is null)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "failed", Reason = "Student not found." });
+                continue;
+            }
+            if (student.SessionId is null)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "failed", Reason = "Student is not assigned to a session." });
+                continue;
+            }
+
+            // Amount = the earliest unpaid period's remaining (clears it). Already paid → no-op success.
+            var period = await _unitOfWork.PaymentsRepo
+                .GetEarliestUnpaidPeriodAsync(teacherId, studentId, student.SessionId);
+            decimal amount = period is null ? 0m : period.AmountDue - period.AmountPaid;
+            if (amount <= 0m)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });
+                markedPaid++;
+                continue;
+            }
+
+            // Route through the single proven collection path (its own transaction per student).
+            var collect = await _paymentService.CollectPaymentAsync(new CollectPaymentDto
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = studentId,
+                SessionId = student.SessionId.Value,
+                Amount = amount,
+                PaymentMethod = PaymentCollectionMethod.ManualCode,
+                CollectedByUserId = actingUserId,
+                DuplicateConfirmed = false,
+                AlreadyPaidConfirmed = false
+            });
+
+            if (collect.IsSuccess && collect.Data?.Transaction is not null)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = null });
+                markedPaid++;
+            }
+            else if (collect.Data?.IsAlreadyPaid == true)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });
+                markedPaid++;
+            }
+            else if (collect.Data?.IsSameDayDuplicate == true)
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "failed", Reason = "Already collected today." });
+            }
+            else
+            {
+                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "failed", Reason = collect.Message });
+            }
+        }
+
+        var response = new MarkPaidResponse { MarkedPaidCount = markedPaid, Results = results };
+        await _idempotency.StoreResultAsync("mark-paid", teacherId, idempotencyKey,
+            JsonSerializer.Serialize(response, IdempotencyJson));
+        return Result<MarkPaidResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<SubmitCollectionResponse>> SubmitCollectionAsync(
+        long teacherId, long actingUserId, string? month, long? classSessionId,
+        List<SubmitCollectionItem> students, string? idempotencyKey)
+    {
+        if (students is null || students.Count == 0)
+            return Result<SubmitCollectionResponse>.Failure(
+                "Empty batch — no students to submit.", HttpStatusCode.Conflict);
+
+        var stored = await _idempotency.GetStoredResultAsync("submit", teacherId, idempotencyKey);
+        if (stored is not null)
+            return Result<SubmitCollectionResponse>.Success(
+                JsonSerializer.Deserialize<SubmitCollectionResponse>(stored, IdempotencyJson)!,
+                _localizer, PaymentConstants.Messages.Success);
+
+        var results = new List<SubmitCollectionResultDto>(students.Count);
+        int submitted = 0;
+        decimal totalCollected = 0m;
+
+        foreach (var item in students)
+        {
+            string idStr = item.StudentId.ToString(CultureInfo.InvariantCulture);
+
+            if (item.Amount <= 0m)
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "failed", Reason = "Invalid amount." });
+                continue;
+            }
+
+            var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(item.StudentId, teacherId);
+            if (student is null)
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "failed", Reason = "Student not found." });
+                continue;
+            }
+
+            long? sessionId = classSessionId ?? student.SessionId;
+            if (sessionId is null)
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "failed", Reason = "No session for this student." });
+                continue;
+            }
+
+            // Explicit submit after client-side review → confirm duplicates/already-paid (like batch-collect).
+            var collect = await _paymentService.CollectPaymentAsync(new CollectPaymentDto
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = item.StudentId,
+                SessionId = sessionId.Value,
+                Amount = item.Amount,
+                PaymentMethod = PaymentCollectionMethod.BarcodeScan,
+                CollectedByUserId = actingUserId,
+                DuplicateConfirmed = true,
+                AlreadyPaidConfirmed = true
+            });
+
+            if (collect.IsSuccess && collect.Data?.Transaction is not null)
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "committed", Reason = null });
+                submitted++;
+                totalCollected += collect.Data.Transaction.AmountPaid;
+            }
+            else
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "failed", Reason = collect.Message });
+            }
+        }
+
+        var response = new SubmitCollectionResponse
+        {
+            SubmittedCount = submitted,
+            TotalCollected = totalCollected,
+            Results = results
+        };
+        await _idempotency.StoreResultAsync("submit", teacherId, idempotencyKey,
+            JsonSerializer.Serialize(response, IdempotencyJson));
+        return Result<SubmitCollectionResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
     }
 
     /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>

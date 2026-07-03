@@ -64,4 +64,20 @@ public interface IPaymentScreenService
     /// existing dashboard/collector/status repo methods. 422 on bad month.
     /// </summary>
     Task<Result<TrackingResponse>> GetTrackingAsync(long teacherId, string? month);
+
+    /// <summary>
+    /// Screen: CollectPayment "Mark N as Paid" (MONEY). Marks each student paid by routing through
+    /// the existing <c>CollectPaymentAsync</c> (clears their earliest unpaid period). Idempotent via
+    /// <paramref name="idempotencyKey"/>. 422 when no students selected.
+    /// </summary>
+    Task<Result<MarkPaidResponse>> MarkPaidAsync(
+        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey);
+
+    /// <summary>
+    /// Screen: CollectPaymentSession "Submit N students" (MONEY). Collects each {studentId, amount}
+    /// via <c>CollectPaymentAsync</c>. Idempotent via <paramref name="idempotencyKey"/>. 409 on empty batch.
+    /// </summary>
+    Task<Result<SubmitCollectionResponse>> SubmitCollectionAsync(
+        long teacherId, long actingUserId, string? month, long? classSessionId,
+        List<SubmitCollectionItem> students, string? idempotencyKey);
 }

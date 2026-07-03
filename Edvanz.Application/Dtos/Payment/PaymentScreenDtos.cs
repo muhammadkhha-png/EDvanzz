@@ -281,3 +281,55 @@ public class TrackingSessionDto
     public int StudentsTotal { get; set; }
     public decimal ProgressPercent { get; set; }
 }
+
+// ── Money: bulk mark-paid (CollectPayment screen) ──────────────────────────
+
+public class MarkPaidRequest
+{
+    public List<long> StudentIds { get; set; } = new();
+}
+
+public class MarkPaidResponse
+{
+    public int MarkedPaidCount { get; set; }
+    public List<MarkPaidResultDto> Results { get; set; } = new();
+}
+
+public class MarkPaidResultDto
+{
+    public string StudentId { get; set; } = string.Empty;
+    /// <summary>paid | failed</summary>
+    public string Status { get; set; } = "failed";
+    public string? Reason { get; set; }
+}
+
+// ── Money: submit batch collection (CollectPaymentSession screen) ──────────
+
+public class SubmitCollectionRequest
+{
+    /// <summary>Informational (YYYY-MM); collection still applies to the earliest unpaid period.</summary>
+    public string? Month { get; set; }
+    public long? ClassSessionId { get; set; }
+    public List<SubmitCollectionItem> Students { get; set; } = new();
+}
+
+public class SubmitCollectionItem
+{
+    public long StudentId { get; set; }
+    public decimal Amount { get; set; }
+}
+
+public class SubmitCollectionResponse
+{
+    public int SubmittedCount { get; set; }
+    public decimal TotalCollected { get; set; }
+    public List<SubmitCollectionResultDto> Results { get; set; } = new();
+}
+
+public class SubmitCollectionResultDto
+{
+    public string StudentId { get; set; } = string.Empty;
+    /// <summary>committed | failed</summary>
+    public string Status { get; set; } = "failed";
+    public string? Reason { get; set; }
+}
