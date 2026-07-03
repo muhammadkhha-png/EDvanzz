@@ -57,4 +57,11 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<CollectLookupResponse>> ResolveLookupAsync(
         long teacherId, string? qr, string? code, string? name);
+
+    /// <summary>
+    /// Screen: PaymentTracking. Month aggregate (summary revenue, status breakdown, collected
+    /// by assistant, collected by sessions) for the given YYYY-MM. Composed entirely from
+    /// existing dashboard/collector/status repo methods. 422 on bad month.
+    /// </summary>
+    Task<Result<TrackingResponse>> GetTrackingAsync(long teacherId, string? month);
 }

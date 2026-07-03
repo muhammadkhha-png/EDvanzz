@@ -191,4 +191,25 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         var result = await _screenService.ResolveLookupAsync(teacherId.Value, qr, code, name);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: PaymentTracking (monthly aggregate — loads the whole screen)
+    // GET /api/v1/payments/tracking?month=YYYY-MM
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewUnpaidStudents.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/payments/tracking")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetTracking([FromQuery] string? month)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.GetTrackingAsync(teacherId.Value, month);
+        return ToResponse(result);
+    }
 }

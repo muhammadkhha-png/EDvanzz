@@ -345,6 +345,107 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<TrackingResponse>> GetTrackingAsync(long teacherId, string? month)
+    {
+        if (!TryParseYearMonth(month, out int year, out int mon))
+            return Result<TrackingResponse>.Failure(
+                "Invalid month; expected YYYY-MM.", HttpStatusCode.UnprocessableEntity);
+
+        var monthStart = new DateTime(year, mon, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+        var repo = _unitOfWork.PaymentsRepo;
+
+        // Month-scoped revenue + per-session + per-collector, plus current-state status counts.
+        var (expected, collected, remaining) =
+            await repo.GetDashboardAggregatesAsync(teacherId, null, null, null, monthStart, monthEnd);
+        var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId);
+        var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
+        var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);
+        var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, monthStart, monthEnd);
+        int totalStudents = (await repo.GetAllStudentIdsAsync(teacherId)).Count;
+
+        var metaBySession = activeMeta.ToDictionary(m => m.SessionId);
+
+        // Enrich collectors with real names (repo returns null) + role (assistant vs teacher).
+        var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
+        var names = collectorUserIds.Count > 0
+            ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
+            : new Dictionary<long, string>();
+        var assistantUserIds = (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet();
+
+        var assistants = collectors.Select(c => new TrackingAssistantDto
+        {
+            Id = c.UserId.ToString(CultureInfo.InvariantCulture),
+            Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
+            AvatarUrl = null,
+            Role = assistantUserIds.Contains(c.UserId) ? "Assistant" : "Teacher",
+            TransactionCount = c.TransactionCount,
+            CollectedAmount = c.Collected
+        }).ToList();
+
+        // Sessions: month-scoped amounts (per-session dashboard), enriched with schedule + student
+        // counts from the active-sessions summary where available. NOTE: studentsCollected reflects
+        // the session's all-time paid students (not month) and grade has no backing column — both
+        // are v1 approximations to confirm/refine with the frontend.
+        var sessions = perSession.Select(s =>
+        {
+            metaBySession.TryGetValue(s.SessionId, out var meta);
+            decimal pct = s.Expected > 0 ? Math.Round(s.Collected / s.Expected * 100m, 2) : 0m;
+            return new TrackingSessionDto
+            {
+                Id = s.SessionId.ToString(CultureInfo.InvariantCulture),
+                Title = s.SessionName,
+                Day = meta?.SelectedDays,
+                Time = meta != null ? FormatTime(meta.StartTime) : null,
+                Grade = null,
+                CollectedAmount = s.Collected,
+                StudentsCollected = meta?.PaidStudents ?? 0,
+                StudentsTotal = meta?.TotalStudents ?? 0,
+                ProgressPercent = pct
+            };
+        }).ToList();
+
+        int sessionsTotal = sessions.Count;
+        int sessionsCollected = sessions.Count(s => s.CollectedAmount > 0m);
+        decimal progressPercent = expected > 0 ? Math.Round(collected / expected * 100m, 2) : 0m;
+
+        var response = new TrackingResponse
+        {
+            Month = $"{year:D4}-{mon:D2}",
+            MonthLabel = monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            Summary = new TrackingSummaryDto
+            {
+                ExpectedRevenue = expected,
+                TotalStudents = totalStudents,
+                TotalSessions = sessionsTotal,
+                CollectedAmount = collected,
+                RemainingAmount = remaining,
+                SessionsCollected = sessionsCollected,
+                SessionsTotal = sessionsTotal,
+                ProgressPercent = progressPercent
+            },
+            StatusBreakdown = new TrackingStatusBreakdownDto
+            {
+                Paid = paidCount,
+                Prorated = proratedCount,
+                Unpaid = unpaidCount
+            },
+            CollectedByAssistant = new TrackingByAssistantDto
+            {
+                TotalCollected = collectors.Sum(c => c.Collected),
+                Assistants = assistants
+            },
+            CollectedBySessions = new TrackingBySessionsDto { Sessions = sessions }
+        };
+
+        return Result<TrackingResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>
+    private static string FormatTime(TimeSpan t) =>
+        new DateTime(1, 1, 1).Add(t).ToString("h:mm tt", CultureInfo.InvariantCulture);
+
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
     private static bool TryParseYearMonth(string? value, out int year, out int month)
     {

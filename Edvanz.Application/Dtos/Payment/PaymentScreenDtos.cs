@@ -215,3 +215,69 @@ public class CollectLookupStudentDto
     public string? Group { get; set; }
     public string? AvatarUrl { get; set; }
 }
+
+// ── Screen: PaymentTracking (aggregate) ────────────────────────────────────
+
+/// <summary>Everything the PaymentTracking screen renders on load for a selected month.</summary>
+public class TrackingResponse
+{
+    public string Month { get; set; } = string.Empty;
+    public string MonthLabel { get; set; } = string.Empty;
+    public TrackingSummaryDto Summary { get; set; } = new();
+    public TrackingStatusBreakdownDto StatusBreakdown { get; set; } = new();
+    public TrackingByAssistantDto CollectedByAssistant { get; set; } = new();
+    public TrackingBySessionsDto CollectedBySessions { get; set; } = new();
+}
+
+public class TrackingSummaryDto
+{
+    public decimal ExpectedRevenue { get; set; }
+    public int TotalStudents { get; set; }
+    public int TotalSessions { get; set; }
+    public decimal CollectedAmount { get; set; }
+    public decimal RemainingAmount { get; set; }
+    public int SessionsCollected { get; set; }
+    public int SessionsTotal { get; set; }
+    public decimal ProgressPercent { get; set; }
+}
+
+public class TrackingStatusBreakdownDto
+{
+    public int Paid { get; set; }
+    public int Prorated { get; set; }
+    public int Unpaid { get; set; }
+}
+
+public class TrackingByAssistantDto
+{
+    public decimal TotalCollected { get; set; }
+    public List<TrackingAssistantDto> Assistants { get; set; } = new();
+}
+
+public class TrackingAssistantDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = "Collector";
+    public int TransactionCount { get; set; }
+    public decimal CollectedAmount { get; set; }
+}
+
+public class TrackingBySessionsDto
+{
+    public List<TrackingSessionDto> Sessions { get; set; } = new();
+}
+
+public class TrackingSessionDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Title { get; set; }
+    public string? Day { get; set; }
+    public string? Time { get; set; }
+    public string? Grade { get; set; }
+    public decimal CollectedAmount { get; set; }
+    public int StudentsCollected { get; set; }
+    public int StudentsTotal { get; set; }
+    public decimal ProgressPercent { get; set; }
+}
