@@ -251,6 +251,12 @@ public class TeacherStudentDto
     public bool IsComplete { get; set; }
 
     public DateTime CreatedAt { get; set; }
+    /// <summary>
+    /// Display name of the assigned session for the badge. Null when unassigned
+    /// (frontend renders the localized "Unassigned" label) or when not loaded
+    /// (populated only in the student-list path).
+    /// </summary>
+    public string? SessionName { get; set; }
 }
 
 /// <summary>
@@ -350,4 +356,24 @@ public class BulkImportFailureDto
     /// Human-readable reason for the failure (localized).
     /// </summary>
     public string Reason { get; set; } = null!;
+}
+/// <summary>
+/// Chip-strip payload for the "Assign Students" screen.
+/// TotalCount = "All" badge; UnassignedCount = "Unassigned" badge; Sessions = one
+/// chip per session with its assigned count. Counts reflect the active search.
+/// REQ-SES-016/017, REQ-SES-021.
+/// </summary>
+public class SessionAssignmentChipsDto
+{
+    public int TotalCount { get; set; }
+    public int UnassignedCount { get; set; }
+    public List<SessionChipDto> Sessions { get; set; } = new();
+}
+
+/// <summary>One session chip: id, display name, and assigned-student count.</summary>
+public class SessionChipDto
+{
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = null!;
+    public int AssignedCount { get; set; }
 }

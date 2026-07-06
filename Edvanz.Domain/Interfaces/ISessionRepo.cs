@@ -173,4 +173,15 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// REQ-SES-037: Removing a link does not affect sessions or student assignments.
     /// </summary>
     Task DeleteLinkAsync(SessionLink link);
+    /// <summary>
+    /// Returns every session (Id + name) for the teacher, ordered by name.
+    /// Used as the stable chip catalog for the "Assign Students" screen.
+    /// </summary>
+    Task<IReadOnlyList<SessionNameRow>> GetTeacherSessionNamesAsync(long teacherId);
+
+    /// <summary>
+    /// Returns an Id→SessionName map for the given session Ids, scoped to the teacher.
+    /// Used to populate the assigned-session badge on the student list without an N+1.
+    /// </summary>
+    Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long teacherId, IEnumerable<long> sessionIds);
 }
