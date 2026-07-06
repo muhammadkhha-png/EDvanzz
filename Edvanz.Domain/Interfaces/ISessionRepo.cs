@@ -184,4 +184,11 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// Used to populate the assigned-session badge on the student list without an N+1.
     /// </summary>
     Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long teacherId, IEnumerable<long> sessionIds);
+    /// <summary>
+    /// Returns a compact session summary (name, occurrence type, payment type, amount)
+    /// for a single session scoped to the teacher, or null if not found / not owned.
+    /// Populates the assigned-session card on the student profile screen without
+    /// materializing the full Session entity.
+    /// </summary>
+    Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId);
 }
