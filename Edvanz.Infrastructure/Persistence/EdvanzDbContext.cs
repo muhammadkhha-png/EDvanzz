@@ -1365,6 +1365,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             // ── INDEXES ──
 
+
             // Global query filter: soft-deleted transactions excluded by default
             entity.HasQueryFilter(t => !t.IsDeleted);
 
@@ -1391,6 +1392,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Period lookup
             entity.HasIndex(t => t.PaymentPeriodId)
                 .HasDatabaseName("IX_PT_PaymentPeriodId");
+
+            // ── FOREIGN KEYS ──
 
             // ── FOREIGN KEYS ──
 
@@ -1471,6 +1474,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Dashboard aggregate queries: GROUP BY SessionId
             entity.HasIndex(p => new { p.TeacherId, p.SessionId, p.PeriodStart, p.PeriodEnd })
                 .HasDatabaseName("IX_PP_TeacherId_SessionId_PeriodDates");
+
+            // Screen: "students by status" — partial-paid classification (cross-student,
+            // month-scoped) in GetStudentsByPaymentStatusPagedAsync.
+            entity.HasIndex(p => new { p.TeacherId, p.PaymentStatus, p.PeriodStart })
+                .HasDatabaseName("IX_PP_TeacherId_Status_PeriodStart");
+
+            // ── FOREIGN KEYS ──
 
             // ── FOREIGN KEYS ──
 
