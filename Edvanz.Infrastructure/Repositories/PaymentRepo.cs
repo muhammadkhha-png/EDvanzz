@@ -113,7 +113,10 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
         int totalCount = await query.CountAsync();
         var items = await query
+            // CollectedAt is datetime2(0); ties are common within a batch collect.
+            // Id is the deterministic tiebreaker that makes Skip/Take stable.
             .OrderByDescending(t => t.CollectedAt)
+            .ThenByDescending(t => t.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .AsNoTracking()

@@ -1204,4 +1204,13 @@
 <data name="PaymentBatchRevertSuccess" xml:space="preserve">
   <value>تم التراجع عن الدفعات المحددة.</value>
 </data>
+<data name="StudentPhoneAlreadyExists" xml:space="preserve">
+  <value>رقم تليفون الطالب ده متسجّل قبل كده.</value>
+</data>
+<data name="ParentPhoneAlreadyExists" xml:space="preserve">
+  <value>رقم تليفون ولي الأمر ده متسجّل قبل كده.</value>
+</data>
+<data name="PhoneAlreadyExists" xml:space="preserve">
+  <value>رقم التليفون ده متسجّل قبل كده.</value>
+</data>
 </root>
