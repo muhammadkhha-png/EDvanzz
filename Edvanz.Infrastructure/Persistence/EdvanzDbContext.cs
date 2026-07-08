@@ -648,6 +648,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(ts => ts.StudentCode)
                 .HasMaxLength(10)
                 .IsRequired();
+            entity.HasIndex(ts => ts.StudentPhoneNumber).IsUnique();
+            entity.HasIndex(ts => ts.ParentPhoneNumber).IsUnique();
 
             // Composite unique: StudentCode is unique within each teacher's account
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode })
