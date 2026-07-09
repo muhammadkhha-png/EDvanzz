@@ -4,6 +4,7 @@ using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using System.Net;
 using System.Security.Cryptography;
@@ -122,19 +123,27 @@ public class TeacherStudentService : ITeacherStudentService
             StudentName = dto.StudentName.Trim(),
             StudentCode = studentCode,
             HashedToken = hashedToken,
-            StudentPhoneNumber = dto.StudentPhoneNumber?.Trim(),
-            ParentPhoneNumber = dto.ParentPhoneNumber?.Trim(),
+            StudentPhoneNumber = NormalizePhone(dto.StudentPhoneNumber),
+            ParentPhoneNumber = NormalizePhone(dto.ParentPhoneNumber),
             Barcode = barcode,
             SessionId = dto.SessionId,
             IsDeleted = false,
             CreateAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.Students.AddAsync(student);
-        await _unitOfWork.SaveChangesAsync();
+        // REPLACE
+        try
+        {
+            await _unitOfWork.Students.AddAsync(student);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ResolvePhoneUniqueViolationKey(ex) is { } messageKey)
+        {
+            return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
+        }
 
         return Result<TeacherStudentDto>.Success(
-            MapToDto(student, null), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
+            MapToDto(student,null), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
     }
 
  
@@ -190,15 +199,22 @@ public class TeacherStudentService : ITeacherStudentService
 
         // 4. Update fields
         student.StudentName = dto.StudentName.Trim();
-        student.StudentPhoneNumber = dto.StudentPhoneNumber?.Trim();
-        student.ParentPhoneNumber = dto.ParentPhoneNumber?.Trim();
+        student.StudentPhoneNumber = NormalizePhone(dto.StudentPhoneNumber);
+        student.ParentPhoneNumber = NormalizePhone(dto.ParentPhoneNumber);
         student.SessionId = dto.SessionId;
         // REQ-STU-048: Barcode NEVER changes even if other fields are modified
 
-        await _unitOfWork.Students.UpdateAsync(student);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.Students.UpdateAsync(student);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ResolvePhoneUniqueViolationKey(ex) is { } messageKey)
+        {
+            return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
+        }
 
-        return Result<TeacherStudentDto>.Success(MapToDto(student, null), _localizer, "StudentUpdatedSuccess");
+        return Result<TeacherStudentDto>.Success(MapToDto(student,null), _localizer, "StudentUpdatedSuccess");
     }
 
     // ══════════════════════════════════════════════
@@ -857,5 +873,38 @@ public class TeacherStudentService : ITeacherStudentService
         }
 
         return new string(tokenChars);
+    }
+    /// <summary>
+    /// Normalizes an optional phone number: trims whitespace and collapses blank/empty
+    /// input to null so it stays out of the filtered unique index
+    /// (IX_TeacherStudents_TeacherId_*PhoneNumber, filtered WHERE ... IS NOT NULL).
+    /// Without this, an empty string "" would be indexed and two blank entries would collide.
+    /// </summary>
+    private static string? NormalizePhone(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// Detects a SQL Server unique-key violation (2601/2627) on the TeacherStudent phone
+    /// indexes and maps it to the matching localized message key. Returns null when the
+    /// exception is not a phone unique-violation (so the exception rethrows unchanged).
+    /// Matches on the column name embedded in the index name, so it is independent of the
+    /// exact index database name. Mirrors the IsUniqueViolation pattern in SubscriptionService.
+    /// </summary>
+    private static string? ResolvePhoneUniqueViolationKey(DbUpdateException ex)
+    {
+        var sql = ex.InnerException as Microsoft.Data.SqlClient.SqlException
+                  ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
+
+        if (sql is not { Number: 2601 or 2627 })
+            return null;
+
+        string message = sql.Message;
+
+        if (message.Contains("StudentPhoneNumber", StringComparison.OrdinalIgnoreCase))
+            return "StudentPhoneAlreadyExists";
+        if (message.Contains("ParentPhoneNumber", StringComparison.OrdinalIgnoreCase))
+            return "ParentPhoneAlreadyExists";
+
+        return "PhoneAlreadyExists"; // unexpected phone index — generic fallback
     }
 }

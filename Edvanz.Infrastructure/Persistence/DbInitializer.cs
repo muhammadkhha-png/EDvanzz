@@ -45,17 +45,20 @@ public partial class DbInitializer
     // PUBLIC ENTRY POINT
     // ════════════════════════════════════════════════
 
-    /// <summary>
-    /// Runs all seed steps in FK-safe order. Each service-driven step is independently
-    /// guarded — a failure does not abort subsequent steps.
-    /// </summary>
+    /// <param name="includeAssistantWalletDemoData">
+    /// DEVELOPMENT ONLY. When true, provisions assistant1a's wallet and drives 120 collections
+    /// through it so GET /api/v1/assistants/{assistantId}/wallet is exercisable with paging.
+    /// Never enable outside Development — it inflates a real tenant's ledger.
+    /// </param>
     public static async Task SeedAsync(
         EdvanzDbContext context,
         IPasswordService passwordService,
         ITeacherStudentService teacherStudentService,
         IAdminSubscriptionService adminSubscriptionService,
         ISessionService sessionService,
-        IPaymentService paymentService)
+        IPaymentService paymentService,
+
+        bool includeAssistantWalletDemoData = true)
     {
         await SeedModulesAsync(context);
         await SeedPermissionsAsync(context);
@@ -65,8 +68,13 @@ public partial class DbInitializer
         await SeedTeacherStudentAndLinksAsync(context, teacherStudentService);
         await SeedOperationalSessionsAsync(context, sessionService);
         await SeedPaymentsAsync(context, paymentService);
-    }
 
+        // Must run last: it adds students, and SeedPaymentsAsync selects the *first*
+        // session-assigned student of each teacher.
+        if (includeAssistantWalletDemoData)
+            await SeedAssistantWalletDemoAsync(
+                context, teacherStudentService, sessionService, paymentService);
+    }
     // ════════════════════════════════════════════════
     // REFERENCE DATA — MODULES
     // ════════════════════════════════════════════════
