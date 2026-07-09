@@ -60,6 +60,22 @@ public sealed class StudentByStatusRow
     public decimal AmountDue { get; set; }
     public decimal UnpaidAmount { get; set; }
     public int UnpaidMonths { get; set; }
+
+    /// <summary>Live student code from the TeacherStudent record.</summary>
+    public string? StudentCode { get; set; }
+
+    /// <summary>
+    /// The session the student actually paid on this month (from the latest paying
+    /// transaction). Falls back to the month's period session name when no payment
+    /// exists, so unpaid/prorated rows still show a session.
+    /// </summary>
+    public string? SessionName { get; set; }
+
+    /// <summary>
+    /// Collection date of the student's latest paying transaction for the month
+    /// (<c>PaymentTransaction.CollectedAt</c>). Null when nothing was paid.
+    /// </summary>
+    public DateTime? PaidOn { get; set; }
 }
 
 /// <summary>
