@@ -301,9 +301,29 @@ builder.Services.AddHealthChecks()
         tags: new[] { "ready" });
 
 var app = builder.Build();
-await app.SeedDatabaseAsync();
 
+// Demo/baseline seeding runs only outside Production (prod already holds its real
+// reference data), and is wrapped so a seed failure can NEVER abort app startup.
+// Regression guard: the 6868b41 seeder threw a duplicate-key (soft-deleted student
+// code collides with the unfiltered unique index) which crashed boot -> 503.
+if (!app.Environment.IsProduction())
+{
+    try
+    {
+        await app.SeedDatabaseAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Database seeding failed; continuing startup.");
+    }
+}
 
+// Hangfire's static RecurringJob.* API (used below to register recurring jobs) reads
+// JobStorage.Current, which AddHangfire only initializes lazily when a Hangfire service
+// is first resolved from DI. Previously the startup seeder happened to trigger that
+// resolution; now that seeding is skipped in Production, resolve JobStorage explicitly
+// so recurring-job registration works independently of the seeder.
+_ = app.Services.GetRequiredService<JobStorage>();
 
 
 // Use localization middleware
