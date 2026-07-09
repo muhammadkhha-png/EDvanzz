@@ -288,4 +288,28 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
         _context.SessionLinks.Remove(link);
         await Task.CompletedTask;
     }
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SessionNameRow>> GetTeacherSessionNamesAsync(long teacherId)
+    {
+        return await _context.Sessions
+            .Where(s => s.TeacherId == teacherId)
+            .OrderBy(s => s.SessionName)
+            .Select(s => new SessionNameRow { Id = s.Id, SessionName = s.SessionName })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(
+        long teacherId, IEnumerable<long> sessionIds)
+    {
+        var ids = sessionIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<long, string>();
+
+        return await _context.Sessions
+            .Where(s => s.TeacherId == teacherId && ids.Contains(s.Id))
+            .Select(s => new { s.Id, s.SessionName })
+            .AsNoTracking()
+            .ToDictionaryAsync(s => s.Id, s => s.SessionName);
+    }
 }

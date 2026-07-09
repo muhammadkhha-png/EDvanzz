@@ -221,12 +221,26 @@ public class TeacherStudentService : ITeacherStudentService
             request.SortDirection);
 
         // Get total count AFTER filtering (for filtered count display)
+        // Get total count AFTER filtering (for filtered count display)
         int totalCount = await _unitOfWork.Students.CountAsync(query);
 
         // Get the current page
         var students = await _unitOfWork.Students.GetPagedAsync(query, request.Page, request.PageSize);
 
-        var dtos = students.Select(MapToDto).ToList();
+        // Enrich the assigned-session badge (REQ-STU-036) without an N+1:
+        // one lookup for the page's distinct session Ids. Mirrors the templateMap
+        // pattern in AutomatedTriggerService.
+        var sessionIds = students
+            .Where(s => s.SessionId.HasValue)
+            .Select(s => s.SessionId!.Value)
+            .Distinct()
+            .ToList();
+
+        IReadOnlyDictionary<long, string> sessionNames = sessionIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, sessionIds);
+
+        var dtos = students.Select(s => MapToDto(s, sessionNames)).ToList();
 
         var response = new PaginatedResponse<List<TeacherStudentDto>>
         {
@@ -647,15 +661,61 @@ public class TeacherStudentService : ITeacherStudentService
         return Result<BulkImportResultDto>.Success(result, _localizer, "BulkImportComplete");
     }
 
+    /// <inheritdoc />
+    public async Task<Result<SessionAssignmentChipsDto>> GetSessionAssignmentChipsAsync(
+        long teacherId, string? search)
+    {
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<SessionAssignmentChipsDto>.Failure(
+                _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // Student counts (All / Unassigned / per-session), scoped to the search term.
+        var counts = await _unitOfWork.Students.GetAssignmentCountsAsync(teacherId, search);
+
+        // Full, stable chip catalog: every session, ordered by name.
+        var sessions = await _unitOfWork.SessionsRepo.GetTeacherSessionNamesAsync(teacherId);
+
+        var countMap = counts.PerSession.ToDictionary(x => x.SessionId, x => x.AssignedCount);
+
+        var dto = new SessionAssignmentChipsDto
+        {
+            TotalCount = counts.CountAll,
+            UnassignedCount = counts.CountUnassigned,
+            Sessions = sessions.Select(s => new SessionChipDto
+            {
+                SessionId = s.Id,
+                SessionName = s.SessionName,
+                AssignedCount = countMap.TryGetValue(s.Id, out var c) ? c : 0
+            }).ToList()
+        };
+
+        return Result<SessionAssignmentChipsDto>.Success(dto, _localizer);
+    }
+
     // ══════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════
 
-    /// <summary>
-    /// Maps a TeacherStudent entity to the output DTO.
-    /// </summary>
+    /// <summary>Maps a TeacherStudent entity to the output DTO.</summary>
     private static TeacherStudentDto MapToDto(TeacherStudent student)
+        => MapToDto(student, null);
+
+    /// <summary>
+    /// Maps a TeacherStudent to the output DTO, resolving the assigned-session
+    /// display name from the supplied Id→name map (list path). SessionName stays
+    /// null when the student is unassigned or the map is not provided.
+    /// </summary>
+    private static TeacherStudentDto MapToDto(
+        TeacherStudent student, IReadOnlyDictionary<long, string>? sessionNames)
     {
+        string? sessionName = null;
+        if (student.SessionId.HasValue && sessionNames is not null
+            && sessionNames.TryGetValue(student.SessionId.Value, out var name))
+        {
+            sessionName = name;
+        }
+
         return new TeacherStudentDto
         {
             Id = student.Id,
@@ -667,6 +727,7 @@ public class TeacherStudentService : ITeacherStudentService
             ParentPhoneNumber = student.ParentPhoneNumber,
             Barcode = student.Barcode,
             SessionId = student.SessionId,
+            SessionName = sessionName,
             CreatedAt = student.CreateAt,
             // REQ-STU-UX-007: Complete = all optional fields filled
             IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
