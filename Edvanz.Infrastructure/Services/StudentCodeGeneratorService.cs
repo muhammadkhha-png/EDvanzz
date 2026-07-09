@@ -85,26 +85,37 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
     {
         var letters = GetLetterSequence(language);
 
-        var highestCode = await _unitOfWork.Students.GetHighestStudentCodeAsync(teacherId);
+        var candidates = await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
 
-        if (string.IsNullOrEmpty(highestCode))
+        // Select the HIGHEST code that actually matches the [Letter][Digits] auto pattern for this
+        // language. Non-parseable codes (manual/imported such as "Z9X9") are skipped entirely — the
+        // previous implementation ordered by raw string and, when the top code failed to parse, reset
+        // to "A1"; if "A1" already existed that produced a duplicate-code unique violation on EVERY
+        // add for that teacher (mislabeled to the client as "phone already registered").
+        (int letterIndex, int number)? highest = null;
+
+        foreach (var code in candidates)
         {
-            // No existing codes — start at first letter + 1
+            var parsed = ParseCode(code, letters);
+            if (parsed is null)
+                continue; // manual / other-language / non-pattern code — cannot be part of the sequence
+
+            if (highest is null
+                || parsed.Value.letterIndex > highest.Value.letterIndex
+                || (parsed.Value.letterIndex == highest.Value.letterIndex
+                    && parsed.Value.number > highest.Value.number))
+            {
+                highest = parsed;
+            }
+        }
+
+        if (highest is null)
+        {
+            // No existing auto-pattern code for this language — start at first letter + 1.
             return $"{letters[0]}1";
         }
 
-        // Try to parse using the requested language's letter set first
-        var parsed = ParseCode(highestCode, letters);
-
-        if (parsed is null)
-        {
-            // Highest code doesn't match auto-generated pattern for this language
-            // (could be a manual code, or from a different language era)
-            // Start at first letter + 1 — the uniqueness check at save time will handle collisions
-            return $"{letters[0]}1";
-        }
-
-        return ComputeNextCode(parsed.Value.letterIndex, parsed.Value.number, letters);
+        return ComputeNextCode(highest.Value.letterIndex, highest.Value.number, letters);
     }
 
     /// <summary>

@@ -286,7 +286,9 @@ FakesAssemblies/
 node_modules/
 
 # Database Migrations
-/Edvanz.Infrastructure/migrations/*.cs
+# NOTE: EF Core migration files MUST be committed — they are the source of truth CI uses for
+# `dotnet ef database update`. A previous rule here ignored them, which silently dropped every
+# migration from the repo and left prod's schema frozen/out-of-sync. Do NOT re-add such a rule.
 
 # Visual Studio 6 build log
 *.plg

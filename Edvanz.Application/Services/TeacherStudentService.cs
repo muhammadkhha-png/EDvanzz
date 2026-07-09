@@ -137,7 +137,7 @@ public class TeacherStudentService : ITeacherStudentService
             await _unitOfWork.Students.AddAsync(student);
             await _unitOfWork.SaveChangesAsync();
         }
-        catch (DbUpdateException ex) when (ResolvePhoneUniqueViolationKey(ex) is { } messageKey)
+        catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
         {
             return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
         }
@@ -209,7 +209,7 @@ public class TeacherStudentService : ITeacherStudentService
             await _unitOfWork.Students.UpdateAsync(student);
             await _unitOfWork.SaveChangesAsync();
         }
-        catch (DbUpdateException ex) when (ResolvePhoneUniqueViolationKey(ex) is { } messageKey)
+        catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
         {
             return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
         }
@@ -890,7 +890,7 @@ public class TeacherStudentService : ITeacherStudentService
     /// Matches on the column name embedded in the index name, so it is independent of the
     /// exact index database name. Mirrors the IsUniqueViolation pattern in SubscriptionService.
     /// </summary>
-    private static string? ResolvePhoneUniqueViolationKey(DbUpdateException ex)
+    private static string? ResolveUniqueViolationKey(DbUpdateException ex)
     {
         var sql = ex.InnerException as Microsoft.Data.SqlClient.SqlException
                   ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
@@ -904,7 +904,13 @@ public class TeacherStudentService : ITeacherStudentService
             return "StudentPhoneAlreadyExists";
         if (message.Contains("ParentPhoneNumber", StringComparison.OrdinalIgnoreCase))
             return "ParentPhoneAlreadyExists";
+        if (message.Contains("StudentCode", StringComparison.OrdinalIgnoreCase))
+            return "StudentCodeDuplicate";
 
-        return "PhoneAlreadyExists"; // unexpected phone index — generic fallback
+        // Not a known business-level unique index (e.g. a primary-key collision from an
+        // identity-seed desync). Returning null lets the exception rethrow with its real detail
+        // instead of masquerading as a phone conflict — the old generic "PhoneAlreadyExists"
+        // fallback is exactly what turned a StudentCode collision into a bogus phone error.
+        return null;
     }
 }

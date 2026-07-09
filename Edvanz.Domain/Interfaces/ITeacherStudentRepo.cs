@@ -64,7 +64,15 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// REQ-STU-007: Sequential codes A1 → Z999 — always picks next after highest existing.
     /// Considers ALL codes (including soft-deleted) to avoid collisions with recycle bin records.
     /// </summary>
-    Task<string?> GetHighestStudentCodeAsync(long teacherId);
+    /// <summary>
+    /// Returns every student code for the teacher (INCLUDING soft-deleted rows) that is short
+    /// enough to be part of an auto-generated sequence (length 2-5). The generator parses these
+    /// in memory and picks the highest that matches the [Letter][Digits] pattern for the target
+    /// language, so a non-parseable manual/imported code (e.g. "Z9X9") can never poison the
+    /// sequence and force a reset to the first code — which previously collided on every add and
+    /// surfaced (mislabeled) as "phone number already registered".
+    /// </summary>
+    Task<List<string>> GetSequentialCandidateCodesAsync(long teacherId);
 
     // ══════════════════════════════════════════════
     // COUNT QUERIES

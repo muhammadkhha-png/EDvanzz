@@ -72,25 +72,21 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<string?> GetHighestStudentCodeAsync(long teacherId)
+    public async Task<List<string>> GetSequentialCandidateCodesAsync(long teacherId)
     {
-        // IgnoreQueryFilters: consider ALL codes including soft-deleted
-        // to avoid generating a code that collides with a recycle bin record.
-        // Only consider codes matching the auto-generated pattern [A-Z][0-9]+
-        // so manually entered codes (e.g., "CUSTOM01") don't interfere with sequencing.
-        //
-        // We order by letter first (descending), then by the numeric suffix (descending)
-        // to find the highest sequential code. EF Core translates this to SQL.
+        // IgnoreQueryFilters: consider ALL codes including soft-deleted, so a generated code can
+        // never collide with a recycle-bin record still occupying the unique index.
+        // We return the raw candidate set (short codes only) and let the generator parse/select the
+        // highest [Letter][Digits] code in memory — pushing pattern selection into SQL cannot safely
+        // express "letter then all-digits" for both English and Arabic letter sets. Bounded by the
+        // teacher's student count, so an in-memory pass is cheap.
         return await _context.TeacherStudents
             .IgnoreQueryFilters()
             .Where(ts => ts.TeacherId == teacherId
                       && ts.StudentCode.Length >= 2
                       && ts.StudentCode.Length <= 5) // A1 (2 chars) to Z999 (4 chars) — max pattern length
-            .OrderByDescending(ts => ts.StudentCode.Substring(0, 1)) // Letter descending (Z → A)
-            .ThenByDescending(ts => ts.StudentCode.Length) // Longer numeric suffix = higher number
-            .ThenByDescending(ts => ts.StudentCode) // Final lexicographic tie-break
             .Select(ts => ts.StudentCode)
-            .FirstOrDefaultAsync();
+            .ToListAsync();
     }
 
     // ══════════════════════════════════════════════
