@@ -13,20 +13,16 @@ namespace Edvanz.Infrastructure.Migrations
         // fixes the assistant-create "conflict with existing data" bug (a 2nd blank-phone user
         // collided on the non-filtered unique phone index).
         //
-        // The phone index has DRIFTED across environments (prod had non-filtered unique
-        // UX_Users_PhoneNumber; other DBs had the non-unique IX_User_Phnoe), so the drops are guarded
-        // with IF EXISTS to stay safe wherever this runs. Pre-req verified on prod before deploy:
-        // 0 empty-string phones and 0 duplicate non-null phones, so the filtered unique index builds.
+        // Pure fluent EF operations. Verified against the deploy target (prod) before shipping:
+        // UX_Users_PhoneNumber exists (so DropIndex succeeds) and there are 0 empty-string and 0
+        // duplicate non-null phones (so the filtered unique index builds).
 
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql(@"
-IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Users_PhoneNumber' AND object_id = OBJECT_ID('dbo.Users'))
-    DROP INDEX [UX_Users_PhoneNumber] ON [dbo].[Users];
-IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_User_Phnoe' AND object_id = OBJECT_ID('dbo.Users'))
-    DROP INDEX [IX_User_Phnoe] ON [dbo].[Users];
-");
+            migrationBuilder.DropIndex(
+                name: "UX_Users_PhoneNumber",
+                table: "Users");
 
             migrationBuilder.AlterColumn<string>(
                 name: "PhoneNumber",
@@ -38,21 +34,20 @@ IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_User_Phnoe' AND object_id 
                 oldType: "nvarchar(20)",
                 oldMaxLength: 20);
 
-            migrationBuilder.Sql(@"
-CREATE UNIQUE INDEX [UX_Users_PhoneNumber] ON [dbo].[Users]([PhoneNumber]) WHERE [PhoneNumber] IS NOT NULL;
-");
+            migrationBuilder.CreateIndex(
+                name: "UX_Users_PhoneNumber",
+                table: "Users",
+                column: "PhoneNumber",
+                unique: true,
+                filter: "[PhoneNumber] IS NOT NULL");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql(@"
-IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Users_PhoneNumber' AND object_id = OBJECT_ID('dbo.Users'))
-    DROP INDEX [UX_Users_PhoneNumber] ON [dbo].[Users];
-");
-
-            // Reverting to a required column will fail if any NULL phones exist; blank them first.
-            migrationBuilder.Sql("UPDATE [dbo].[Users] SET [PhoneNumber] = '' WHERE [PhoneNumber] IS NULL;");
+            migrationBuilder.DropIndex(
+                name: "UX_Users_PhoneNumber",
+                table: "Users");
 
             migrationBuilder.AlterColumn<string>(
                 name: "PhoneNumber",
@@ -66,9 +61,11 @@ IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Users_PhoneNumber' AND obj
                 oldMaxLength: 20,
                 oldNullable: true);
 
-            migrationBuilder.Sql(@"
-CREATE UNIQUE INDEX [UX_Users_PhoneNumber] ON [dbo].[Users]([PhoneNumber]);
-");
+            migrationBuilder.CreateIndex(
+                name: "UX_Users_PhoneNumber",
+                table: "Users",
+                column: "PhoneNumber",
+                unique: true);
         }
     }
 }
