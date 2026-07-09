@@ -1,6 +1,4 @@
-﻿using Edvanz.Domain.Enums;
-
-namespace Edvanz.Domain.Interfaces;
+﻿namespace Edvanz.Domain.Interfaces;
 
 // ════════════════════════════════════════════════════════════════════════════
 // STUDENT MODULE (MODULE 1) — REPOSITORY PROJECTION TYPES
@@ -32,17 +30,4 @@ public sealed class SessionNameRow
 {
     public long Id { get; set; }
     public string SessionName { get; set; } = null!;
-}
-/// <summary>
-/// Compact session summary (Id + name + occurrence + payment + amount) projected
-/// without loading the full Session entity. Feeds the assigned-session card on the
-/// student profile screen. REQ-SES-002 / REQ-SES-007 / REQ-SES-010 / REQ-SES-011.
-/// </summary>
-public sealed class SessionSummaryRow
-{
-    public long Id { get; set; }
-    public string SessionName { get; set; } = null!;
-    public OccurrenceType OccurrenceType { get; set; }
-    public PaymentType PaymentType { get; set; }
-    public decimal SessionAmount { get; set; }
 }

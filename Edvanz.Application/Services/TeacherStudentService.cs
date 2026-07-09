@@ -137,26 +137,16 @@ public class TeacherStudentService : ITeacherStudentService
             MapToDto(student), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
     }
 
-    private TeacherStudentDto MapToDto(TeacherStudent student)
-    {
-        throw new NotImplementedException();
-    }
-
     /// <inheritdoc />
-    public async Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId)
+    public async Task<Result<TeacherStudentDto>> GetStudentByIdAsync(long teacherId, long studentId)
     {
         var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
         if (student is null)
-            return Result<TeacherStudentProfileDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
 
-        // Profile screen: resolve the assigned-session card (name / occurrence / cost) in the
-        // same call so the mobile profile renders without a second round-trip.
-        SessionSummaryRow? session = student.SessionId.HasValue
-            ? await _unitOfWork.SessionsRepo.GetSessionSummaryByIdAsync(teacherId, student.SessionId.Value)
-            : null;
-
-        return Result<TeacherStudentProfileDto>.Success(MapToProfileDto(student, session), _localizer);
+        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer);
     }
+
     /// <inheritdoc />
     public async Task<Result<TeacherStudentDto>> UpdateStudentAsync(
         long teacherId, long studentId, UpdateTeacherStudentDto dto)
@@ -702,87 +692,14 @@ public class TeacherStudentService : ITeacherStudentService
 
         return Result<SessionAssignmentChipsDto>.Success(dto, _localizer);
     }
-    /// <inheritdoc />
-    public async Task<Result<TenantStudentListDto>> GetTenantStudentListAsync(
-        long teacherId, StudentListRequest request)
-    {
-        // Reuse the existing list pipeline verbatim (teacher validation, filter, sort,
-        // pagination, and session-name enrichment). It returns TeacherNotFound(404)
-        // when the teacher does not exist — propagate that as-is.
-        var listResult = await GetStudentListAsync(teacherId, request);
-        if (!listResult.IsSuccess)
-            return Result<TenantStudentListDto>.Failure(listResult.Message, listResult.StatusCode);
-
-        // Unfiltered active total for the screen header (REQ-STU-UX-001) — constant
-        // regardless of the search/filter applied to the paginated list above.
-        int tenantTotal = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
-
-        var dto = new TenantStudentListDto
-        {
-            noOfStudentsForTenant = tenantTotal,
-            students = listResult.Data!
-        };
-
-        return Result<TenantStudentListDto>.Success(dto, _localizer);
-    }
 
     // ══════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════
 
-    /// <summary>
-    /// Maps a TeacherStudent to the profile DTO, attaching the assigned-session card
-    /// (name / occurrence / payment / cost). <paramref name="session"/> is null when unassigned.
-    /// </summary>
-    private static TeacherStudentProfileDto MapToProfileDto(
-        TeacherStudent student, SessionSummaryRow? session)
-    {
-        var dto = new TeacherStudentProfileDto();
-        PopulateBase(dto, student, session?.SessionName);
-
-        if (session is not null)
-        {
-            dto.AssignedSession = new AssignedSessionSummaryDto
-            {
-                SessionId = session.Id,
-                SessionName = session.SessionName,
-                OccurrenceType = session.OccurrenceType,
-                PaymentType = session.PaymentType,
-                SessionAmount = session.SessionAmount
-            };
-        }
-
-        return dto;
-    }
-
-    /// <summary>Shared base-field mapping for every TeacherStudent output DTO.</summary>
-    private static void PopulateBase(TeacherStudentDto dto, TeacherStudent student, string? sessionName)
-    {
-        dto.Id = student.Id;
-        dto.TeacherId = student.TeacherId;
-        dto.StudentName = student.StudentName;
-        dto.StudentCode = student.StudentCode;
-        dto.HashedToken = student.HashedToken;
-        dto.StudentPhoneNumber = student.StudentPhoneNumber;
-        dto.ParentPhoneNumber = student.ParentPhoneNumber;
-        dto.Barcode = student.Barcode;
-        dto.SessionId = student.SessionId;
-        dto.SessionName = sessionName;
-        dto.CreatedAt = student.CreateAt;
-        // REQ-STU-UX-007: Complete = all optional fields filled
-        dto.IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
-                      && !string.IsNullOrWhiteSpace(student.ParentPhoneNumber)
-                      && student.SessionId.HasValue;
-    }
-
-    private static string? ResolveSessionName(
-        TeacherStudent student, IReadOnlyDictionary<long, string>? sessionNames)
-    {
-        if (student.SessionId.HasValue && sessionNames is not null
-            && sessionNames.TryGetValue(student.SessionId.Value, out var name))
-            return name;
-        return null;
-    }
+    /// <summary>Maps a TeacherStudent entity to the output DTO.</summary>
+    private static TeacherStudentDto MapToDto(TeacherStudent student)
+        => MapToDto(student, null);
 
     /// <summary>
     /// Maps a TeacherStudent to the output DTO, resolving the assigned-session

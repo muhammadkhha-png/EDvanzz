@@ -312,20 +312,4 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .AsNoTracking()
             .ToDictionaryAsync(s => s.Id, s => s.SessionName);
     }
-    /// <inheritdoc />
-    public async Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId)
-    {
-        return await _context.Sessions
-            .Where(s => s.TeacherId == teacherId && s.Id == sessionId)
-            .Select(s => new SessionSummaryRow
-            {
-                Id = s.Id,
-                SessionName = s.SessionName,
-                OccurrenceType = s.OccurrenceType,
-                PaymentType = s.PaymentType,
-                SessionAmount = s.SessionAmount
-            })
-            .AsNoTracking()
-            .FirstOrDefaultAsync();
-    }
 }

@@ -60,9 +60,6 @@ public sealed class TeacherStudentExampleProvider : EndpointExampleProvider
         // ENDPOINT 12 — POST api/teacherstudent/bulk-import — Bulk import
         if (method == "POST" && route == "api/teacherstudent/bulk-import")
             return BulkImportStudents();
-        // ENDPOINT 13 — GET api/teacherstudent/students/overview — Tenant total + paginated list
-        if (method == "GET" && route == "api/teacherstudent/students/overview")
-            return GetStudentsOverview();
 
         return null;
     }
@@ -124,32 +121,11 @@ public sealed class TeacherStudentExampleProvider : EndpointExampleProvider
     {
         Responses = new Dictionary<string, JsonNode>
         {
-            ["200"] = SuccessEnvelope("Operation completed successfully.", new JsonObject
-            {
-                ["id"] = 1,                                            // illustrative — do not hardcode
-                ["teacherId"] = 1,                                     // illustrative — do not hardcode
-                ["studentName"] = "Youssef Tarek",
-                ["studentCode"] = "STU000001",
-                ["studentPhoneNumber"] = "01000000030",
-                ["parentPhoneNumber"] = "01000000040",
-                ["barcode"] = null,
-                ["sessionId"] = 5,                                     // illustrative session id
-                ["hashedToken"] = "a3f7c2e0-1b4d-4a8c-bf22-7e3d1c5a9f20",
-                ["isComplete"] = true,
-                ["sessionName"] = "Saturday 5pm - prep 3",
-                ["createdAt"] = "2026-01-15T10:00:00Z",
-                ["assignedSession"] = new JsonObject
-                {
-                    ["sessionId"] = 5,
-                    ["sessionName"] = "Saturday 5pm - prep 3",
-                    ["occurrenceType"] = "Weekly",
-                    ["paymentType"] = "Monthly",
-                    ["sessionAmount"] = 300.00m
-                }
-            }),
+            ["200"] = SuccessEnvelope("Operation completed successfully.", SeededStudentDto()),
             ["404"] = FailureEnvelope("Student not found.")
         }
     };
+
     private EndpointExampleSet UpdateStudent() => new()
     {
         RequestBody = new JsonObject
@@ -355,42 +331,6 @@ public sealed class TeacherStudentExampleProvider : EndpointExampleProvider
                 }
             }),
             ["400"] = FailureEnvelope("Students list must not be empty.")
-        }
-    };
-    private EndpointExampleSet GetStudentsOverview() => new()
-    {
-        Responses = new Dictionary<string, JsonNode>
-        {
-            ["200"] = SuccessEnvelope("Operation completed successfully.", new JsonObject
-            {
-                ["noOfStudentsForTenant"] = 300,                      // illustrative header total
-                ["students"] = new JsonObject
-                {
-                    ["data"] = new JsonArray
-                    {
-                        new JsonObject
-                        {
-                            ["id"] = 1,                               // illustrative — do not hardcode
-                            ["teacherId"] = 1,                        // illustrative — do not hardcode
-                            ["studentName"] = "Youssef Tarek",
-                            ["studentCode"] = "STU000001",
-                            ["studentPhoneNumber"] = "01000000030",
-                            ["parentPhoneNumber"] = "01000000040",
-                            ["barcode"] = null,
-                            ["sessionId"] = 5,                        // illustrative session id
-                            ["hashedToken"] = "a3f7c2e0-1b4d-4a8c-bf22-7e3d1c5a9f20",
-                            ["isComplete"] = true,
-                            ["sessionName"] = "Saturday 5pm - prep 3",
-                            ["createdAt"] = "2026-01-15T10:00:00Z"
-                        }
-                    },
-                    ["page"] = 1,
-                    ["pageSize"] = 20,
-                    ["totalCount"] = 300,
-                    ["totalPages"] = 15
-                }
-            }),
-            ["404"] = FailureEnvelope("Teacher not found.")
         }
     };
 }

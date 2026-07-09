@@ -411,36 +411,4 @@ public class TeacherStudentController : ModuleSixApiBaseController
         var result = await _studentService.GetSessionAssignmentChipsAsync(teacherId.Value, search);
         return ToResponse(result);
     }
-    /// <summary>
-    /// Returns the student-list screen payload: the tenant-wide active-student total
-    /// plus a paginated, searchable, filterable, sortable student page — in one call.
-    /// </summary>
-    /// <remarks>
-    /// REQ-STU-UX-001: <c>noOfStudentsForTenant</c> is the total ACTIVE student count
-    /// for the header badge, independent of any filter.
-    /// REQ-STU-032..046 / REQ-STU-SRT-001..007: <c>students</c> carries the standard
-    /// <c>PaginatedResponse&lt;TeacherStudentDto&gt;</c> page; its <c>totalCount</c>
-    /// reflects the filtered set.
-    /// AUTH: requires <c>Student / ViewList</c> permission.
-    /// TENANCY: teacherId from JWT — only this teacher's students are counted and returned.
-    /// </remarks>
-    /// <param name="request">Pagination, search, filter, and sort parameters (same as the list endpoint).</param>
-    /// <response code="200">The tenant total plus the paginated student page.</response>
-    /// <response code="401">JWT missing or expired.</response>
-    /// <response code="403">Caller lacks the <c>Student / ViewList</c> permission.</response>
-    /// <response code="404">Teacher record not found for the authenticated user.</response>
-    [HttpGet("students/overview")]
-    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentsOverview([FromQuery] StudentListRequest request)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _studentService.GetTenantStudentListAsync(teacherId.Value, request);
-        return ToResponse(result);
-    }
 }

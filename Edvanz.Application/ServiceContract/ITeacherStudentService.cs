@@ -29,11 +29,11 @@ public interface ITeacherStudentService
     /// Validates capacity limit, name not empty, code uniqueness, and code format.
     /// </summary>
     Task<Result<TeacherStudentDto>> CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto);
+
     /// <summary>
-    /// Retrieves a single active student record by Id, scoped to the teacher,
-    /// including the assigned-session summary for the profile screen.
+    /// Retrieves a single active student record by Id, scoped to the teacher.
     /// </summary>
-    Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId);
+    Task<Result<TeacherStudentDto>> GetStudentByIdAsync(long teacherId, long studentId);
 
     /// <summary>
     /// Updates an existing student record.
@@ -131,12 +131,4 @@ public interface ITeacherStudentService
     /// the optional search term (REQ-SES-016/017).
     /// </summary>
     Task<Result<SessionAssignmentChipsDto>> GetSessionAssignmentChipsAsync(long teacherId, string? search);
-    /// <summary>
-    /// Retrieves the student-list screen payload: the tenant-wide active-student
-    /// total plus a paginated/filtered student page in one response.
-    /// REQ-STU-UX-001 (total badge) + REQ-STU-032..046 (list search/filter/sort).
-    /// </summary>
-    Task<Result<TenantStudentListDto>> GetTenantStudentListAsync(
-        long teacherId, StudentListRequest request);
-
 }
