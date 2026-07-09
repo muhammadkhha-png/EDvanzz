@@ -510,21 +510,6 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         {
             targetIds = await earliestOutstanding.Where(e => e.IsProRated).Select(e => e.StudentId).ToListAsync();
         }
-
-        else if (string.Equals(status, "partial", StringComparison.OrdinalIgnoreCase))
-        {
-            // "Part Paid" chip: students with a period IN the requested month that is
-            // partially settled (0 < AmountPaid < AmountDue). Month-scoped by design —
-            // the screen header is month-relative ("monthly collected (march)").
-            targetIds = await _context.PaymentPeriods
-                .Where(p => p.TeacherId == teacherId
-                    && p.TeacherStudentId.HasValue
-                    && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd
-                    && p.PaymentStatus == PaymentStatus.PartiallyPaid)
-                .Select(p => p.TeacherStudentId!.Value)
-                .Distinct()
-                .ToListAsync();
-        }
         else // unpaid
         {
             targetIds = await earliestOutstanding.Where(e => !e.IsProRated).Select(e => e.StudentId).ToListAsync();
@@ -573,43 +558,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                     .Select(c => (decimal?)c.TotalOutstanding).FirstOrDefault() ?? 0m,
                 UnpaidMonths = _context.StudentPaymentCounters
                     .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
-                    .Select(c => (int?)c.TotalUnpaidPeriods).FirstOrDefault() ?? 0,
-                    StudentCode = ts.StudentCode,
-
-                // "Paid on" + "session he paid on": the student's latest paying transaction
-                // whose PERIOD falls in the requested month. Deterministic tiebreak (Id) so
-                // the two subqueries below always resolve to the same transaction. The global
-                // query filter already excludes soft-deleted transactions.
-                PaidOn = _context.PaymentTransactions
-                    .Where(t => t.TeacherId == teacherId
-                        && t.TeacherStudentId == ts.Id
-                        && t.PaymentPeriod != null
-                        && t.PaymentPeriod.PeriodStart >= monthStart
-                        && t.PaymentPeriod.PeriodStart <= monthEnd)
-                    .OrderByDescending(t => t.CollectedAt)
-                    .ThenByDescending(t => t.Id)
-                    .Select(t => (DateTime?)t.CollectedAt)
-                    .FirstOrDefault(),
-
-                SessionName =
-                    _context.PaymentTransactions
-                        .Where(t => t.TeacherId == teacherId
-                            && t.TeacherStudentId == ts.Id
-                            && t.PaymentPeriod != null
-                            && t.PaymentPeriod.PeriodStart >= monthStart
-                            && t.PaymentPeriod.PeriodStart <= monthEnd)
-                        .OrderByDescending(t => t.CollectedAt)
-                        .ThenByDescending(t => t.Id)
-                        .Select(t => t.SessionName)
-                        .FirstOrDefault()
-                    // Fallback (unpaid/prorated, no payment yet): the month's period session.
-                    ?? _context.PaymentPeriods
-                        .Where(p => p.TeacherId == teacherId
-                            && p.TeacherStudentId == ts.Id
-                            && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd)
-                        .OrderBy(p => p.PeriodSequence)
-                        .Select(p => p.SessionName)
-                        .FirstOrDefault()
+                    .Select(c => (int?)c.TotalUnpaidPeriods).FirstOrDefault() ?? 0
             })
             .AsNoTracking()
             .ToListAsync();

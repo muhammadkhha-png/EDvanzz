@@ -217,9 +217,10 @@ public class PaymentScreenService : IPaymentScreenService
                 "Invalid month; expected YYYY-MM.", HttpStatusCode.UnprocessableEntity);
 
         status = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
-        if (status != "paid" && status != "partial" && status != "prorated" && status != "unpaid")
+        if (status != "paid" && status != "prorated" && status != "unpaid")
             return Result<StudentsByStatusResponse>.Failure(
-                "Invalid status; expected paid | partial | prorated | unpaid.", HttpStatusCode.UnprocessableEntity);
+                "Invalid status; expected paid | prorated | unpaid.", HttpStatusCode.UnprocessableEntity);
+
         (page, limit) = NormalizePaging(page, limit);
         var monthStart = new DateTime(year, mon, 1);
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
@@ -240,10 +241,7 @@ public class PaymentScreenService : IPaymentScreenService
                 AmountPaid = r.AmountPaid,
                 AmountDue = r.AmountDue,
                 UnpaidAmount = r.UnpaidAmount,
-                UnpaidMonths = r.UnpaidMonths,
-                StudentCode = r.StudentCode,
-                SessionName = r.SessionName,
-                PaidOn = r.PaidOn
+                UnpaidMonths = r.UnpaidMonths
             });
         }
 

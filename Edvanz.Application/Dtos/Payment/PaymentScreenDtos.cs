@@ -155,14 +155,6 @@ public class StudentByStatusDto
     public decimal AmountDue { get; set; }
     public decimal UnpaidAmount { get; set; }
     public int UnpaidMonths { get; set; }
-    /// <summary>Student code shown on the card (e.g. "#223").</summary>
-    public string? StudentCode { get; set; }
-
-    /// <summary>Session the student paid on (falls back to the month's period session).</summary>
-    public string? SessionName { get; set; }
-
-    /// <summary>Date of the latest paying transaction this month; null when unpaid.</summary>
-    public DateTime? PaidOn { get; set; }
 }
 
 // ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────
