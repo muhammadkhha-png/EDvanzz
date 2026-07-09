@@ -1204,13 +1204,4 @@
 <data name="PaymentBatchRevertSuccess" xml:space="preserve">
   <value>Batch payment revert completed.</value>
 </data>
-<data name="StudentPhoneAlreadyExists" xml:space="preserve">
-  <value>This student phone number is already registered.</value>
-</data>
-<data name="ParentPhoneAlreadyExists" xml:space="preserve">
-  <value>This parent phone number is already registered.</value>
-</data>
-<data name="PhoneAlreadyExists" xml:space="preserve">
-  <value>This phone number is already registered.</value>
-</data>
 </root>
