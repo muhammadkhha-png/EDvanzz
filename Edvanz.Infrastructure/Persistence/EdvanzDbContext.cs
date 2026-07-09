@@ -220,16 +220,16 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             .HasIndex(u => u.Username)
             .IsUnique();
 
-        modelBuilder.Entity<User>()
-              .HasIndex(u => u.PhoneNumber)
-              .HasDatabaseName("IX_User_Phnoe")
-                  .IsClustered(false);
         modelBuilder.Entity<User>().Property(u => u.PhoneNumber)
-      .IsRequired()
-      .HasMaxLength(20);
+            .HasMaxLength(20);
 
+        // Phone is OPTIONAL. The unique index is FILTERED to non-null values so any number of
+        // phone-less users are allowed, while a supplied phone stays globally unique. A non-filtered
+        // unique index rejects a 2nd NULL/'' phone — that was the assistant-create "conflict with
+        // existing data" bug. The old redundant non-unique IX_User_Phnoe is dropped.
         modelBuilder.Entity<User>().HasIndex(u => u.PhoneNumber)
               .IsUnique()
+              .HasFilter("[PhoneNumber] IS NOT NULL")
               .HasDatabaseName("UX_Users_PhoneNumber");
 
         #endregion

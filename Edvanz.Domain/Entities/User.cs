@@ -15,8 +15,9 @@ public class User: BaseEntity
     public string? Email { get; set; }
     public string PasswordHashed { get; set; }
     public string  SecurityStamp { get; set; }= Guid.NewGuid().ToString();
-    [Required]
-    public string PhoneNumber { get; set; }
+    // Phone is optional (nullable). Uniqueness is enforced by a FILTERED unique index
+    // (UX_Users_PhoneNumber WHERE PhoneNumber IS NOT NULL) so multiple phone-less users are allowed.
+    public string? PhoneNumber { get; set; }
     public byte[]? IdImage { get; set; }
     public bool? IsActive { get; set; } = true;
     [ForeignKey(nameof(CreateByUser))]

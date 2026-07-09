@@ -91,8 +91,8 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Users
                 .FirstOrDefaultAsync(u =>
                    (!string.IsNullOrEmpty(phoneNumber) && u.PhoneNumber == phoneNumber) ||
-                    u.Username == username ||
-                    (!string.IsNullOrEmpty(email) && u.Email == email));
+                   (!string.IsNullOrEmpty(username) && u.Username == username) ||
+                   (!string.IsNullOrEmpty(email) && u.Email == email));
         }
 
         /// <inheritdoc />

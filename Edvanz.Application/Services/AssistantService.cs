@@ -12,6 +12,7 @@ using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
@@ -183,20 +184,27 @@ namespace Edvanz.Application.Services
             var availablePermissionIds =
                 await _unitOfWork.permissionRepo.GetPermissionIdsByModuleIdsAsync(moduleIds);
 
+            // Normalize optional fields: blank/whitespace -> null so they stay OUT of the filtered
+            // unique phone index and the duplicate pre-check. Previously a blank phone was stored as
+            // "" and the 2nd blank-phone user collided on the unique phone index -> "conflict with
+            // existing data".
+            var phone = string.IsNullOrWhiteSpace(dto.phoneNumber) ? null : dto.phoneNumber.Trim();
+            var email = string.IsNullOrWhiteSpace(dto.email) ? null : dto.email.Trim();
+
             var existingUser = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
-                dto.phoneNumber ?? string.Empty,
+                phone ?? string.Empty,
                 dto.username,
-                dto.email ?? string.Empty);
+                email ?? string.Empty);
 
             if (existingUser is not null)
             {
-                if (!string.IsNullOrEmpty(dto.phoneNumber) && existingUser.PhoneNumber == dto.phoneNumber)
+                if (phone is not null && existingUser.PhoneNumber == phone)
                     return Result<string?>.Failure(localizer, "repeatedPhoneNumber");
 
                 if (existingUser.Username == dto.username)
                     return Result<string?>.Failure(localizer, "repeatedUserName");
 
-                if (!string.IsNullOrEmpty(dto.email) && existingUser.Email == dto.email)
+                if (email is not null && existingUser.Email == email)
                     return Result<string?>.Failure(localizer, "repeatedEmail");
             }
 
@@ -227,8 +235,8 @@ namespace Edvanz.Application.Services
                 UserType = UserType.Assistant,
                 FullName = dto.fullName,
                 Username = dto.username,
-                Email = dto.email,
-                PhoneNumber = dto.phoneNumber,
+                Email = email,
+                PhoneNumber = phone,
                 PasswordHashed = passwordService.HashPassword(dto.password),
                 IsActive = true,
                 IsVerified = false,
@@ -295,12 +303,46 @@ namespace Edvanz.Application.Services
 
                 return Result<string?>.Success("Success", localizer);
             }
+            catch (DbUpdateException ex) when (ResolveUserUniqueViolationKey(ex) is { } messageKey)
+            {
+                // A concurrent insert or a legacy unnormalized row can still trip a unique index
+                // (phone/username/email). Map it to a friendly message instead of surfacing a raw
+                // "conflict with existing data".
+                await _unitOfWork.RollbackAsync();
+                return Result<string?>.Failure(localizer, messageKey, HttpStatusCode.Conflict);
+            }
             catch
             {
                 await _unitOfWork.RollbackAsync();
                 throw;
             }
         }
+
+        /// <summary>
+        /// Maps a SQL Server unique-key violation (2601/2627) on the Users table to the matching
+        /// localized message key by inspecting the column embedded in the index name. Returns null
+        /// when the exception is not a Users unique violation, so it rethrows unchanged.
+        /// </summary>
+        private static string? ResolveUserUniqueViolationKey(DbUpdateException ex)
+        {
+            var sql = ex.InnerException as Microsoft.Data.SqlClient.SqlException
+                      ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
+
+            if (sql is not { Number: 2601 or 2627 })
+                return null;
+
+            string message = sql.Message;
+
+            if (message.Contains("PhoneNumber", StringComparison.OrdinalIgnoreCase))
+                return "repeatedPhoneNumber";
+            if (message.Contains("Username", StringComparison.OrdinalIgnoreCase))
+                return "repeatedUserName";
+            if (message.Contains("Email", StringComparison.OrdinalIgnoreCase))
+                return "repeatedEmail";
+
+            return null;
+        }
+
         public async Task<Result<string?>> UpdateAssistantAsync(UpdateAssistantRequest dto)
         {
             var assistant = await _unitOfWork.AssistantRepo.GetByIdAsync(dto.assistantId);
