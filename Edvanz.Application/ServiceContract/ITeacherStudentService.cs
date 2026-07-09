@@ -125,10 +125,4 @@ public interface ITeacherStudentService
     /// REQ-STU-054: Auto-generates barcode for each imported student.
     /// </summary>
     Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(long teacherId, BulkImportTeacherStudentsDto dto);
-    /// <summary>
-    /// Builds the chip-strip data for the "Assign Students" screen: All / Unassigned
-    /// counts plus one chip per session with its assigned-student count. Counts respect
-    /// the optional search term (REQ-SES-016/017).
-    /// </summary>
-    Task<Result<SessionAssignmentChipsDto>> GetSessionAssignmentChipsAsync(long teacherId, string? search);
 }

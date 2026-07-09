@@ -261,39 +261,4 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
             .FirstOrDefaultAsync(ts => ts.TeacherId == teacherId
                                     && ts.StudentCode == studentCode);
     }
-    /// <inheritdoc />
-    public async Task<StudentAssignmentCounts> GetAssignmentCountsAsync(
-        long teacherId, string? search = null)
-    {
-        // Global soft-delete query filter excludes deleted students automatically.
-        var query = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            string pattern = $"%{search.Trim()}%";
-            query = query.Where(ts =>
-                EF.Functions.Like(ts.StudentName, pattern)
-                || EF.Functions.Like(ts.StudentCode, pattern));
-        }
-
-        int countAll = await query.CountAsync();
-        int countUnassigned = await query.CountAsync(ts => ts.SessionId == null);
-
-        var perSession = await query
-            .Where(ts => ts.SessionId != null)
-            .GroupBy(ts => ts.SessionId!.Value)
-            .Select(g => new SessionAssignedCountRow
-            {
-                SessionId = g.Key,
-                AssignedCount = g.Count()
-            })
-            .ToListAsync();
-
-        return new StudentAssignmentCounts
-        {
-            CountAll = countAll,
-            CountUnassigned = countUnassigned,
-            PerSession = perSession
-        };
-    }
 }

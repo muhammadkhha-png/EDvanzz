@@ -385,30 +385,4 @@ public class TeacherStudentController : ModuleSixApiBaseController
         var result = await _studentService.BulkImportStudentsAsync(teacherId.Value, dto);
         return ToResponse(result);
     }
-    /// <summary>Returns the chip-strip data for the "Assign Students" screen: All / Unassigned counts plus one chip per session with its assigned-student count.</summary>
-    /// <remarks>
-    /// REQ-SES-016/017: student picker for session assignment.
-    /// Counts reflect the optional <c>search</c> term; the session set is the full catalog (stable while searching).
-    /// AUTH: requires <c>Student / ViewList</c> permission.
-    /// TENANCY: teacherId from JWT.
-    /// </remarks>
-    /// <param name="search">Optional name/code partial match applied to the counts.</param>
-    /// <response code="200">Returns <c>SessionAssignmentChipsDto</c>.</response>
-    /// <response code="401">JWT missing or expired.</response>
-    /// <response code="403">Caller lacks the <c>Student / ViewList</c> permission.</response>
-    /// <response code="404">Teacher record not found for the authenticated user.</response>
-    [HttpGet("assignment-chips")]
-    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetSessionAssignmentChips([FromQuery] string? search)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _studentService.GetSessionAssignmentChipsAsync(teacherId.Value, search);
-        return ToResponse(result);
-    }
 }

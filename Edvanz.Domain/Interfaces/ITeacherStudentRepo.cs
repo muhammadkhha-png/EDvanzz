@@ -165,14 +165,6 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// (case-sensitive) — student codes are stored in normalized form by REQ-STU-007.
     /// </summary>
     Task<TeacherStudent?> GetActiveByCodeAndTeacherAsync(string studentCode, long teacherId);
-    /// <summary>
-    /// Returns All / Unassigned scalar counts plus per-session assigned counts for the
-    /// teacher's active students, filtered by an optional name/code search term.
-    /// Powers the "Assign Students" screen chip strip (REQ-SES-016/017).
-    /// Per-session rows include only sessions with ≥1 matching student; the service
-    /// left-joins them onto the full session catalog.
-    /// </summary>
-    Task<StudentAssignmentCounts> GetAssignmentCountsAsync(long teacherId, string? search = null);
 
 
 }
