@@ -89,6 +89,7 @@ builder.Services.AddCors(options =>
     });
 });
 
+
 builder.Services.AddSwaggerGen(c =>
 {
     // JWT Bearer Authentication
@@ -140,6 +141,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddSingleton<IEndpointExampleProvider, SubscriptionExampleProvider>();
 builder.Services.AddSingleton<IEndpointExampleProvider, AuthExampleProvider>();
 builder.Services.AddSingleton<IEndpointExampleProvider, TeacherStudentExampleProvider>();
+builder.Services.AddSingleton<IEndpointExampleProvider, PaymentScreenExampleProvider>();
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 // ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────
 // QueuePollInterval at 15s: the default is already 15s in Hangfire 1.8;

@@ -134,14 +134,10 @@ public class TeacherStudentService : ITeacherStudentService
         await _unitOfWork.SaveChangesAsync();
 
         return Result<TeacherStudentDto>.Success(
-            MapToDto(student), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
+            MapToDto(student, null), _localizer, "StudentCreatedSuccess", HttpStatusCode.Created);
     }
 
-    private TeacherStudentDto MapToDto(TeacherStudent student)
-    {
-        throw new NotImplementedException();
-    }
-
+ 
     /// <inheritdoc />
     public async Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId)
     {
@@ -202,7 +198,7 @@ public class TeacherStudentService : ITeacherStudentService
         await _unitOfWork.Students.UpdateAsync(student);
         await _unitOfWork.SaveChangesAsync();
 
-        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer, "StudentUpdatedSuccess");
+        return Result<TeacherStudentDto>.Success(MapToDto(student, null), _localizer, "StudentUpdatedSuccess");
     }
 
     // ══════════════════════════════════════════════
@@ -410,7 +406,7 @@ public class TeacherStudentService : ITeacherStudentService
         await _unitOfWork.Students.UpdateAsync(student);
         await _unitOfWork.SaveChangesAsync();
 
-        return Result<TeacherStudentDto>.Success(MapToDto(student), _localizer, "StudentRestoredSuccess");
+        return Result<TeacherStudentDto>.Success(MapToDto(student,null), _localizer, "StudentRestoredSuccess");
     }
 
     /// <inheritdoc />
