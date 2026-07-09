@@ -14,7 +14,22 @@ jobs:
       - run: dotnet restore
       - run: dotnet build -c Release --no-restore
 
-      # Idempotent migration script (apply before swapping app in)
+      # ── EF migrations ────────────────────────────────────────────────────────
+      # Generate an IDEMPOTENT migration script from the committed migrations and apply it to
+      # Azure SQL BEFORE the new app version is swapped in. Migrations are NOT applied at app
+      # startup (MigrateAsync was removed to avoid cold-start/multi-instance races), so this step
+      # is the ONLY place the schema is updated. Previously this was an empty comment, which left
+      # prod's schema frozen — do not remove it.
+      - name: Install EF Core tools
+        run: dotnet tool install --global dotnet-ef --version 10.0.9
+
+      - name: Generate idempotent migration script
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef migrations script --idempotent \
+            --project Edvanz.Infrastructure --startup-project Edvanz.API \
+            -o migrate.sql
+          echo "---- migrate.sql (head) ----"; head -n 40 migrate.sql
 
       # SELF-CONTAINED publish (bundles .NET 10 runtime — immune to platform rollout)
       - run: dotnet publish Edvanz.API -c Release -r linux-x64 --self-contained true -o ./publish
@@ -25,7 +40,15 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # Apply migration (uses the same login; SQL must allow the runner IP or use Entra)
+      # Apply the migration script to Azure SQL. azure/sql-action opens a temporary firewall rule
+      # for the runner using the azure/login session above and removes it afterwards.
+      # Requires repo secret PROD_SQL_CONNECTION (an ADO.NET connection string to the prod DB).
+      # The azure/login identity must be allowed to manage the SQL server's firewall rules.
+      - name: Apply EF migrations to Azure SQL
+        uses: azure/sql-action@v2
+        with:
+          connection-string: ${{ secrets.PROD_SQL_CONNECTION }}
+          path: ./migrate.sql
 
       - uses: azure/webapps-deploy@v3
         with:
