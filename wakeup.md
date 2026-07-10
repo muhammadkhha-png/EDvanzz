@@ -107,6 +107,13 @@ All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
   wallet still showed the cash as held — the assistant would be asked to hand over money already
   returned to the student. **FIXED** (`AdjustAssistantWalletAsync` now called on edit ±diff and on
   delete −amount). **VERIFIED live:** collect 200→wallet 200; edit→150→wallet 150; refund→wallet 0.
+- **Refund paths clarified:** there is NO dedicated `/refund` endpoint. Money is taken back via
+  DELETE transaction, edit-to-lower-amount, or `batch-revert` (which reuses EditPayment) — ALL now
+  adjust the assistant wallet correctly. The DEPARTURE flow (`POST /payment/departure/confirm`, for a
+  student leaving) intentionally records the refund as a **manual settlement** and does NOT auto-adjust
+  the wallet. **DECISION FOR YOU:** if you want departure to auto-deduct the refund from the assistant
+  wallet too, say so and I'll wire `AdjustAssistantWalletAsync` into ConfirmDeparture. Left as-is
+  (current design = manual settlement).
 - Bonus bug found while cleaning up: **a session that had payment history couldn't be deleted (409)**
   — soft-deleted (refunded) payment transactions still referenced the session (query filter skipped
   them). **FIXED** (`NullifySessionIdOnPaymentRecordsAsync` now `IgnoreQueryFilters`). Verified.
