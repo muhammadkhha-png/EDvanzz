@@ -5,6 +5,7 @@ using Edvanz.Application.Dtos.PermissionsDtos;
 using Edvanz.Application.Dtos.TemplatePermissionsDtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Exceptions;
@@ -32,8 +33,9 @@ namespace Edvanz.Application.Services
         private readonly ICurrentUserService currentUserService;
         private readonly IPaymentService _paymentService;
         private readonly IUserAuthInvalidationService _authInvalidation;
+        private readonly ISubscriptionGateService _subscriptionGate;
 
-        public AssistantService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IUserPermissionService userPermissionService, IPasswordService passwordService, ICurrentUserService _currentUserService, IPaymentService paymentService, IUserAuthInvalidationService authInvalidation)
+        public AssistantService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IUserPermissionService userPermissionService, IPasswordService passwordService, ICurrentUserService _currentUserService, IPaymentService paymentService, IUserAuthInvalidationService authInvalidation, ISubscriptionGateService subscriptionGate)
         {
             _unitOfWork = unitOfWork;
             this.localizer = localizer;
@@ -42,6 +44,7 @@ namespace Edvanz.Application.Services
             currentUserService = _currentUserService;
             this._paymentService = paymentService;
             _authInvalidation = authInvalidation;
+            _subscriptionGate = subscriptionGate;
         }
         public async Task<Result<PaginatedResponse<List<AssistantListDto>>>> GetAssistantListPerTeacher(
             AssistantPerTeacherFilterDto req)
@@ -220,6 +223,12 @@ namespace Edvanz.Application.Services
             var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.teacherId);
             if (teacher is null)
                 return Result<string?>.Failure(localizer, "TeacherNotFound");
+
+            // Free-tier quota: assistants are a subscriber-only feature (FreeTier.MaxAssistants == 0).
+            if (SubscriptionConstants.FreeTier.MaxAssistants == 0 &&
+                !await _subscriptionGate.HasActiveSubscriptionAsync(teacher.Id))
+                return Result<string?>.Failure(
+                    localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
             var modules = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
 

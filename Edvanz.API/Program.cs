@@ -201,18 +201,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(
 options =>
 {
-    // Existing named policies preserved here (if any).
-    // ??? Subscription Management ???????????????????????
-    // Apply the active-subscription requirement to ALL authenticated endpoints.
-    // Endpoints opt out via [AllowExpiredSubscription].
+    // ── Subscription model (free-tier) ──────────────────────────────────────
+    // The app is NO LONGER hard-gated on an active subscription. Unsubscribed teachers
+    // may use every module for free; a subscription only lifts per-feature CREATE quotas
+    // (students, sessions, assistants, groups) enforced in the service layer via
+    // ISubscriptionGateService. Attendance and payments are free for everyone.
+    //
+    // The named "ActiveSubscription" policy + ActiveSubscriptionHandler are retained (dormant)
+    // so hard gating can be re-enabled later by adding the requirement back to a policy.
     options.AddPolicy("ActiveSubscription", policy =>
         policy.Requirements.Add(new ActiveSubscriptionRequirement()));
 
-    // Make it the fallback so every controller protected by [Authorize] inherits it
-    // without explicitly listing the policy name.
+    // Fallback only requires authentication — no subscription requirement.
     options.FallbackPolicy = new AuthorizationPolicyBuilder()
         .RequireAuthenticatedUser()
-        .AddRequirements(new ActiveSubscriptionRequirement())
         .Build();
 });
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();

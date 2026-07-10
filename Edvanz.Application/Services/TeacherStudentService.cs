@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.TeacherStudent;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -39,6 +40,7 @@ public class TeacherStudentService : ITeacherStudentService
     private readonly IStudentCodeGenerator _codeGenerator;
     private readonly IPaymentService _paymentService;
     private readonly IAttendanceService _attendanceService;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -52,11 +54,13 @@ public class TeacherStudentService : ITeacherStudentService
         IStudentCodeGenerator codeGenerator,
         IPaymentService paymentService,
         IAttendanceService attendanceService,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _paymentService = paymentService;
+        _subscriptionGate = subscriptionGate;
         _attendanceService = attendanceService;
         _localizer = localizer;
     }
@@ -72,6 +76,15 @@ public class TeacherStudentService : ITeacherStudentService
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most FreeTier.MaxStudents students.
+        if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
+        {
+            int freeTierCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
+            if (freeTierCount >= SubscriptionConstants.FreeTier.MaxStudents)
+                return Result<TeacherStudentDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+        }
 
         // 2. Validate student name is not empty (REQ-STU-014)
         if (string.IsNullOrWhiteSpace(dto.StudentName))
@@ -533,6 +546,12 @@ public class TeacherStudentService : ITeacherStudentService
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
             return Result<BulkImportResultDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // 1b. Free-tier quota: bulk import is a subscriber feature — the free tier (1 student) is
+        // served by single create only. Unsubscribed teachers must subscribe to import in bulk.
+        if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
+            return Result<BulkImportResultDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
 

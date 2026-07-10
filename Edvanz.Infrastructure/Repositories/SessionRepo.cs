@@ -73,6 +73,13 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<int> CountSessionsByTeacherAsync(long teacherId)
+    {
+        return await _context.Sessions
+            .CountAsync(s => s.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
     public IQueryable<Session> BuildSessionListQuery(
         long teacherId,
         string? search = null,

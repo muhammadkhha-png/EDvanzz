@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Session;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -53,6 +54,7 @@ public class SessionService : ISessionService
     private readonly ISessionNameGenerator _nameGenerator;
     private readonly IAttendanceService _attendanceService;
     private readonly IPaymentService _paymentService;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -72,12 +74,14 @@ public class SessionService : ISessionService
         ISessionNameGenerator nameGenerator,
         IAttendanceService attendanceService,
         IPaymentService paymentService,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _nameGenerator = nameGenerator;
         _attendanceService = attendanceService;
         _paymentService = paymentService;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -92,6 +96,15 @@ public class SessionService : ISessionService
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
         if (teacher is null)
             return Result<SessionDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most FreeTier.MaxSessions sessions.
+        if (!await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
+        {
+            var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(dto.TeacherId);
+            if (sessionCount >= SubscriptionConstants.FreeTier.MaxSessions)
+                return Result<SessionDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+        }
 
         // 2. Resolve session name: auto-generate or use provided
         string sessionName;
@@ -334,6 +347,15 @@ public class SessionService : ISessionService
         if (source is null)
             return Result<SessionDto>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
 
+        // 1b. Free-tier quota: duplication creates a new session, so it counts toward the cap.
+        if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
+        {
+            var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(teacherId);
+            if (sessionCount >= SubscriptionConstants.FreeTier.MaxSessions)
+                return Result<SessionDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+        }
+
         // 2. Generate a new name for the duplicate
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         var language = config?.SessionNameLanguage ?? GenerationLanguage.English;
@@ -432,6 +454,12 @@ public class SessionService : ISessionService
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
         if (teacher is null)
             return Result<SessionGroupDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // Free-tier quota: groups are a subscriber-only feature (FreeTier.MaxGroups == 0).
+        if (SubscriptionConstants.FreeTier.MaxGroups == 0 &&
+            !await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
+            return Result<SessionGroupDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         // Validate unique group name
         string trimmedName = dto.GroupName.Trim();

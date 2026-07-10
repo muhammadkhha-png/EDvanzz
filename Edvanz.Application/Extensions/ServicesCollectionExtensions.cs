@@ -45,6 +45,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IStudentUserService, StudentUserService>();
         services.AddScoped<IParentUserService, ParentUserService>();
         services.AddScoped<ITokenService, TokenService>();
+        // Free-tier quota gate (shared by student/session/assistant/group create paths)
+        services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();
         // Student Module (Module 1: teacher-scoped student records CRUD)
         services.AddScoped<ITeacherStudentService, TeacherStudentService>();
         services.AddScoped<ITeacherService, TeacherService>();
