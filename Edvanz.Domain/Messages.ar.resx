@@ -591,6 +591,9 @@
   <data name="PaymentAmountInvalid" xml:space="preserve">
     <value>مبلغ الدفع لازم يكون أكبر من صفر.</value>
   </data>
+  <data name="PaymentAmountExceedsAdvanceLimit" xml:space="preserve">
+    <value>المبلغ أكبر من المستحق؛ الطالب يقدر يدفع شهر واحد مقدمًا بحد أقصى.</value>
+  </data>
   <data name="PaymentStudentInRecycleBin" xml:space="preserve">
     <value>مينفعش تحصّل دفع — الطالب في سلة المحذوفات.</value>
   </data>

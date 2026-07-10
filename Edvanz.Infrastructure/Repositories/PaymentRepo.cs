@@ -212,6 +212,45 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
+    {
+        // Tracked (NOT AsNoTracking) — the caller mutates AmountPaid/PaymentStatus and saves.
+        // Earliest-first, and only periods that start on/before the cutoff (current month, or
+        // current+1 when paying one month in advance). Ordered so a payment fills the oldest
+        // debt first and cascades forward.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId == teacherStudentId
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd);
+
+        if (sessionId.HasValue)
+            query = query.Where(p => p.SessionId == sessionId.Value);
+
+        return await query.OrderBy(p => p.PeriodSequence).ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> GetOverdueTotalThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
+    {
+        // Total arrears the student owes THROUGH the given month (sum of each unpaid month's
+        // remaining due). This is the server-owned "amount due" for lookup + mark-paid, and it
+        // never includes months in advance.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId == teacherStudentId
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd);
+
+        if (sessionId.HasValue)
+            query = query.Where(p => p.SessionId == sessionId.Value);
+
+        return await query.SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
+    }
+
+    /// <inheritdoc />
     public async Task<PaymentPeriod?> GetLatestPaidPeriodAsync(
         long teacherId, long teacherStudentId, long? sessionId)
     {
@@ -264,6 +303,134 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentInRangeAsync(
+        long teacherId, long teacherStudentId, DateTime? startDate, DateTime? endDate)
+    {
+        // Same as GetAllPaymentPeriodsByStudentAsync but honoring the optional date window
+        // (by period start) for the history screen's startDate/endDate filter.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId);
+
+        if (startDate.HasValue)
+            query = query.Where(p => p.PeriodStart >= startDate.Value);
+        if (endDate.HasValue)
+            query = query.Where(p => p.PeriodStart <= endDate.Value);
+
+        return await query
+            .OrderBy(p => p.SessionName)
+            .ThenBy(p => p.PeriodSequence)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> GetCashCollectedInRangeAsync(
+        long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Actual cash physically collected in the window (by transaction date), regardless of
+        // which month each payment settles. The global !IsDeleted filter excludes refunded/reverted
+        // transactions and edits update AmountPaid, so the sum is already net of refunds.
+        var query = _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive);
+
+        if (sessionId.HasValue)
+            query = query.Where(t => t.SessionId == sessionId.Value);
+
+        return await query.SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Money that came IN this window: collections the collector took, at the amount recorded.
+        // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) —
+        // its AmountPaid is preserved on delete, so pairing it with its negative refund entry nets
+        // to zero for a same-window collect-then-refund.
+        return await _context.PaymentTransactions
+            .IgnoreQueryFilters()
+            .Where(t => t.TeacherId == teacherId
+                && t.CollectedByUserId == collectorUserId
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // A refund = the collector's collection being fully handed back: a delete or reversal
+        // (refund = the whole PreviousAmount). Partial amount-edits are treated as corrections to
+        // the collected figure (reflected in the collection's own amount), not refund lines, so the
+        // month log never double-counts. IgnoreQueryFilters because the transaction is soft-deleted.
+        var rows = await _context.PaymentEditLogs
+            .IgnoreQueryFilters()
+            .Where(l => l.PaymentTransaction != null
+                && l.PaymentTransaction.TeacherId == teacherId
+                && l.PaymentTransaction.CollectedByUserId == collectorUserId
+                && l.EditedAt >= startInclusive && l.EditedAt < endExclusive
+                && (l.EditAction == PaymentEditAction.Deleted
+                    || l.EditAction == PaymentEditAction.Reversed))
+            .Select(l => new CollectorRefundRow
+            {
+                Id = l.Id,
+                StudentId = l.PaymentTransaction!.TeacherStudentId,
+                StudentName = l.PaymentTransaction.StudentName,
+                StudentCode = l.PaymentTransaction.StudentCode,
+                SessionName = l.PaymentTransaction.SessionName,
+                RefundAmount = l.PreviousAmount,
+                RefundedAt = l.EditedAt
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
+        GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Per session: actual cash collected this month and how many distinct students paid into it
+        // this month (net of refunds via the !IsDeleted filter).
+        var rows = await _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId && t.SessionId.HasValue
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+            .GroupBy(t => t.SessionId!.Value)
+            .Select(g => new
+            {
+                SessionId = g.Key,
+                CashCollected = g.Sum(t => t.AmountPaid),
+                PaidStudents = g.Select(t => t.TeacherStudentId).Distinct().Count()
+            })
+            .ToListAsync();
+
+        return rows.Select(r => (r.SessionId, r.CashCollected, r.PaidStudents)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(long SessionId, int TotalStudents)>>
+        GetAssignedStudentCountsPerSessionAsync(long teacherId)
+    {
+        var rows = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+            .GroupBy(ts => ts.SessionId!.Value)
+            .Select(g => new { SessionId = g.Key, Total = g.Count() })
+            .ToListAsync();
+
+        return rows.Select(r => (r.SessionId, r.Total)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountAssignedStudentsAsync(long teacherId)
+    {
+        // Active (non-deleted, global filter applies) students currently assigned to a session.
+        return await _context.TeacherStudents
+            .CountAsync(ts => ts.TeacherId == teacherId && ts.SessionId != null);
+    }
+
     public async Task<int> CountUnpaidStudentsBySessionAsync(long teacherId, long sessionId)
     {
         return await _context.PaymentPeriods
@@ -278,22 +445,28 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
     /// <inheritdoc />
     public async Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(
-        long teacherId)
+        long teacherId, DateTime selectedMonthEnd)
     {
+        // Buckets are judged ONLY through the selected month — future months (periods
+        // generated ahead of time up to session end) must never count as owed, otherwise
+        // every student reads as unpaid. A student is in scope if they have any period that
+        // starts on or before the selected month's end (i.e. assigned in/before that month).
         int totalStudentsWithPeriods = await _context.PaymentPeriods
-            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue)
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && p.PeriodStart <= selectedMonthEnd)
             .Select(p => p.TeacherStudentId!.Value)
             .Distinct()
             .CountAsync();
 
-        // Per student, whether their earliest outstanding period (lowest
-        // PeriodSequence among non-Paid periods) is prorated. Same "earliest
-        // unpaid" concept as GetEarliestUnpaidPeriodAsync, computed for every
-        // student in one round trip instead of one query per student.
+        // Per student, whether their earliest outstanding period (lowest PeriodSequence
+        // among non-Paid periods THROUGH the selected month) is prorated. Same "earliest
+        // unpaid" concept as GetEarliestUnpaidPeriodAsync, computed for every student in one
+        // round trip. A student with no unpaid period on/before the selected month is "paid".
         var earliestOutstandingIsProRated = await _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId
                 && p.TeacherStudentId.HasValue
-                && p.PaymentStatus != PaymentStatus.Paid)
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= selectedMonthEnd)
             .GroupBy(p => p.TeacherStudentId!.Value)
             .Select(g => g.OrderBy(p => p.PeriodSequence).First().IsProRated)
             .ToListAsync();
@@ -443,7 +616,8 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     /// <inheritdoc />
     public async Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
         GetCollectStudentsPagedAsync(
-            long teacherId, string filter, string? search, int page, int pageSize)
+            long teacherId, string filter, string? search, int page, int pageSize,
+            DateTime unpaidThroughMonthEnd)
     {
         // Global !IsDeleted query filter on TeacherStudent applies automatically.
         var baseQuery = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
@@ -481,10 +655,17 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                 ts.StudentCode,
                 IsAssigned = ts.SessionId != null,
                 SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null,
-                Counter = _context.StudentPaymentCounters
+                CustomAmount = _context.StudentPaymentCounters
                     .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
-                    .Select(c => new { c.TotalOutstanding, c.TotalUnpaidPeriods, c.CustomPaymentAmount })
-                    .FirstOrDefault()
+                    .Select(c => c.CustomPaymentAmount)
+                    .FirstOrDefault(),
+                // Unpaid status is judged THROUGH the current month only — future pre-generated
+                // periods must not make an otherwise-caught-up student read as unpaid.
+                UnpaidMonths = _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                        && p.PeriodStart <= unpaidThroughMonthEnd
+                        && p.PaymentStatus != PaymentStatus.Paid)
+                    .Count()
             })
             .AsNoTracking()
             .ToListAsync();
@@ -495,9 +676,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             StudentName = r.StudentName,
             StudentCode = r.StudentCode,
             IsAssigned = r.IsAssigned,
-            Amount = r.Counter?.CustomPaymentAmount ?? r.SessionAmount ?? 0m,
-            IsUnpaid = (r.Counter?.TotalOutstanding ?? 0m) > 0m,
-            UnpaidMonths = r.Counter?.TotalUnpaidPeriods ?? 0
+            Amount = r.CustomAmount ?? r.SessionAmount ?? 0m,
+            IsUnpaid = r.UnpaidMonths > 0,
+            UnpaidMonths = r.UnpaidMonths
         }).ToList();
 
         return (items, totalCount, countAll, countAssigned, countUnassigned);
@@ -510,8 +691,11 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             DateTime monthStart, DateTime monthEnd,
             int page, int pageSize)
     {
+        // Everything is judged THROUGH the selected month — periods that start after the
+        // month end (pre-generated future months) are excluded from every bucket and total.
         var withPeriods = _context.PaymentPeriods
-            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue);
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
+                && p.PeriodStart <= monthEnd);
 
         // Per-student classification by the earliest outstanding period (same rule as
         // GetStudentPaymentStatusCountsAsync). One row per student with an outstanding period.
@@ -568,9 +752,16 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
         decimal groupCollected = await groupMonthPeriods.SumAsync(p => (decimal?)p.AmountPaid) ?? 0m;
         decimal groupExpected = await groupMonthPeriods.SumAsync(p => (decimal?)p.AmountDue) ?? 0m;
-        decimal groupUnpaid = await _context.StudentPaymentCounters
-            .Where(c => c.TeacherId == teacherId && targetIds.Contains(c.TeacherStudentId))
-            .SumAsync(c => (decimal?)c.TotalOutstanding) ?? 0m;
+        // Outstanding is the arrears THROUGH the selected month only (not the all-time counter,
+        // which includes pre-generated future months): sum of (due - paid) over unpaid periods
+        // whose start is on/before the month end.
+        decimal groupUnpaid = await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId.HasValue
+                && targetIds.Contains(p.TeacherStudentId!.Value)
+                && p.PeriodStart <= monthEnd
+                && p.PaymentStatus != PaymentStatus.Paid)
+            .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
 
         // Page the students (name order) with their month amounts + counter fields.
         var items = await _context.TeacherStudents
@@ -595,12 +786,16 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                     .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
                         && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd)
                     .Sum(p => (decimal?)p.AmountDue) ?? 0m,
-                UnpaidAmount = _context.StudentPaymentCounters
-                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
-                    .Select(c => (decimal?)c.TotalOutstanding).FirstOrDefault() ?? 0m,
-                UnpaidMonths = _context.StudentPaymentCounters
-                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
-                    .Select(c => (int?)c.TotalUnpaidPeriods).FirstOrDefault() ?? 0,
+                // Arrears THROUGH the selected month only (not the all-time counter): sum of
+                // (due - paid) and count of unpaid periods whose start is on/before month end.
+                UnpaidAmount = _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                        && p.PeriodStart <= monthEnd && p.PaymentStatus != PaymentStatus.Paid)
+                    .Sum(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m,
+                UnpaidMonths = _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                        && p.PeriodStart <= monthEnd && p.PaymentStatus != PaymentStatus.Paid)
+                    .Count(),
                     StudentCode = ts.StudentCode,
 
                 // "Paid on" + "session he paid on": the student's latest paying transaction
@@ -715,7 +910,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
     /// <inheritdoc />
     public async Task<CollectLookupRow?> ResolveCollectLookupAsync(
-        long teacherId, string? qr, string? code, string? name)
+        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd)
     {
         var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
 
@@ -754,24 +949,14 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
         if (student is null) return null;
 
-        var counter = await _context.StudentPaymentCounters
-            .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == student.Id)
-            .Select(c => new { c.CustomPaymentAmount, c.TotalOutstanding })
-            .FirstOrDefaultAsync();
-
-        // Earliest unpaid period's remaining balance (lowest PeriodSequence among non-Paid).
-        var earliestUnpaid = await _context.PaymentPeriods
+        // AmountDue = the student's TOTAL arrears through the selected/current month (sum of every
+        // unpaid month's remaining), not a single month. Excludes months in advance. IsUnpaid is
+        // simply whether any such arrears exist.
+        decimal overdueTotal = await _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
-                && p.PaymentStatus != PaymentStatus.Paid)
-            .OrderBy(p => p.PeriodSequence)
-            .Select(p => new { p.AmountDue, p.AmountPaid })
-            .FirstOrDefaultAsync();
-
-        decimal amountDue =
-            counter?.CustomPaymentAmount
-            ?? (earliestUnpaid != null ? earliestUnpaid.AmountDue - earliestUnpaid.AmountPaid : (decimal?)null)
-            ?? student.SessionAmount
-            ?? 0m;
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd)
+            .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
 
         return new CollectLookupRow
         {
@@ -779,8 +964,8 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             StudentName = student.StudentName,
             StudentCode = student.StudentCode,
             Group = student.Group,
-            AmountDue = amountDue,
-            IsUnpaid = (counter?.TotalOutstanding ?? 0m) > 0m
+            AmountDue = overdueTotal,
+            IsUnpaid = overdueTotal > 0m
         };
     }
 

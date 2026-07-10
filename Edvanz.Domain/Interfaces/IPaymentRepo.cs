@@ -99,6 +99,23 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<PaymentPeriod?> GetEarliestUnpaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
 
     /// <summary>
+    /// All unpaid periods (PaymentStatus != Paid) for the student/session whose PeriodStart is on
+    /// or before <paramref name="throughMonthEnd"/>, earliest-first (by PeriodSequence). Tracked
+    /// so the caller can apply a cascading payment across them. The cutoff enforces the
+    /// "pay overdue up to this month, at most one month in advance" rule.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
+
+    /// <summary>
+    /// Total arrears (sum of each unpaid month's remaining due) the student owes through
+    /// <paramref name="throughMonthEnd"/> for the session. Server-owned "amount due" for the
+    /// collect lookup and mark-paid; never includes months in advance.
+    /// </summary>
+    Task<decimal> GetOverdueTotalThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
+
+    /// <summary>
     /// Returns the most recent period the student actually paid into (AmountPaid &gt; 0) for the
     /// session — i.e. the current month if paid, otherwise the previous paid month. Used for the
     /// departure refund when proration is DISABLED (refund the full paid amount of that single
@@ -126,10 +143,60 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId);
 
     /// <summary>
+    /// Gets a student's payment periods filtered to an optional date window (by period start),
+    /// ordered by session then sequence. Backs the payment-history startDate/endDate filter.
+    /// </summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentInRangeAsync(
+        long teacherId, long teacherStudentId, DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
     /// Gets unpaid payment periods for a specific session.
     /// REQ-PAY-028: Unpaid badge count per session.
     /// </summary>
     Task<int> CountUnpaidStudentsBySessionAsync(long teacherId, long sessionId);
+
+    /// <summary>
+    /// Count of active students currently assigned to a session (SessionId not null).
+    /// Used as the dashboard "total students" — the roster a teacher expects to collect from.
+    /// </summary>
+    Task<int> CountAssignedStudentsAsync(long teacherId);
+
+    /// <summary>
+    /// Per-session actual cash collected in [startInclusive, endExclusive) and the count of
+    /// distinct students who paid into that session in the window — the month-scoped per-session
+    /// dashboard card (net of refunds).
+    /// </summary>
+    Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
+        GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// Per-session count of students currently assigned to it — the per-session card's
+    /// "total students" denominator.
+    /// </summary>
+    Task<IReadOnlyList<(long SessionId, int TotalStudents)>>
+        GetAssignedStudentCountsPerSessionAsync(long teacherId);
+
+    /// <summary>
+    /// Actual cash collected (by transaction date) in [startInclusive, endExclusive), optionally
+    /// for one session — the dashboard's "collected this month". Net of refunds (soft-deleted /
+    /// edited transactions), and independent of which month each payment settles.
+    /// </summary>
+    Task<decimal> GetCashCollectedInRangeAsync(
+        long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// All collections a collector took in [startInclusive, endExclusive), unpaged —
+    /// merged with refunds into a single chronological month log.
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// Refunds taken back from a collector in [startInclusive, endExclusive), from the payment
+    /// edit-log trail (delete/reversal = full amount; amount reduction = the drop).
+    /// </summary>
+    Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
     /// Gets the maximum period sequence for a student in a session.
@@ -145,7 +212,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// is prorated (REQ-PAY-021/022 first-period proration) → Pro-rated;
     /// otherwise → Unpaid. Students with no payment periods at all are not counted.
     /// </summary>
-    Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(long teacherId);
+    Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(
+        long teacherId, DateTime selectedMonthEnd);
 
     /// <summary>
     /// Adds a new payment period.
@@ -214,7 +282,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
         GetCollectStudentsPagedAsync(
-            long teacherId, string filter, string? search, int page, int pageSize);
+            long teacherId, string filter, string? search, int page, int pageSize,
+            DateTime unpaidThroughMonthEnd);
 
     /// <summary>
     /// PaymentTracking "students by status" list: students whose current status
@@ -246,7 +315,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// Returns null when nothing matches or no lookup key is supplied.
     /// </summary>
     Task<CollectLookupRow?> ResolveCollectLookupAsync(
-        long teacherId, string? qr, string? code, string? name);
+        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd);
 
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES

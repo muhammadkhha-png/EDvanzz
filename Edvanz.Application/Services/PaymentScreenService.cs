@@ -31,17 +31,31 @@ public class PaymentScreenService : IPaymentScreenService
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly IPaymentService _paymentService;
     private readonly IIdempotencyService _idempotency;
+    private readonly ITimeZoneService _timeZoneService;
 
     public PaymentScreenService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Domain.Resources.Messages> localizer,
         IPaymentService paymentService,
-        IIdempotencyService idempotency)
+        IIdempotencyService idempotency,
+        ITimeZoneService timeZoneService)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _paymentService = paymentService;
         _idempotency = idempotency;
+        _timeZoneService = timeZoneService;
+    }
+
+    /// <summary>
+    /// Last day of the teacher's current local (Africa/Cairo) month — the default
+    /// "through this month" boundary for screens that carry no explicit month.
+    /// </summary>
+    private DateTime CurrentMonthEnd(long teacherId)
+    {
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        return monthStart.AddMonths(1).AddDays(-1);
     }
 
     /// <inheritdoc />
@@ -114,26 +128,54 @@ public class PaymentScreenService : IPaymentScreenService
 
         (page, limit) = NormalizePaging(page, limit);
 
-        var (txns, total) = await _unitOfWork.PaymentsRepo
-            .GetCollectorTransactionsPagedAsync(
-                teacherId, wallet.AssistantUserId,
-                startDate: null, endDate: null,
-                page: page, pageSize: limit);
+        // The assistant log is scoped to the current local month: the collections they took this
+        // month. "Total cash collected" (below) is the same window, net of refunds.
+        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
+        var monthEndExclusive = walletMonthStart.AddMonths(1);
 
-        var items = new List<AssistantWalletCollectionItemDto>(txns.Count);
-        foreach (var tx in txns)
+        // The log mixes collections and refunds for the month in one chronological list. Collections
+        // are positive; a refund taken back from this collector is a NEGATIVE-amount entry dated
+        // when it was refunded. Merged and paged in-memory (a single collector's month is bounded).
+        var monthTxns = await _unitOfWork.PaymentsRepo
+            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
+        var monthRefunds = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
+
+        // "Total cash collected" = money in (collections this month) minus money out (refunds this
+        // month). A same-month collect-then-refund nets to zero; a refund of an earlier month's
+        // collection shows this month as negative net.
+        decimal monthCashCollected =
+            monthTxns.Sum(t => t.AmountPaid) - monthRefunds.Sum(r => r.RefundAmount);
+
+        var merged = new List<AssistantWalletCollectionItemDto>(monthTxns.Count + monthRefunds.Count);
+        merged.AddRange(monthTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
-            items.Add(new AssistantWalletCollectionItemDto
-            {
-                Id = tx.Id.ToString(CultureInfo.InvariantCulture),
-                StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
-                StudentName = tx.StudentName,
-                StudentCode = tx.StudentCode,
-                SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
-                Amount = tx.AmountPaid,
-                CollectedAt = tx.CollectedAt
-            });
-        }
+            Id = tx.Id.ToString(CultureInfo.InvariantCulture),
+            StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = tx.StudentName,
+            StudentCode = tx.StudentCode,
+            SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
+            Amount = tx.AmountPaid,
+            CollectedAt = tx.CollectedAt
+        }));
+        merged.AddRange(monthRefunds.Select(r => new AssistantWalletCollectionItemDto
+        {
+            Id = $"refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            SessionName = string.IsNullOrEmpty(r.SessionName) ? null : r.SessionName,
+            Amount = -r.RefundAmount, // negative → refund
+            CollectedAt = r.RefundedAt
+        }));
+
+        int total = merged.Count;
+        var items = merged
+            .OrderByDescending(i => i.CollectedAt)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToList();
 
         var response = new AssistantWalletScreenResponse
         {
@@ -147,7 +189,7 @@ public class PaymentScreenService : IPaymentScreenService
             },
             Wallet = new AssistantWalletInfoDto
             {
-                TotalCashCollected = wallet.TotalCollected,
+                TotalCashCollected = monthCashCollected,
                 WalletBalance = wallet.CurrentBalance,
                 CollectionsCount = wallet.TransactionCount,
                 LastActivityAt = wallet.LastCollectionAt
@@ -177,7 +219,7 @@ public class PaymentScreenService : IPaymentScreenService
         (page, limit) = NormalizePaging(page, limit);
 
         var (rows, total, cAll, cAssigned, cUnassigned) = await _unitOfWork.PaymentsRepo
-            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit);
+            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit, CurrentMonthEnd(teacherId));
 
         var students = new List<CollectStudentDto>(rows.Count);
         foreach (var r in rows)
@@ -337,7 +379,8 @@ public class PaymentScreenService : IPaymentScreenService
             return Result<CollectLookupResponse>.Failure(
                 "Provide a qr, code, or name to look up.", HttpStatusCode.UnprocessableEntity);
 
-        var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(teacherId, qr, code, name);
+        var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(
+            teacherId, qr, code, name, CurrentMonthEnd(teacherId));
         if (row is null)
             return Result<CollectLookupResponse>.Failure(
                 "No student found for the given QR/code/name.", HttpStatusCode.NotFound);
@@ -371,16 +414,28 @@ public class PaymentScreenService : IPaymentScreenService
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
         var repo = _unitOfWork.PaymentsRepo;
 
-        // Month-scoped revenue + per-session + per-collector, plus current-state status counts.
-        var (expected, collected, remaining) =
+        // Expected = this month's obligation (period dues). Collected = ACTUAL cash physically
+        // collected this calendar month (can exceed expected when students pay arrears or one
+        // month ahead), attributed to the month it was taken — per the agreed dashboard rule.
+        var (expected, _, _) =
             await repo.GetDashboardAggregatesAsync(teacherId, null, null, null, monthStart, monthEnd);
-        var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId);
+        decimal collected = await repo.GetCashCollectedInRangeAsync(
+            teacherId, null, monthStart, monthStart.AddMonths(1));
+        decimal remaining = expected - collected;
+        var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);
         var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, monthStart, monthEnd);
-        int totalStudents = (await repo.GetAllStudentIdsAsync(teacherId)).Count;
+        // TotalStudents = students currently assigned to a session (the ones a teacher expects
+        // to collect from), not every student on the account.
+        int totalStudents = await repo.CountAssignedStudentsAsync(teacherId);
 
         var metaBySession = activeMeta.ToDictionary(m => m.SessionId);
+        // Month-scoped per-session cash + distinct paying students, and current assigned totals.
+        var monthColl = (await repo.GetSessionMonthCollectionAsync(teacherId, monthStart, monthStart.AddMonths(1)))
+            .ToDictionary(x => x.SessionId);
+        var assignedBySession = (await repo.GetAssignedStudentCountsPerSessionAsync(teacherId))
+            .ToDictionary(x => x.SessionId, x => x.TotalStudents);
 
         // Enrich collectors with real names (repo returns null) + role (assistant vs teacher).
         var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
@@ -399,14 +454,17 @@ public class PaymentScreenService : IPaymentScreenService
             CollectedAmount = c.Collected
         }).ToList();
 
-        // Sessions: month-scoped amounts (per-session dashboard), enriched with schedule + student
-        // counts from the active-sessions summary where available. NOTE: studentsCollected reflects
-        // the session's all-time paid students (not month) and grade has no backing column — both
-        // are v1 approximations to confirm/refine with the frontend.
+        // Sessions: everything month-scoped. CollectedAmount = actual cash into the session this
+        // month; StudentsCollected = distinct students who paid into it this month; StudentsTotal =
+        // students currently assigned to it. Schedule (day/time) still comes from the session meta.
         var sessions = perSession.Select(s =>
         {
             metaBySession.TryGetValue(s.SessionId, out var meta);
-            decimal pct = s.Expected > 0 ? Math.Round(s.Collected / s.Expected * 100m, 2) : 0m;
+            monthColl.TryGetValue(s.SessionId, out var mc);
+            decimal cash = mc.CashCollected;
+            int paidStudents = mc.PaidStudents;
+            int totalStudents = assignedBySession.TryGetValue(s.SessionId, out var tot) ? tot : 0;
+            decimal pct = s.Expected > 0 ? Math.Round(cash / s.Expected * 100m, 2) : 0m;
             return new TrackingSessionDto
             {
                 Id = s.SessionId.ToString(CultureInfo.InvariantCulture),
@@ -414,9 +472,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Day = meta?.SelectedDays,
                 Time = meta != null ? FormatTime(meta.StartTime) : null,
                 Grade = null,
-                CollectedAmount = s.Collected,
-                StudentsCollected = meta?.PaidStudents ?? 0,
-                StudentsTotal = meta?.TotalStudents ?? 0,
+                CollectedAmount = cash,
+                StudentsCollected = paidStudents,
+                StudentsTotal = totalStudents,
                 ProgressPercent = pct
             };
         }).ToList();
@@ -491,10 +549,11 @@ public class PaymentScreenService : IPaymentScreenService
                 continue;
             }
 
-            // Amount = the earliest unpaid period's remaining (clears it). Already paid → no-op success.
-            var period = await _unitOfWork.PaymentsRepo
-                .GetEarliestUnpaidPeriodAsync(teacherId, studentId, student.SessionId);
-            decimal amount = period is null ? 0m : period.AmountDue - period.AmountPaid;
+            // Amount = the student's TOTAL arrears through the current month (all overdue months,
+            // not just the earliest). The collection engine then cascades it across those months,
+            // oldest first, clearing each. Already paid → no-op success.
+            decimal amount = await _unitOfWork.PaymentsRepo
+                .GetOverdueTotalThroughAsync(teacherId, studentId, student.SessionId, CurrentMonthEnd(teacherId));
             if (amount <= 0m)
             {
                 results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });
