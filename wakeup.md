@@ -212,3 +212,15 @@ IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 f
   Mostafa). No frontend change needed.
 - RECOMMENDED (your side, optional): make login `accountId` = Teacher.Id for teachers (or stop sending
   teacherId from the client) so the client isn't relying on backend auto-correction.
+
+## ✅ Token-only / id-less URLs applied across ALL MVP modules
+The teacherId in the URL is now OPTIONAL everywhere — the JWT is the sole tenant differentiator:
+- TeacherController (settings/profile/subscription), SessionController (12 route endpoints: sessions,
+  groups, links, assign/unassign), ProfileController (GetAll), PermissionController (catalogue): each
+  now has BOTH the original `{teacherId}/...` route AND an id-less variant; teacher resolved from JWT.
+- Module-6 (Student/Attendance/Payment) already resolved from the JWT (no teacherId in route).
+- Body/query-teacherId (create session/group/link, assign, audit, messaging): the TenantScopeFilter
+  overwrites an empty/wrong payload teacherId with the token's Teacher.Id.
+- SuperAdmin may still pass an explicit id (support access).
+- VERIFIED live: id-less GET session list/groups/profiles/permission-catalogue = 200 (teacher1's own
+  data, teacherId=1); id-ful with a wrong id = 200 (ignored). No route conflicts.
