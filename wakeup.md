@@ -161,6 +161,20 @@ All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
   the 4 schema migrations is code-only (no snapshot needed). CI re-applies the idempotent migration
   script every deploy, so prod won't silently miss a migration again.
 
+## ✅ Full tenant-isolation + uniqueness audit (your repeated concern)
+- **Unique constraints audited across the whole model.** Every teacher-CONTENT field is per-teacher
+  (composite with TeacherId): student code, student/parent phone, session name, group name, subjects,
+  message-template name, prorated tiers, wallets, payment counters. So the same value (e.g. code 122)
+  is allowed for different teachers. Only IDENTITY/account fields are global (username, user-account
+  phone, teacher code, student/parent account codes) — which is correct for login/linking.
+- **More cross-tenant IDOR leaks FOUND & FIXED** (beyond Session/Teacher): teacher2 could read
+  teacher1's **permission profiles**, **permission catalogue**, and **audit trail** (all returned 200).
+  Applied `TenantScopeFilter` to Profile / Permission / AuditTrial / Messaging controllers. For the two
+  route endpoints the `{id}` param was renamed to `{teacherId}` (same URL — frontend unaffected) so the
+  filter validates it. **Verified live:** cross-tenant now 403, own access 200, SuperAdmin bypass 200.
+- Net: tenant isolation now enforced on every teacher-scoped controller (JWT-scoped ones reject foreign
+  ids at the service layer; route/body-`teacherId` ones are guarded by TenantScopeFilter).
+
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
