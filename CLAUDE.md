@@ -336,6 +336,14 @@ month use the teacher's **current local (Africa/Cairo) month** via `ITimeZoneSer
 `Unpaid` = any unpaid month ≤ that month; `Partial` = that month partly paid;
 `Prorated` = the prorated first month **only when the teacher has proration enabled**.
 
+**Proration reacts to config.** First-month proration is applied at assignment AND
+recomputed whenever the teacher saves configuration
+(`SaveConfiguration` → `PaymentService.RecomputeFirstMonthProrationAsync`): enabling
+proration prorates each active student's first-month **still-unpaid** period against the
+matching join-day tier; disabling reverts it to full. Only fully-unpaid first periods
+change (paid/partial months are never re-priced); the student's outstanding counter is
+adjusted by the delta. Runs inside `SaveConfiguration`'s transaction.
+
 **Collection engine (`CollectPaymentAsync`, monthly sessions).** A payment fills the
 **oldest unpaid month first and cascades forward** across months; each cleared month is
 attributed to its own period, while **one** `PaymentTransaction` records the whole cash
