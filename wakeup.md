@@ -175,6 +175,26 @@ All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
 - Net: tenant isolation now enforced on every teacher-scoped controller (JWT-scoped ones reject foreign
   ids at the service layer; route/body-`teacherId` ones are guarded by TenantScopeFilter).
 
+## ✅ COMPREHENSIVE tenant-isolation audit + fixes (your architectural point)
+Your point was correct: the right pattern is teacherId-from-JWT + service-level entity-ownership
+checks. A full audit (all controllers, all HTTP methods) found and I fixed the remaining IDORs:
+- **TenantScopeFilter runs on ALL methods** (not just GET) for route/body-`teacherId` controllers —
+  verified POST/PUT under another teacher → 403.
+- **Entity-id IDORs found & FIXED at the service layer** (load-by-id with no tenant check):
+  - AssistantController: GetById / activate-deactivate-delete / login-activity / update / list —
+    added `CallerOwnsAssistantAsync`; list now forced to caller's teacher. VERIFIED: teacher2 →
+    teacher1's assistant = 404 on every op; own access = 200.
+  - PermissionController: update-permissions / apply-profile — service now checks
+    assistant.TeacherAccountId vs caller. VERIFIED 404.
+  - ProfileController: GetById / Update / Delete (by profileId) — ProfileService now checks
+    template.TeacherId vs caller. Deployed (same verified pattern; couldn't create a teacher1
+    profile to attack because teacher1 lacks the "Assistants" module).
+- **Audit-confirmed already-safe** (no change needed): Module 6 (Student/Attendance/Payment/Event —
+  JWT teacherId + GetByIdAndTeacher scoping), Videos, AssignmentTemplates, Notifications (user-scoped),
+  Chat (participant-scoped), Messaging templates/triggers (service checks TeacherId), Subscription.
+- NET: tenant isolation now enforced on every teacher-scoped endpoint across every module, for all
+  HTTP methods — via JWT-scoped services, the TenantScopeFilter, and service-layer ownership guards.
+
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
