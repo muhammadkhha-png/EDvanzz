@@ -383,6 +383,9 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// </summary>
     Task<bool> HasEventWithClientIdAsync(Guid clientEventId);
 
+    /// <summary>Counts the videos owned by a teacher (free-tier quota enforcement).</summary>
+    Task<int> CountByTeacherAsync(long teacherId);
+
     // ══════════════════════════════════════════════════════════════════════
     // AUDIT — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════

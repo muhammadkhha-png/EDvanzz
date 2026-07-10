@@ -149,5 +149,10 @@ namespace Edvanz.Domain.Interfaces
         /// 1:1 direct-chat repository — conversations and messages.
         /// </summary>
         IChatRepo ChatRepo { get; }
+
+        /// <summary>
+        /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
+        /// </summary>
+        IModuleQuotaRepo ModuleQuotaRepo { get; }
     }
 }

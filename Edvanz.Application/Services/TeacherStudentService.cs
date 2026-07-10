@@ -77,14 +77,12 @@ public class TeacherStudentService : ITeacherStudentService
         if (teacher is null)
             return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1b. Free-tier quota: unsubscribed teachers may keep at most Quotas.Students students.
-        if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
-        {
-            int freeTierCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
-            if (freeTierCount >= _subscriptionGate.Quotas.Students)
-                return Result<TeacherStudentDto>.Failure(
-                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
-        }
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most the configured student count.
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, ModuleQuotaKeys.Students,
+                () => _unitOfWork.Students.CountActiveStudentsAsync(teacherId)))
+            return Result<TeacherStudentDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         // 2. Validate student name is not empty (REQ-STU-014)
         if (string.IsNullOrWhiteSpace(dto.StudentName))

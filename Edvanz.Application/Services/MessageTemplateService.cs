@@ -1,6 +1,8 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.MessageTemplateComponents;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -16,11 +18,13 @@ namespace Edvanz.Application.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IStringLocalizer<Messages> _localizer;
+        private readonly ISubscriptionGateService _subscriptionGate;
 
-        public MessageTemplateService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+        public MessageTemplateService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, ISubscriptionGateService subscriptionGate)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
+            _subscriptionGate = subscriptionGate;
         }
 
         // ── GET ALL per teacher ───────────────────────────────────────────────────
@@ -79,6 +83,14 @@ namespace Edvanz.Application.Services
         // ── CREATE ───────────────────
         public async Task<Result<string>> CreateAsync(long teacherId, CreateMessageTemplateDto dto)
         {
+            // Free-tier quota: message templates (see ModuleQuota table).
+            if (!await _subscriptionGate.CanCreateAsync(
+                    teacherId, ModuleQuotaKeys.MessageTemplates,
+                    () => _unitOfWork.messageTemplateRepo.CountByTeacherAsync(teacherId)))
+                return Result<string>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired,
+                    System.Net.HttpStatusCode.Forbidden);
+
             if (dto.blocks is not { Count: > 0 })
                 return Result<string>.Failure(_localizer, "TemplateMustHaveAtLeastOneBlock");
 

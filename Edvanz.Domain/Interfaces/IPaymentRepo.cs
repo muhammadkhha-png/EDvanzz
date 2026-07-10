@@ -522,4 +522,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// Called after payment edits/deletions where simple increment/decrement won't work.
     /// </summary>
     Task<int> RecalculateConsecutiveUnpaidAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>Counts the (non-deleted) payment events owned by a teacher (free-tier quota).</summary>
+    Task<int> CountEventsByTeacherAsync(long teacherId);
 }

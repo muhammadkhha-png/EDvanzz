@@ -16,5 +16,8 @@ namespace Edvanz.Domain.Interfaces
         Task<(IReadOnlyList<AutomatedTrigger> triggers, int count)> GetFilteredAsync(long teacherId, TriggerEventType? eventType,
         TriggerScope? scope, bool? isActive,
         int? pageSize, int? page);
+
+        /// <summary>Counts the automated triggers owned by a teacher (free-tier quota).</summary>
+        Task<int> CountByTeacherAsync(long teacherId);
     }
 }

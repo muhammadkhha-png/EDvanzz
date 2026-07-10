@@ -32,6 +32,13 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     {
     }
 
+    /// <inheritdoc />
+    public async Task<int> CountTemplatesByTeacherAsync(long teacherId)
+    {
+        // AssignmentTemplate is hard-delete (no IsDeleted), so live rows == the real count.
+        return await _context.AssignmentTemplates.CountAsync(t => t.TeacherId == teacherId);
+    }
+
     // ══════════════════════════════════════════════
     // ASSIGNMENT TEMPLATE QUERIES
     // ══════════════════════════════════════════════

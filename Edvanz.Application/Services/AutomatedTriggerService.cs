@@ -3,6 +3,8 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.TriggerDtos;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -18,11 +20,13 @@ namespace Edvanz.Application.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IStringLocalizer<Messages> _localizer;
+        private readonly ISubscriptionGateService _subscriptionGate;
 
-        public AutomatedTriggerService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+        public AutomatedTriggerService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, ISubscriptionGateService subscriptionGate)
         {
             _unitOfWork = unitOfWork;
             _localizer = localizer;
+            _subscriptionGate = subscriptionGate;
         }
 
         // ── GET ALL ────
@@ -60,6 +64,14 @@ namespace Edvanz.Application.Services
         // ── CREATE ────────────────────────────────────────────────────
         public async Task<Result<string>> CreateAsync(long teacherId, CreateTriggerDto dto)
         {
+            // Free-tier quota: automated triggers (default 0 → subscriber-only; see ModuleQuota table).
+            if (!await _subscriptionGate.CanCreateAsync(
+                    teacherId, ModuleQuotaKeys.Triggers,
+                    () => _unitOfWork.automatedTriggerRepo.CountByTeacherAsync(teacherId)))
+                return Result<string>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired,
+                    System.Net.HttpStatusCode.Forbidden);
+
             // Validate template exists and belongs to teacher
             var template = await _unitOfWork.messageTemplateRepo.GetByIdAndTeacherIdAsync(teacherId, dto.MessageTemplateId);
                

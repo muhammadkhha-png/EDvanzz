@@ -1,14 +1,9 @@
-using Edvanz.Application.Options;
-
 namespace Edvanz.Application.ServiceContract;
 
 /// <summary>
-/// Small helper used by create paths that enforce free-tier quotas. Answers the single
-/// question "does this teacher currently have an Active/ExpiringSoon subscription?" so a
-/// service can decide whether a creation cap applies.
-///
-/// Kept separate from the authorization-layer ActiveSubscriptionHandler: that handler gates
-/// HTTP requests, whereas this is business logic invoked inside the service layer.
+/// Business-layer gate for the free-tier model. Answers "is this teacher subscribed?" and, for
+/// unsubscribed teachers, whether they may still create another item in a given module under its
+/// configured quota (see the ModuleQuota table / ModuleQuotaKeys).
 /// </summary>
 public interface ISubscriptionGateService
 {
@@ -19,8 +14,10 @@ public interface ISubscriptionGateService
     Task<bool> HasActiveSubscriptionAsync(long teacherId);
 
     /// <summary>
-    /// The current free-tier quotas (bound from configuration — see <see cref="FreeTierQuotaOptions"/>).
-    /// Read live so config/App-Service changes are picked up without a code change.
+    /// Whether the teacher may create another item in <paramref name="moduleKey"/>:
+    /// subscribed → always true; otherwise the current count (from <paramref name="currentCountFactory"/>)
+    /// must be below the module's free-tier limit. The count factory is only invoked when needed
+    /// (skipped for subscribers and for subscriber-only modules whose limit is 0).
     /// </summary>
-    FreeTierQuotaOptions Quotas { get; }
+    Task<bool> CanCreateAsync(long teacherId, string moduleKey, Func<Task<int>> currentCountFactory);
 }

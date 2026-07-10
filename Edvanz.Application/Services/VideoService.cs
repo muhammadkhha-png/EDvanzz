@@ -49,17 +49,20 @@ public sealed class VideoService : IVideoService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IVideoScopeResolver _scopeResolver;
     private readonly IVideoUrlParser _urlParser;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public VideoService(
         IUnitOfWork unitOfWork,
         IVideoScopeResolver scopeResolver,
         IVideoUrlParser urlParser,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _scopeResolver = scopeResolver;
         _urlParser = urlParser;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -71,6 +74,13 @@ public sealed class VideoService : IVideoService
     public async Task<Result<CreateVideoResponse>> CreateVideoAsync(
         long teacherId, long actingUserId, CreateVideoRequest request)
     {
+        // Free-tier quota: videos (see ModuleQuota table).
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, ModuleQuotaKeys.Videos,
+                () => _unitOfWork.VideoAssetsRepo.CountByTeacherAsync(teacherId)))
+            return Result<CreateVideoResponse>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+
         string title = request.Title?.Trim() ?? string.Empty;
         if (title.Length == 0)
             return Result<CreateVideoResponse>.Failure(

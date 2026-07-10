@@ -461,6 +461,9 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// <summary>Counts the occurrences of a template.</summary>
     Task<int> CountOccurrencesByTemplateAsync(long templateId);
 
+    /// <summary>Counts the assignment templates owned by a teacher (free-tier quota).</summary>
+    Task<int> CountTemplatesByTeacherAsync(long teacherId);
+
     /// <summary>
     /// Returns the full audit-log history for all obligations under a template.
     /// Used by DeleteTemplateAsync to copy history into the deletion-log JSON snapshot

@@ -16,6 +16,12 @@ namespace Edvanz.Infrastructure.Repositories
         {
         }
 
+        /// <inheritdoc />
+        public async Task<int> CountByTeacherAsync(long teacherId)
+        {
+            return await _context.AutomatedTriggers.CountAsync(t => t.TeacherId == teacherId);
+        }
+
         public Task<AutomatedTrigger?> GetByTeacherIdAndTriggerId(long teacherId, long triggerId)
         {
           return _context.AutomatedTriggers.AsNoTracking().FirstOrDefaultAsync(t=>t.TeacherId==teacherId && t.Id==triggerId);

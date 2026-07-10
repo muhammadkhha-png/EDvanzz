@@ -80,17 +80,20 @@ public class ExamHomeworkService : IExamHomeworkService
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IAssignmentScopeResolver _scopeResolver;
     private readonly IExamHomeworkNotifier _examHomeworkNotifier;    // ← Phase 5
+    private readonly ISubscriptionGateService _subscriptionGate;
 
     public ExamHomeworkService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Messages> localizer,
         IAssignmentScopeResolver scopeResolver,
-        IExamHomeworkNotifier examHomeworkNotifier)                  // ← Phase 5
+        IExamHomeworkNotifier examHomeworkNotifier,                  // ← Phase 5
+        ISubscriptionGateService subscriptionGate)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _scopeResolver = scopeResolver;
         _examHomeworkNotifier = examHomeworkNotifier;                // ← Phase 5
+        _subscriptionGate = subscriptionGate;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -101,6 +104,14 @@ public class ExamHomeworkService : IExamHomeworkService
     public async Task<Result<AssignmentTemplateDto>> CreateTemplateAsync(
         long teacherId, long actingUserId, CreateAssignmentTemplateDto dto)
     {
+        // ── 0. Free-tier quota: assignment templates (see ModuleQuota table) ──
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, Domain.Constants.ModuleQuotaKeys.AssignmentTemplates,
+                () => _unitOfWork.ExamHomeworkRepo.CountTemplatesByTeacherAsync(teacherId)))
+            return Result<AssignmentTemplateDto>.Failure(
+                _localizer, Domain.Constants.SubscriptionConstants.Messages.SubscriptionRequired,
+                System.Net.HttpStatusCode.Forbidden);
+
         // ── 1. Input validation (in-memory rules) ──
         var inputValidation = ValidateCreateInput(dto);
         if (!inputValidation.IsSuccess) return inputValidation;

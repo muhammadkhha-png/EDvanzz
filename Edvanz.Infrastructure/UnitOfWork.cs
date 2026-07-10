@@ -56,6 +56,7 @@ namespace Edvanz.Infrastructure
         private IExamHomeworkRepo? _examHomeworkRepo;
         private IChatRepo
             ? _chatRepo;
+        private IModuleQuotaRepo? _moduleQuotaRepo;
         public UnitOfWork(EdvanzDbContext _context)
         {
             _Context = _context;
@@ -220,6 +221,9 @@ namespace Edvanz.Infrastructure
             => _videoAssetsRepo ??= new Repositories.VideoAssetRepo(_Context);
 
         public IChatRepo ChatRepo =>_chatRepo ??= new Repositories.ChatRepo(_Context);
+
+        public IModuleQuotaRepo ModuleQuotaRepo
+            => _moduleQuotaRepo ??= new Repositories.ModuleQuotaRepo(_Context);
     }
 
 

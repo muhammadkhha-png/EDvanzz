@@ -30,22 +30,32 @@ public class EventPaymentService : IEventPaymentService
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly IPaymentNotifier paymanetNotifier;
     private readonly IPaymentService paymentService;
+    private readonly ISubscriptionGateService _subscriptionGate;
 
     public EventPaymentService(
         IUnitOfWork unitOfWork,
         IPaymentReportExportService exportService,
-        IStringLocalizer<Domain.Resources.Messages> localizer,IPaymentNotifier paymanetNotifier,IPaymentService paymentService)
+        IStringLocalizer<Domain.Resources.Messages> localizer,IPaymentNotifier paymanetNotifier,IPaymentService paymentService,
+        ISubscriptionGateService subscriptionGate)
     {
         _unitOfWork = unitOfWork;
         _exportService = exportService;
         _localizer = localizer;
         this.paymanetNotifier = paymanetNotifier;
         this.paymentService = paymentService;
+        _subscriptionGate = subscriptionGate;
     }
 
     /// <inheritdoc />
     public async Task<Result<EventDto>> CreateEventAsync(CreateEventDto dto)
     {
+        // Free-tier quota: events (see ModuleQuota table).
+        if (!await _subscriptionGate.CanCreateAsync(
+                dto.TeacherId, ModuleQuotaKeys.Events,
+                () => _unitOfWork.PaymentsRepo.CountEventsByTeacherAsync(dto.TeacherId)))
+            return Result<EventDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+
         if (string.IsNullOrWhiteSpace(dto.EventName))
             return Result<EventDto>.Failure(
                 _localizer, PaymentConstants.Messages.EventNameRequired, HttpStatusCode.BadRequest);

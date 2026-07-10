@@ -14,6 +14,12 @@ namespace Edvanz.Infrastructure.Repositories
         {
         }
 
+        /// <inheritdoc />
+        public async Task<int> CountByTeacherAsync(long teacherId)
+        {
+            return await _context.MessageTemplates.CountAsync(t => t.TeacherId == teacherId);
+        }
+
         public async Task<MessageTemplate?> GetByIdWithBlocksAsync(long id)
         {
             return await _context.MessageTemplates.Include(t=>t.Blocks).AsNoTracking().FirstOrDefaultAsync(t=>t.Id==id);

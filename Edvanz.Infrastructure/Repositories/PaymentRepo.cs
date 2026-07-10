@@ -28,6 +28,13 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     {
     }
 
+    /// <inheritdoc />
+    public async Task<int> CountEventsByTeacherAsync(long teacherId)
+    {
+        return await _context.PaymentEvents
+            .CountAsync(e => e.TeacherId == teacherId && !e.IsDeleted);
+    }
+
     // ══════════════════════════════════════════════
     // PAYMENT TRANSACTION QUERIES
     // ══════════════════════════════════════════════

@@ -13,5 +13,8 @@ namespace Edvanz.Domain.Interfaces
         Task<IReadOnlyList<MessageTemplate>> GetByIdsAsync(List<long> ids);
         Task<MessageTemplate> GetByIdAndTeacherIdAsync(long teacherId, long templateId);
 
+        /// <summary>Counts the message templates owned by a teacher (free-tier quota).</summary>
+        Task<int> CountByTeacherAsync(long teacherId);
+
     }
 }

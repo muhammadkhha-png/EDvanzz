@@ -48,6 +48,13 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     {
     }
 
+    /// <inheritdoc />
+    public async Task<int> CountByTeacherAsync(long teacherId)
+    {
+        // VideoAsset is hard-delete-only (no IsDeleted), so live rows == the real count.
+        return await _context.VideoAssets.CountAsync(v => v.TeacherId == teacherId);
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // VIDEO ASSET — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════

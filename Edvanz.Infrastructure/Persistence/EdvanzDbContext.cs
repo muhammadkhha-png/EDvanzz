@@ -168,6 +168,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
     public DbSet<VideoAssetAudit> VideoAssetAudits => Set<VideoAssetAudit>();
 
+    /// <summary>
+    /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
+    /// </summary>
+    public DbSet<ModuleQuota> ModuleQuotas => Set<ModuleQuota>();
+
     // ════════════════════════════════════════════════════════════════════════════
     // DIRECT CHAT (1:1 two-way messaging — supersedes AAM-FR-07 one-way)
     // ════════════════════════════════════════════════════════════════════════════
@@ -2900,6 +2905,31 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasDatabaseName("IX_ChatMessages_Conversation_Sender_IsRead");
 
             entity.HasQueryFilter(m => !m.IsDeleted);
+        });
+        #endregion
+
+        #region ModuleQuota (free-tier per-module creation limits)
+        modelBuilder.Entity<ModuleQuota>(entity =>
+        {
+            entity.ToTable("ModuleQuotas");
+            entity.HasKey(q => q.Id);
+            entity.Property(q => q.ModuleKey).IsRequired().HasMaxLength(64);
+            entity.Property(q => q.Description).HasMaxLength(256);
+            entity.HasIndex(q => q.ModuleKey).IsUnique().HasDatabaseName("UX_ModuleQuotas_ModuleKey");
+
+            // Seed one row per known module. Static values only (HasData requirement).
+            var seededAt = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+            entity.HasData(
+                new ModuleQuota { Id = 1, ModuleKey = ModuleQuotaKeys.Students, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 2, ModuleKey = ModuleQuotaKeys.Sessions, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 3, ModuleKey = ModuleQuotaKeys.Assistants, FreeTierLimit = 0, CreateAt = seededAt },
+                new ModuleQuota { Id = 4, ModuleKey = ModuleQuotaKeys.Groups, FreeTierLimit = 0, CreateAt = seededAt },
+                new ModuleQuota { Id = 5, ModuleKey = ModuleQuotaKeys.Videos, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 6, ModuleKey = ModuleQuotaKeys.AssignmentTemplates, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 7, ModuleKey = ModuleQuotaKeys.Events, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 8, ModuleKey = ModuleQuotaKeys.MessageTemplates, FreeTierLimit = 1, CreateAt = seededAt },
+                new ModuleQuota { Id = 9, ModuleKey = ModuleQuotaKeys.Triggers, FreeTierLimit = 0, CreateAt = seededAt }
+            );
         });
         #endregion
     }

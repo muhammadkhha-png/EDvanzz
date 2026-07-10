@@ -97,14 +97,12 @@ public class SessionService : ISessionService
         if (teacher is null)
             return Result<SessionDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1b. Free-tier quota: unsubscribed teachers may keep at most Quotas.Sessions sessions.
-        if (!await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
-        {
-            var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(dto.TeacherId);
-            if (sessionCount >= _subscriptionGate.Quotas.Sessions)
-                return Result<SessionDto>.Failure(
-                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
-        }
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most the configured session count.
+        if (!await _subscriptionGate.CanCreateAsync(
+                dto.TeacherId, ModuleQuotaKeys.Sessions,
+                () => _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(dto.TeacherId)))
+            return Result<SessionDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         // 2. Resolve session name: auto-generate or use provided
         string sessionName;
@@ -348,13 +346,11 @@ public class SessionService : ISessionService
             return Result<SessionDto>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
 
         // 1b. Free-tier quota: duplication creates a new session, so it counts toward the cap.
-        if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
-        {
-            var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(teacherId);
-            if (sessionCount >= _subscriptionGate.Quotas.Sessions)
-                return Result<SessionDto>.Failure(
-                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
-        }
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, ModuleQuotaKeys.Sessions,
+                () => _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(teacherId)))
+            return Result<SessionDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         // 2. Generate a new name for the duplicate
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
@@ -455,14 +451,12 @@ public class SessionService : ISessionService
         if (teacher is null)
             return Result<SessionGroupDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // Free-tier quota: unsubscribed teachers may keep at most Quotas.Groups groups (default 0).
-        if (!await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
-        {
-            var groupCount = await _unitOfWork.SessionsRepo.CountGroupsByTeacherAsync(dto.TeacherId);
-            if (groupCount >= _subscriptionGate.Quotas.Groups)
-                return Result<SessionGroupDto>.Failure(
-                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
-        }
+        // Free-tier quota: session groups (default 0 → subscriber-only).
+        if (!await _subscriptionGate.CanCreateAsync(
+                dto.TeacherId, ModuleQuotaKeys.Groups,
+                () => _unitOfWork.SessionsRepo.CountGroupsByTeacherAsync(dto.TeacherId)))
+            return Result<SessionGroupDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
 
         // Validate unique group name
         string trimmedName = dto.GroupName.Trim();
