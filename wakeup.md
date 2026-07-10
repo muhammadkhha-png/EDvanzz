@@ -144,6 +144,23 @@ All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
   want to guess). NOTE: the summary also evaluates the *earliest unpaid* period, which is why a
   student who paid month 1 but has an unpaid month 2 shows `NoObligation`.
 
+## ✅ Later verifications (all confirmed)
+- **Proration-OFF departure refund**: refunds the FULL paid amount of the current month and
+  auto-deducts it from the assistant wallet. Verified live: collect 300 → wallet 500; departure →
+  wallet 200 (−300). Override amount + DeleteStudent flag both work.
+- **Per-teacher uniqueness**: teacher1 and teacher2 BOTH created a student with the same code
+  `ZZDUP1` — both succeeded (composite index TeacherId+StudentCode). Uniqueness is per-teacher, not
+  global (same for phone, session name). ✓
+- **Cross-tenant isolation**: teacher2 hitting teacher1's student → 404 on GET / DELETE / payment-
+  status. Route-`teacherId` controllers (Session/Teacher) guarded by TenantScopeFilter; JWT-scoped
+  controllers (Student/Payment/Attendance) reject other-teacher ids at the service layer. ✓
+- **Teacher can do all assistant payment ops (and more)**: PermissionHandler = "Teacher → module is
+  sufficient" (no granular permission needed); Assistant = module + specific permission. Verified
+  teacher2 did collect/edit/refund/dashboard/unpaid/wallets/departure. ✓
+- **Migration integrity**: `ef migrations has-pending-model-changes` = NONE. All code pushed after
+  the 4 schema migrations is code-only (no snapshot needed). CI re-applies the idempotent migration
+  script every deploy, so prod won't silently miss a migration again.
+
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
