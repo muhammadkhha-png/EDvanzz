@@ -1,6 +1,8 @@
 on:
   push:
     branches: [ master_integration ]   # was: main
+    paths-ignore:                      # doc-only changes don't need a prod redeploy
+      - '**.md'
 
 permissions: { id-token: write, contents: read }   # OIDC
 jobs:
