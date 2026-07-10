@@ -1559,12 +1559,15 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                 .SetProperty(t => t.TeacherStudentId, (long?)null)
                 .SetProperty(t => t.StudentSessionAssignmentId, (long?)null));
 
-        // PaymentPeriods
+        // PaymentPeriods: DELETE the purged student's billing obligations rather than nulling their
+        // student FK. A period is a specific student's monthly bill; once the student is gone the
+        // obligation is meaningless, and leaving it as an orphaned (null-student) row let its
+        // AmountDue leak into dashboard aggregates. The PaymentTransaction -> PaymentPeriod FK is
+        // ON DELETE SET NULL, so audit transactions keep their denormalized data and simply lose the
+        // period link (their own student FK is already nulled above).
         await _context.PaymentPeriods
             .Where(p => p.TeacherStudentId == teacherStudentId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(p => p.TeacherStudentId, (long?)null)
-                .SetProperty(p => p.StudentSessionAssignmentId, (long?)null));
+            .ExecuteDeleteAsync();
 
         // StudentDepartures
         await _context.StudentDepartures

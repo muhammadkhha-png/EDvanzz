@@ -557,10 +557,11 @@ public class TeacherStudentService : ITeacherStudentService
         if (student is null || !student.IsDeleted)
             return Result<bool>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
 
-        // ── PAYMENT INTEGRATION: Nullify student FK references on all payment records ──
-        // Denormalized StudentName/StudentCode preserved on PaymentTransactions, PaymentPeriods,
-        // StudentDepartures, SessionTransferEvents, EventStudentObligations, EventPaymentTransactions.
-        // StudentPaymentCounter is deleted (no longer needed after purge).
+        // ── PAYMENT INTEGRATION: Sever student FK references on payment records ──
+        // Denormalized StudentName/StudentCode preserved on the audit records (PaymentTransactions,
+        // StudentDepartures, SessionTransferEvents, EventStudentObligations, EventPaymentTransactions).
+        // PaymentPeriods (the student's monthly bills) are DELETED so they can't orphan into
+        // dashboard aggregates; StudentPaymentCounter is deleted too.
         await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
 
         // ── ATTENDANCE INTEGRATION: clear the student's session assignments, absence counters and

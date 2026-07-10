@@ -579,8 +579,11 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task NullifySessionIdOnPaymentRecordsAsync(long sessionId);
 
     /// <summary>
-    /// Nullifies TeacherStudentId on all payment records for a student
-    /// during permanent purge. Denormalized fields survive.
+    /// Severs a student's payment records during permanent purge: nullifies TeacherStudentId on the
+    /// audit records that must survive (transactions, departures, transfers, event obligations —
+    /// denormalized name/code fields preserved), DELETEs the student's PaymentPeriods (billing
+    /// obligations are meaningless once the student is gone and would otherwise orphan into
+    /// dashboard aggregates), and deletes the StudentPaymentCounter.
     /// Same pattern as AttendanceRepo.NullifyStudentReferencesOnRecordsAsync.
     /// </summary>
     Task NullifyStudentReferencesOnPaymentRecordsAsync(long teacherStudentId);
