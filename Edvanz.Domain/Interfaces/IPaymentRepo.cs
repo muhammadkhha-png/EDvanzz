@@ -143,6 +143,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId);
 
     /// <summary>
+    /// Gets a student's payment periods filtered to an optional date window (by period start),
+    /// ordered by session then sequence. Backs the payment-history startDate/endDate filter.
+    /// </summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentInRangeAsync(
+        long teacherId, long teacherStudentId, DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
     /// Gets unpaid payment periods for a specific session.
     /// REQ-PAY-028: Unpaid badge count per session.
     /// </summary>

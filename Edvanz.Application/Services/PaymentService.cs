@@ -741,8 +741,9 @@ public class PaymentService : IPaymentService
         var counter = await _unitOfWork.PaymentsRepo
             .GetPaymentCounterAsync(teacherId, teacherStudentId);
 
+        // Honor the optional startDate/endDate window (previously ignored).
         var periods = await _unitOfWork.PaymentsRepo
-            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+            .GetPaymentPeriodsByStudentInRangeAsync(teacherId, teacherStudentId, startDate, endDate);
 
         var transfers = await _unitOfWork.PaymentsRepo
             .GetStudentTransferEventsAsync(teacherId, teacherStudentId);
@@ -1665,20 +1666,28 @@ public class PaymentService : IPaymentService
         var periods = await _unitOfWork.PaymentsRepo
             .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
 
-        var activePeriods = periods.Where(p => p.SessionId.HasValue).ToList();
-        var currentSession = activePeriods.FirstOrDefault()?.SessionName ?? "Unknown";
+        // Current session = the student's active (session-linked) period. Carried-forward periods
+        // (SessionId null, from a transfer) are still shown in the timeline below.
+        var currentSession = periods.FirstOrDefault(p => p.SessionId.HasValue)?.SessionName ?? "Unknown";
 
         var counter = await _unitOfWork.PaymentsRepo
             .GetPaymentCounterAsync(teacherId, teacherStudentId);
 
+        // Outstanding = arrears THROUGH the current month (not the all-time counter, which counts
+        // future pre-generated months). AmountDue mirrors it (what the student owes right now).
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+        decimal overdue = await _unitOfWork.PaymentsRepo
+            .GetOverdueTotalThroughAsync(teacherId, teacherStudentId, null, monthEnd);
+
         return Result<StudentPaymentViewDto>.Success(new StudentPaymentViewDto
         {
             SessionName = currentSession,
-            CurrentStatus = counter?.TotalOutstanding > 0 ? PaymentStatus.Unpaid : PaymentStatus.Paid,
-            AmountDue = counter?.TotalOutstanding ?? 0,
+            CurrentStatus = overdue > 0m ? PaymentStatus.Unpaid : PaymentStatus.Paid,
+            AmountDue = overdue,
             AmountPaid = counter?.TotalAmountPaid ?? 0,
-            Outstanding = counter?.TotalOutstanding ?? 0,
-            Periods = activePeriods.Select(MapToPeriodDto).ToList()
+            Outstanding = overdue,
+            Periods = periods.Select(MapToPeriodDto).ToList()
         }, _localizer, PaymentConstants.Messages.Success);
     }
 

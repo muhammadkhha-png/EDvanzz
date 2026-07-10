@@ -303,6 +303,27 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentInRangeAsync(
+        long teacherId, long teacherStudentId, DateTime? startDate, DateTime? endDate)
+    {
+        // Same as GetAllPaymentPeriodsByStudentAsync but honoring the optional date window
+        // (by period start) for the history screen's startDate/endDate filter.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId);
+
+        if (startDate.HasValue)
+            query = query.Where(p => p.PeriodStart >= startDate.Value);
+        if (endDate.HasValue)
+            query = query.Where(p => p.PeriodStart <= endDate.Value);
+
+        return await query
+            .OrderBy(p => p.SessionName)
+            .ThenBy(p => p.PeriodSequence)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<decimal> GetCashCollectedInRangeAsync(
         long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive)
     {
