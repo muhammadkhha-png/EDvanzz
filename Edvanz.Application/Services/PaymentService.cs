@@ -872,8 +872,12 @@ public class PaymentService : IPaymentService
     /// <inheritdoc />
     public async Task<Result<StudentPaymentStatusCountsDto>> GetStudentPaymentStatusCountsAsync(long teacherId)
     {
+        // Buckets are judged through the teacher's current local month (future pre-generated
+        // periods are not counted as owed).
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
         var (paid, proRated, unpaid) = await _unitOfWork.PaymentsRepo
-            .GetStudentPaymentStatusCountsAsync(teacherId);
+            .GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
 
         var dto = new StudentPaymentStatusCountsDto
         {

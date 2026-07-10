@@ -132,6 +132,12 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<int> CountUnpaidStudentsBySessionAsync(long teacherId, long sessionId);
 
     /// <summary>
+    /// Count of active students currently assigned to a session (SessionId not null).
+    /// Used as the dashboard "total students" — the roster a teacher expects to collect from.
+    /// </summary>
+    Task<int> CountAssignedStudentsAsync(long teacherId);
+
+    /// <summary>
     /// Gets the maximum period sequence for a student in a session.
     /// Used when generating new periods to determine the next sequence number.
     /// </summary>
@@ -145,7 +151,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// is prorated (REQ-PAY-021/022 first-period proration) → Pro-rated;
     /// otherwise → Unpaid. Students with no payment periods at all are not counted.
     /// </summary>
-    Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(long teacherId);
+    Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(
+        long teacherId, DateTime selectedMonthEnd);
 
     /// <summary>
     /// Adds a new payment period.
@@ -214,7 +221,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
         GetCollectStudentsPagedAsync(
-            long teacherId, string filter, string? search, int page, int pageSize);
+            long teacherId, string filter, string? search, int page, int pageSize,
+            DateTime unpaidThroughMonthEnd);
 
     /// <summary>
     /// PaymentTracking "students by status" list: students whose current status

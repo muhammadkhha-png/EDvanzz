@@ -31,17 +31,31 @@ public class PaymentScreenService : IPaymentScreenService
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly IPaymentService _paymentService;
     private readonly IIdempotencyService _idempotency;
+    private readonly ITimeZoneService _timeZoneService;
 
     public PaymentScreenService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Domain.Resources.Messages> localizer,
         IPaymentService paymentService,
-        IIdempotencyService idempotency)
+        IIdempotencyService idempotency,
+        ITimeZoneService timeZoneService)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _paymentService = paymentService;
         _idempotency = idempotency;
+        _timeZoneService = timeZoneService;
+    }
+
+    /// <summary>
+    /// Last day of the teacher's current local (Africa/Cairo) month — the default
+    /// "through this month" boundary for screens that carry no explicit month.
+    /// </summary>
+    private DateTime CurrentMonthEnd(long teacherId)
+    {
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        return monthStart.AddMonths(1).AddDays(-1);
     }
 
     /// <inheritdoc />
@@ -177,7 +191,7 @@ public class PaymentScreenService : IPaymentScreenService
         (page, limit) = NormalizePaging(page, limit);
 
         var (rows, total, cAll, cAssigned, cUnassigned) = await _unitOfWork.PaymentsRepo
-            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit);
+            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit, CurrentMonthEnd(teacherId));
 
         var students = new List<CollectStudentDto>(rows.Count);
         foreach (var r in rows)
@@ -374,11 +388,13 @@ public class PaymentScreenService : IPaymentScreenService
         // Month-scoped revenue + per-session + per-collector, plus current-state status counts.
         var (expected, collected, remaining) =
             await repo.GetDashboardAggregatesAsync(teacherId, null, null, null, monthStart, monthEnd);
-        var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId);
+        var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);
         var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, monthStart, monthEnd);
-        int totalStudents = (await repo.GetAllStudentIdsAsync(teacherId)).Count;
+        // TotalStudents = students currently assigned to a session (the ones a teacher expects
+        // to collect from), not every student on the account.
+        int totalStudents = await repo.CountAssignedStudentsAsync(teacherId);
 
         var metaBySession = activeMeta.ToDictionary(m => m.SessionId);
 
