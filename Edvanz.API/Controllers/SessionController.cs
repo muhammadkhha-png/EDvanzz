@@ -16,11 +16,45 @@ namespace Edvanz.API.Controllers;
 public class SessionController : ApiBaseController
 {
     private readonly ISessionService _sessionService;
+    private readonly Edvanz.Application.IservicesContract.ICurrentUserService _currentUser;
+    private readonly Edvanz.Domain.Interfaces.IUnitOfWork _unitOfWork;
 
-    public SessionController(ISessionService sessionService)
+    public SessionController(
+        ISessionService sessionService,
+        Edvanz.Application.IservicesContract.ICurrentUserService currentUser,
+        Edvanz.Domain.Interfaces.IUnitOfWork unitOfWork)
     {
         _sessionService = sessionService;
+        _currentUser = currentUser;
+        _unitOfWork = unitOfWork;
     }
+
+    /// <summary>
+    /// The acting teacher, resolved from the JWT (Teacher → own id, Assistant → owning teacher).
+    /// The optional <paramref name="explicitTeacherId"/> from the route is honoured ONLY for
+    /// SuperAdmin (support access); for everyone else it is ignored so the token is the sole tenant
+    /// differentiator — endpoints work whether or not the URL carries the id.
+    /// </summary>
+    private async Task<long?> ResolveTeacherIdAsync(long? explicitTeacherId = null)
+    {
+        if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
+            return explicitTeacherId;
+
+        var userId = _currentUser.UserId;
+        if (userId is null) return null;
+
+        long? id = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+        if (id is null)
+        {
+            var asst = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+            id = asst?.TeacherAccountId;
+        }
+        return id;
+    }
+
+    private IActionResult TeacherNotResolvedResult() =>
+        new ObjectResult(new { success = false, message = "Teacher could not be resolved from token." })
+        { StatusCode = StatusCodes.Status404NotFound };
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: CREATE SESSION
@@ -78,14 +112,17 @@ public class SessionController : ApiBaseController
     //   GET /api/session/1/sessions/5
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/{sessionId:long}")]
     [HttpGet("{teacherId:long}/sessions/{sessionId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSessionById(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+        [FromRoute] long sessionId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.GetSessionByIdAsync(teacherId, sessionId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.GetSessionByIdAsync(id.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -105,17 +142,20 @@ public class SessionController : ApiBaseController
     //   PUT /api/session/1/sessions/5
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("sessions/{sessionId:long}")]
     [HttpPut("{teacherId:long}/sessions/{sessionId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateSession(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionId,
-        [FromBody] UpdateSessionDto dto)
+        [FromBody] UpdateSessionDto dto,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.UpdateSessionAsync(teacherId, sessionId, dto);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.UpdateSessionAsync(id.Value, sessionId, dto);
         return ToResponse(result);
     }
 
@@ -134,14 +174,17 @@ public class SessionController : ApiBaseController
     //   GET /api/session/1/sessions/5/delete-confirmation
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/{sessionId:long}/delete-confirmation")]
     [HttpGet("{teacherId:long}/sessions/{sessionId:long}/delete-confirmation")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDeleteConfirmation(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+        [FromRoute] long sessionId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.GetDeleteConfirmationAsync(teacherId, sessionId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.GetDeleteConfirmationAsync(id.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -161,14 +204,17 @@ public class SessionController : ApiBaseController
     //   DELETE /api/session/1/sessions/5
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("sessions/{sessionId:long}")]
     [HttpDelete("{teacherId:long}/sessions/{sessionId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteSession(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+        [FromRoute] long sessionId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.DeleteSessionAsync(teacherId, sessionId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.DeleteSessionAsync(id.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -187,14 +233,17 @@ public class SessionController : ApiBaseController
     //   POST /api/session/1/sessions/5/duplicate
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("sessions/{sessionId:long}/duplicate")]
     [HttpPost("{teacherId:long}/sessions/{sessionId:long}/duplicate")]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DuplicateSession(
-        [FromRoute] long teacherId,
-        [FromRoute] long sessionId)
+        [FromRoute] long sessionId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.DuplicateSessionAsync(teacherId, sessionId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.DuplicateSessionAsync(id.Value, sessionId);
         return ToResponse(result);
     }
 
@@ -217,14 +266,17 @@ public class SessionController : ApiBaseController
     //   GET /api/session/1/sessions?page=1&pageSize=20&search=Monday&activeOnly=true
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions")]
     [HttpGet("{teacherId:long}/sessions")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSessionList(
-        [FromRoute] long teacherId,
-        [FromQuery] SessionListRequest request)
+        [FromQuery] SessionListRequest request,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.GetSessionListAsync(teacherId, request);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.GetSessionListAsync(id.Value, request);
         return ToResponse(result);
     }
 
@@ -268,12 +320,15 @@ public class SessionController : ApiBaseController
     //   GET /api/session/1/groups
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("groups")]
     [HttpGet("{teacherId:long}/groups")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetGroups([FromRoute] long teacherId)
+    public async Task<IActionResult> GetGroups([FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.GetGroupsAsync(teacherId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.GetGroupsAsync(id.Value);
         return ToResponse(result);
     }
 
@@ -292,16 +347,19 @@ public class SessionController : ApiBaseController
     //   { "groupName": "Prep Year 1 — Updated" }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("groups/{groupId:long}")]
     [HttpPut("{teacherId:long}/groups/{groupId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RenameGroup(
-        [FromRoute] long teacherId,
         [FromRoute] long groupId,
-        [FromBody] RenameSessionGroupDto dto)
+        [FromBody] RenameSessionGroupDto dto,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.RenameGroupAsync(teacherId, groupId, dto);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.RenameGroupAsync(id.Value, groupId, dto);
         return ToResponse(result);
     }
 
@@ -319,14 +377,17 @@ public class SessionController : ApiBaseController
     //   DELETE /api/session/1/groups/3
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("groups/{groupId:long}")]
     [HttpDelete("{teacherId:long}/groups/{groupId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteGroup(
-        [FromRoute] long teacherId,
-        [FromRoute] long groupId)
+        [FromRoute] long groupId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.DeleteGroupAsync(teacherId, groupId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.DeleteGroupAsync(id.Value, groupId);
         return ToResponse(result);
     }
 
@@ -373,15 +434,18 @@ public class SessionController : ApiBaseController
     //   DELETE /api/session/1/links/5/8
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("links/{sessionIdA:long}/{sessionIdB:long}")]
     [HttpDelete("{teacherId:long}/links/{sessionIdA:long}/{sessionIdB:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveLink(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionIdA,
-        [FromRoute] long sessionIdB)
+        [FromRoute] long sessionIdB,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.RemoveLinkAsync(teacherId, sessionIdA, sessionIdB);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.RemoveLinkAsync(id.Value, sessionIdA, sessionIdB);
         return ToResponse(result);
     }
 
@@ -429,16 +493,19 @@ public class SessionController : ApiBaseController
     //   [10, 13]
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("sessions/{sessionId:long}/confirm-reassign")]
     [HttpPost("{teacherId:long}/sessions/{sessionId:long}/confirm-reassign")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ConfirmReassign(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionId,
-        [FromBody] List<long> studentIds)
+        [FromBody] List<long> studentIds,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.ConfirmReassignStudentsAsync(teacherId, sessionId, studentIds);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.ConfirmReassignStudentsAsync(id.Value, sessionId, studentIds);
         return ToResponse(result);
     }
 
@@ -456,16 +523,19 @@ public class SessionController : ApiBaseController
     //   DELETE /api/session/1/sessions/5/students/10
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("sessions/{sessionId:long}/students/{studentId:long}")]
     [HttpDelete("{teacherId:long}/sessions/{sessionId:long}/students/{studentId:long}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UnassignStudent(
-        [FromRoute] long teacherId,
         [FromRoute] long sessionId,
-        [FromRoute] long studentId)
+        [FromRoute] long studentId,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _sessionService.UnassignStudentAsync(teacherId, sessionId, studentId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _sessionService.UnassignStudentAsync(id.Value, sessionId, studentId);
         return ToResponse(result);
     }
 }
