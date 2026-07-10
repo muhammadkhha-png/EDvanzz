@@ -264,6 +264,9 @@
   <data name="StudentCodeRequiredManual" xml:space="preserve">
     <value>Student code is required when auto-generation is disabled. Please enter a unique code</value>
   </data>
+  <data name="StudentCodeNotAllowedAuto" xml:space="preserve">
+    <value>Student code is auto-generated and cannot be entered manually. Leave the code empty.</value>
+  </data>
   <data name="StudentCodeDuplicate" xml:space="preserve">
     <value>This student code already exists in your account. Please use a different code</value>
   </data>

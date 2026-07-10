@@ -264,6 +264,9 @@
   <data name="StudentCodeRequiredManual" xml:space="preserve">
     <value>كود الطالب مطلوب لما يكون التوليد التلقائي مغلق. من فضلك ادخل كود فريد</value>
   </data>
+  <data name="StudentCodeNotAllowedAuto" xml:space="preserve">
+    <value>كود الطالب بيتولد تلقائيًا ولا يمكن إدخاله يدويًا. سيب خانة الكود فاضية.</value>
+  </data>
   <data name="StudentCodeDuplicate" xml:space="preserve">
     <value>الكود ده موجود بالفعل في حسابك. من فضلك استخدم كود تاني</value>
   </data>

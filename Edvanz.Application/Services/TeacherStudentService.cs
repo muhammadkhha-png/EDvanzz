@@ -107,7 +107,11 @@ public class TeacherStudentService : ITeacherStudentService
         }
         else
         {
-            // REQ-STU-008/009: Auto-generate code
+            // REQ-STU-008/009: Auto-generate mode. A manually entered code is not allowed here —
+            // reject it with a clear message instead of silently discarding it.
+            if (!string.IsNullOrWhiteSpace(dto.StudentCode))
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeNotAllowedAuto", HttpStatusCode.BadRequest);
+
             // FIX GAP-1: Pass the teacher's configured language preference (AAM-FR-04.2)
             var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
             studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
