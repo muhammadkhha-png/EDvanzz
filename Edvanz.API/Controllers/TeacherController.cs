@@ -28,11 +28,45 @@ namespace Edvanz.API.Controllers;
 public class TeacherController : ApiBaseController
 {
     private readonly ITeacherService _teacherService;
+    private readonly Edvanz.Application.IservicesContract.ICurrentUserService _currentUser;
+    private readonly Edvanz.Domain.Interfaces.IUnitOfWork _unitOfWork;
 
-    public TeacherController(ITeacherService teacherService)
+    public TeacherController(
+        ITeacherService teacherService,
+        Edvanz.Application.IservicesContract.ICurrentUserService currentUser,
+        Edvanz.Domain.Interfaces.IUnitOfWork unitOfWork)
     {
         _teacherService = teacherService;
+        _currentUser = currentUser;
+        _unitOfWork = unitOfWork;
     }
+
+    /// <summary>
+    /// The acting teacher, resolved from the JWT (Teacher → own id, Assistant → owning teacher).
+    /// The optional <paramref name="explicitTeacherId"/> from the route is honoured ONLY for
+    /// SuperAdmin (support access); for everyone else it is ignored so the token is the sole tenant
+    /// differentiator — endpoints work whether or not the URL carries the id.
+    /// </summary>
+    private async Task<long?> ResolveTeacherIdAsync(long? explicitTeacherId = null)
+    {
+        if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
+            return explicitTeacherId;
+
+        var userId = _currentUser.UserId;
+        if (userId is null) return null;
+
+        long? id = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+        if (id is null)
+        {
+            var asst = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+            id = asst?.TeacherAccountId;
+        }
+        return id;
+    }
+
+    private IActionResult TeacherNotResolvedResult() =>
+        new ObjectResult(new { success = false, message = "Teacher could not be resolved from token." })
+        { StatusCode = StatusCodes.Status404NotFound };
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: INITIALIZE TEACHER
@@ -156,12 +190,15 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("profile")]
     [HttpGet("{teacherId:long}/profile")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetTeacherProfile([FromRoute] long teacherId)
+    public async Task<IActionResult> GetTeacherProfile([FromRoute] long? teacherId = null)
     {
-        var result = await _teacherService.GetTeacherProfileAsync(teacherId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _teacherService.GetTeacherProfileAsync(id.Value);
         return ToResponse(result);
     }
 
@@ -235,15 +272,18 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("profile")]
     [HttpPut("{teacherId:long}/profile")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateTeacherProfile(
-        [FromRoute] long teacherId,
-        [FromBody] UpdateTeacherProfileDto dto)
+        [FromBody] UpdateTeacherProfileDto dto,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _teacherService.UpdateTeacherProfileAsync(teacherId, dto);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _teacherService.UpdateTeacherProfileAsync(id.Value, dto);
         return ToResponse(result);
     }
 
@@ -355,12 +395,15 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("configuration")]
     [HttpGet("{teacherId:long}/configuration")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetConfiguration([FromRoute] long teacherId)
+    public async Task<IActionResult> GetConfiguration([FromRoute] long? teacherId = null)
     {
-        var result = await _teacherService.GetConfigurationAsync(teacherId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _teacherService.GetConfigurationAsync(id.Value);
         return ToResponse(result);
     }
 
@@ -423,15 +466,18 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("configuration")]
     [HttpPut("{teacherId:long}/configuration")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SaveConfiguration(
-        [FromRoute] long teacherId,
-        [FromBody] UpdateTeacherConfigurationDto dto)
+        [FromBody] UpdateTeacherConfigurationDto dto,
+        [FromRoute] long? teacherId = null)
     {
-        var result = await _teacherService.SaveConfigurationAsync(teacherId, dto);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _teacherService.SaveConfigurationAsync(id.Value, dto);
         return ToResponse(result);
     }
 
@@ -478,11 +524,14 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("subscription")]
     [HttpGet("{teacherId:long}/subscription")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetActiveSubscription([FromRoute] long teacherId)
+    public async Task<IActionResult> GetActiveSubscription([FromRoute] long? teacherId = null)
     {
-        var result = await _teacherService.GetActiveSubscriptionAsync(teacherId);
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _teacherService.GetActiveSubscriptionAsync(id.Value);
         return ToResponse(result);
     }
 
