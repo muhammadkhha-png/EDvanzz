@@ -14,6 +14,10 @@ namespace Edvanz.API.Controllers
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    // Tenant isolation: overwrite any teacherId in the body/route with the JWT-resolved teacher
+    // (Teacher → own id, Assistant → owning teacher). Without this, CreateAssistant took teacherId
+    // straight from the body — a cross-tenant IDOR. SuperAdmin is exempt (may target any teacher).
+    [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class AssistantController : ApiBaseController
     {
         private readonly IAssistantService assistantService;
