@@ -128,16 +128,20 @@ public class PaymentScreenService : IPaymentScreenService
 
         (page, limit) = NormalizePaging(page, limit);
 
+        // The assistant log is scoped to the current local month: the collections they took this
+        // month. "Total cash collected" (below) is the same window, net of refunds.
+        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
+        var walletMonthEnd = walletMonthStart.AddMonths(1).AddDays(-1);
+
         var (txns, total) = await _unitOfWork.PaymentsRepo
             .GetCollectorTransactionsPagedAsync(
                 teacherId, wallet.AssistantUserId,
-                startDate: null, endDate: null,
+                startDate: walletMonthStart, endDate: walletMonthEnd,
                 page: page, pageSize: limit);
 
-        // "Total cash collected" is scoped to the current local month and net of refunds
-        // (refunded/edited transactions drop out of the sum), not the lifetime wallet total.
-        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
-        var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
+        // "Total cash collected" = the same month window, net of refunds (refunded/edited
+        // transactions drop out of the sum), not the lifetime wallet total.
         decimal monthCashCollected = await _unitOfWork.PaymentsRepo.GetCollectorCashInRangeAsync(
             teacherId, wallet.AssistantUserId, walletMonthStart, walletMonthStart.AddMonths(1));
 
