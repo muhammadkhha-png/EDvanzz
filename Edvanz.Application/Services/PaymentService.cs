@@ -1237,10 +1237,27 @@ public class PaymentService : IPaymentService
             : 0;
 
         var paymentStatus = period?.PaymentStatus ?? PaymentStatus.Paid;
+
+        // The proration setting (AAM-FR-04.4) drives the refund basis.
+        var teacherConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        bool prorationEnabled = teacherConfig?.IsProratedPaymentEnabled ?? false;
+
         DepartureOutcome outcome;
         decimal finalAmount;
 
-        if (paymentStatus == PaymentStatus.Paid)
+        if (!prorationEnabled)
+        {
+            // Proration OFF: refund the FULL amount the student paid for their CURRENT month (or the
+            // most recent paid month if this month is unpaid) — not pro-rated, and NOT cumulative
+            // since they joined. The tutor may still override with a specific amount at confirm time.
+            var paidPeriod = await _unitOfWork.PaymentsRepo
+                .GetLatestPaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
+            finalAmount = paidPeriod?.AmountPaid ?? 0m;
+            proRatedAmount = 0m;
+            if (paidPeriod is not null) fullAmount = paidPeriod.AmountDue;
+            outcome = finalAmount > 0m ? DepartureOutcome.RefundDue : DepartureOutcome.NoObligation;
+        }
+        else if (paymentStatus == PaymentStatus.Paid)
         {
             // REQ-PAY-069: Refund = Full - ProRated
             finalAmount = fullAmount - proRatedAmount;

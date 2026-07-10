@@ -205,6 +205,23 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<PaymentPeriod?> GetLatestPaidPeriodAsync(
+        long teacherId, long teacherStudentId, long? sessionId)
+    {
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId == teacherStudentId
+                && p.AmountPaid > 0);
+
+        if (sessionId.HasValue)
+            query = query.Where(p => p.SessionId == sessionId.Value);
+
+        return await query
+            .OrderByDescending(p => p.PeriodSequence)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<PaymentPeriod?> GetPaymentPeriodByIdAsync(long paymentPeriodId)
     {
         return await _context.PaymentPeriods.FindAsync(paymentPeriodId);

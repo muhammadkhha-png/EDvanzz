@@ -99,6 +99,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<PaymentPeriod?> GetEarliestUnpaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
 
     /// <summary>
+    /// Returns the most recent period the student actually paid into (AmountPaid &gt; 0) for the
+    /// session — i.e. the current month if paid, otherwise the previous paid month. Used for the
+    /// departure refund when proration is DISABLED (refund the full paid amount of that single
+    /// period, not a pro-rated or cumulative amount). Null if the student has paid nothing.
+    /// </summary>
+    Task<PaymentPeriod?> GetLatestPaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
+
+    /// <summary>
     /// Gets a payment period by ID.
     /// </summary>
     Task<PaymentPeriod?> GetPaymentPeriodByIdAsync(long paymentPeriodId);
