@@ -351,7 +351,8 @@ public class PaymentScreenService : IPaymentScreenService
             return Result<CollectLookupResponse>.Failure(
                 "Provide a qr, code, or name to look up.", HttpStatusCode.UnprocessableEntity);
 
-        var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(teacherId, qr, code, name);
+        var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(
+            teacherId, qr, code, name, CurrentMonthEnd(teacherId));
         if (row is null)
             return Result<CollectLookupResponse>.Failure(
                 "No student found for the given QR/code/name.", HttpStatusCode.NotFound);
@@ -507,10 +508,11 @@ public class PaymentScreenService : IPaymentScreenService
                 continue;
             }
 
-            // Amount = the earliest unpaid period's remaining (clears it). Already paid → no-op success.
-            var period = await _unitOfWork.PaymentsRepo
-                .GetEarliestUnpaidPeriodAsync(teacherId, studentId, student.SessionId);
-            decimal amount = period is null ? 0m : period.AmountDue - period.AmountPaid;
+            // Amount = the student's TOTAL arrears through the current month (all overdue months,
+            // not just the earliest). The collection engine then cascades it across those months,
+            // oldest first, clearing each. Already paid → no-op success.
+            decimal amount = await _unitOfWork.PaymentsRepo
+                .GetOverdueTotalThroughAsync(teacherId, studentId, student.SessionId, CurrentMonthEnd(teacherId));
             if (amount <= 0m)
             {
                 results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });

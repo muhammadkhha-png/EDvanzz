@@ -212,6 +212,45 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
+    {
+        // Tracked (NOT AsNoTracking) — the caller mutates AmountPaid/PaymentStatus and saves.
+        // Earliest-first, and only periods that start on/before the cutoff (current month, or
+        // current+1 when paying one month in advance). Ordered so a payment fills the oldest
+        // debt first and cascades forward.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId == teacherStudentId
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd);
+
+        if (sessionId.HasValue)
+            query = query.Where(p => p.SessionId == sessionId.Value);
+
+        return await query.OrderBy(p => p.PeriodSequence).ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> GetOverdueTotalThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
+    {
+        // Total arrears the student owes THROUGH the given month (sum of each unpaid month's
+        // remaining due). This is the server-owned "amount due" for lookup + mark-paid, and it
+        // never includes months in advance.
+        var query = _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId
+                && p.TeacherStudentId == teacherStudentId
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd);
+
+        if (sessionId.HasValue)
+            query = query.Where(p => p.SessionId == sessionId.Value);
+
+        return await query.SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
+    }
+
+    /// <inheritdoc />
     public async Task<PaymentPeriod?> GetLatestPaidPeriodAsync(
         long teacherId, long teacherStudentId, long? sessionId)
     {
@@ -750,7 +789,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
     /// <inheritdoc />
     public async Task<CollectLookupRow?> ResolveCollectLookupAsync(
-        long teacherId, string? qr, string? code, string? name)
+        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd)
     {
         var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
 
@@ -789,24 +828,14 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
         if (student is null) return null;
 
-        var counter = await _context.StudentPaymentCounters
-            .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == student.Id)
-            .Select(c => new { c.CustomPaymentAmount, c.TotalOutstanding })
-            .FirstOrDefaultAsync();
-
-        // Earliest unpaid period's remaining balance (lowest PeriodSequence among non-Paid).
-        var earliestUnpaid = await _context.PaymentPeriods
+        // AmountDue = the student's TOTAL arrears through the selected/current month (sum of every
+        // unpaid month's remaining), not a single month. Excludes months in advance. IsUnpaid is
+        // simply whether any such arrears exist.
+        decimal overdueTotal = await _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
-                && p.PaymentStatus != PaymentStatus.Paid)
-            .OrderBy(p => p.PeriodSequence)
-            .Select(p => new { p.AmountDue, p.AmountPaid })
-            .FirstOrDefaultAsync();
-
-        decimal amountDue =
-            counter?.CustomPaymentAmount
-            ?? (earliestUnpaid != null ? earliestUnpaid.AmountDue - earliestUnpaid.AmountPaid : (decimal?)null)
-            ?? student.SessionAmount
-            ?? 0m;
+                && p.PaymentStatus != PaymentStatus.Paid
+                && p.PeriodStart <= throughMonthEnd)
+            .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
 
         return new CollectLookupRow
         {
@@ -814,8 +843,8 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             StudentName = student.StudentName,
             StudentCode = student.StudentCode,
             Group = student.Group,
-            AmountDue = amountDue,
-            IsUnpaid = (counter?.TotalOutstanding ?? 0m) > 0m
+            AmountDue = overdueTotal,
+            IsUnpaid = overdueTotal > 0m
         };
     }
 

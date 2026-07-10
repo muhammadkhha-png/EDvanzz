@@ -99,6 +99,7 @@ public static class PaymentConstants
         public const string PaymentAlreadyPaid = "PaymentAlreadyPaid";
         public const string PaymentSameDayWarning = "PaymentSameDayWarning";
         public const string PaymentAmountInvalid = "PaymentAmountInvalid";
+        public const string PaymentAmountExceedsAdvanceLimit = "PaymentAmountExceedsAdvanceLimit";
         public const string PaymentStudentInRecycleBin = "PaymentStudentInRecycleBin";
         public const string PaymentBatchRevertSuccess = "PaymentBatchRevertSuccess";   // NEW — batch-revert envelope (D1)
         // Pro-rating

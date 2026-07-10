@@ -232,39 +232,48 @@ public class PaymentService : IPaymentService
             }
         }
 
-        // 7. BR-PAY-001: Find earliest unpaid period
-        var period = await _unitOfWork.PaymentsRepo
-            .GetEarliestUnpaidPeriodAsync(dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+        // 7. Determine which periods this payment settles. A payment fills the OLDEST unpaid
+        // month first and cascades forward. Monthly sessions may settle overdue months through
+        // the current local month PLUS at most one month in advance; per-session (per-class)
+        // billing keeps its original single-period behavior.
+        bool isMonthly = session.PaymentType == PaymentType.Monthly;
 
-        // REQ-PAY-026: Already-paid check
-        if (period is null)
+        List<PaymentPeriod> payablePeriods;
+        if (isMonthly)
         {
-            if (!dto.AlreadyPaidConfirmed)
-                return Result<CollectPaymentResultDto>.Success(new CollectPaymentResultDto
-                {
-                    Transaction = null,
-                    IsAlreadyPaid = true
-                }, _localizer, PaymentConstants.Messages.PaymentAlreadyPaid);
+            var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
+            // End of NEXT month = current-month arrears + one month in advance (the maximum).
+            var advanceCapEnd = currentMonthStart.AddMonths(2).AddDays(-1);
+            payablePeriods = await _unitOfWork.PaymentsRepo
+                .GetUnpaidPeriodsThroughAsync(dto.TeacherId, dto.TeacherStudentId, dto.SessionId, advanceCapEnd);
+        }
+        else
+        {
+            var earliest = await _unitOfWork.PaymentsRepo
+                .GetEarliestUnpaidPeriodAsync(dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+            payablePeriods = earliest is null
+                ? new List<PaymentPeriod>()
+                : new List<PaymentPeriod> { earliest };
         }
 
-        // 8. Determine the amount due
-        var counter = await _unitOfWork.PaymentsRepo
-            .GetPaymentCounterAsync(dto.TeacherId, dto.TeacherStudentId);
-
-        decimal amountDue = counter?.CustomPaymentAmount ?? session.SessionAmount;
-        bool isProRated = false;
-        string? proRatedLabel = null;
-
-        // REQ-PAY-021/022/BR-PAY-005: Pro-rating for first Monthly period
-        if (period is not null && period.IsProRated && period.PeriodSequence == 1
-            && period.PeriodType == PeriodType.Monthly)
+        // REQ-PAY-026: Already-paid — nothing owed within the payable window. For monthly this
+        // also means the student is already paid one month ahead (cannot pay further in advance).
+        if (payablePeriods.Count == 0)
         {
-            amountDue = period.AmountDue; // Already pro-rated during period generation
-            isProRated = true;
-            proRatedLabel = $"Pro-rated: {period.ProRatedFraction:P0} of full amount";
+            return Result<CollectPaymentResultDto>.Success(new CollectPaymentResultDto
+            {
+                Transaction = null,
+                IsAlreadyPaid = true
+            }, _localizer, PaymentConstants.Messages.PaymentAlreadyPaid);
         }
 
-        bool isPartial = dto.Amount < amountDue;
+        var firstPeriod = payablePeriods[0];
+        // Pro-rating only surfaces when the oldest owed month is the prorated first period.
+        bool isProRated = firstPeriod.IsProRated && firstPeriod.PeriodSequence == 1
+            && firstPeriod.PeriodType == PeriodType.Monthly;
+        string? proRatedLabel = isProRated
+            ? $"Pro-rated: {firstPeriod.ProRatedFraction:P0} of full amount" : null;
+        decimal amountDue = firstPeriod.AmountDue;
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -274,18 +283,64 @@ public class PaymentService : IPaymentService
         {
             var now = DateTime.UtcNow;
 
-            // 9. Create the payment transaction
+            // 8. Cascade the collected cash across the payable periods, oldest first. Each month
+            // is settled up to its own remaining due and the cash is attributed to the month it
+            // clears (that period's AmountPaid). A single transaction records the whole cash event.
+            decimal amountLeft = dto.Amount;
+            decimal totalApplied = 0m;
+            decimal totalTargetedDue = 0m;
+            int periodsNewlyPaid = 0;
+            PaymentPeriod? firstTouched = null;
+
+            foreach (var p in payablePeriods)
+            {
+                if (amountLeft <= 0m) break;
+                decimal remaining = p.AmountDue - p.AmountPaid;
+                if (remaining <= 0m) continue;
+
+                // Monthly caps each month at its remaining and rolls the rest to the next month.
+                // Per-session dumps the full amount into its single period (legacy overpay allowed).
+                decimal apply = isMonthly ? Math.Min(amountLeft, remaining) : amountLeft;
+                p.AmountPaid += apply;
+                amountLeft -= apply;
+                totalApplied += apply;
+                totalTargetedDue += remaining;
+                firstTouched ??= p;
+
+                p.PaymentStatus = p.AmountPaid >= p.AmountDue
+                    ? PaymentStatus.Paid
+                    : PaymentStatus.PartiallyPaid;
+                if (p.PaymentStatus == PaymentStatus.Paid) periodsNewlyPaid++;
+
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+            }
+
+            // Monthly: reject cash beyond current-month arrears + one month in advance rather than
+            // silently dropping it (server-computed amounts never hit this; a manual overpay can).
+            if (isMonthly && amountLeft > 0m)
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                return Result<CollectPaymentResultDto>.Failure(
+                    _localizer, PaymentConstants.Messages.PaymentAmountExceedsAdvanceLimit,
+                    HttpStatusCode.UnprocessableEntity);
+            }
+
+            bool isPartial = totalApplied < totalTargetedDue;
+            var period = firstTouched; // for the notifier + result below
+
+            // 9. Record ONE transaction for the whole cash event (dated now → this month), even
+            // when it clears several months. AmountDue = the total remaining it was applied to.
             var transaction = new PaymentTransaction
             {
                 TeacherId = dto.TeacherId,
                 TeacherStudentId = dto.TeacherStudentId,
                 SessionId = dto.SessionId,
-                SessionOccurrenceId = period?.PeriodType == PeriodType.PerSession
-                    ? await GetOccurrenceIdForPeriodAsync(period) : null,
-                PaymentPeriodId = period?.Id,
+                SessionOccurrenceId = firstTouched?.PeriodType == PeriodType.PerSession
+                    ? await GetOccurrenceIdForPeriodAsync(firstTouched) : null,
+                PaymentPeriodId = firstTouched?.Id,
                 StudentSessionAssignmentId = activeAssignment.Id,
-                AmountDue = amountDue,
-                AmountPaid = dto.Amount,
+                AmountDue = totalTargetedDue,
+                AmountPaid = totalApplied,
                 PaymentMethod = dto.PaymentMethod,
                 PaymentTransactionStatus = isPartial ? PaymentStatus.PartiallyPaid : PaymentStatus.Paid,
                 CollectedByUserId = dto.CollectedByUserId,
@@ -309,29 +364,14 @@ public class PaymentService : IPaymentService
 
             await _unitOfWork.PaymentsRepo.AddAsync(transaction);
 
-            // 10. Update the payment period
-            if (period is not null)
-            {
-                period.AmountPaid += dto.Amount;
-                period.PaymentStatus = period.AmountPaid >= period.AmountDue
-                    ? PaymentStatus.Paid
-                    : period.AmountPaid > 0
-                        ? PaymentStatus.PartiallyPaid
-                        : PaymentStatus.Unpaid;
-
-                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
-            }
-
-            // 11. Update student payment counter with concurrency retry
+            // 10. Update student payment counter (totals + count of months newly cleared) with retry.
             await UpdatePaymentCounterAfterCollectionAsync(
-                dto.TeacherId, dto.TeacherStudentId, dto.Amount,
-                session.SessionName, period);
+                dto.TeacherId, dto.TeacherStudentId, totalApplied,
+                session.SessionName, periodsNewlyPaid);
 
-            // 12. Update assistant wallet if collector is an assistant
+            // 11. Update assistant wallet if collector is an assistant.
             await UpdateAssistantWalletAfterCollectionAsync(
-                dto.TeacherId, dto.CollectedByUserId!.Value, dto.Amount);
-
-            await _unitOfWork.SaveChangesAsync();
+                dto.TeacherId, dto.CollectedByUserId!.Value, totalApplied);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -1848,7 +1888,7 @@ public class PaymentService : IPaymentService
 
     private async Task UpdatePaymentCounterAfterCollectionAsync(
         long teacherId, long teacherStudentId, decimal amount,
-        string sessionName, PaymentPeriod? period)
+        string sessionName, int periodsNewlyPaid)
     {
         for (int retry = 0; retry < PaymentConstants.MaxConcurrencyRetries; retry++)
         {
@@ -1864,10 +1904,12 @@ public class PaymentService : IPaymentService
                 counter.LastPaymentDate = DateTime.UtcNow;
                 counter.LastPaymentSessionName = sessionName;
 
-                if (period is not null && period.PaymentStatus == PaymentStatus.Paid)
+                // A single collection can clear several months at once (cascade), so advance the
+                // paid/unpaid period counters by the number of months this payment fully settled.
+                if (periodsNewlyPaid > 0)
                 {
-                    counter.TotalPaidPeriods++;
-                    counter.TotalUnpaidPeriods = Math.Max(0, counter.TotalUnpaidPeriods - 1);
+                    counter.TotalPaidPeriods += periodsNewlyPaid;
+                    counter.TotalUnpaidPeriods = Math.Max(0, counter.TotalUnpaidPeriods - periodsNewlyPaid);
                     counter.ConsecutiveUnpaid = 0; // BR-PAY-006: Reset on payment
                 }
 

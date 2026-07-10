@@ -99,6 +99,23 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<PaymentPeriod?> GetEarliestUnpaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
 
     /// <summary>
+    /// All unpaid periods (PaymentStatus != Paid) for the student/session whose PeriodStart is on
+    /// or before <paramref name="throughMonthEnd"/>, earliest-first (by PeriodSequence). Tracked
+    /// so the caller can apply a cascading payment across them. The cutoff enforces the
+    /// "pay overdue up to this month, at most one month in advance" rule.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
+
+    /// <summary>
+    /// Total arrears (sum of each unpaid month's remaining due) the student owes through
+    /// <paramref name="throughMonthEnd"/> for the session. Server-owned "amount due" for the
+    /// collect lookup and mark-paid; never includes months in advance.
+    /// </summary>
+    Task<decimal> GetOverdueTotalThroughAsync(
+        long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
+
+    /// <summary>
     /// Returns the most recent period the student actually paid into (AmountPaid &gt; 0) for the
     /// session — i.e. the current month if paid, otherwise the previous paid month. Used for the
     /// departure refund when proration is DISABLED (refund the full paid amount of that single
@@ -254,7 +271,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// Returns null when nothing matches or no lookup key is supplied.
     /// </summary>
     Task<CollectLookupRow?> ResolveCollectLookupAsync(
-        long teacherId, string? qr, string? code, string? name);
+        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd);
 
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES
