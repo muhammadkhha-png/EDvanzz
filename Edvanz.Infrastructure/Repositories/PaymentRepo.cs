@@ -341,15 +341,52 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
-    public async Task<decimal> GetCollectorCashInRangeAsync(
+    public async Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
     {
-        // Net cash a specific collector took in the window (net of refunds via the !IsDeleted filter).
+        // Money that came IN this window: collections the collector took, at the amount recorded.
+        // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) —
+        // its AmountPaid is preserved on delete, so pairing it with its negative refund entry nets
+        // to zero for a same-window collect-then-refund.
         return await _context.PaymentTransactions
+            .IgnoreQueryFilters()
             .Where(t => t.TeacherId == teacherId
                 && t.CollectedByUserId == collectorUserId
                 && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
-            .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // A refund = the collector's collection being fully handed back: a delete or reversal
+        // (refund = the whole PreviousAmount). Partial amount-edits are treated as corrections to
+        // the collected figure (reflected in the collection's own amount), not refund lines, so the
+        // month log never double-counts. IgnoreQueryFilters because the transaction is soft-deleted.
+        var rows = await _context.PaymentEditLogs
+            .IgnoreQueryFilters()
+            .Where(l => l.PaymentTransaction != null
+                && l.PaymentTransaction.TeacherId == teacherId
+                && l.PaymentTransaction.CollectedByUserId == collectorUserId
+                && l.EditedAt >= startInclusive && l.EditedAt < endExclusive
+                && (l.EditAction == PaymentEditAction.Deleted
+                    || l.EditAction == PaymentEditAction.Reversed))
+            .Select(l => new CollectorRefundRow
+            {
+                Id = l.Id,
+                StudentId = l.PaymentTransaction!.TeacherStudentId,
+                StudentName = l.PaymentTransaction.StudentName,
+                StudentCode = l.PaymentTransaction.StudentCode,
+                SessionName = l.PaymentTransaction.SessionName,
+                RefundAmount = l.PreviousAmount,
+                RefundedAt = l.EditedAt
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows;
     }
 
     /// <inheritdoc />

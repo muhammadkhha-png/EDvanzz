@@ -185,10 +185,17 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
-    /// Net cash a specific collector took in [startInclusive, endExclusive) — the assistant
-    /// wallet card's "total cash collected" for the month. Net of refunds.
+    /// All collections a collector took in [startInclusive, endExclusive), unpaged —
+    /// merged with refunds into a single chronological month log.
     /// </summary>
-    Task<decimal> GetCollectorCashInRangeAsync(
+    Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// Refunds taken back from a collector in [startInclusive, endExclusive), from the payment
+    /// edit-log trail (delete/reversal = full amount; amount reduction = the drop).
+    /// </summary>
+    Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>

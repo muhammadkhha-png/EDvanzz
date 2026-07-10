@@ -132,33 +132,50 @@ public class PaymentScreenService : IPaymentScreenService
         // month. "Total cash collected" (below) is the same window, net of refunds.
         var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
         var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
-        var walletMonthEnd = walletMonthStart.AddMonths(1).AddDays(-1);
+        var monthEndExclusive = walletMonthStart.AddMonths(1);
 
-        var (txns, total) = await _unitOfWork.PaymentsRepo
-            .GetCollectorTransactionsPagedAsync(
-                teacherId, wallet.AssistantUserId,
-                startDate: walletMonthStart, endDate: walletMonthEnd,
-                page: page, pageSize: limit);
+        // The log mixes collections and refunds for the month in one chronological list. Collections
+        // are positive; a refund taken back from this collector is a NEGATIVE-amount entry dated
+        // when it was refunded. Merged and paged in-memory (a single collector's month is bounded).
+        var monthTxns = await _unitOfWork.PaymentsRepo
+            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
+        var monthRefunds = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
 
-        // "Total cash collected" = the same month window, net of refunds (refunded/edited
-        // transactions drop out of the sum), not the lifetime wallet total.
-        decimal monthCashCollected = await _unitOfWork.PaymentsRepo.GetCollectorCashInRangeAsync(
-            teacherId, wallet.AssistantUserId, walletMonthStart, walletMonthStart.AddMonths(1));
+        // "Total cash collected" = money in (collections this month) minus money out (refunds this
+        // month). A same-month collect-then-refund nets to zero; a refund of an earlier month's
+        // collection shows this month as negative net.
+        decimal monthCashCollected =
+            monthTxns.Sum(t => t.AmountPaid) - monthRefunds.Sum(r => r.RefundAmount);
 
-        var items = new List<AssistantWalletCollectionItemDto>(txns.Count);
-        foreach (var tx in txns)
+        var merged = new List<AssistantWalletCollectionItemDto>(monthTxns.Count + monthRefunds.Count);
+        merged.AddRange(monthTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
-            items.Add(new AssistantWalletCollectionItemDto
-            {
-                Id = tx.Id.ToString(CultureInfo.InvariantCulture),
-                StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
-                StudentName = tx.StudentName,
-                StudentCode = tx.StudentCode,
-                SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
-                Amount = tx.AmountPaid,
-                CollectedAt = tx.CollectedAt
-            });
-        }
+            Id = tx.Id.ToString(CultureInfo.InvariantCulture),
+            StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = tx.StudentName,
+            StudentCode = tx.StudentCode,
+            SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
+            Amount = tx.AmountPaid,
+            CollectedAt = tx.CollectedAt
+        }));
+        merged.AddRange(monthRefunds.Select(r => new AssistantWalletCollectionItemDto
+        {
+            Id = $"refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            SessionName = string.IsNullOrEmpty(r.SessionName) ? null : r.SessionName,
+            Amount = -r.RefundAmount, // negative → refund
+            CollectedAt = r.RefundedAt
+        }));
+
+        int total = merged.Count;
+        var items = merged
+            .OrderByDescending(i => i.CollectedAt)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToList();
 
         var response = new AssistantWalletScreenResponse
         {

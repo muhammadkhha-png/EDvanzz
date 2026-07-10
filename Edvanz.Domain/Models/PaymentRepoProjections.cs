@@ -114,3 +114,19 @@ public sealed class CollectLookupRow
     public decimal AmountDue { get; set; }
     public bool IsUnpaid { get; set; }
 }
+
+/// <summary>
+/// Projection for a refund taken back from a collector, derived from the payment edit-log trail
+/// (a delete/reversal or an amount reduction) and attributed to the original collector. Surfaced
+/// in the assistant/collector month log alongside collections (as a negative-amount entry).
+/// </summary>
+public sealed class CollectorRefundRow
+{
+    public long Id { get; set; }
+    public long? StudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+    public string? SessionName { get; set; }
+    public decimal RefundAmount { get; set; }
+    public DateTime RefundedAt { get; set; }
+}
