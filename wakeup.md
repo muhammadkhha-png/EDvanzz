@@ -198,3 +198,17 @@ checks. A full audit (all controllers, all HTTP methods) found and I fixed the r
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
+
+## ✅ Settings 403 fixed (client sent UserId as teacherId) — root cause & fix
+- The login response returns `accountId` = the **UserId**, not the Teacher.Id. The frontend uses it as
+  the teacherId in URLs. For teacher1 (UserId 2) that is `/api/teacher/2/configuration`, but
+  `Teacher.Id=2` is teacher2 — so the client was pointing at ANOTHER teacher's settings (a real
+  cross-tenant bug the isolation work exposed).
+- Why add-student worked but settings didn't: Module-6 controllers resolve teacherId from the JWT and
+  ignore the client id; TeacherController trusted the URL id.
+- FIX (backend, deployed & verified): TenantScopeFilter now OVERWRITES the client teacherId (route +
+  body) with the JWT-resolved Teacher.Id for Teacher/Assistant callers (SuperAdmin exempt). Verified:
+  teacher1 → /api/teacher/2/configuration now returns teacher1's OWN config (teacherId 1, Ahmed
+  Mostafa). No frontend change needed.
+- RECOMMENDED (your side, optional): make login `accountId` = Teacher.Id for teachers (or stop sending
+  teacherId from the client) so the client isn't relying on backend auto-correction.
