@@ -1,5 +1,3 @@
-using Edvanz.Domain.Entities;
-
 namespace Edvanz.Domain.Interfaces;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -115,19 +113,6 @@ public sealed class CollectLookupRow
     public string? Group { get; set; }
     public decimal AmountDue { get; set; }
     public bool IsUnpaid { get; set; }
-}
-
-/// <summary>
-/// A student's first-month monthly period that is still fully unpaid, plus the data needed to
-/// recompute its proration when the teacher toggles proration config: the join day (from the
-/// active assignment) and the base monthly amount (custom or session). <see cref="Period"/> is a
-/// TRACKED entity so the caller can update its AmountDue / IsProRated in place.
-/// </summary>
-public sealed class FirstMonthProrationCandidate
-{
-    public PaymentPeriod Period { get; set; } = null!;
-    public int JoinDay { get; set; }
-    public decimal BaseAmount { get; set; }
 }
 
 /// <summary>

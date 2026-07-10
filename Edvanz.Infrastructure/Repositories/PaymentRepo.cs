@@ -251,42 +251,6 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<FirstMonthProrationCandidate>> GetFirstMonthProrationCandidatesAsync(long teacherId)
-    {
-        // First monthly period (sequence 1) of each active-assigned student that is still fully
-        // unpaid — the only period proration can retroactively change. Tracked (no AsNoTracking)
-        // so the service can update AmountDue/IsProRated in place. Carries the join day and base
-        // amount so the service can re-apply the current proration tiers.
-        return await _context.PaymentPeriods
-            .Where(p => p.TeacherId == teacherId
-                && p.TeacherStudentId != null
-                && p.PeriodType == PeriodType.Monthly
-                && p.PeriodSequence == 1
-                && p.AmountPaid == 0m
-                && p.PaymentStatus != PaymentStatus.Paid
-                && _context.StudentSessionAssignments.Any(a =>
-                    a.TeacherStudentId == p.TeacherStudentId && a.IsActive && a.SessionId == p.SessionId))
-            .Select(p => new FirstMonthProrationCandidate
-            {
-                Period = p,
-                JoinDay = _context.StudentSessionAssignments
-                    .Where(a => a.TeacherStudentId == p.TeacherStudentId && a.IsActive && a.SessionId == p.SessionId)
-                    .Select(a => a.AssignedAt.Day)
-                    .FirstOrDefault(),
-                BaseAmount =
-                    (_context.StudentPaymentCounters
-                        .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == p.TeacherStudentId)
-                        .Select(c => c.CustomPaymentAmount)
-                        .FirstOrDefault())
-                    ?? (_context.Sessions
-                        .Where(s => s.Id == p.SessionId)
-                        .Select(s => (decimal?)s.SessionAmount)
-                        .FirstOrDefault() ?? 0m)
-            })
-            .ToListAsync();
-    }
-
-    /// <inheritdoc />
     public async Task<PaymentPeriod?> GetLatestPaidPeriodAsync(
         long teacherId, long teacherStudentId, long? sessionId)
     {

@@ -1861,65 +1861,6 @@ public class PaymentService : IPaymentService
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
     }
 
-    /// <inheritdoc />
-    public async Task<Result<bool>> RecomputeFirstMonthProrationAsync(long teacherId)
-    {
-        // Read the CURRENT config + tiers (the caller already persisted the new values within the
-        // open transaction, so these reflect the just-saved settings).
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        bool prorationEnabled = config?.IsProratedPaymentEnabled == true;
-        var tiers = prorationEnabled && config is not null
-            ? (await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id))
-                .OrderBy(t => t.TierNumber).ToList()
-            : new List<TeacherProratedTier>();
-
-        var candidates = await _unitOfWork.PaymentsRepo.GetFirstMonthProrationCandidatesAsync(teacherId);
-
-        foreach (var candidate in candidates)
-        {
-            // Resolve the fraction the CURRENT config would apply to this join day.
-            decimal fraction = 1.0m;
-            if (prorationEnabled)
-            {
-                var matchingTier = tiers.FirstOrDefault(t =>
-                    candidate.JoinDay >= t.ThresholdDayStart && candidate.JoinDay <= t.ThresholdDayEnd);
-                if (matchingTier is not null && matchingTier.FractionRate < 1.0m)
-                    fraction = matchingTier.FractionRate;
-            }
-
-            bool isProRated = fraction < 1.0m;
-            decimal newDue = isProRated
-                ? Math.Round(candidate.BaseAmount * fraction, 2)
-                : candidate.BaseAmount;
-
-            var period = candidate.Period;
-            if (period.AmountDue == newDue && period.IsProRated == isProRated)
-                continue; // already correct — nothing to change
-
-            decimal delta = newDue - period.AmountDue;
-
-            period.AmountDue = newDue;
-            period.IsProRated = isProRated;
-            period.ProRatedFraction = isProRated ? fraction : 1.0m;
-            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
-
-            // Keep the student's outstanding counter consistent with the changed (unpaid) amount.
-            if (period.TeacherStudentId is long studentId)
-            {
-                var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, studentId);
-                if (counter is not null)
-                {
-                    counter.TotalOutstanding += delta;
-                    if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
-                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
-                }
-            }
-        }
-
-        // No SaveChanges/commit here — the caller (SaveConfiguration) owns the commit boundary.
-        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
-    }
-
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET PROVISIONING
     // ══════════════════════════════════════════════
