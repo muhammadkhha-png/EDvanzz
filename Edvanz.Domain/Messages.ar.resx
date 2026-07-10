@@ -171,6 +171,9 @@
   <data name="NoActiveSubscription" xml:space="preserve">
     <value>مفيش اشتراك نشط حالياً</value>
   </data>
+  <data name="SubscriptionRequired" xml:space="preserve">
+    <value>لازم يكون عندك اشتراك نشط عشان تستخدم الميزة دي. من فضلك اشترك عشان تكمل</value>
+  </data>
   <data name="ProfileUpdatedSuccess" xml:space="preserve">
     <value>تم تحديث الملف الشخصي بنجاح</value>
   </data>

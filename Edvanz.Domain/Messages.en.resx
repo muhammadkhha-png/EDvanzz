@@ -171,6 +171,9 @@
   <data name="NoActiveSubscription" xml:space="preserve">
     <value>You don't have an active subscription at the moment</value>
   </data>
+  <data name="SubscriptionRequired" xml:space="preserve">
+    <value>You need an active subscription to use this feature. Please subscribe to continue</value>
+  </data>
   <data name="ProfileUpdatedSuccess" xml:space="preserve">
     <value>Your profile has been updated successfully</value>
   </data>

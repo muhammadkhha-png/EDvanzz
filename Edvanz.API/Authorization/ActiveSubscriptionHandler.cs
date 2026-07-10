@@ -38,6 +38,13 @@ public class ActiveSubscriptionHandler : AuthorizationHandler<ActiveSubscription
     private const string AssistantRole = "Assistant";
     private const string TeacherRole = "Teacher";
 
+    /// <summary>
+    /// Marker written to <see cref="AuthorizationFailureReason"/> when the request is blocked
+    /// purely for lack of an active subscription. The <c>SubscriptionAuthorizationResultHandler</c>
+    /// reads this to return a clear "please subscribe" envelope instead of a bare 403.
+    /// </summary>
+    public const string SubscriptionRequiredReason = "subscription_required";
+
     private readonly ICurrentUserService _currentUser;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISubscriptionCacheService _cache;
@@ -124,10 +131,12 @@ public class ActiveSubscriptionHandler : AuthorizationHandler<ActiveSubscription
             return;
         }
 
-        // Expired (or no subscription row at all). Fall through without Succeed().
+        // Expired (or no subscription row at all). Fail explicitly with a marker reason so the
+        // result handler can surface a clear "please subscribe" message rather than a bare 403.
         _logger.LogInformation(
             "ActiveSubscriptionHandler: blocked teacher {TeacherId} (status {Status})",
             teacherId.Value, status);
+        context.Fail(new AuthorizationFailureReason(this, SubscriptionRequiredReason));
     }
 
     // ════════════════════════════════════════════════

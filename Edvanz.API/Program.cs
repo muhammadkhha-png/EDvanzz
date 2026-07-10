@@ -18,6 +18,7 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -229,6 +230,9 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // (Note: ASP.NET Core resolves IAuthorizationHandler instances per request
 // when registered as Scoped. Use Scoped to match IUnitOfWork's lifetime.)
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
+// Turns a subscription-only Forbidden into a clear localized "please subscribe" envelope
+// (instead of the framework's bare, body-less 403) on every gated action.
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, SubscriptionAuthorizationResultHandler>();
 // Tenant-isolation guard for controllers that carry teacherId in the route (Session, Teacher).
 builder.Services.AddScoped<Edvanz.API.Filters.TenantScopeFilter>();
 builder.Services.AddSingleton<IVideoUrlParser, VideoUrlParser>();
