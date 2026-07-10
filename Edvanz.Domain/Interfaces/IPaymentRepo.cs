@@ -116,6 +116,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
 
     /// <summary>
+    /// First-month (sequence 1) monthly periods of active-assigned students that are still fully
+    /// unpaid, with the join day and base amount — the periods whose proration can be recomputed
+    /// when the teacher toggles proration config. Periods are returned tracked for in-place update.
+    /// </summary>
+    Task<IReadOnlyList<FirstMonthProrationCandidate>> GetFirstMonthProrationCandidatesAsync(long teacherId);
+
+    /// <summary>
     /// Returns the most recent period the student actually paid into (AmountPaid &gt; 0) for the
     /// session — i.e. the current month if paid, otherwise the previous paid month. Used for the
     /// departure refund when proration is DISABLED (refund the full paid amount of that single

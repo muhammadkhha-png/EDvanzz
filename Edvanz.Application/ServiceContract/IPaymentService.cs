@@ -280,6 +280,17 @@ public interface IPaymentService
     Task<Result<bool>> OnStudentPermanentlyDeletedAsync(long teacherStudentId);
 
     /// <summary>
+    /// Recomputes the proration of every active student's first-month (still-unpaid) monthly period
+    /// against the teacher's CURRENT proration config. Called after the teacher saves configuration
+    /// so toggling proration on/off (or editing tiers) reacts on existing students: enabling applies
+    /// the matching tier fraction to the join month, disabling reverts it to the full amount. Only
+    /// fully-unpaid first periods change; paid/partially-paid months are never altered. The student
+    /// counter's outstanding is adjusted by the delta. Runs inside the caller's transaction and does
+    /// NOT commit (the caller owns the commit boundary).
+    /// </summary>
+    Task<Result<bool>> RecomputeFirstMonthProrationAsync(long teacherId);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

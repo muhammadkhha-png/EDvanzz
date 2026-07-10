@@ -32,17 +32,20 @@ public class TeacherService : ITeacherService
     private readonly ITeacherCodeGenerator _codeGenerator;
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly IPaymentService _paymentService;
 
     public TeacherService(
         IUnitOfWork unitOfWork,
         ITeacherCodeGenerator codeGenerator,
         ISubscriptionGateService subscriptionGate,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        IPaymentService paymentService)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _subscriptionGate = subscriptionGate;
         _localizer = localizer;
+        _paymentService = paymentService;
     }
 
     /// <inheritdoc />
@@ -402,6 +405,14 @@ public class TeacherService : ITeacherService
                 await _unitOfWork.Users.UpdateTeacherAsync(teacher);
             }
 
+            await _unitOfWork.SaveChangesAsync();
+
+            // React to the just-saved proration setting on EXISTING students: recompute each
+            // active student's first-month (still-unpaid) period against the current config —
+            // enabling proration prorates the join month, disabling reverts it to full. Config +
+            // tiers are already flushed above, so the recompute reads the new values. It mutates
+            // within this transaction and does not commit.
+            await _paymentService.RecomputeFirstMonthProrationAsync(teacherId);
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
