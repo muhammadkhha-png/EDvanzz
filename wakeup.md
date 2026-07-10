@@ -41,4 +41,8 @@ _Autonomous run while you slept. Goal: MVP with 0 issues (logic, tenant isolatio
 ## Progress log
 - Bulk-import fix + IDOR filter deployed & verified.
 - Tenant filter corrected (assistant resolution by userId) & verified.
-- (continuing…)
+- Tenant filter extended to BODY teacherId (create/assign) — verified: teacher2 cannot create a
+  session under teacher1 (403), can under self (201). Route + body IDOR both closed.
+- NOTE ON DEPLOYS: on B1 the container swap causes intermittent 503s for ~1–2 min and can serve the
+  OLD build briefly; always wait for a stable streak (or `az webapp restart`) before trusting a test.
+- (continuing: sessions/attendance/payments write scenarios, perf pass, final report…)
