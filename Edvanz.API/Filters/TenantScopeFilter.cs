@@ -41,11 +41,15 @@ public sealed class TenantScopeFilter : IAsyncActionFilter
             if (userId is not null &&
                 !string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
             {
-                long? callerTeacherId;
-                if (string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal))
-                    callerTeacherId = (await _currentUser.GetAssistantDataAsync())?.TeacherAccountId;
-                else
-                    callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+                // Resolve the caller's teacher scope DIRECTLY by user id (not via the role string):
+                //   - a Teacher user  → their own Teacher.Id
+                //   - an Assistant user→ their owning TeacherAccountId
+                long? callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+                if (callerTeacherId is null)
+                {
+                    var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+                    callerTeacherId = assistant?.TeacherAccountId;
+                }
 
                 if (callerTeacherId is null || callerTeacherId.Value != routeTeacherId)
                 {
