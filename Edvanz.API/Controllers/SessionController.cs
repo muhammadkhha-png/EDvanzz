@@ -12,6 +12,7 @@ namespace Edvanz.API.Controllers;
 /// All endpoint documentation follows the existing project pattern:
 /// WHAT IT DOES → TABLES READ/WRITTEN → SAMPLE REQUEST → SAMPLE RESPONSE.
 /// </summary>
+[ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
 public class SessionController : ApiBaseController
 {
     private readonly ISessionService _sessionService;

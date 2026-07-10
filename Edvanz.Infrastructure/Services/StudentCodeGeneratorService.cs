@@ -86,19 +86,60 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
         var letters = GetLetterSequence(language);
 
         var candidates = await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
+        var highest = FindHighestParseable(candidates, letters);
 
-        // Select the HIGHEST code that actually matches the [Letter][Digits] auto pattern for this
-        // language. Non-parseable codes (manual/imported such as "Z9X9") are skipped entirely — the
-        // previous implementation ordered by raw string and, when the top code failed to parse, reset
-        // to "A1"; if "A1" already existed that produced a duplicate-code unique violation on EVERY
-        // add for that teacher (mislabeled to the client as "phone already registered").
+        if (highest is null)
+        {
+            // No existing auto-pattern code for this language — start at first letter + 1.
+            return $"{letters[0]}1";
+        }
+
+        return ComputeNextCode(highest.Value.letterIndex, highest.Value.number, letters);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<string>> GenerateSequentialCodesAsync(
+        long teacherId, int count, GenerationLanguage language = GenerationLanguage.English)
+    {
+        var result = new List<string>(Math.Max(0, count));
+        if (count <= 0)
+            return result;
+
+        var letters = GetLetterSequence(language);
+
+        // SINGLE DB read for the whole batch — then increment purely in memory. Calling
+        // GenerateNextCodeAsync per row instead re-queries every time and, since the new codes are
+        // not yet persisted, keeps returning the same value (spin + DB hammering).
+        var candidates = await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
+        var highest = FindHighestParseable(candidates, letters);
+
+        string next = highest is null
+            ? $"{letters[0]}1"
+            : ComputeNextCode(highest.Value.letterIndex, highest.Value.number, letters);
+
+        for (int i = 0; i < count; i++)
+        {
+            result.Add(next);
+            var parsed = ParseCode(next, letters)!.Value; // just produced it, always parseable
+            next = ComputeNextCode(parsed.letterIndex, parsed.number, letters);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the highest (letterIndex, number) among codes matching the [Letter][Digits] auto
+    /// pattern for the given language. Non-parseable codes (manual/imported such as "Z9X9") are
+    /// ignored so they can never poison sequencing. Null when no parseable code exists.
+    /// </summary>
+    private static (int letterIndex, int number)? FindHighestParseable(IEnumerable<string> candidates, char[] letters)
+    {
         (int letterIndex, int number)? highest = null;
-
         foreach (var code in candidates)
         {
             var parsed = ParseCode(code, letters);
             if (parsed is null)
-                continue; // manual / other-language / non-pattern code — cannot be part of the sequence
+                continue;
 
             if (highest is null
                 || parsed.Value.letterIndex > highest.Value.letterIndex
@@ -108,14 +149,7 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
                 highest = parsed;
             }
         }
-
-        if (highest is null)
-        {
-            // No existing auto-pattern code for this language — start at first letter + 1.
-            return $"{letters[0]}1";
-        }
-
-        return ComputeNextCode(highest.Value.letterIndex, highest.Value.number, letters);
+        return highest;
     }
 
     /// <summary>

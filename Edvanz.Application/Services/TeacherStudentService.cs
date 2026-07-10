@@ -535,6 +535,10 @@ public class TeacherStudentService : ITeacherStudentService
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
         var validStudents = new List<TeacherStudent>();
         var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Auto-code rows are collected here and assigned codes in ONE batched generation after the
+        // validation loop (see GenerateSequentialCodesAsync) — generating per row re-queries the DB
+        // and spins, which made even a 4-row import take >60s on the Basic-tier DB.
+        var pendingAutoCode = new List<TeacherStudent>();
 
         // 3. Validate each row
         for (int i = 0; i < dto.Students.Count; i++)
@@ -623,34 +627,61 @@ public class TeacherStudentService : ITeacherStudentService
                     continue;
                 }
 
-                // Auto mode: generate the next sequential code
-                // FIX GAP-1: Pass the teacher's configured language (AAM-FR-04.2)
-                studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
-
-                // Keep generating until we find one not already used in this batch
-                while (usedCodes.Contains(studentCode))
+                // Auto mode: defer code assignment. The code is generated for the whole batch in a
+                // single DB read after this loop, then filled in below.
+                var autoStudent = new TeacherStudent
                 {
-                    studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
-                }
+                    TeacherId = teacherId,
+                    StudentName = row.StudentName.Trim(),
+                    HashedToken = GenerateHashedToken(),
+                    StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
+                    ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
+                    IsDeleted = false,
+                    CreateAt = DateTime.UtcNow
+                };
+                validStudents.Add(autoStudent);
+                pendingAutoCode.Add(autoStudent);
+                continue;
             }
 
             usedCodes.Add(studentCode);
 
-            // Create entity
+            // Create entity (manual / provided code)
             var student = new TeacherStudent
             {
                 TeacherId = teacherId,
                 StudentName = row.StudentName.Trim(),
                 StudentCode = studentCode,
                 HashedToken = GenerateHashedToken(),
-                StudentPhoneNumber = row.StudentPhoneNumber?.Trim(),
-                ParentPhoneNumber = row.ParentPhoneNumber?.Trim(),
+                StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
+                ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
                 Barcode = studentCode, // REQ-STU-054: Auto-generate barcode
                 IsDeleted = false,
                 CreateAt = DateTime.UtcNow
             };
 
             validStudents.Add(student);
+        }
+
+        // Assign auto-generated codes for all deferred rows in ONE batched DB read, skipping any that
+        // collide with codes supplied manually elsewhere in this same batch.
+        if (pendingAutoCode.Count > 0)
+        {
+            var generated = await _codeGenerator.GenerateSequentialCodesAsync(
+                teacherId, pendingAutoCode.Count + usedCodes.Count, codeLanguage);
+
+            int gi = 0;
+            foreach (var s in pendingAutoCode)
+            {
+                while (gi < generated.Count && usedCodes.Contains(generated[gi]))
+                    gi++;
+                if (gi >= generated.Count)
+                    break; // safety — should never happen given the buffer above
+                s.StudentCode = generated[gi];
+                s.Barcode = generated[gi];
+                usedCodes.Add(generated[gi]);
+                gi++;
+            }
         }
 
         // 4. Check if valid students exceed remaining capacity

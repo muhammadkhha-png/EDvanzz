@@ -35,4 +35,17 @@ public interface IStudentCodeGenerator
     /// Thrown if the code space is exhausted (beyond Z999 / ي999).
     /// </exception>
     Task<string> GenerateNextCodeAsync(long teacherId, GenerationLanguage language = GenerationLanguage.English);
+
+    /// <summary>
+    /// Generates <paramref name="count"/> sequential codes in a SINGLE database read, incrementing
+    /// in memory. Use this for bulk operations instead of calling <see cref="GenerateNextCodeAsync"/>
+    /// per row: that re-queries the DB every call, and because the freshly generated codes are not
+    /// yet persisted it keeps returning the same value — spinning and hammering the DB. The returned
+    /// codes are contiguous and unique among themselves; the caller must still skip any that collide
+    /// with codes supplied elsewhere in the same batch.
+    /// </summary>
+    /// <param name="teacherId">The teacher's Id (multi-tenant scope).</param>
+    /// <param name="count">How many sequential codes to produce.</param>
+    /// <param name="language">Code language (AAM-FR-04.2).</param>
+    Task<List<string>> GenerateSequentialCodesAsync(long teacherId, int count, GenerationLanguage language = GenerationLanguage.English);
 }

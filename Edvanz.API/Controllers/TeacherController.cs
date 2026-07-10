@@ -24,6 +24,7 @@ namespace Edvanz.API.Controllers;
 /// Messages are returned in Arabic or English based on the Accept-Language header.
 /// Set "Accept-Language: ar" for Arabic, "Accept-Language: en" for English.
 /// </summary>
+[ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
 public class TeacherController : ApiBaseController
 {
     private readonly ITeacherService _teacherService;

@@ -229,6 +229,8 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // (Note: ASP.NET Core resolves IAuthorizationHandler instances per request
 // when registered as Scoped. Use Scoped to match IUnitOfWork's lifetime.)
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
+// Tenant-isolation guard for controllers that carry teacherId in the route (Session, Teacher).
+builder.Services.AddScoped<Edvanz.API.Filters.TenantScopeFilter>();
 builder.Services.AddSingleton<IVideoUrlParser, VideoUrlParser>();
 builder.Services.AddScoped<IVideoScopeResolver, VideoScopeResolver>();
 builder.Services.AddScoped<IVideoService, VideoService>();
