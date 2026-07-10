@@ -134,6 +134,13 @@ public class PaymentScreenService : IPaymentScreenService
                 startDate: null, endDate: null,
                 page: page, pageSize: limit);
 
+        // "Total cash collected" is scoped to the current local month and net of refunds
+        // (refunded/edited transactions drop out of the sum), not the lifetime wallet total.
+        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
+        decimal monthCashCollected = await _unitOfWork.PaymentsRepo.GetCollectorCashInRangeAsync(
+            teacherId, wallet.AssistantUserId, walletMonthStart, walletMonthStart.AddMonths(1));
+
         var items = new List<AssistantWalletCollectionItemDto>(txns.Count);
         foreach (var tx in txns)
         {
@@ -161,7 +168,7 @@ public class PaymentScreenService : IPaymentScreenService
             },
             Wallet = new AssistantWalletInfoDto
             {
-                TotalCashCollected = wallet.TotalCollected,
+                TotalCashCollected = monthCashCollected,
                 WalletBalance = wallet.CurrentBalance,
                 CollectionsCount = wallet.TransactionCount,
                 LastActivityAt = wallet.LastCollectionAt
@@ -386,9 +393,14 @@ public class PaymentScreenService : IPaymentScreenService
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
         var repo = _unitOfWork.PaymentsRepo;
 
-        // Month-scoped revenue + per-session + per-collector, plus current-state status counts.
-        var (expected, collected, remaining) =
+        // Expected = this month's obligation (period dues). Collected = ACTUAL cash physically
+        // collected this calendar month (can exceed expected when students pay arrears or one
+        // month ahead), attributed to the month it was taken — per the agreed dashboard rule.
+        var (expected, _, _) =
             await repo.GetDashboardAggregatesAsync(teacherId, null, null, null, monthStart, monthEnd);
+        decimal collected = await repo.GetCashCollectedInRangeAsync(
+            teacherId, null, monthStart, monthStart.AddMonths(1));
+        decimal remaining = expected - collected;
         var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);

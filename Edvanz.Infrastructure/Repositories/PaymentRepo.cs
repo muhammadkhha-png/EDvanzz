@@ -303,6 +303,35 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<decimal> GetCashCollectedInRangeAsync(
+        long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Actual cash physically collected in the window (by transaction date), regardless of
+        // which month each payment settles. The global !IsDeleted filter excludes refunded/reverted
+        // transactions and edits update AmountPaid, so the sum is already net of refunds.
+        var query = _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive);
+
+        if (sessionId.HasValue)
+            query = query.Where(t => t.SessionId == sessionId.Value);
+
+        return await query.SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> GetCollectorCashInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Net cash a specific collector took in the window (net of refunds via the !IsDeleted filter).
+        return await _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId
+                && t.CollectedByUserId == collectorUserId
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+            .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountAssignedStudentsAsync(long teacherId)
     {
         // Active (non-deleted, global filter applies) students currently assigned to a session.

@@ -155,6 +155,21 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<int> CountAssignedStudentsAsync(long teacherId);
 
     /// <summary>
+    /// Actual cash collected (by transaction date) in [startInclusive, endExclusive), optionally
+    /// for one session — the dashboard's "collected this month". Net of refunds (soft-deleted /
+    /// edited transactions), and independent of which month each payment settles.
+    /// </summary>
+    Task<decimal> GetCashCollectedInRangeAsync(
+        long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// Net cash a specific collector took in [startInclusive, endExclusive) — the assistant
+    /// wallet card's "total cash collected" for the month. Net of refunds.
+    /// </summary>
+    Task<decimal> GetCollectorCashInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
     /// Gets the maximum period sequence for a student in a session.
     /// Used when generating new periods to determine the next sequence number.
     /// </summary>
