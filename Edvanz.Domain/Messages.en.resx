@@ -406,7 +406,7 @@
     <value>Sessions can only be linked if they share the same occurrence type (e.g., both Weekly or both Monthly)</value>
   </data>
   <data name="SessionLinkDaysMismatch" xml:space="preserve">
-    <value>Sessions can only be linked if they share the same day-of-week configuration</value>
+    <value>Sessions can only be linked if they run the same number of days per week</value>
   </data>
   <data name="StudentsAssignedSuccess" xml:space="preserve">
     <value>Students assigned to session successfully</value>

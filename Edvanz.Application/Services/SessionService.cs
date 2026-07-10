@@ -583,11 +583,18 @@ public class SessionService : ISessionService
         if (sessionB is null)
             return Result<bool>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
 
-        // 2. BR-SES-003: Validate identical occurrence type AND day configuration
+        // 2. BR-SES-003: Sessions can be linked when they share the same occurrence
+        //    type AND the same *number* of days per week — the specific days need not
+        //    match, only the count (e.g. two Weekly sessions each running 2 days/week).
         if (sessionA.OccurrenceType != sessionB.OccurrenceType)
             return Result<bool>.Failure(_localizer, "SessionLinkOccurrenceMismatch", HttpStatusCode.BadRequest);
 
-        if (sessionA.SelectedDays != sessionB.SelectedDays)
+        static int CountSelectedDays(string? selectedDays) =>
+            string.IsNullOrWhiteSpace(selectedDays)
+                ? 0
+                : selectedDays.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+
+        if (CountSelectedDays(sessionA.SelectedDays) != CountSelectedDays(sessionB.SelectedDays))
             return Result<bool>.Failure(_localizer, "SessionLinkDaysMismatch", HttpStatusCode.BadRequest);
 
         // 3. Check link doesn't already exist

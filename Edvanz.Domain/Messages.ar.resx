@@ -406,7 +406,7 @@
     <value>الحصص تتربط بس لو عندها نفس نوع التكرار (يعني الاتنين أسبوعي أو الاتنين شهري)</value>
   </data>
   <data name="SessionLinkDaysMismatch" xml:space="preserve">
-    <value>الحصص تتربط بس لو عندها نفس أيام الأسبوع</value>
+    <value>الحصص تتربط بس لو عندها نفس عدد الأيام في الأسبوع</value>
   </data>
   <data name="StudentsAssignedSuccess" xml:space="preserve">
     <value>تم تسجيل الطلاب في الحصة بنجاح</value>
