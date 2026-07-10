@@ -134,6 +134,15 @@ public class TeacherStudentService : ITeacherStudentService
         // 6. Generate barcode (REQ-STU-047: encodes the student code)
         string barcode = studentCode; // Barcode data = student code per REQ-STU-047
 
+        // 6b. Resolve the optional session assignment. A null id → unassigned; a non-null id
+        // that does not resolve to a session owned by this teacher is ignored (unassigned).
+        // Only a valid, owned session is assigned — and it must go through the attendance/payment
+        // integration hooks below, otherwise the student never appears on the attendance roster
+        // (the roster is driven by StudentSessionAssignments, not TeacherStudent.SessionId).
+        Session? assignSession = null;
+        if (dto.SessionId.HasValue)
+            assignSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
+
         // 7. Create the entity
         var student = new TeacherStudent
         {
@@ -144,20 +153,40 @@ public class TeacherStudentService : ITeacherStudentService
             StudentPhoneNumber = NormalizePhone(dto.StudentPhoneNumber),
             ParentPhoneNumber = NormalizePhone(dto.ParentPhoneNumber),
             Barcode = barcode,
-            SessionId = dto.SessionId,
+            SessionId = assignSession?.Id,
             IsDeleted = false,
             CreateAt = DateTime.UtcNow
         };
 
-        // REPLACE
+        await _unitOfWork.BeginTransactionAsync();
         try
         {
             await _unitOfWork.Students.AddAsync(student);
-            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.SaveChangesAsync(); // materialize student.Id for the assignment hooks
+
+            // When a valid session was supplied, create the assignment record + absence counter +
+            // payment periods so the student surfaces on attendance and payment screens. Mirrors
+            // SessionService.AssignStudentsAsync; the hooks do not commit — this method owns the tx.
+            if (assignSession is not null)
+            {
+                await _attendanceService.OnStudentAssignedToSessionAsync(
+                    teacherId, student.Id, assignSession.Id, assignSession.SessionName);
+                await _paymentService.OnStudentAssignedToSessionAsync(
+                    teacherId, student.Id, assignSession.Id, assignSession.SessionName, DateTime.UtcNow);
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            await _unitOfWork.CommitAsync();
         }
         catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
         {
+            await _unitOfWork.RollbackAsync();
             return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
         }
 
         return Result<TeacherStudentDto>.Success(
@@ -215,21 +244,64 @@ public class TeacherStudentService : ITeacherStudentService
         }
         // If auto-generate mode, student code is NOT editable (REQ-STU-048 spirit: immutable auto-codes)
 
+        // Resolve the target session assignment. On an explicit single edit, a supplied id that
+        // does not resolve to a session owned by this teacher is a clear error (unlike bulk import,
+        // which neglects it). Null clears the assignment.
+        long? previousSessionId = student.SessionId;
+        Session? newSession = null;
+        if (dto.SessionId.HasValue)
+        {
+            newSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
+            if (newSession is null)
+                return Result<TeacherStudentDto>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
+        }
+        long? newSessionId = newSession?.Id;
+        bool sessionChanged = previousSessionId != newSessionId;
+
         // 4. Update fields
         student.StudentName = dto.StudentName.Trim();
         student.StudentPhoneNumber = NormalizePhone(dto.StudentPhoneNumber);
         student.ParentPhoneNumber = NormalizePhone(dto.ParentPhoneNumber);
-        student.SessionId = dto.SessionId;
+        student.SessionId = newSessionId;
         // REQ-STU-048: Barcode NEVER changes even if other fields are modified
 
+        await _unitOfWork.BeginTransactionAsync();
         try
         {
             await _unitOfWork.Students.UpdateAsync(student);
             await _unitOfWork.SaveChangesAsync();
+
+            // Keep the StudentSessionAssignment (which drives attendance/payment screens) in sync
+            // with the edited SessionId. OnStudentAssignedToSessionAsync deactivates any prior
+            // active assignment before creating the new one.
+            if (sessionChanged)
+            {
+                if (newSession is not null)
+                {
+                    await _attendanceService.OnStudentAssignedToSessionAsync(
+                        teacherId, student.Id, newSession.Id, newSession.SessionName);
+                    await _paymentService.OnStudentAssignedToSessionAsync(
+                        teacherId, student.Id, newSession.Id, newSession.SessionName, DateTime.UtcNow);
+                }
+                else
+                {
+                    await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
+                    await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
+                }
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            await _unitOfWork.CommitAsync();
         }
         catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
         {
+            await _unitOfWork.RollbackAsync();
             return Result<TeacherStudentDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
         }
 
         return Result<TeacherStudentDto>.Success(MapToDto(student,null), _localizer, "StudentUpdatedSuccess");
@@ -562,13 +634,10 @@ public class TeacherStudentService : ITeacherStudentService
         // Resolve the optional bulk session assignment once, up front. Null → no assignment.
         // A non-null id that does not resolve to a session owned by this teacher is ignored
         // (students still import, just unassigned) — per the "neglect if wrong session id" rule.
-        long? assignSessionId = null;
+        Session? assignSession = null;
         if (dto.SessionId.HasValue)
-        {
-            var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
-            if (session is not null)
-                assignSessionId = session.Id;
-        }
+            assignSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
+        long? assignSessionId = assignSession?.Id;
 
         // 2. Check capacity
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
@@ -741,7 +810,24 @@ public class TeacherStudentService : ITeacherStudentService
             try
             {
                 await _unitOfWork.Students.AddRangeAsync(validStudents);
-                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.SaveChangesAsync(); // materialize student Ids for the assignment hooks
+
+                // When a valid session was supplied, wire each imported student into the
+                // attendance/payment integration (assignment record + absence counter + payment
+                // periods). Without this the students carry SessionId but never appear on the
+                // attendance roster, which is driven by StudentSessionAssignments.
+                if (assignSession is not null)
+                {
+                    foreach (var s in validStudents)
+                    {
+                        await _attendanceService.OnStudentAssignedToSessionAsync(
+                            teacherId, s.Id, assignSession.Id, assignSession.SessionName);
+                        await _paymentService.OnStudentAssignedToSessionAsync(
+                            teacherId, s.Id, assignSession.Id, assignSession.SessionName, DateTime.UtcNow);
+                    }
+                    await _unitOfWork.SaveChangesAsync();
+                }
+
                 await _unitOfWork.CommitAsync();
             }
             catch
