@@ -38,6 +38,7 @@ public class TeacherStudentService : ITeacherStudentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStudentCodeGenerator _codeGenerator;
     private readonly IPaymentService _paymentService;
+    private readonly IAttendanceService _attendanceService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -50,11 +51,13 @@ public class TeacherStudentService : ITeacherStudentService
         IUnitOfWork unitOfWork,
         IStudentCodeGenerator codeGenerator,
         IPaymentService paymentService,
+        IAttendanceService attendanceService,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _paymentService = paymentService;
+        _attendanceService = attendanceService;
         _localizer = localizer;
     }
 
@@ -473,6 +476,12 @@ public class TeacherStudentService : ITeacherStudentService
         // StudentPaymentCounter is deleted (no longer needed after purge).
         await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
 
+        // ── ATTENDANCE INTEGRATION: clear the student's session assignments, absence counters and
+        // nullify attendance-record FKs BEFORE the hard delete. This hook existed but was never
+        // invoked here, which left dangling StudentSessionAssignment rows that could later block
+        // deletion of the session the purged student was assigned to (409 conflict).
+        await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+
         // WARNING: This is irreversible
         await _unitOfWork.Students.DeleteAsync(student);
         await _unitOfWork.SaveChangesAsync();
@@ -493,6 +502,7 @@ public class TeacherStudentService : ITeacherStudentService
         foreach (var student in expiredRecords)
         {
             await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
+            await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
         }
 
         await _unitOfWork.Students.DeleteRangeAsync(expiredRecords);
