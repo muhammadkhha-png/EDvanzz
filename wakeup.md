@@ -118,6 +118,32 @@ All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
   — soft-deleted (refunded) payment transactions still referenced the session (query filter skipped
   them). **FIXED** (`NullifySessionIdOnPaymentRecordsAsync` now `IgnoreQueryFilters`). Verified.
 
+## ✅ Departure enhancements + validation (latest)
+- **Departure now auto-adjusts the wallet:** on a refund, `FinalAmount` is deducted from the wallet
+  of the assistant who collected (via `GetLatestCollectorUserIdForStudentSessionAsync` +
+  `AdjustAssistantWalletAsync`). No-op when the tutor collected (no wallet). So a departure refund
+  lowers the assistant's held cash automatically (your 13000→12500 example). Verified by
+  construction (mirrors the verified delete/edit wallet path).
+- **Optional `DeleteStudent` flag** on `ConfirmDepartureDto` (defaults false → existing frontend
+  unaffected): when true, the student is also soft-deleted (recycle bin) on departure, not just
+  unassigned. **Verified live** (student left active list, appears in recycle bin).
+- **Student-code validation (your question):** AUTO mode + a manually-entered code was previously
+  **silently ignored**; now returns a clear 400 (`StudentCodeNotAllowedAuto`, en+ar). Verified live.
+  Manual-mode empty code and empty name already return clear 400s.
+- **Teacher-collected (vs assistant):** `AdjustAssistantWalletAsync` is a no-op when the collector is
+  the tutor (they have no wallet), so teacher-collected edit/refund/departure adjust period+counter
+  but touch no wallet — correct by design.
+
+## ⚠️ OPEN QUESTION FOR YOU (business rule — I did NOT guess)
+- **Proration-disabled departure refund.** `GetDepartureSummaryAsync` ALWAYS pro-rates the refund by
+  attendance (`refund = Full − (attended/total)*Full`) and **does NOT check** the teacher's
+  `IsProratedPaymentEnabled` setting. You said "proration can be disabled → departure means the full
+  amount." Please confirm the exact intended behavior when proration is DISABLED:
+  (a) full refund of what they paid, or (b) they owe the full period (no refund)? Tell me which and
+  I'll wire the config check into the departure calc. Left unchanged for now (financial rule — didn't
+  want to guess). NOTE: the summary also evaluates the *earliest unpaid* period, which is why a
+  student who paid month 1 but has an unpaid month 2 shows `NoObligation`.
+
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
