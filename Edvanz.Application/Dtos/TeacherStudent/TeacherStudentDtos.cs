@@ -121,7 +121,13 @@ public class BulkImportStudentRowDto
 /// </summary>
 public class BulkImportTeacherStudentsDto
 {
-   
+    /// <summary>
+    /// Optional session to assign every imported student to.
+    /// BR-SES-002: A student may only be assigned to one session at a time.
+    /// Null → students are imported unassigned. If the id does not resolve to a
+    /// session owned by this teacher it is ignored (students imported unassigned).
+    /// </summary>
+    public long? SessionId { get; set; }
 
     /// <summary>
     /// The list of student rows to import.

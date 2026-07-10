@@ -559,6 +559,17 @@ public class TeacherStudentService : ITeacherStudentService
         // FIX GAP-2: Determine if the teacher uses manual code entry
         bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
 
+        // Resolve the optional bulk session assignment once, up front. Null → no assignment.
+        // A non-null id that does not resolve to a session owned by this teacher is ignored
+        // (students still import, just unassigned) — per the "neglect if wrong session id" rule.
+        long? assignSessionId = null;
+        if (dto.SessionId.HasValue)
+        {
+            var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
+            if (session is not null)
+                assignSessionId = session.Id;
+        }
+
         // 2. Check capacity
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         int remainingCapacity = teacher.StudentCapacity - activeCount;
@@ -667,6 +678,7 @@ public class TeacherStudentService : ITeacherStudentService
                     HashedToken = GenerateHashedToken(),
                     StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
                     ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
+                    SessionId = assignSessionId,
                     IsDeleted = false,
                     CreateAt = DateTime.UtcNow
                 };
@@ -687,6 +699,7 @@ public class TeacherStudentService : ITeacherStudentService
                 StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
                 ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
                 Barcode = studentCode, // REQ-STU-054: Auto-generate barcode
+                SessionId = assignSessionId,
                 IsDeleted = false,
                 CreateAt = DateTime.UtcNow
             };
