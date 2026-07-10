@@ -215,11 +215,15 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     /// this was 50K entities tracked. Now it's one SQL statement.
     public async Task DeactivateAssignmentsBySessionAsync(long sessionId)
     {
+        // Nullify SessionId on EVERY assignment of this session (not just the active ones) before the
+        // session is hard-deleted. The Session FK is NO ACTION, so ANY row still pointing at the
+        // session — including assignments already deactivated by a prior unassign or by a student
+        // purge — would otherwise block the delete with a 409 "conflicts with existing data".
+        // Denormalized SessionName is preserved on the row for post-deletion history.
         await _context.StudentSessionAssignments
-            .Where(a => a.SessionId == sessionId && a.IsActive)
+            .Where(a => a.SessionId == sessionId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(a => a.IsActive, false)
-                .SetProperty(a => a.UnassignedAt, DateTime.UtcNow)
                 .SetProperty(a => a.SessionId, (long?)null));
     }
 
