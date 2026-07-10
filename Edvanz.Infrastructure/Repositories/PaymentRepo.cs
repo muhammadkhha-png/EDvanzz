@@ -1295,20 +1295,26 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     /// Same pattern as AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync (Step 1.2).
     public async Task NullifySessionIdOnPaymentRecordsAsync(long sessionId)
     {
+        // IgnoreQueryFilters so SOFT-DELETED records are nullified too. A refunded/deleted payment
+        // transaction (IsDeleted=true) still points at the session via a NO-ACTION FK; if it isn't
+        // nullified here, the session's hard delete fails with a 409 conflict.
         // Nullify on PaymentTransactions
         await _context.PaymentTransactions
+            .IgnoreQueryFilters()
             .Where(t => t.SessionId == sessionId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(t => t.SessionId, (long?)null));
 
         // Nullify on PaymentPeriods
         await _context.PaymentPeriods
+            .IgnoreQueryFilters()
             .Where(p => p.SessionId == sessionId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(p => p.SessionId, (long?)null));
 
         // Nullify on StudentDepartures
         await _context.StudentDepartures
+            .IgnoreQueryFilters()
             .Where(d => d.SessionId == sessionId)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.SessionId, (long?)null));
