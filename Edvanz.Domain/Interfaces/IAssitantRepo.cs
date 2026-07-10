@@ -34,5 +34,11 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task<IReadOnlyList<long>> GetUserIdsByTeacherAccountIdAsync(long teacherId);
 
+        /// <summary>
+        /// Counts the assistants owned by a tutor account (excluding soft-deleted rows).
+        /// Used to enforce the free-tier assistant quota for unsubscribed teachers.
+        /// </summary>
+        Task<int> CountByTeacherAccountIdAsync(long teacherId);
+
     }
 }

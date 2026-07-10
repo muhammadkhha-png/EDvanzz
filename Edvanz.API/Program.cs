@@ -231,6 +231,10 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // HandleRequirementAsync call via the request-scoped scope.
 // (Note: ASP.NET Core resolves IAuthorizationHandler instances per request
 // when registered as Scoped. Use Scoped to match IUnitOfWork's lifetime.)
+// Free-tier per-module quotas — bound from config so limits change without a code edit
+// (edit appsettings.json locally, or App Service settings "FreeTierQuotas__Students" in prod).
+builder.Services.Configure<Edvanz.Application.Options.FreeTierQuotaOptions>(
+    builder.Configuration.GetSection(Edvanz.Application.Options.FreeTierQuotaOptions.Section));
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
 // Turns a subscription-only Forbidden into a clear localized "please subscribe" envelope
 // (instead of the framework's bare, body-less 403) on every gated action.

@@ -77,11 +77,11 @@ public class TeacherStudentService : ITeacherStudentService
         if (teacher is null)
             return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1b. Free-tier quota: unsubscribed teachers may keep at most FreeTier.MaxStudents students.
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most Quotas.Students students.
         if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
         {
             int freeTierCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
-            if (freeTierCount >= SubscriptionConstants.FreeTier.MaxStudents)
+            if (freeTierCount >= _subscriptionGate.Quotas.Students)
                 return Result<TeacherStudentDto>.Failure(
                     _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
         }

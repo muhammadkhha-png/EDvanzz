@@ -30,15 +30,18 @@ public class TeacherService : ITeacherService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITeacherCodeGenerator _codeGenerator;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public TeacherService(
         IUnitOfWork unitOfWork,
         ITeacherCodeGenerator codeGenerator,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -763,9 +766,11 @@ public class TeacherService : ITeacherService
 
         // Get active subscription
         var subscriptionResult = await GetActiveSubscriptionAsync(teacherId);
+        bool isSubscribed = await _subscriptionGate.HasActiveSubscriptionAsync(teacherId);
 
         return new TeacherProfileDto
         {
+            IsSubscribed = isSubscribed,
             Id = teacher.Id,
             UserId = teacher.UserId,
             TeacherCode = teacher.TeacherCode,

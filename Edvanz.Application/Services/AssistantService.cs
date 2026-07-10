@@ -224,11 +224,14 @@ namespace Edvanz.Application.Services
             if (teacher is null)
                 return Result<string?>.Failure(localizer, "TeacherNotFound");
 
-            // Free-tier quota: assistants are a subscriber-only feature (FreeTier.MaxAssistants == 0).
-            if (SubscriptionConstants.FreeTier.MaxAssistants == 0 &&
-                !await _subscriptionGate.HasActiveSubscriptionAsync(teacher.Id))
-                return Result<string?>.Failure(
-                    localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+            // Free-tier quota: unsubscribed teachers may keep at most Quotas.Assistants assistants (default 0).
+            if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacher.Id))
+            {
+                var assistantCount = await _unitOfWork.AssistantRepo.CountByTeacherAccountIdAsync(teacher.Id);
+                if (assistantCount >= _subscriptionGate.Quotas.Assistants)
+                    return Result<string?>.Failure(
+                        localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+            }
 
             var modules = await _unitOfWork.ModuleTeacherRepo.GetModulesPerTeacher(teacher.Id);
 

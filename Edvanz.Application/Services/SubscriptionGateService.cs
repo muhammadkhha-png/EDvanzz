@@ -1,8 +1,10 @@
+using Edvanz.Application.Options;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
+using Microsoft.Extensions.Options;
 
 namespace Edvanz.Application.Services;
 
@@ -14,11 +16,18 @@ namespace Edvanz.Application.Services;
 public sealed class SubscriptionGateService : ISubscriptionGateService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IOptionsMonitor<FreeTierQuotaOptions> _quotaOptions;
 
-    public SubscriptionGateService(IUnitOfWork unitOfWork)
+    public SubscriptionGateService(
+        IUnitOfWork unitOfWork,
+        IOptionsMonitor<FreeTierQuotaOptions> quotaOptions)
     {
         _unitOfWork = unitOfWork;
+        _quotaOptions = quotaOptions;
     }
+
+    /// <inheritdoc />
+    public FreeTierQuotaOptions Quotas => _quotaOptions.CurrentValue;
 
     /// <inheritdoc />
     public async Task<bool> HasActiveSubscriptionAsync(long teacherId)

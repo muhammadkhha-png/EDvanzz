@@ -30,6 +30,13 @@ public class TeacherProfileDto
     public string? CapacityPackageName { get; set; }
 
     /// <summary>
+    /// Whether the teacher currently has an Active/ExpiringSoon subscription. When false the
+    /// teacher is on the free tier (per-module create quotas apply). This is the single flag the
+    /// client should key off to show subscription status / prompts.
+    /// </summary>
+    public bool IsSubscribed { get; set; }
+
+    /// <summary>
     /// Current active subscription summary. Null if no active subscription.
     /// </summary>
     public TeacherSubscriptionDto? ActiveSubscription { get; set; }

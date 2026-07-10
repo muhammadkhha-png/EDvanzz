@@ -58,6 +58,12 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     Task<int> CountSessionsByTeacherAsync(long teacherId);
 
     /// <summary>
+    /// Counts the session groups owned by a teacher. Used to enforce the free-tier group quota
+    /// for unsubscribed teachers.
+    /// </summary>
+    Task<int> CountGroupsByTeacherAsync(long teacherId);
+
+    /// <summary>
     /// Builds a filtered, searchable, sortable IQueryable for the teacher's sessions.
     /// The caller (service layer) uses this with GetPagedAsync for pagination.
     /// 

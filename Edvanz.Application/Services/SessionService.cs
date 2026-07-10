@@ -97,11 +97,11 @@ public class SessionService : ISessionService
         if (teacher is null)
             return Result<SessionDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1b. Free-tier quota: unsubscribed teachers may keep at most FreeTier.MaxSessions sessions.
+        // 1b. Free-tier quota: unsubscribed teachers may keep at most Quotas.Sessions sessions.
         if (!await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
         {
             var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(dto.TeacherId);
-            if (sessionCount >= SubscriptionConstants.FreeTier.MaxSessions)
+            if (sessionCount >= _subscriptionGate.Quotas.Sessions)
                 return Result<SessionDto>.Failure(
                     _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
         }
@@ -351,7 +351,7 @@ public class SessionService : ISessionService
         if (!await _subscriptionGate.HasActiveSubscriptionAsync(teacherId))
         {
             var sessionCount = await _unitOfWork.SessionsRepo.CountSessionsByTeacherAsync(teacherId);
-            if (sessionCount >= SubscriptionConstants.FreeTier.MaxSessions)
+            if (sessionCount >= _subscriptionGate.Quotas.Sessions)
                 return Result<SessionDto>.Failure(
                     _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
         }
@@ -455,11 +455,14 @@ public class SessionService : ISessionService
         if (teacher is null)
             return Result<SessionGroupDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // Free-tier quota: groups are a subscriber-only feature (FreeTier.MaxGroups == 0).
-        if (SubscriptionConstants.FreeTier.MaxGroups == 0 &&
-            !await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
-            return Result<SessionGroupDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+        // Free-tier quota: unsubscribed teachers may keep at most Quotas.Groups groups (default 0).
+        if (!await _subscriptionGate.HasActiveSubscriptionAsync(dto.TeacherId))
+        {
+            var groupCount = await _unitOfWork.SessionsRepo.CountGroupsByTeacherAsync(dto.TeacherId);
+            if (groupCount >= _subscriptionGate.Quotas.Groups)
+                return Result<SessionGroupDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+        }
 
         // Validate unique group name
         string trimmedName = dto.GroupName.Trim();

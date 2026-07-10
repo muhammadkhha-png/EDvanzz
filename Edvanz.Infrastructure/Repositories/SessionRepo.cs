@@ -80,6 +80,13 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<int> CountGroupsByTeacherAsync(long teacherId)
+    {
+        return await _context.SessionGroups
+            .CountAsync(g => g.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
     public IQueryable<Session> BuildSessionListQuery(
         long teacherId,
         string? search = null,

@@ -17,30 +17,8 @@ public static class SubscriptionConstants
     /// </summary>
     public const int MaxConcurrencyRetries = 2;
 
-    // ══════════════════════════════════════════════
-    // FREE-TIER QUOTAS (unsubscribed / expired teachers)
-    // ══════════════════════════════════════════════
-
-    /// <summary>
-    /// Quotas an UNSUBSCRIBED (or expired) teacher may use for free. Exceeding any of these
-    /// returns the localized "SubscriptionRequired" message (HTTP 403). Attendance and payments
-    /// are intentionally NOT capped — they are free for everyone. All other modules are also free;
-    /// a subscription only lifts these creation caps.
-    /// </summary>
-    public static class FreeTier
-    {
-        /// <summary>Max students an unsubscribed teacher may create.</summary>
-        public const int MaxStudents = 1;
-
-        /// <summary>Max sessions an unsubscribed teacher may create.</summary>
-        public const int MaxSessions = 1;
-
-        /// <summary>Assistants an unsubscribed teacher may create (none).</summary>
-        public const int MaxAssistants = 0;
-
-        /// <summary>Session groups an unsubscribed teacher may create (none).</summary>
-        public const int MaxGroups = 0;
-    }
+    // Free-tier per-module quotas are configuration-driven — see FreeTierQuotaOptions
+    // (appsettings "FreeTierQuotas" section), not hardcoded here.
 
     /// <summary>
     /// Window size (in days) before EndDate during which the dispatcher fires reminders.

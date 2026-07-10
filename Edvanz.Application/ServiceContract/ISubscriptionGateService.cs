@@ -1,3 +1,5 @@
+using Edvanz.Application.Options;
+
 namespace Edvanz.Application.ServiceContract;
 
 /// <summary>
@@ -15,4 +17,10 @@ public interface ISubscriptionGateService
     /// False for expired / never-subscribed teachers, who are held to the free-tier caps.
     /// </summary>
     Task<bool> HasActiveSubscriptionAsync(long teacherId);
+
+    /// <summary>
+    /// The current free-tier quotas (bound from configuration — see <see cref="FreeTierQuotaOptions"/>).
+    /// Read live so config/App-Service changes are picked up without a code change.
+    /// </summary>
+    FreeTierQuotaOptions Quotas { get; }
 }

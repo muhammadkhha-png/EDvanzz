@@ -120,5 +120,12 @@ namespace Edvanz.Infrastructure.Repositories
                 .Select(a => a.UserId)
                 .ToListAsync();
         }
+
+        /// <inheritdoc />
+        public async Task<int> CountByTeacherAccountIdAsync(long teacherId)
+        {
+            return await _context.Assistants
+                .CountAsync(a => a.TeacherAccountId == teacherId && a.DeletedAt == null);
+        }
     }
 }
