@@ -155,6 +155,21 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<int> CountAssignedStudentsAsync(long teacherId);
 
     /// <summary>
+    /// Per-session actual cash collected in [startInclusive, endExclusive) and the count of
+    /// distinct students who paid into that session in the window — the month-scoped per-session
+    /// dashboard card (net of refunds).
+    /// </summary>
+    Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
+        GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// Per-session count of students currently assigned to it — the per-session card's
+    /// "total students" denominator.
+    /// </summary>
+    Task<IReadOnlyList<(long SessionId, int TotalStudents)>>
+        GetAssignedStudentCountsPerSessionAsync(long teacherId);
+
+    /// <summary>
     /// Actual cash collected (by transaction date) in [startInclusive, endExclusive), optionally
     /// for one session — the dashboard's "collected this month". Net of refunds (soft-deleted /
     /// edited transactions), and independent of which month each payment settles.

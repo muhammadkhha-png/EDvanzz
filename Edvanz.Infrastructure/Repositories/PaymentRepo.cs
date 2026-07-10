@@ -332,6 +332,40 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
+        GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive)
+    {
+        // Per session: actual cash collected this month and how many distinct students paid into it
+        // this month (net of refunds via the !IsDeleted filter).
+        var rows = await _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId && t.SessionId.HasValue
+                && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+            .GroupBy(t => t.SessionId!.Value)
+            .Select(g => new
+            {
+                SessionId = g.Key,
+                CashCollected = g.Sum(t => t.AmountPaid),
+                PaidStudents = g.Select(t => t.TeacherStudentId).Distinct().Count()
+            })
+            .ToListAsync();
+
+        return rows.Select(r => (r.SessionId, r.CashCollected, r.PaidStudents)).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<(long SessionId, int TotalStudents)>>
+        GetAssignedStudentCountsPerSessionAsync(long teacherId)
+    {
+        var rows = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+            .GroupBy(ts => ts.SessionId!.Value)
+            .Select(g => new { SessionId = g.Key, Total = g.Count() })
+            .ToListAsync();
+
+        return rows.Select(r => (r.SessionId, r.Total)).ToList();
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountAssignedStudentsAsync(long teacherId)
     {
         // Active (non-deleted, global filter applies) students currently assigned to a session.

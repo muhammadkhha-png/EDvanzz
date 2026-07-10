@@ -410,6 +410,11 @@ public class PaymentScreenService : IPaymentScreenService
         int totalStudents = await repo.CountAssignedStudentsAsync(teacherId);
 
         var metaBySession = activeMeta.ToDictionary(m => m.SessionId);
+        // Month-scoped per-session cash + distinct paying students, and current assigned totals.
+        var monthColl = (await repo.GetSessionMonthCollectionAsync(teacherId, monthStart, monthStart.AddMonths(1)))
+            .ToDictionary(x => x.SessionId);
+        var assignedBySession = (await repo.GetAssignedStudentCountsPerSessionAsync(teacherId))
+            .ToDictionary(x => x.SessionId, x => x.TotalStudents);
 
         // Enrich collectors with real names (repo returns null) + role (assistant vs teacher).
         var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
@@ -428,14 +433,17 @@ public class PaymentScreenService : IPaymentScreenService
             CollectedAmount = c.Collected
         }).ToList();
 
-        // Sessions: month-scoped amounts (per-session dashboard), enriched with schedule + student
-        // counts from the active-sessions summary where available. NOTE: studentsCollected reflects
-        // the session's all-time paid students (not month) and grade has no backing column — both
-        // are v1 approximations to confirm/refine with the frontend.
+        // Sessions: everything month-scoped. CollectedAmount = actual cash into the session this
+        // month; StudentsCollected = distinct students who paid into it this month; StudentsTotal =
+        // students currently assigned to it. Schedule (day/time) still comes from the session meta.
         var sessions = perSession.Select(s =>
         {
             metaBySession.TryGetValue(s.SessionId, out var meta);
-            decimal pct = s.Expected > 0 ? Math.Round(s.Collected / s.Expected * 100m, 2) : 0m;
+            monthColl.TryGetValue(s.SessionId, out var mc);
+            decimal cash = mc.CashCollected;
+            int paidStudents = mc.PaidStudents;
+            int totalStudents = assignedBySession.TryGetValue(s.SessionId, out var tot) ? tot : 0;
+            decimal pct = s.Expected > 0 ? Math.Round(cash / s.Expected * 100m, 2) : 0m;
             return new TrackingSessionDto
             {
                 Id = s.SessionId.ToString(CultureInfo.InvariantCulture),
@@ -443,9 +451,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Day = meta?.SelectedDays,
                 Time = meta != null ? FormatTime(meta.StartTime) : null,
                 Grade = null,
-                CollectedAmount = s.Collected,
-                StudentsCollected = meta?.PaidStudents ?? 0,
-                StudentsTotal = meta?.TotalStudents ?? 0,
+                CollectedAmount = cash,
+                StudentsCollected = paidStudents,
+                StudentsTotal = totalStudents,
                 ProgressPercent = pct
             };
         }).ToList();
