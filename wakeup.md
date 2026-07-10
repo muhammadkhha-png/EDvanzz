@@ -50,24 +50,45 @@ _Autonomous run while you slept. Goal: MVP with 0 issues (logic, tenant isolatio
 - NOTE ON DEPLOYS: on B1 the container swap causes intermittent 503s for ~1–2 min and can serve the
   OLD build briefly; always wait for a stable streak (or `az webapp restart`) before trusting a test.
 
-## 🟠 Additional findings (this run)
-1. **Data-integrity gap (edge case, recommended fix):** Permanently deleting a student who is STILL
-   assigned to a session leaves a dangling `StudentSessionAssignment` row, which then makes that
-   session fail to delete with **409 "conflicts with existing data"**. Normal delete of a session
-   with assigned (live) students works fine (verified 200). FIX: on permanent student delete, also
-   remove the student's `StudentSessionAssignment` rows (or add ON DELETE cascade). Low severity
-   (only triggers when permanently purging an assigned student), but real.
-2. **Leftover test data to clean (my residue):** one session `ZZ Mem A` (Id 9, teacher2) is stuck —
-   it hit finding #1 above and can't be deleted via API. Please delete it (needs the dangling
-   assignment removed first), or authorize me to clean it. It is clearly test data (name `ZZ Mem A`).
-   Everything else I created was cleaned up.
-3. **GetStudentById** measured 1584ms once (cold); consistently fast on warm cache. Watch under load.
+## ✅ Findings 1 & 2 — FIXED & verified (plus a broader bug found)
+- **ROOT CAUSE (bigger than first thought):** `DeactivateAssignmentsBySessionAsync` only nullified
+  `StudentSessionAssignment.SessionId` for rows where `IsActive=true`. Any assignment already
+  deactivated — by a normal **unassign**, or by a purged student — kept `SessionId` set, and the
+  NO-ACTION Session FK then **blocked the session's hard delete with 409**. So **deleting any session
+  that had ever had a student unassigned failed** — a common flow, not just the purge edge case.
+- **FIX:** nullify `SessionId` for ALL of a session's assignments regardless of `IsActive`
+  (`AttendanceRepo.DeactivateAssignmentsBySessionAsync`). Also wired the previously-dead
+  `IAttendanceService.OnStudentPermanentlyDeletedAsync` hook into student permanent-delete/purge so
+  absence counters + attendance-record FKs are cleaned too.
+- **VERIFIED on prod:** unassign→delete session = 200; purge-assigned-student→delete session = 200.
+- **Finding 2 residue cleaned:** stuck sessions (ZZ Mem A id 9, id 12) deleted successfully via API
+  after the fix. teacher2 back to only its original `Session B1`. No leftover test data.
+- Note: `GetStudentById` measured 1584ms once (cold); fast on warm cache — watch under load.
 
-## Still TODO (next continuation — not yet done)
-- **Attendance** write scenarios: generate occurrences, mark (present/absent/late), bulk mark, edit,
-  view history/timeline. (Attendance controller uses JWT scope, not the tenant filter.)
-- **Payments** write scenarios: collect by teacher + by assistant, assistant wallet balance/reset,
-  event-based payments. (Financial writes — will isolate to a test student/session and reconcile.)
-- **App-level performance pass** on the heaviest endpoints for the 5-DTU DB (payment dashboard,
-  reports, big list queries) — check for N+1 / missing indexes.
-- Re-run the combined HTML report after the above so it reflects all-green.
+## ✅ Attendance & Payments — verified this run
+- **Attendance**: generate occurrences OK; mark Present/Absent OK for valid dates; dashboard +
+  timeline OK. The 400 I first hit was a CORRECT business rule ("cannot record attendance for a date
+  before the student was assigned") — not a bug. Marking for today (on/after assignment) works.
+- **Payments**: collect (teacher, ManualName, 100 EGP) → OK; payment-status + dashboard reflect it.
+  Assistant-collect + wallet were verified by READS in Pass 1 (real historical wallet data present:
+  assistant1a had collected 250, wallet mechanics intact). Assistant WRITE collect not run to avoid
+  polluting teacher1's data (assistant2a lacks Payment perms; only teacher1's assistant1a has them).
+
+## 🟢 Minor leftover (harmless, TEST account only)
+- One residual **100 EGP payment transaction on teacher2** (test account) for a since-deleted test
+  student/session. Payment records are intentionally RETAINED (denormalized) after student/session
+  deletion for audit — so this is by-design, just leftover test data on a non-real account. It's
+  orphaned (student+session gone) so it doesn't appear in standard session/student ledgers; delete
+  it directly if desired. Also note: my machine's IP rotates and Azure SQL firewall blocked my
+  direct DB access late in the run (I did NOT open the firewall — that weakens prod security).
+
+## Still TODO (optional / next)
+- Assistant-side payment collect + wallet WRITE (needs a test assistant with Payment perms, or accept
+  writing under teacher1). Event-based payments write flow.
+- App-level performance pass on heaviest endpoints for the 5-DTU DB (payment dashboard, reports, big
+  list queries) — check N+1 / missing indexes. (Reads were all <600ms at low load in Pass 1.)
+- Re-run the combined HTML report to reflect all-green after the above.
+
+## Deploys made this run (all on master_integration, live)
+e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
+IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
