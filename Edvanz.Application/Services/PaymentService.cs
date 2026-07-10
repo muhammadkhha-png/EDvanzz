@@ -1483,7 +1483,14 @@ public class PaymentService : IPaymentService
         var currentPeriod = await _unitOfWork.PaymentsRepo
             .GetEarliestUnpaidPeriodAsync(teacherId, teacherStudentId, sourceSessionId);
 
-        decimal outstanding = counter?.TotalOutstanding ?? 0;
+        // Balance carried to the new session = the student's arrears in the SOURCE session THROUGH
+        // the current month (no proration for a monthly→monthly move: 3 overdue months stay 3, a
+        // paid-through student carries nothing). The all-time counter would wrongly include future
+        // pre-generated months.
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+        decimal outstanding = await _unitOfWork.PaymentsRepo
+            .GetOverdueTotalThroughAsync(teacherId, teacherStudentId, sourceSessionId, monthEnd);
         decimal credit = 0;
         if (currentPeriod is not null && currentPeriod.AmountPaid > currentPeriod.AmountDue)
             credit = currentPeriod.AmountPaid - currentPeriod.AmountDue;
