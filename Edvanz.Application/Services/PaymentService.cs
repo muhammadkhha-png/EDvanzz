@@ -548,6 +548,9 @@ public class PaymentService : IPaymentService
                         await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
                     }
                 }
+
+                // Keep the collecting assistant's wallet in sync with the amount change.
+                await AdjustAssistantWalletAsync(dto.TeacherId, transaction.CollectedByUserId, amountDiff);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -633,6 +636,9 @@ public class PaymentService : IPaymentService
                     await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
                 }
             }
+
+            // Reverse the collecting assistant's wallet — the refunded cash is no longer held by them.
+            await AdjustAssistantWalletAsync(teacherId, transaction.CollectedByUserId, -transaction.AmountPaid);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -1866,6 +1872,41 @@ public class PaymentService : IPaymentService
             {
                 wallet = await _unitOfWork.PaymentsRepo
                     .GetAssistantWalletByUserIdAsync(teacherId, collectedByUserId);
+                if (wallet is null) return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adjusts the collecting assistant's wallet by <paramref name="delta"/> (negative to reverse).
+    /// Used when a collected payment is edited or refunded/deleted so the wallet's held-cash balance
+    /// stays correct. No-op when the collector is not an assistant (e.g. the teacher) or delta is 0.
+    /// Balances are clamped at 0. Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
+    /// </summary>
+    private async Task AdjustAssistantWalletAsync(long teacherId, long? collectedByUserId, decimal delta)
+    {
+        if (collectedByUserId is null || delta == 0m) return;
+
+        var wallet = await _unitOfWork.PaymentsRepo
+            .GetAssistantWalletByUserIdAsync(teacherId, collectedByUserId.Value);
+        if (wallet is null) return; // collector is not an assistant — no wallet to adjust
+
+        for (int retry = 0; retry < PaymentConstants.MaxConcurrencyRetries; retry++)
+        {
+            try
+            {
+                wallet.CurrentBalance += delta;
+                if (wallet.CurrentBalance < 0m) wallet.CurrentBalance = 0m;
+                wallet.TotalCollected += delta;
+                if (wallet.TotalCollected < 0m) wallet.TotalCollected = 0m;
+                await _unitOfWork.PaymentsRepo.UpdateAssistantWalletAsync(wallet);
+                return;
+            }
+            catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException"
+                && retry < PaymentConstants.MaxConcurrencyRetries - 1)
+            {
+                wallet = await _unitOfWork.PaymentsRepo
+                    .GetAssistantWalletByUserIdAsync(teacherId, collectedByUserId.Value);
                 if (wallet is null) return;
             }
         }
