@@ -23,8 +23,9 @@ namespace Edvanz.Application.Services
         private readonly IPaymentService _paymentService;
 
         private readonly IUserAuthInvalidationService _authInvalidation;
+        private readonly ICurrentUserService _currentUser;
 
-        public PermissionService(ITeacherService teacherService, IStringLocalizer<Messages> localizer, IUnitOfWork unitOfWork, IAssistantService _assisstantService, IPaymentService paymentService, IUserAuthInvalidationService authInvalidation)
+        public PermissionService(ITeacherService teacherService, IStringLocalizer<Messages> localizer, IUnitOfWork unitOfWork, IAssistantService _assisstantService, IPaymentService paymentService, IUserAuthInvalidationService authInvalidation, ICurrentUserService currentUser)
         {
             this.teacherService = teacherService;
             this.localizer = localizer;
@@ -32,6 +33,24 @@ namespace Edvanz.Application.Services
             assisstantService = _assisstantService;
             this._paymentService = paymentService;
             _authInvalidation = authInvalidation;
+            _currentUser = currentUser;
+        }
+
+        /// <summary>Tenant guard: true iff the given owning-teacher id matches the caller's teacher
+        /// scope (SuperAdmin always passes). Blocks cross-tenant assistant-permission changes.</summary>
+        private async Task<bool> CallerOwnsTeacherAsync(long ownerTeacherId)
+        {
+            if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
+                return true;
+            var userId = _currentUser.UserId;
+            if (userId is null) return false;
+            long? callerTeacherId = (await unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+            if (callerTeacherId is null)
+            {
+                var asst = await unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+                callerTeacherId = asst?.TeacherAccountId;
+            }
+            return callerTeacherId is not null && ownerTeacherId == callerTeacherId.Value;
         }
         public async Task<Result<List<ModulePermissionsDto>>> GetAvailableTeacherPermissionCatalogue(long teacherId)
         {
@@ -81,6 +100,11 @@ namespace Edvanz.Application.Services
             var assistant = await unitOfWork.AssistantRepo.GetByIdAsync(dto.assistantId);
             if (assistant is null)
                 return Result<string>.Failure(localizer, "AssistantNotFound");
+
+            // Tenant guard: only the owning teacher / SuperAdmin may change this assistant's
+            // permissions (covers PUT update-permissions and POST apply-profile, which both route here).
+            if (!await CallerOwnsTeacherAsync(assistant.TeacherAccountId))
+                return Result<string>.Failure(localizer, "AssistantNotFound", System.Net.HttpStatusCode.NotFound);
 
             var user = await unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
             if (user is null)

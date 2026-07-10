@@ -48,6 +48,18 @@ namespace Edvanz.Application.Services
         {
             try
             {
+                // Tenant isolation: a teacher/assistant may only list THEIR teacher's assistants.
+                // Ignore any teacherId supplied in the request and use the caller's own scope;
+                // SuperAdmin may query the requested teacherId.
+                if (!CallerIsSuperAdmin())
+                {
+                    var callerTeacherId = await ResolveCallerTeacherIdAsync();
+                    if (callerTeacherId is null)
+                        return Result<PaginatedResponse<List<AssistantListDto>>>.Failure(
+                            localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+                    req.teacherId = callerTeacherId.Value;
+                }
+
                 var (assistants, totalCount) = await _unitOfWork.AssistantRepo
                     .GetListAssistantsPerTeacher(
                         teacherId: req.teacherId,
@@ -100,12 +112,47 @@ namespace Edvanz.Application.Services
                     HttpStatusCode.InternalServerError);
             }
         }
+        /// <summary>
+        /// Tenant guard: true iff the given assistant belongs to the caller's teacher scope
+        /// (SuperAdmin always passes). Prevents one teacher from reading/mutating another teacher's
+        /// assistants via the assistantId route parameter (cross-tenant IDOR). Callers should treat
+        /// a false result as not-found so the assistant's existence is not leaked.
+        /// </summary>
+        private bool CallerIsSuperAdmin() =>
+            string.Equals(currentUserService.Role, "SuperAdmin", StringComparison.Ordinal);
+
+        /// <summary>Resolves the caller's teacher scope from the JWT (teacher's own id, or an
+        /// assistant's owning teacher). Null when the caller maps to no teacher.</summary>
+        private async Task<long?> ResolveCallerTeacherIdAsync()
+        {
+            var userId = currentUserService.UserId;
+            if (userId is null) return null;
+
+            long? callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+            if (callerTeacherId is null)
+            {
+                var callerAsst = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+                callerTeacherId = callerAsst?.TeacherAccountId;
+            }
+            return callerTeacherId;
+        }
+
+        private async Task<bool> CallerOwnsAssistantAsync(Assistant assistant)
+        {
+            if (CallerIsSuperAdmin()) return true;
+            var callerTeacherId = await ResolveCallerTeacherIdAsync();
+            return callerTeacherId is not null && assistant.TeacherAccountId == callerTeacherId.Value;
+        }
+
         public async Task<Result<AssistantDto>> GetByAssistantIdAsync(long id)
         {
             var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithPermissionsAsync(id);
 
             if (assistant == null)
                 return Result<AssistantDto>.Failure(localizer, "UserNotFound");
+
+            if (!await CallerOwnsAssistantAsync(assistant))
+                return Result<AssistantDto>.Failure(localizer, "UserNotFound", HttpStatusCode.NotFound);
 
             if (assistant.User == null)
                 return Result<AssistantDto>.Failure(localizer, "UserDataNotFound");
@@ -349,6 +396,10 @@ namespace Edvanz.Application.Services
             if (assistant is null)
                 return Result<string?>.Failure(localizer, "AssistantNotFound");
 
+            // Tenant guard: only the owning teacher (or SuperAdmin) may update this assistant.
+            if (!await CallerOwnsAssistantAsync(assistant))
+                return Result<string?>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
+
             var user = await _unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
             if (user is null)
                 return Result<string?>.Failure(localizer, "UserNotFound");
@@ -496,6 +547,9 @@ namespace Edvanz.Application.Services
             if (assistant is null)
                 return Result<string>.Failure(localizer, "AssistantNotFound");
 
+            // -- 2. Tenant guard: only the owning teacher (or SuperAdmin) may change status -----
+            if (!await CallerOwnsAssistantAsync(assistant))
+                return Result<string>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
 
             // -- 3. Fetch linked user -------------------------------------------------
             var user = await _unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
@@ -568,11 +622,9 @@ namespace Edvanz.Application.Services
             if (assistant is null)
                 return Result<List<LoginActivityDto>>.Failure(localizer, "AssistantNotFound");
 
-            //// -- 2. Ownership check ---------------------------------------------------
-            //var isSuperAdmin = currentUserService.Role == nameof(UserType.SuperAdmin);
-
-            //if (!isSuperAdmin && assistant.TeacherAccountId != currentUserService.TeacherId)
-            //    return Result<List<LoginActivityDto>>.Failure(localizer, "UnauthorizedTeacher");
+            // -- 2. Tenant guard (re-enabled): only the owning teacher / SuperAdmin ----
+            if (!await CallerOwnsAssistantAsync(assistant))
+                return Result<List<LoginActivityDto>>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
 
             // -- 3. Fetch logs --------------------------------------------------------
             var logs = await _unitOfWork.GetRepository<LoginActivityAssistantLog, long>()

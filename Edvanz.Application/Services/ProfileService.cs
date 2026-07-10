@@ -19,12 +19,31 @@ namespace Edvanz.Application.Services
         private readonly IStringLocalizer<Messages> localizer;
 
         private readonly IUserAuthInvalidationService _authInvalidation;
+        private readonly ICurrentUserService _currentUser;
 
-        public ProfileService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> _localizer, IUserAuthInvalidationService authInvalidation)
+        public ProfileService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> _localizer, IUserAuthInvalidationService authInvalidation, ICurrentUserService currentUser)
         {
             _unitOfWork = unitOfWork;
             localizer = _localizer;
             _authInvalidation = authInvalidation;
+            _currentUser = currentUser;
+        }
+
+        /// <summary>Tenant guard: true iff the given permission profile (template) belongs to the
+        /// caller's teacher scope (SuperAdmin always passes). Prevents cross-tenant profile access.</summary>
+        private async Task<bool> CallerOwnsTeacherAsync(long ownerTeacherId)
+        {
+            if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
+                return true;
+            var userId = _currentUser.UserId;
+            if (userId is null) return false;
+            long? callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
+            if (callerTeacherId is null)
+            {
+                var asst = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(userId.Value);
+                callerTeacherId = asst?.TeacherAccountId;
+            }
+            return callerTeacherId is not null && ownerTeacherId == callerTeacherId.Value;
         }
         public async Task<Result<List<ProfilePermissionDto>>> GetAllProfilesWithPermissionsPerTeacherAsync(long teacherId)
         {
@@ -55,6 +74,9 @@ namespace Edvanz.Application.Services
 
             if (template is null)
                 return Result<ProfilePermissionDto>.Failure(localizer, "ProfileNotFound");
+
+            if (!await CallerOwnsTeacherAsync(template.TeacherId))
+                return Result<ProfilePermissionDto>.Failure(localizer, "ProfileNotFound", System.Net.HttpStatusCode.NotFound);
 
             var result = new ProfilePermissionDto
             {
@@ -138,7 +160,11 @@ namespace Edvanz.Application.Services
             if (template is null)
                 return Result<string>.Failure(localizer, "ProfileNotFound");
 
-            
+            // Tenant guard: only the owning teacher / SuperAdmin may update this profile.
+            if (!await CallerOwnsTeacherAsync(template.TeacherId))
+                return Result<string>.Failure(localizer, "ProfileNotFound", System.Net.HttpStatusCode.NotFound);
+
+
 
             // -- 3. name uniqueness (excluding current template) ---------------------
             if (!string.IsNullOrWhiteSpace(dto.profileName) &&
@@ -311,7 +337,11 @@ namespace Edvanz.Application.Services
             if (template is null)
                 return Result<string>.Failure(localizer, "ProfileNotFound");
 
-            
+            // Tenant guard: only the owning teacher / SuperAdmin may delete this profile.
+            if (!await CallerOwnsTeacherAsync(template.TeacherId))
+                return Result<string>.Failure(localizer, "ProfileNotFound", System.Net.HttpStatusCode.NotFound);
+
+
 
             await _unitOfWork.BeginTransactionAsync();
 
