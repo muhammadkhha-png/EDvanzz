@@ -40,6 +40,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      # Inject the DB connection string into Azure App Service configuration from the secret, so it
+      # is NEVER committed to the repo (appsettings.Production.json intentionally has no "con").
+      # Runs BEFORE deploy and fail-fast: if it errors, the job stops and the running app is left
+      # untouched. Idempotent — sets the same app setting every deploy.
+      - name: Set DB connection string in App Service config
+        run: |
+          RG=$(az webapp list --query "[?name=='app-edvanz-api-prod'].resourceGroup | [0]" -o tsv)
+          if [ -z "$RG" ]; then echo "Could not resolve resource group for app-edvanz-api-prod"; exit 1; fi
+          echo "Resource group: $RG"
+          az webapp config appsettings set \
+            --name app-edvanz-api-prod --resource-group "$RG" \
+            --settings "ConnectionStrings__con=${{ secrets.PROD_SQL_CONNECTION }}" \
+            --output none
+          echo "App setting ConnectionStrings__con configured."
+
       # Apply the migration script to Azure SQL. azure/sql-action opens a temporary firewall rule
       # for the runner using the azure/login session above and removes it afterwards.
       # Requires repo secret PROD_SQL_CONNECTION (an ADO.NET connection string to the prod DB).
