@@ -89,6 +89,28 @@ _Autonomous run while you slept. Goal: MVP with 0 issues (logic, tenant isolatio
   list queries) — check N+1 / missing indexes. (Reads were all <600ms at low load in Pass 1.)
 - Re-run the combined HTML report to reflect all-green after the above.
 
+## ✅ Membership / attendance / payment deep-dive (answering your specific questions)
+All verified live on prod (teacher2 + a temp test assistant), then cleaned up:
+1. **Session links (membership)** — create/remove OK.
+2. **Attendance across linked sessions** — marking a student (whose home session is B) inside linked
+   session A works; recorded as `CrossSessionPresent` with the cross-session reference. ✅
+3. **Attendance list scoping** — session A's list shows members of A **and** linked session B, and
+   EXCLUDES unrelated students. ✅ (exactly what you asked — not all students.)
+4. **Edit attendance** — works (Present→Absent, `isEdited=true`, edit-history entry). ✅
+5. **Assistant collect** — works; assistant wallet correctly **credited** (balance 200). ✅
+6. **Edit payment** — works.
+7. **Refund / take money back** (delete transaction) — works; period + counter reversed.
+8. **Withdraw** (wallet reset) — works.
+
+### 🔴🔴 CRITICAL financial bug FOUND & FIXED (your suspicion was right)
+- The assistant **wallet was NOT adjusted on payment edit or refund/delete**. After a refund the
+  wallet still showed the cash as held — the assistant would be asked to hand over money already
+  returned to the student. **FIXED** (`AdjustAssistantWalletAsync` now called on edit ±diff and on
+  delete −amount). **VERIFIED live:** collect 200→wallet 200; edit→150→wallet 150; refund→wallet 0.
+- Bonus bug found while cleaning up: **a session that had payment history couldn't be deleted (409)**
+  — soft-deleted (refunded) payment transactions still referenced the session (query filter skipped
+  them). **FIXED** (`NullifySessionIdOnPaymentRecordsAsync` now `IgnoreQueryFilters`). Verified.
+
 ## Deploys made this run (all on master_integration, live)
 e7f7628 bulk-import perf + IDOR filter · f0fda5c assistant resolution fix · ae73958 body-teacherId
 IDOR · ce182a3 attendance hook on student purge · 714013f session-delete 409 fix. All verified live.
