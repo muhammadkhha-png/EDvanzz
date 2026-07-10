@@ -46,6 +46,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<IReadOnlyList<PaymentTransaction>> GetTransactionsByPeriodAsync(long paymentPeriodId);
 
     /// <summary>
+    /// Returns the CollectedByUserId of the most recent non-deleted payment the student made for the
+    /// given session — i.e. who is holding the cash. Used to attribute a departure refund back to the
+    /// correct assistant wallet. Null when there is no such payment (or it was collected by the tutor).
+    /// </summary>
+    Task<long?> GetLatestCollectorUserIdForStudentSessionAsync(long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>
     /// Gets transactions by a student on a specific local date.
     /// REQ-PAY-020: Same-day duplicate detection.
     /// </summary>

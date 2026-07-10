@@ -1327,6 +1327,12 @@ public class PaymentService : IPaymentService
             if (studentToUnassign is not null)
             {
                 studentToUnassign.SessionId = null;
+                // Frontend choice: also soft-delete the student (recycle bin) on departure.
+                if (dto.DeleteStudent)
+                {
+                    studentToUnassign.IsDeleted = true;
+                    studentToUnassign.DeletedAt = DateTime.UtcNow;
+                }
                 await _unitOfWork.Students.UpdateAsync(studentToUnassign);
             }
 
@@ -1335,7 +1341,13 @@ public class PaymentService : IPaymentService
             // If amount owed, record as outstanding balance flagged for collection
             if (summary.DepartureOutcome == DepartureOutcome.RefundDue && finalAmount > 0)
             {
-                // Outstanding refund tracked via departure record — tutor settles manually
+                // Auto-refund: the refunded cash is returned to the student, so deduct it from the
+                // wallet of the assistant who collected it (held cash decreases). No-op when the
+                // tutor collected (they have no wallet) — the refund is then just recorded.
+                var collectorUserId = await _unitOfWork.PaymentsRepo
+                    .GetLatestCollectorUserIdForStudentSessionAsync(
+                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+                await AdjustAssistantWalletAsync(dto.TeacherId, collectorUserId, -finalAmount);
             }
             else if (summary.DepartureOutcome == DepartureOutcome.AmountOwed && finalAmount > 0)
             {

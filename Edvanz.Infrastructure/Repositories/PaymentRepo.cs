@@ -1293,6 +1293,20 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     /// <inheritdoc />
     /// Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
     /// Same pattern as AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync (Step 1.2).
+    public async Task<long?> GetLatestCollectorUserIdForStudentSessionAsync(
+        long teacherId, long teacherStudentId, long sessionId)
+    {
+        return await _context.PaymentTransactions
+            .Where(t => t.TeacherId == teacherId
+                     && t.TeacherStudentId == teacherStudentId
+                     && t.SessionId == sessionId
+                     && !t.IsDeleted)
+            .OrderByDescending(t => t.Id)
+            .Select(t => t.CollectedByUserId)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
     public async Task NullifySessionIdOnPaymentRecordsAsync(long sessionId)
     {
         // IgnoreQueryFilters so SOFT-DELETED records are nullified too. A refunded/deleted payment

@@ -470,6 +470,13 @@ public class ConfirmDepartureDto
     public long SessionId { get; set; }
     public decimal? OverrideAmount { get; set; }
     public long ConfirmedByUserId { get; set; }
+
+    /// <summary>
+    /// Optional (defaults false — existing clients unaffected). When true, the student is also
+    /// soft-deleted (moved to the recycle bin) as part of the departure, not just unassigned.
+    /// When false, the departure only unassigns the student and processes the refund.
+    /// </summary>
+    public bool DeleteStudent { get; set; } = false;
 }
 
 /// <summary>
