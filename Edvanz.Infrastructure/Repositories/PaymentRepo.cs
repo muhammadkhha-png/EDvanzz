@@ -1114,8 +1114,10 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             PaymentType? paymentType,
             DateTime? startDate, DateTime? endDate)
     {
+        // Exclude orphaned periods (TeacherStudentId nulled when a student is permanently purged) —
+        // they are no active student's obligation and must never inflate expected/collected.
         var periodQuery = _context.PaymentPeriods
-            .Where(p => p.TeacherId == teacherId);
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null);
 
         if (sessionId.HasValue)
             periodQuery = periodQuery.Where(p => p.SessionId == sessionId.Value);
@@ -1152,8 +1154,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             PaymentType? paymentType,
             DateTime? startDate, DateTime? endDate)
     {
+        // Exclude orphaned periods (student purged → TeacherStudentId nulled) from per-session totals.
         var query = _context.PaymentPeriods
-            .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue);
+            .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue && p.TeacherStudentId != null);
 
         if (sessionGroupId.HasValue)
             query = query.Where(p =>
