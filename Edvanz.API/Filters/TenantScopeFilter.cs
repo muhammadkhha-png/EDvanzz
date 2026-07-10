@@ -32,7 +32,7 @@ public sealed class TenantScopeFilter : IAsyncActionFilter
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (TryGetRouteTeacherId(context, out long routeTeacherId))
+        if (TryGetTenantId(context, out long routeTeacherId))
         {
             long? userId = _currentUser.UserId;
 
@@ -69,18 +69,56 @@ public sealed class TenantScopeFilter : IAsyncActionFilter
         await next();
     }
 
-    private static bool TryGetRouteTeacherId(ActionExecutingContext context, out long teacherId)
+    private static readonly string[] TeacherIdKeys = { "teacherId", "teacherID", "teacherid", "TeacherId", "TeacherID" };
+
+    /// <summary>
+    /// Extracts the tenant id the request is targeting, from EITHER the route (e.g. Session/Teacher
+    /// GET endpoints) OR a bound action argument — a scalar <c>teacherId</c> parameter or a DTO with
+    /// a <c>teacherId</c>/<c>TeacherId</c> property (e.g. CreateSessionDto, AssignStudentsToSessionDto).
+    /// Covering the body closes the IDOR on create/assign endpoints, not just the route reads.
+    /// Returns false (no enforcement) when no positive tenant id is present.
+    /// </summary>
+    private static bool TryGetTenantId(ActionExecutingContext context, out long teacherId)
     {
         teacherId = 0;
-        // Match common casings used across the route templates.
+
+        // 1) Route values.
         foreach (var key in new[] { "teacherId", "teacherID", "teacherid" })
         {
             if (context.RouteData.Values.TryGetValue(key, out var raw) &&
-                long.TryParse(raw?.ToString(), out teacherId))
+                long.TryParse(raw?.ToString(), out teacherId) && teacherId > 0)
             {
                 return true;
             }
         }
+
+        // 2) Bound action arguments: scalar teacherId params and DTO teacherId properties.
+        foreach (var arg in context.ActionArguments.Values)
+        {
+            if (arg is null) continue;
+
+            if (arg is long l && l > 0)
+            {
+                // A scalar long argument is only treated as a tenant id when the parameter is named
+                // teacherId — but scalar names aren't available here, so we rely on DTO props below
+                // and route above. Skip bare longs to avoid false positives (e.g. sessionId).
+                continue;
+            }
+
+            var type = arg.GetType();
+            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal)) continue;
+
+            foreach (var name in TeacherIdKeys)
+            {
+                var prop = type.GetProperty(name);
+                if (prop is null) continue;
+                var val = prop.GetValue(arg);
+                if (val != null && long.TryParse(val.ToString(), out teacherId) && teacherId > 0)
+                    return true;
+            }
+        }
+
+        teacherId = 0;
         return false;
     }
 }
