@@ -9,6 +9,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/permission-profiles")]
     [ApiController]
+    [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class ProfileController : ApiBaseController
     {
         private readonly IProfileService _profileService;
@@ -21,14 +22,14 @@ namespace Edvanz.API.Controllers
         // ── GET /api/permission-profiles ─────────────────────────────────────
         // Get all profiles per teacher — teacherId from JWT (REQ-USR-014)
         // Access: Teacher | SuperAdmin
-        [HttpGet("teacher/{id:long}")]
+        [HttpGet("teacher/{teacherId:long}")]
         [ProducesResponseType(typeof(List<ProfilePermissionDto>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetAll(long id)
+        public async Task<IActionResult> GetAll(long teacherId)
         {
-          
-
+            // Route param renamed id -> teacherId (same URL) so the tenant filter validates it
+            // against the caller and blocks cross-tenant reads of another teacher's profiles.
             var result = await _profileService
-                .GetAllProfilesWithPermissionsPerTeacherAsync(id);
+                .GetAllProfilesWithPermissionsPerTeacherAsync(teacherId);
 
             return ToResponse(result);
         }

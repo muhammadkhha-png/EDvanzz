@@ -18,6 +18,7 @@ namespace Edvanz.API.Controllers
     [Route("api/[controller]")]
     [ApiController]
     //[Authorize]
+    [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class MessagingController : ApiBaseController
     {
         private readonly IMessagingChannelService _channelService;

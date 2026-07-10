@@ -13,6 +13,7 @@ namespace Edvanz.API.Controllers
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class AuditTrialController : ApiBaseController
     {
         private readonly IAudittrialService auditTrialService;

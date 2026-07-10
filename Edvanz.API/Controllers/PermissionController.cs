@@ -12,6 +12,7 @@ namespace Edvanz.API.Controllers
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
+    [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class PermissionController : ApiBaseController
     {
         private readonly IPermissionService _permissionService;
@@ -53,11 +54,13 @@ namespace Edvanz.API.Controllers
 
 
        
-        [HttpGet("teacher/{id}")]
+        [HttpGet("teacher/{teacherId}")]
         [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-        public async Task<IActionResult> GetAvailablePermissionsPerTeacher(long id)
+        public async Task<IActionResult> GetAvailablePermissionsPerTeacher(long teacherId)
         {
-            var res = await _permissionService.GetAvailableTeacherPermissionCatalogue(id);
+            // Route param renamed id -> teacherId (same URL) so the tenant filter blocks a teacher
+            // from reading another teacher's permission catalogue.
+            var res = await _permissionService.GetAvailableTeacherPermissionCatalogue(teacherId);
             return ToResponse(res);
         }
 
