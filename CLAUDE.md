@@ -317,6 +317,68 @@ exponential backoff. Throw on failure so Hangfire records and retries.
 Proposed split into five partial files. **Scope decision pending** — confirm before
 proceeding.
 
+### 7.4 Payment Module — Business Logic (authoritative)
+
+The payment screens (`PaymentScreenService` over the `api/v1/*` routes, plus
+`PaymentController`/`PaymentService` for `api/Payment/*`) follow these rules. The
+API response shapes are fixed (frontend contract) — change logic, never payloads.
+
+**Periods & the "selected month".** On assignment, one `PaymentPeriod` per month is
+generated from the join month to the session end (monthly sessions), so **future
+months exist as `Unpaid` rows up front**. Therefore every paid/unpaid/prorated/
+outstanding computation must be judged **only through the month the screen is looking
+at** — filter `PeriodStart <= selectedMonthEnd`. Never derive buckets/arrears from the
+all-time `StudentPaymentCounter` (it counts future months). Repo helpers:
+`GetUnpaidPeriodsThroughAsync`, `GetOverdueTotalThroughAsync`. Screens with no explicit
+month use the teacher's **current local (Africa/Cairo) month** via `ITimeZoneService`.
+
+**Status buckets (through the selected month).** `Paid` = caught up through that month;
+`Unpaid` = any unpaid month ≤ that month; `Partial` = that month partly paid;
+`Prorated` = the prorated first month **only when the teacher has proration enabled**.
+
+**Collection engine (`CollectPaymentAsync`, monthly sessions).** A payment fills the
+**oldest unpaid month first and cascades forward** across months; each cleared month is
+attributed to its own period, while **one** `PaymentTransaction` records the whole cash
+event (dated now). Advance is capped at **current month + 1** (end of next month); cash
+beyond that is rejected with `PaymentAmountExceedsAdvanceLimit` (422). Partial payments
+allowed (a short month stays `PartiallyPaid`). The counter advances
+`TotalPaidPeriods`/`TotalUnpaidPeriods` by the number of months a single collection fully
+cleared. **Per-session (per-class) billing keeps its original single-period behavior** —
+the monthly rules apply to `PaymentType.Monthly` only. `mark-paid` and the collect
+`lookup.AmountDue` use the **server-computed total arrears through the current month**,
+not a single month or a client-supplied amount.
+
+**Dashboards = actual cash.** Dashboard/wallet "collected this month" is **actual cash
+physically collected this calendar month** (by transaction date, net of refunds via the
+`!IsDeleted` filter), so it can exceed "expected" when students pay arrears or one month
+ahead. "Expected" stays period-based (assigned students × their monthly amount). Repo:
+`GetCashCollectedInRangeAsync`. The shared `GetDashboardAggregatesAsync` is period-based
+and reused by reports — do not switch it to cash; add a dedicated method instead. All
+per-session dashboard figures are month-scoped (`GetSessionMonthCollectionAsync`,
+`GetAssignedStudentCountsPerSessionAsync`); `TotalStudents` = students assigned to a
+session (`CountAssignedStudentsAsync`).
+
+**Assistant wallet & refunds.** Wallet rises on collect, falls on refund; a **refund**
+(a `Deleted`/`Reversed` `PaymentEditLog` on a transaction) is deducted from the
+**original collector** and shown in that collector's **month log as a negative-amount
+entry** in the same list as collections (`GetCollectorTransactionsInRangeAsync` +
+`GetCollectorRefundsInRangeAsync`, merged). `TotalCashCollected` = money in − money out
+for the month. **Withdraw** = tutor taking cash (a `WalletResetLog`), reduces
+`CurrentBalance` only, distinct from a refund.
+
+**Transfer between sessions.** No proration on monthly→monthly; the carried balance is
+the source session's **arrears through the current month** (`GetOverdueTotalThroughAsync`,
+not the all-time counter), written as one `IsCarriedForward` period in the destination.
+
+**Purge.** Permanently deleting a student **deletes** its `PaymentPeriods`
+(`OnStudentPermanentlyDeletedAsync`) — do not orphan them (nulled periods leak their
+`AmountDue` into aggregates). The `PaymentTransaction→PaymentPeriod` FK is
+`ON DELETE SET NULL`, so audit transactions survive with denormalized data. Dashboard
+aggregates also defensively exclude `TeacherStudentId == null` periods.
+
+**Aggregates exclude orphans.** Any period-summing query that feeds a total must ignore
+`TeacherStudentId == null` rows.
+
 ---
 
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
@@ -327,6 +389,8 @@ proceeding.
 | BUG-2 | `GenericRepo.UpdateAsync` / `DeleteAsync` | EF Core `Entry().State` and `Remove()` are synchronous; async signature kept for convention but `await Task.CompletedTask` added. |
 | BUG-3 | `PaymentRepo.UpdatePaymentCounterAsync` | Was forcing `EntityState.Modified` on a freshly-`Added` entity. Fixed with state guard. |
 | BUG-4 | EF FK/annotation coexistence | `[ForeignKey]` + Fluent `OnDelete` silently drops `OnDelete`. Fluent API is sole authority. |
+| BUG-5 | Payment buckets counted future months | Paid/unpaid/outstanding derived from all periods (incl. pre-generated future months) → everyone read as unpaid. Now judged through the selected month. See §7.4. |
+| BUG-6 | Purge orphaned payment periods | Permanent student delete nulled `PaymentPeriods.TeacherStudentId`, leaving orphans that leaked `AmountDue` into dashboards. Now periods are deleted on purge; aggregates also exclude null-student rows. See §7.4. |
 
 ---
 
