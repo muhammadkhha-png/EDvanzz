@@ -631,13 +631,20 @@ public class TeacherStudentService : ITeacherStudentService
         // FIX GAP-2: Determine if the teacher uses manual code entry
         bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
 
-        // Resolve the optional bulk session assignment once, up front. Null → no assignment.
-        // A non-null id that does not resolve to a session owned by this teacher is ignored
-        // (students still import, just unassigned) — per the "neglect if wrong session id" rule.
-        Session? assignSession = null;
-        if (dto.SessionId.HasValue)
-            assignSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
-        long? assignSessionId = assignSession?.Id;
+        // Session assignment can be specified per-row (BulkImportStudentRowDto.SessionId) and/or as
+        // an envelope-level default (dto.SessionId) applied to rows that omit their own. Each
+        // distinct id is resolved to an owned session exactly once and cached; a null or non-owned
+        // id is neglected (row imports unassigned) — per the "neglect if wrong session id" rule.
+        // BR-SES-002: one session per student.
+        var sessionCache = new Dictionary<long, Session?>();
+        async Task<Session?> ResolveOwnedSessionAsync(long? sessionId)
+        {
+            if (!sessionId.HasValue) return null;
+            if (sessionCache.TryGetValue(sessionId.Value, out var cached)) return cached;
+            var resolved = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId.Value, teacherId);
+            sessionCache[sessionId.Value] = resolved;
+            return resolved;
+        }
 
         // 2. Check capacity
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
@@ -646,6 +653,16 @@ public class TeacherStudentService : ITeacherStudentService
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
         var validStudents = new List<TeacherStudent>();
         var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Phone numbers claimed by earlier rows in THIS batch. The DB enforces uniqueness of
+        // (TeacherId, StudentPhoneNumber) and (TeacherId, ParentPhoneNumber); catching duplicates
+        // here as per-row failures stops a single collision from aborting the whole transaction
+        // with one opaque 409. Mirrors the within-batch student-code dedupe.
+        var usedStudentPhones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedParentPhones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Resolved session per finalized student, consumed by the assignment hooks after insert.
+        var studentSessions = new Dictionary<TeacherStudent, Session>();
+        // Original 1-based sheet row number per finalized student, for the success report.
+        var studentRowNumbers = new Dictionary<TeacherStudent, int>();
         // Auto-code rows are collected here and assigned codes in ONE batched generation after the
         // validation loop (see GenerateSequentialCodesAsync) — generating per row re-queries the DB
         // and spins, which made even a 4-row import take >60s on the Basic-tier DB.
@@ -669,6 +686,36 @@ public class TeacherStudentService : ITeacherStudentService
                 });
                 continue;
             }
+
+            // Reject phone numbers already claimed by an earlier row in this batch before they
+            // reach the DB, where the unique index would otherwise abort the whole transaction.
+            string? rowStudentPhone = NormalizePhone(row.StudentPhoneNumber);
+            if (rowStudentPhone is not null && !usedStudentPhones.Add(rowStudentPhone))
+            {
+                result.Failures.Add(new BulkImportFailureDto
+                {
+                    RowNumber = rowNumber,
+                    StudentName = row.StudentName,
+                    StudentCode = row.StudentCode,
+                    Reason = _localizer["StudentPhoneAlreadyExists"]
+                });
+                continue;
+            }
+            string? rowParentPhone = NormalizePhone(row.ParentPhoneNumber);
+            if (rowParentPhone is not null && !usedParentPhones.Add(rowParentPhone))
+            {
+                result.Failures.Add(new BulkImportFailureDto
+                {
+                    RowNumber = rowNumber,
+                    StudentName = row.StudentName,
+                    StudentCode = row.StudentCode,
+                    Reason = _localizer["ParentPhoneAlreadyExists"]
+                });
+                continue;
+            }
+
+            // Row-level session id wins; the envelope id is the default for rows that omit it.
+            var rowSession = await ResolveOwnedSessionAsync(row.SessionId ?? dto.SessionId);
 
             // Resolve student code
             string studentCode;
@@ -745,14 +792,16 @@ public class TeacherStudentService : ITeacherStudentService
                     TeacherId = teacherId,
                     StudentName = row.StudentName.Trim(),
                     HashedToken = GenerateHashedToken(),
-                    StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
-                    ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
-                    SessionId = assignSessionId,
+                    StudentPhoneNumber = rowStudentPhone,
+                    ParentPhoneNumber = rowParentPhone,
+                    SessionId = rowSession?.Id,
                     IsDeleted = false,
                     CreateAt = DateTime.UtcNow
                 };
                 validStudents.Add(autoStudent);
                 pendingAutoCode.Add(autoStudent);
+                studentRowNumbers[autoStudent] = rowNumber;
+                if (rowSession is not null) studentSessions[autoStudent] = rowSession;
                 continue;
             }
 
@@ -765,15 +814,17 @@ public class TeacherStudentService : ITeacherStudentService
                 StudentName = row.StudentName.Trim(),
                 StudentCode = studentCode,
                 HashedToken = GenerateHashedToken(),
-                StudentPhoneNumber = NormalizePhone(row.StudentPhoneNumber),
-                ParentPhoneNumber = NormalizePhone(row.ParentPhoneNumber),
+                StudentPhoneNumber = rowStudentPhone,
+                ParentPhoneNumber = rowParentPhone,
                 Barcode = studentCode, // REQ-STU-054: Auto-generate barcode
-                SessionId = assignSessionId,
+                SessionId = rowSession?.Id,
                 IsDeleted = false,
                 CreateAt = DateTime.UtcNow
             };
 
             validStudents.Add(student);
+            studentRowNumbers[student] = rowNumber;
+            if (rowSession is not null) studentSessions[student] = rowSession;
         }
 
         // Assign auto-generated codes for all deferred rows in ONE batched DB read, skipping any that
@@ -812,23 +863,34 @@ public class TeacherStudentService : ITeacherStudentService
                 await _unitOfWork.Students.AddRangeAsync(validStudents);
                 await _unitOfWork.SaveChangesAsync(); // materialize student Ids for the assignment hooks
 
-                // When a valid session was supplied, wire each imported student into the
-                // attendance/payment integration (assignment record + absence counter + payment
-                // periods). Without this the students carry SessionId but never appear on the
-                // attendance roster, which is driven by StudentSessionAssignments.
-                if (assignSession is not null)
+                // Wire each imported student that resolved to a session into the attendance/payment
+                // integration (assignment record + absence counter + payment periods). Without this
+                // the student carries SessionId but never appears on the attendance roster, which is
+                // driven by StudentSessionAssignments. Each student uses its own resolved session.
+                if (studentSessions.Count > 0)
                 {
                     foreach (var s in validStudents)
                     {
+                        if (!studentSessions.TryGetValue(s, out var session))
+                            continue;
                         await _attendanceService.OnStudentAssignedToSessionAsync(
-                            teacherId, s.Id, assignSession.Id, assignSession.SessionName);
+                            teacherId, s.Id, session.Id, session.SessionName);
                         await _paymentService.OnStudentAssignedToSessionAsync(
-                            teacherId, s.Id, assignSession.Id, assignSession.SessionName, DateTime.UtcNow);
+                            teacherId, s.Id, session.Id, session.SessionName, DateTime.UtcNow);
                     }
                     await _unitOfWork.SaveChangesAsync();
                 }
 
                 await _unitOfWork.CommitAsync();
+            }
+            catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
+            {
+                // A phone/code collision against EXISTING (already-committed) students — the
+                // within-batch dedupe above only catches duplicates inside this request. Roll back
+                // and surface the specific field conflict instead of the generic 409 the exception
+                // middleware would otherwise produce from a raw DbUpdateException.
+                await _unitOfWork.RollbackAsync();
+                return Result<BulkImportResultDto>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
             }
             catch
             {
@@ -840,6 +902,25 @@ public class TeacherStudentService : ITeacherStudentService
 
         result.SuccessCount = validStudents.Count;
         result.FailedCount = result.Failures.Count;
+
+        // Itemize the imported students (ids are materialized post-commit) so the client can render
+        // a full "imported" list — with the resolved code and assigned session — beside the failures.
+        result.Succeeded = validStudents
+            .Select(s =>
+            {
+                studentSessions.TryGetValue(s, out var session);
+                return new BulkImportSuccessDto
+                {
+                    RowNumber = studentRowNumbers.TryGetValue(s, out var rn) ? rn : 0,
+                    StudentId = s.Id,
+                    StudentName = s.StudentName,
+                    StudentCode = s.StudentCode,
+                    SessionId = session?.Id,
+                    SessionName = session?.SessionName
+                };
+            })
+            .OrderBy(x => x.RowNumber)
+            .ToList();
 
         return Result<BulkImportResultDto>.Success(result, _localizer, "BulkImportComplete");
     }

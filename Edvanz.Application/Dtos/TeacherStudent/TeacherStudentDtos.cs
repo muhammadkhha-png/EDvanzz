@@ -114,6 +114,15 @@ public class BulkImportStudentRowDto
     /// REQ-STU-CODE-006: Format validation applied to manually provided codes.
     /// </summary>
     public string? StudentCode { get; set; }
+
+    /// <summary>
+    /// Optional session to assign this specific row to. Takes precedence over the envelope-level
+    /// <see cref="BulkImportTeacherStudentsDto.SessionId"/>, which is used as the default for rows
+    /// that omit their own. Null (and no envelope default) → imported unassigned. A non-null id
+    /// that does not resolve to a session owned by this teacher is ignored (row imports unassigned)
+    /// — per the "neglect if wrong session id" rule. BR-SES-002: one session per student.
+    /// </summary>
+    public long? SessionId { get; set; }
 }
 
 /// <summary>
@@ -122,10 +131,11 @@ public class BulkImportStudentRowDto
 public class BulkImportTeacherStudentsDto
 {
     /// <summary>
-    /// Optional session to assign every imported student to.
+    /// Optional default session applied to every row that does not specify its own
+    /// <see cref="BulkImportStudentRowDto.SessionId"/> (which takes precedence).
     /// BR-SES-002: A student may only be assigned to one session at a time.
-    /// Null → students are imported unassigned. If the id does not resolve to a
-    /// session owned by this teacher it is ignored (students imported unassigned).
+    /// Null → rows without a row-level session are imported unassigned. If the id does not
+    /// resolve to a session owned by this teacher it is ignored (imported unassigned).
     /// </summary>
     public long? SessionId { get; set; }
 
@@ -336,6 +346,49 @@ public class BulkImportResultDto
     /// REQ-STU-UX-014: Color-coded summary with failure reasons.
     /// </summary>
     public List<BulkImportFailureDto> Failures { get; set; } = new();
+
+    /// <summary>
+    /// Details of each successfully imported student — id, resolved code, and the session
+    /// (if any) it was assigned to. Lets the client render an itemized "imported" list
+    /// alongside <see cref="Failures"/>, not just a count. REQ-STU-019 / REQ-STU-UX-014.
+    /// </summary>
+    public List<BulkImportSuccessDto> Succeeded { get; set; } = new();
+}
+
+/// <summary>
+/// Detail of a single successfully imported student during bulk import.
+/// </summary>
+public class BulkImportSuccessDto
+{
+    /// <summary>
+    /// 1-based row number from the import sheet (matches <see cref="BulkImportFailureDto.RowNumber"/>).
+    /// </summary>
+    public int RowNumber { get; set; }
+
+    /// <summary>
+    /// The persisted student id.
+    /// </summary>
+    public long StudentId { get; set; }
+
+    /// <summary>
+    /// The imported student's name.
+    /// </summary>
+    public string StudentName { get; set; } = null!;
+
+    /// <summary>
+    /// The student's code — either the one supplied in the row or the auto-generated code.
+    /// </summary>
+    public string StudentCode { get; set; } = null!;
+
+    /// <summary>
+    /// The session the student was assigned to, or null if imported unassigned.
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>
+    /// The assigned session's name, or null if imported unassigned.
+    /// </summary>
+    public string? SessionName { get; set; }
 }
 
 /// <summary>
