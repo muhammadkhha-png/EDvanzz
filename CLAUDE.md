@@ -448,3 +448,5 @@ Always cross-reference code comments to the relevant `REQ-*` / `BR-*` IDs.
 | Generic `IJobScheduler` wrappers that re-export Hangfire | Use intent-based interfaces instead |
 | Fabricating transactional rows directly in seeders | Referentially inconsistent state |
 | Throwing exceptions for business-logic failures | Use `Result<T>.Failure(...)` |
+
+<!-- ci: markdown-only edits do not trigger the deploy workflow (paths-ignore). -->
