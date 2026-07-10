@@ -149,6 +149,15 @@ public class TeacherService : ITeacherService
             await _unitOfWork.Users.AddProratedTiersAsync(defaultTiers);
             await _unitOfWork.SaveChangesAsync();
 
+            // Grant the new teacher access to ALL modules so the account is fully usable out of the
+            // box (teachers infer their per-module permissions from module access). Without this, a
+            // self-registered teacher hits a bare 403 on every [ModulePermission]-gated endpoint —
+            // including their free-tier quota (e.g. adding their first student). Idempotent per module.
+            var allModules = await _unitOfWork.GetRepository<Module, long>().GetAllAsync();
+            foreach (var module in allModules)
+                await _unitOfWork.ModuleTeacherRepo!.GrantModuleAsync(teacher.Id, module.Id);
+            await _unitOfWork.SaveChangesAsync();
+
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
