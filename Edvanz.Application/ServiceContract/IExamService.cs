@@ -47,7 +47,9 @@ public interface IExamService
     /// Saves a batch of distinct per-student grades in one transaction. Enforces 0 ≤ grade ≤ the
     /// exam's max (code <c>GradeExceedsMax</c>), rejects grading an absent student, and enforces the
     /// during-session grades-only guard (a during-session student not yet marked attended cannot be
-    /// graded from the exam screen). Valid rows are applied; invalid rows are reported per-item.
+    /// graded from the exam screen). A <c>null</c> grade clears a previously entered grade (reverting
+    /// AttendedWithGrade back to Attended, attendance preserved). Valid rows are applied; invalid rows
+    /// are reported per-item.
     /// </summary>
     Task<Result<BatchGradeResultDto>> SaveGradesAsync(long teacherId, long actingUserId, BatchGradeDto dto);
 

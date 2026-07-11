@@ -310,8 +310,10 @@ public class ExamService : IExamService
                 SessionName = o.SessionName,
                 Date = o.DueDate,
                 AssignedCount = s?.TotalStudents ?? 0,
+                TotalStudents = s?.TotalStudents ?? 0,
                 AttendedCount = s?.DoneOrAttended ?? 0,
                 MissedCount = s?.NotDoneOrAbsent ?? 0,
+                PendingCount = s?.Pending ?? 0,
                 IsPast = o.DueDate.Date < today,
             };
         }).ToList();
@@ -339,13 +341,18 @@ public class ExamService : IExamService
         var sessions = occurrences.Select(o =>
         {
             var rows = rosterByOccurrence.GetValueOrDefault(o.OccurrenceId) ?? new List<ExamRosterRow>();
+            var stats = ComputeStats(rows, o.PassingThresholdSnapshot);
             return new ExamSessionViewDto
             {
                 SessionId = o.SessionId ?? 0,
                 SessionName = o.SessionName,
                 OccurrenceId = o.OccurrenceId,
                 Date = o.DueDate,
-                Stats = ComputeStats(rows, o.PassingThresholdSnapshot),
+                Stats = stats,
+                // UI "Take" vs "Edit" signals: attendance is "taken" once anyone is present/absent;
+                // grades are "taken" once any grade has been entered.
+                AttendanceTaken = stats.AttendedCount + stats.MissedCount > 0,
+                GradesTaken = stats.GradedCount > 0,
                 Students = rows.Select(r => MapRosterRow(r, o.PassingThresholdSnapshot)).ToList(),
             };
         }).ToList();
@@ -358,6 +365,9 @@ public class ExamService : IExamService
             MaxGrade = template.MaxGrade,
             SuccessScore = template.PassingThreshold,
             GlobalStats = ComputeStats(roster, template.PassingThreshold),
+            // Distinct headcount across the whole exam (a student sitting the exam in two sessions
+            // counts once here, but twice in GlobalStats.TotalStudents which counts obligation rows).
+            DistinctStudentCount = roster.Select(r => r.TeacherStudentId).Distinct().Count(),
             Sessions = sessions,
         };
         return Result<ExamViewDto>.Success(view, _localizer);
@@ -450,21 +460,26 @@ public class ExamService : IExamService
             if (occurrence.Template.AssignmentType != AssignmentType.Exam)
             { results.Add(FailItem(obligationId, "NotAnExam")); continue; }
 
-            // Grade range — the core rule: 0 ≤ grade ≤ the exam's max.
-            if (item.Grade < 0m)
-            { results.Add(FailItem(obligationId, "GradeOutOfRange")); continue; }
-            if (occurrence.MaxGradeSnapshot.HasValue && item.Grade > occurrence.MaxGradeSnapshot.Value)
-            { results.Add(FailItem(obligationId, "GradeExceedsMax")); continue; }
+            // A null grade means "clear this student's grade" — always allowed (a harmless no-op when
+            // there is nothing to clear). The set-a-value guards below apply only when a grade is supplied.
+            if (item.Grade.HasValue)
+            {
+                // Grade range — the core rule: 0 ≤ grade ≤ the exam's max.
+                if (item.Grade.Value < 0m)
+                { results.Add(FailItem(obligationId, "GradeOutOfRange")); continue; }
+                if (occurrence.MaxGradeSnapshot.HasValue && item.Grade.Value > occurrence.MaxGradeSnapshot.Value)
+                { results.Add(FailItem(obligationId, "GradeExceedsMax")); continue; }
 
-            // You cannot grade a student who did not attend.
-            if (o.Status == ObligationStatus.DidNotAttend)
-            { results.Add(FailItem(obligationId, "CannotGradeAbsentStudent")); continue; }
+                // You cannot grade a student who did not attend.
+                if (o.Status == ObligationStatus.DidNotAttend)
+                { results.Add(FailItem(obligationId, "CannotGradeAbsentStudent")); continue; }
 
-            // During-session grades-only guard: attendance comes from the session. A during-session
-            // student not yet marked attended cannot be graded from the exam screen.
-            if (occurrence.Template.ExamDeliveryType == ExamDeliveryType.DuringSession
-                && o.Status == ObligationStatus.Pending)
-            { results.Add(FailItem(obligationId, "AttendanceNotRecordedForExam")); continue; }
+                // During-session grades-only guard: attendance comes from the session. A during-session
+                // student not yet marked attended cannot be graded from the exam screen.
+                if (occurrence.Template.ExamDeliveryType == ExamDeliveryType.DuringSession
+                    && o.Status == ObligationStatus.Pending)
+                { results.Add(FailItem(obligationId, "AttendanceNotRecordedForExam")); continue; }
+            }
 
             toApply.Add((o, item));
         }
@@ -476,27 +491,34 @@ public class ExamService : IExamService
             {
                 foreach (var (o, item) in toApply)
                 {
+                    // A supplied grade sets AttendedWithGrade; a null grade CLEARS an existing grade and
+                    // reverts an AttendedWithGrade row back to Attended (attendance is preserved). Clearing
+                    // an already-ungraded/absent row leaves its status untouched.
+                    bool clearing = !item.Grade.HasValue;
+                    ObligationStatus newStatus = clearing
+                        ? (o.Status == ObligationStatus.AttendedWithGrade ? ObligationStatus.Attended : o.Status)
+                        : ObligationStatus.AttendedWithGrade;
+                    decimal? newGrade = clearing ? null : item.Grade;
+
                     var audit = new StudentObligationAuditLog
                     {
                         StudentObligationId = o.Id,
                         TeacherId = o.TeacherId,
                         OldStatus = o.Status,
-                        NewStatus = ObligationStatus.AttendedWithGrade,
+                        NewStatus = newStatus,
                         OldGradeValue = o.GradeValue,
-                        NewGradeValue = item.Grade,
+                        NewGradeValue = newGrade,
                         MaxGradeSnapshot = o.Occurrence.MaxGradeSnapshot,
                         PassingThresholdSnapshot = o.Occurrence.PassingThresholdSnapshot,
-                        ChangeReason = "Grade entry",
+                        ChangeReason = clearing ? "Grade cleared" : "Grade entry",
                         ChangedByUserId = actingUserId,
                         ChangedAt = utcNow,
                         CreateAt = utcNow,
                     };
 
-                    // Entering a grade implies the student attended (AttendedWithGrade). For
-                    // during-session exams this only ever runs on an already-attended student.
-                    o.Status = ObligationStatus.AttendedWithGrade;
-                    o.GradeValue = item.Grade;
-                    o.IsGradeEntered = true;
+                    o.Status = newStatus;
+                    o.GradeValue = newGrade;
+                    o.IsGradeEntered = !clearing;
                     o.LastUpdatedByUserId = actingUserId;
                     o.UpdatedAt = utcNow;
 

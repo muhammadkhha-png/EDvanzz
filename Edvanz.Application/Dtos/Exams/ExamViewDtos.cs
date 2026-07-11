@@ -27,8 +27,17 @@ public class ExamHomeCardDto
     public string? SessionName { get; set; }
     public DateTime Date { get; set; }
     public int AssignedCount { get; set; }
+
+    /// <summary>Total students assigned to this exam occurrence (same value as <see cref="AssignedCount"/>,
+    /// exposed under the stats naming used on the opened-exam view).</summary>
+    public int TotalStudents { get; set; }
+
     public int AttendedCount { get; set; }
     public int MissedCount { get; set; }
+
+    /// <summary>Students with no attendance recorded yet (neither attended nor absent).</summary>
+    public int PendingCount { get; set; }
+
     public bool IsPast { get; set; }
 }
 
@@ -47,6 +56,13 @@ public class ExamViewDto
 
     /// <summary>Statistics across every student in every session of the exam.</summary>
     public ExamStatsDto GlobalStats { get; set; } = new();
+
+    /// <summary>
+    /// Count of DISTINCT students across the whole exam. Unlike <see cref="ExamStatsDto.TotalStudents"/>
+    /// on <see cref="GlobalStats"/> — which counts obligation rows (student-session pairs) — this counts
+    /// each student once even if they sit the exam in more than one of its sessions.
+    /// </summary>
+    public int DistinctStudentCount { get; set; }
 
     public List<ExamSessionViewDto> Sessions { get; set; } = new();
 }
@@ -73,6 +89,19 @@ public class ExamSessionViewDto
     public long OccurrenceId { get; set; }
     public DateTime Date { get; set; }
     public ExamStatsDto Stats { get; set; } = new();
+
+    /// <summary>
+    /// True once any attendance has been recorded for this session's exam (at least one student
+    /// Attended or DidNotAttend). Drives the UI's "Take attendance" vs "Edit attendance" label.
+    /// </summary>
+    public bool AttendanceTaken { get; set; }
+
+    /// <summary>
+    /// True once any grade has been entered for this session's exam. Drives the UI's "Take grades"
+    /// vs "Edit grades" label.
+    /// </summary>
+    public bool GradesTaken { get; set; }
+
     public List<ExamStudentRowDto> Students { get; set; } = new();
 }
 
