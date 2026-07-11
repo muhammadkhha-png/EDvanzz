@@ -1017,6 +1017,18 @@
   <data name="ExamDateRequired" xml:space="preserve">
     <value>لازم تحدد تاريخ الامتحان للامتحان اللي في وقت منفصل</value>
   </data>
+  <data name="SelectEitherSessionsOrGroups" xml:space="preserve">
+    <value>اختار سيشنز أو جروبات للامتحان، مش الاتنين مع بعض</value>
+  </data>
+  <data name="GroupNotFoundOrForeign" xml:space="preserve">
+    <value>الجروب المختار مش موجود أو مش بتاعك</value>
+  </data>
+  <data name="SessionOccurrenceNotFoundForDate" xml:space="preserve">
+    <value>واحدة من السيشنز المختارة مفيش عندها حصة في تاريخ الامتحان</value>
+  </data>
+  <data name="AmbiguousStudentInExam" xml:space="preserve">
+    <value>الطالب ده ليه أكتر من إدخال في الامتحان؛ حدد السيشن</value>
+  </data>
   <data name="StudentNotInSession" xml:space="preserve">
     <value>فيه طالب أو أكتر مش موجود في السيشن المختارة</value>
   </data>
