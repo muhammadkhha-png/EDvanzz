@@ -27,14 +27,17 @@ namespace Edvanz.API.Controllers;
 public class TeacherStudentController : ModuleSixApiBaseController
 {
     private readonly ITeacherStudentService _studentService;
+    private readonly IStudentBarcodeService _barcodeService;
 
     public TeacherStudentController(
         ITeacherStudentService studentService,
+        IStudentBarcodeService barcodeService,
         ICurrentUserService currentUser,
         IUnitOfWork unitOfWork)
         : base(currentUser, unitOfWork)
     {
         _studentService = studentService;
+        _barcodeService = barcodeService;
     }
 
     /// <summary>Creates a new student record under the authenticated teacher's account.</summary>
@@ -90,6 +93,87 @@ public class TeacherStudentController : ModuleSixApiBaseController
 
         var result = await _studentService.GetStudentByIdAsync(teacherId.Value, studentId);
         return ToResponse(result);
+    }
+
+    /// <summary>Returns the student's barcode as an SVG image for the profile screen.</summary>
+    /// <remarks>
+    /// REQ-STU-047: barcode encodes the immutable student code. Rendered on demand (Code 128,
+    /// ZXing) — nothing is stored. The image is a pure function of the code, so it is cacheable:
+    /// the response carries a strong <c>ETag</c> and a long <c>Cache-Control</c>, and a matching
+    /// <c>If-None-Match</c> short-circuits to 304 without re-rendering.
+    /// AUTH: requires <c>Student / ViewProfile</c> permission.
+    /// TENANCY: teacherId from JWT — a studentId outside the resolved teacher returns 404.
+    /// </remarks>
+    /// <param name="studentId">Primary key of the TeacherStudent record.</param>
+    /// <response code="200">Returns <c>image/svg+xml</c> barcode markup.</response>
+    /// <response code="304">Client's cached copy (ETag) is still current.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller lacks the <c>Student / ViewProfile</c> permission.</response>
+    /// <response code="404">Student not found, soft-deleted, or not owned by this teacher.</response>
+    [HttpGet("students/{studentId:long}/barcode.svg")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewProfile)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status304NotModified)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentBarcodeSvg([FromRoute] long studentId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _barcodeService.GetBarcodeSvgAsync(teacherId.Value, studentId);
+        if (!result.IsSuccess) return ToResponse(result);
+
+        // Strong ETag over the code — the barcode never changes for a given code (REQ-STU-048),
+        // so clients (and any CDN) can cache aggressively and revalidate cheaply.
+        var etag = new Microsoft.Net.Http.Headers.EntityTagHeaderValue(
+            $"\"barcode-{result.Data!.StudentCode}\"");
+        Response.GetTypedHeaders().ETag = etag;
+        Response.GetTypedHeaders().CacheControl = new Microsoft.Net.Http.Headers.CacheControlHeaderValue
+        {
+            Private = true,
+            MaxAge = TimeSpan.FromDays(30)
+        };
+
+        var ifNoneMatch = Request.GetTypedHeaders().IfNoneMatch;
+        if (ifNoneMatch.Any(t => t.Compare(etag, useStrongComparison: false)))
+            return StatusCode(StatusCodes.Status304NotModified);
+
+        return Content(result.Data!.Svg, "image/svg+xml");
+    }
+
+    /// <summary>Exports a printable PDF of barcode cards for one or many students.</summary>
+    /// <remarks>
+    /// REQ-STU-052: bulk barcode export. A single id produces one card; many ids produce a grid.
+    /// Server-side render (QuestPDF) so weak devices never draw hundreds of barcodes.
+    /// AUTH: requires <c>Student / ViewProfile</c> permission.
+    /// TENANCY: teacherId from JWT — ids not owned by the resolved teacher are silently dropped
+    /// (IDOR-safe). Page direction follows the request UI culture (Accept-Language).
+    /// </remarks>
+    /// <param name="request">The student ids to export (at least one).</param>
+    /// <response code="200">Returns an <c>application/pdf</c> file of barcode cards.</response>
+    /// <response code="400">No student ids supplied.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller lacks the <c>Student / ViewProfile</c> permission.</response>
+    /// <response code="404">None of the supplied ids belong to this teacher.</response>
+    [HttpPost("students/barcodes/export")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewProfile)]
+    [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportStudentBarcodes([FromBody] ExportStudentBarcodesRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        bool rtl = System.Globalization.CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft;
+        var result = await _barcodeService.ExportBarcodesPdfAsync(teacherId.Value, request.StudentIds, rtl);
+        if (!result.IsSuccess) return ToResponse(result);
+
+        return File(result.Data!, "application/pdf", "student-barcodes.pdf");
     }
 
     /// <summary>Updates an existing student record. Supply null for optional fields to clear them.</summary>
