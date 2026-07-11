@@ -103,6 +103,16 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<SessionOccurrence?> GetOccurrenceByIdAndTeacherAsync(
+        long sessionOccurrenceId, long teacherId)
+    {
+        return await _context.SessionOccurrences
+            .Where(o => o.Id == sessionOccurrenceId && o.TeacherId == teacherId)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountOccurrencesBySessionAndDateRangeAsync(
         long sessionId, DateTime startDate, DateTime endDate)
     {
@@ -918,7 +928,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount)>
+    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount)>
         GetPagedAttendanceStudentListAsync(
             long teacherId, long sessionId, DateTime occurrenceDate,
             IEnumerable<long> linkedSessionIds,
@@ -931,7 +941,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             .Where(a => a.IsActive && a.TeacherId == teacherId)
             .Where(a => a.SessionId == sessionId
                 || (a.SessionId.HasValue && linkedIds.Contains(a.SessionId.Value)))
-            .Include(a => a.TeacherStudent);
+            .Include(a => a.TeacherStudent)
+            // Exclude assignments whose student was soft-deleted (recycle bin): the global query
+            // filter nulls the navigation, which previously surfaced them as "Unknown" rows.
+            .Where(a => a.TeacherStudent != null);
 
         var occurrenceId = await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId && o.OccurrenceDate == occurrenceDate.Date)
@@ -976,6 +989,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         }
 
         int totalCount = await rowQuery.CountAsync();
+        // assigned_count = students belonging to THIS session; not_assigned_count = students shown
+        // from linked sessions. They split the (filtered) result set and sum to totalCount.
+        int assignedCount = await rowQuery.CountAsync(r => !r.IsFromLinkedSession);
+        int notAssignedCount = totalCount - assignedCount;
 
         var pagedResults = await rowQuery
             .OrderBy(r => r.AttendanceRecord != null ? 1 : 0)
@@ -999,7 +1016,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             TotalAbsences = r.Counter?.TotalAbsences ?? 0
         }).ToList();
 
-        return (items, totalCount);
+        return (items, totalCount, assignedCount, notAssignedCount);
     }
 
     // ══════════════════════════════════════════════

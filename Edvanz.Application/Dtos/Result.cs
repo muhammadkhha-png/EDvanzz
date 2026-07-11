@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Text;
@@ -10,6 +10,14 @@ namespace Edvanz.Application.Dtos
     {
         public bool IsSuccess { get; set; }
         public string? Message { get; set; }
+
+        /// <summary>
+        /// Stable, language-independent code the frontend can branch on (e.g. "GradeExceedsMax").
+        /// Populated from the message key on localizer-based results; null when a result is built
+        /// directly from an already-localized string.
+        /// </summary>
+        public string? Code { get; set; }
+
         public HttpStatusCode StatusCode { get; set; }
         public T? Data { get; set; }
 
@@ -24,6 +32,7 @@ namespace Edvanz.Application.Dtos
                 IsSuccess = true,
                 Data = data,
                 Message = localizer[messageKey],
+                Code = messageKey,
                 StatusCode = statusCode
             };
         }
@@ -49,6 +58,7 @@ namespace Edvanz.Application.Dtos
             {
                 IsSuccess = false,
                 Message = localizer[messageKey],
+                Code = messageKey,
                 StatusCode = statusCode
             };
         }

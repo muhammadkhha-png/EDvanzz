@@ -56,6 +56,7 @@ public class AttendanceService : IAttendanceService
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
     private readonly ILogger<AttendanceService> _logger;
+    private readonly IExamAttendanceSyncService _examAttendanceSync; // ← Exams: during-session sync
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
@@ -64,7 +65,8 @@ public class AttendanceService : IAttendanceService
         IAttendanceNotifier attendanceNotifier,                    // ← Phase 3
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
-        ILogger<AttendanceService> logger)
+        ILogger<AttendanceService> logger,
+        IExamAttendanceSyncService examAttendanceSync)
     {
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
@@ -73,6 +75,7 @@ public class AttendanceService : IAttendanceService
         _localizer = localizer;
         _timeZoneService = timeZoneService;
         _logger = logger;
+        _examAttendanceSync = examAttendanceSync;
     }
 
 
@@ -167,6 +170,59 @@ public class AttendanceService : IAttendanceService
             SessionCards = sessionCards
         };
 
+        // Exams: flag during-session exam sessions and list separate-time exams due today.
+        // Best-effort — exam enrichment must never break the attendance dashboard.
+        try
+        {
+            var examOccurrences = await _unitOfWork.ExamHomeworkRepo
+                .GetExamOccurrencesForDateAsync(teacherId, date);
+            if (examOccurrences.Count > 0)
+            {
+                var duringBySessionOcc = examOccurrences
+                    .Where(e => e.SessionOccurrenceId.HasValue)
+                    .GroupBy(e => e.SessionOccurrenceId!.Value)
+                    .ToDictionary(g => g.Key, g => g.First());
+
+                foreach (var card in sessionCards)
+                {
+                    if (card.TodayOccurrenceId.HasValue
+                        && duringBySessionOcc.TryGetValue(card.TodayOccurrenceId.Value, out var exam))
+                    {
+                        card.IsExamSession = true;
+                        card.ExamId = exam.TemplateId;
+                        card.ExamOccurrenceId = exam.OccurrenceId;
+                        card.ExamName = exam.ExamName;
+                    }
+                }
+
+                var separate = examOccurrences.Where(e => !e.SessionOccurrenceId.HasValue).ToList();
+                if (separate.Count > 0)
+                {
+                    var summaries = await _unitOfWork.ExamHomeworkRepo
+                        .GetCompletionSummariesByOccurrenceIdsAsync(separate.Select(e => e.OccurrenceId));
+                    dashboard.ExamsToday = separate.Select(e =>
+                    {
+                        var s = summaries.GetValueOrDefault(e.OccurrenceId);
+                        return new TodayExamCardDto
+                        {
+                            ExamId = e.TemplateId,
+                            OccurrenceId = e.OccurrenceId,
+                            Name = e.ExamName,
+                            SessionId = e.SessionId,
+                            SessionName = e.SessionName,
+                            AssignedCount = s?.TotalStudents ?? 0,
+                            AttendedCount = s?.DoneOrAttended ?? 0,
+                            MissedCount = s?.NotDoneOrAbsent ?? 0,
+                        };
+                    }).ToList();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enrich attendance dashboard with exam data for teacher {TeacherId}", teacherId);
+        }
+
         return Result<AttendanceDashboardDto>.Success(dashboard, _localizer, AttendanceConstants.Messages.Success);
     }
 
@@ -175,13 +231,13 @@ public class AttendanceService : IAttendanceService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<PaginatedResponse<List<AttendanceStudentRowDto>>>> GetAttendanceStudentListAsync(
+    public async Task<Result<AttendanceStudentListDto>> GetAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime? occurrenceDate,
         AttendanceStudentListRequest request)
     {
         var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
         if (session is null)
-            return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Failure(
+            return Result<AttendanceStudentListDto>.Failure(
                 _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
         var date = occurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
@@ -189,10 +245,11 @@ public class AttendanceService : IAttendanceService
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
         var linkedSessionIds = linkedSessions.Select(s => s.Id).ToList();
 
-        var (items, totalCount) = await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
-            teacherId, sessionId, date, linkedSessionIds,
-            request.Search, request.UnmarkedOnly,
-            request.Page, request.PageSize);
+        var (items, totalCount, assignedCount, notAssignedCount) =
+            await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
+                teacherId, sessionId, date, linkedSessionIds,
+                request.Search, request.UnmarkedOnly,
+                request.Page, request.PageSize);
 
         var dtos = items.Select(row => new AttendanceStudentRowDto
         {
@@ -209,16 +266,18 @@ public class AttendanceService : IAttendanceService
             TotalAbsences = row.TotalAbsences
         }).ToList();
 
-        var response = new PaginatedResponse<List<AttendanceStudentRowDto>>
+        var response = new AttendanceStudentListDto
         {
             totalCount = totalCount,
             page = request.Page,
             pageSize = request.PageSize,
             totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
-            data = dtos
+            data = dtos,
+            AssignedCount = assignedCount,
+            NotAssignedCount = notAssignedCount
         };
 
-        return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Success(
+        return Result<AttendanceStudentListDto>.Success(
             response, _localizer, AttendanceConstants.Messages.Success);
     }
 
@@ -493,6 +552,11 @@ public class AttendanceService : IAttendanceService
                     await _attendanceNotifier.OnStudentAttendedAsync(
                         dto.TeacherId, dto.TeacherStudentId,
                         dto.SessionId, session.SessionName, date);
+
+                // Exams: keep during-session exam obligations in sync with this session attendance.
+                await _examAttendanceSync.SyncFromSessionOccurrenceAsync(
+                    dto.TeacherId, occurrence.Id, dto.TeacherStudentId, attendanceStatus,
+                    dto.RecordedByUserId ?? dto.TeacherId);
             }
 
             result.Record = MapToRecordDto(record, student.StudentName, student.StudentCode);
@@ -712,6 +776,14 @@ public class AttendanceService : IAttendanceService
                     absenceAlerts
                         .Select(a => (a.TeacherStudentId, a.ConsecutiveAbsences))
                         .ToList());
+            }
+
+            // Exams: sync all bulk-marked students into any during-session exam on this occurrence.
+            if (ownsTransaction)
+            {
+                await _examAttendanceSync.SyncManyFromSessionOccurrenceAsync(
+                    dto.TeacherId, occurrence.Id, dto.TeacherStudentIds, dto.Status,
+                    dto.RecordedByUserId ?? dto.TeacherId);
             }
 
             var resultDto = new BulkMarkAttendanceResultDto

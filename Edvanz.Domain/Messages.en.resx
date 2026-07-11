@@ -993,6 +993,72 @@
   <data name="PassingThresholdOutOfRange" xml:space="preserve">
     <value>Passing threshold must be between zero and the maximum grade</value>
   </data>
+  <data name="ExamNameRequired" xml:space="preserve">
+    <value>Exam name is required and cannot exceed 200 characters</value>
+  </data>
+  <data name="SuccessScoreExceedsMax" xml:space="preserve">
+    <value>Success score cannot be greater than the exam's maximum grade</value>
+  </data>
+  <data name="ExamRequiresSession" xml:space="preserve">
+    <value>An exam must be assigned to at least one session</value>
+  </data>
+  <data name="DuplicateSessionInExam" xml:space="preserve">
+    <value>The same session was selected more than once for this exam</value>
+  </data>
+  <data name="SessionNotFoundOrForeign" xml:space="preserve">
+    <value>The selected session was not found or does not belong to you</value>
+  </data>
+  <data name="SessionOccurrenceRequired" xml:space="preserve">
+    <value>A session date must be selected for a during-session exam</value>
+  </data>
+  <data name="SessionOccurrenceNotFound" xml:space="preserve">
+    <value>The selected session date was not found or does not belong to the session</value>
+  </data>
+  <data name="ExamDateRequired" xml:space="preserve">
+    <value>An exam date is required for a separate-time exam</value>
+  </data>
+  <data name="StudentNotInSession" xml:space="preserve">
+    <value>One or more selected students do not belong to the selected session</value>
+  </data>
+  <data name="SessionHasNoStudents" xml:space="preserve">
+    <value>The selected session has no students to assign the exam to</value>
+  </data>
+  <data name="ExamCreated" xml:space="preserve">
+    <value>Exam created successfully</value>
+  </data>
+  <data name="ExamNotFound" xml:space="preserve">
+    <value>Exam not found</value>
+  </data>
+  <data name="SessionNotInExam" xml:space="preserve">
+    <value>The requested session is not part of this exam</value>
+  </data>
+  <data name="GradeExceedsMax" xml:space="preserve">
+    <value>Grade cannot be greater than the exam's maximum grade</value>
+  </data>
+  <data name="CannotGradeAbsentStudent" xml:space="preserve">
+    <value>You cannot enter a grade for a student who did not attend the exam</value>
+  </data>
+  <data name="AttendanceNotRecordedForExam" xml:space="preserve">
+    <value>Attendance for this during-session exam comes from the session; the student is not marked attended yet</value>
+  </data>
+  <data name="GradesSaved" xml:space="preserve">
+    <value>Grades saved</value>
+  </data>
+  <data name="NotAnExam" xml:space="preserve">
+    <value>This item is not an exam</value>
+  </data>
+  <data name="AttendanceReadOnlyForDuringSession" xml:space="preserve">
+    <value>Attendance for a during-session exam is taken from the session and cannot be changed here</value>
+  </data>
+  <data name="ExamAttendanceSaved" xml:space="preserve">
+    <value>Exam attendance saved</value>
+  </data>
+  <data name="ExamStudentNotFound" xml:space="preserve">
+    <value>This student is not assigned to this exam</value>
+  </data>
+  <data name="InvalidMonth" xml:space="preserve">
+    <value>Please provide a valid month and year</value>
+  </data>
   <data name="InvalidRecurrenceForExam" xml:space="preserve">
     <value>Exams can only repeat as One-Time or Monthly</value>
   </data>

@@ -55,7 +55,7 @@ public interface IAttendanceService
     /// Retrieves the student list for taking attendance for a session occurrence.
     /// REQ-ATT-008/014/015/054/036.
     /// </summary>
-    Task<Result<PaginatedResponse<List<AttendanceStudentRowDto>>>> GetAttendanceStudentListAsync(
+    Task<Result<AttendanceStudentListDto>> GetAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime? occurrenceDate,
         AttendanceStudentListRequest request);
 

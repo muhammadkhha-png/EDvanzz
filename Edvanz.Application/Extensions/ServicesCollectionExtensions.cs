@@ -114,6 +114,10 @@ public static class ServicesCollectionExtensions
         // template. The Hangfire dispatcher and worker (registered in
         // InfrastructureServiceExtensions) call into this service.
         services.AddScoped<IExamHomeworkService, ExamHomeworkService>();
+        // Offline Exams module (clean /api/exams surface — create, per-session occurrences, dates)
+        services.AddScoped<IExamService, ExamService>();
+        // Attendance→exam sync (during-session exams mirror session attendance)
+        services.AddScoped<IExamAttendanceSyncService, ExamAttendanceSyncService>();
         services.AddScoped<IAssignmentScopeResolver, AssignmentScopeResolver>();
         services.AddScoped<IRecurringAssignmentMaterializerService,
                            RecurringAssignmentMaterializerService>();
