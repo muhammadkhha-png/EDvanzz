@@ -988,10 +988,28 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             rowQuery = rowQuery.Where(r => r.AttendanceRecord == null);
         }
 
-        int totalCount = await rowQuery.CountAsync();
-        // assigned_count = students belonging to THIS session; not_assigned_count = students shown
-        // from linked sessions. They split the (filtered) result set and sum to totalCount.
-        int assignedCount = await rowQuery.CountAsync(r => !r.IsFromLinkedSession);
+        // Counts run on a slim entity-level query, NOT the projected rowQuery: a predicate COUNT over
+        // that projection (which carries correlated FirstOrDefault subqueries) is not translatable by
+        // EF Core and 500s. Mirror rowQuery's search / unmarked filters so the totals stay in sync.
+        IQueryable<StudentSessionAssignment> countQuery = assignmentQuery;
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string countPattern = $"%{search.Trim()}%";
+            countQuery = countQuery.Where(a =>
+                EF.Functions.Like(a.TeacherStudent!.StudentName, countPattern)
+                || EF.Functions.Like(a.TeacherStudent!.StudentCode, countPattern));
+        }
+        if (unmarkedOnly && occurrenceId.HasValue)
+        {
+            long markedOccId = occurrenceId.Value;
+            countQuery = countQuery.Where(a => !_context.AttendanceRecords
+                .Any(r => r.TeacherStudentId == a.TeacherStudentId && r.SessionOccurrenceId == markedOccId));
+        }
+
+        int totalCount = await countQuery.CountAsync();
+        // assigned_count = students in THIS session; not_assigned_count = students shown from linked
+        // sessions. They split the (filtered) result set and sum to totalCount.
+        int assignedCount = await countQuery.CountAsync(a => a.SessionId == sessionId);
         int notAssignedCount = totalCount - assignedCount;
 
         var pagedResults = await rowQuery
