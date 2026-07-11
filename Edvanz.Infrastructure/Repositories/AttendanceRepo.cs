@@ -103,6 +103,16 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<SessionOccurrence?> GetOccurrenceByIdAndTeacherAsync(
+        long sessionOccurrenceId, long teacherId)
+    {
+        return await _context.SessionOccurrences
+            .Where(o => o.Id == sessionOccurrenceId && o.TeacherId == teacherId)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountOccurrencesBySessionAndDateRangeAsync(
         long sessionId, DateTime startDate, DateTime endDate)
     {

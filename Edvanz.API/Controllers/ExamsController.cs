@@ -1,0 +1,172 @@
+using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos.Exams;
+using Edvanz.Application.IservicesContract;
+using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Edvanz.API.Controllers;
+
+/// <summary>
+/// Clean, resource-oriented API for the offline Exams module (<c>/api/exams</c>).
+///
+/// AUTHORIZATION: every endpoint is <c>[Authorize]</c>; <c>teacherId</c> is resolved from the JWT
+/// via <see cref="ModuleSixApiBaseController.ResolveTeacherIdAsync"/> (never from the body/route).
+/// Permissions reuse the existing <c>"Exams And Homework"</c> module claims.
+/// </summary>
+[Authorize]
+[Route("api/exams")]
+public class ExamsController : ModuleSixApiBaseController
+{
+    private readonly IExamService _exams;
+
+    public ExamsController(
+        IExamService exams,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
+        : base(currentUser, unitOfWork)
+    {
+        _exams = exams;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CREATE EXAM
+    // POST /api/exams
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CreateExam([FromBody] CreateExamDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.CreateExamAsync(teacherId.Value, GetActingUserId(), dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SESSION EXAM-DATE PICKER (during-session)
+    // GET /api/exams/session-dates?sessionId=&year=&month=
+    // Returns the session's scheduled occurrences in the month, to pick the exam date from.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("session-dates")]
+    [ModulePermission("Exams And Homework", "View")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSessionDates(
+        [FromQuery] long sessionId, [FromQuery] int year, [FromQuery] int month)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.GetSessionExamDatesAsync(teacherId.Value, sessionId, year, month));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // EXAM HOME — upcoming / past
+    // GET /api/exams/home
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("home")]
+    [ModulePermission("Exams And Homework", "View")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetHome()
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.GetExamHomeAsync(teacherId.Value));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // OPENED EXAM — grouped by session, with per-session + global statistics
+    // GET /api/exams/{examId}
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{examId:long}")]
+    [ModulePermission("Exams And Homework", "View")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetExam([FromRoute] long examId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.GetExamViewAsync(teacherId.Value, examId));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // OPENED EXAM — one session's roster, paged (drill-in / large sessions)
+    // GET /api/exams/{examId}/sessions/{sessionId}?page=&pageSize=&search=
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{examId:long}/sessions/{sessionId:long}")]
+    [ModulePermission("Exams And Homework", "View")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetExamSession(
+        [FromRoute] long examId,
+        [FromRoute] long sessionId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] string? search = null)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.GetExamSessionRosterAsync(
+            teacherId.Value, examId, sessionId, page, pageSize, search));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SAVE GRADES — batch of distinct per-student grades ("Saved (N) changes")
+    // PUT /api/exams/grades
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("grades")]
+    [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SaveGrades([FromBody] BatchGradeDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.SaveGradesAsync(teacherId.Value, GetActingUserId(), dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // TAKE ATTENDANCE (separate-time exams) — batch present/absent
+    // PUT /api/exams/attendance
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("attendance")]
+    [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> MarkAttendance([FromBody] ExamAttendanceDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.MarkExamAttendanceAsync(teacherId.Value, GetActingUserId(), dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SCAN ATTENDANCE (separate-time exams) — QR/code → mark attended (idempotent)
+    // POST /api/exams/attendance/scan
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("attendance/scan")]
+    [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ScanAttendance([FromBody] ExamScanDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.ScanExamAttendanceAsync(teacherId.Value, GetActingUserId(), dto));
+    }
+}

@@ -22,6 +22,7 @@ public abstract class ApiBaseController : ControllerBase
             return new ObjectResult(new
             {
                 success = true,
+                code = result.Code,
                 message = result.Message,
                 data = result.Data
             })
@@ -33,6 +34,7 @@ public abstract class ApiBaseController : ControllerBase
         return new ObjectResult(new
         {
             success = false,
+            code = result.Code,
             message = result.Message
         })
         {

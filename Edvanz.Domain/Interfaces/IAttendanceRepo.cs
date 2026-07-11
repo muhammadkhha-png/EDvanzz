@@ -104,6 +104,13 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long sessionId, DateTime startDate, DateTime endDate);
 
     /// <summary>
+    /// Loads a single session occurrence by id, scoped to the teacher (tenant guard).
+    /// Used by the Exams module to validate a chosen "during session" exam date and read its
+    /// OccurrenceDate. Returns null if it does not exist or belongs to another teacher.
+    /// </summary>
+    Task<SessionOccurrence?> GetOccurrenceByIdAndTeacherAsync(long sessionOccurrenceId, long teacherId);
+
+    /// <summary>
     /// Counts occurrences for a session within a date range.
     /// REQ-ATT-077: Monthly summary "total occurrences in that month".
     /// </summary>
