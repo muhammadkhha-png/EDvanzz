@@ -625,6 +625,22 @@ public class AttendanceStudentRowDto
 }
 
 /// <summary>
+/// Paged student list for the Take / Edit Attendance screen, extended with two headcount counters.
+/// Extends <see cref="PaginatedResponse{T}"/> so the existing paged shape is unchanged — the counters
+/// are added alongside. They split the returned list and sum to <c>totalCount</c>.
+/// </summary>
+public class AttendanceStudentListDto : PaginatedResponse<List<AttendanceStudentRowDto>>
+{
+    /// <summary>Students assigned to THIS session (not pulled from a linked session).</summary>
+    [JsonPropertyName("assigned_count")]
+    public int AssignedCount { get; set; }
+
+    /// <summary>Students shown from LINKED sessions (attending but not assigned to this session).</summary>
+    [JsonPropertyName("not_assigned_count")]
+    public int NotAssignedCount { get; set; }
+}
+
+/// <summary>
 /// Output DTO for Absence Overview panel.
 /// REQ-ATT-032: Absent students with consecutive absence count.
 /// REQ-ATT-068: Last 5 occurrence status indicators.
