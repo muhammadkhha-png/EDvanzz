@@ -34,4 +34,12 @@
     <Folder Include="Migrations\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Noto Sans Arabic (SIL OFL) — embedded so QuestPDF can render Arabic/RTL names in
+         PDF exports. Logical resource name resolves to
+         Edvanz.Infrastructure.Resources.Fonts.NotoSansArabic-Regular.ttf, which
+         PdfExportService and StudentBarcodePdfBuilder load via GetManifestResourceStream. -->
+    <EmbeddedResource Include="Resources\Fonts\NotoSansArabic-Regular.ttf" />
+  </ItemGroup>
+
 </Project>
