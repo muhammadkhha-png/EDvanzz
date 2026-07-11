@@ -13,7 +13,13 @@ public class BatchGradeDto
 public class GradeItemDto
 {
     public long ObligationId { get; set; }
-    public decimal Grade { get; set; }
+
+    /// <summary>
+    /// The grade to record: 0 ≤ grade ≤ the exam's max. Send <c>null</c> to CLEAR a previously entered
+    /// grade — the student reverts from AttendedWithGrade to Attended (attendance is preserved). A null
+    /// on an already-ungraded or absent row is a harmless no-op.
+    /// </summary>
+    public decimal? Grade { get; set; }
 
     /// <summary>Concurrency token from the last read of this student's row (base64 is also accepted by binding).</summary>
     public byte[] RowVersion { get; set; } = null!;
