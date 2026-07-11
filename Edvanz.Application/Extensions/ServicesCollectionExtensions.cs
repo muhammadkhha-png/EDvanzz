@@ -49,6 +49,8 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();
         // Student Module (Module 1: teacher-scoped student records CRUD)
         services.AddScoped<ITeacherStudentService, TeacherStudentService>();
+        // Student barcode presentation (in-app SVG + printable PDF export, REQ-STU-052)
+        services.AddScoped<IStudentBarcodeService, StudentBarcodeService>();
         services.AddScoped<ITeacherService, TeacherService>();
         // Session Module (Module 2: sessions, groups, membership links)
         services.AddScoped<ISessionService, SessionService>();

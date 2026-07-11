@@ -150,5 +150,10 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<IExamHomeworkReportService, ExamHomeworkReportService>();
         // Generic PDF export engine (QuestPDF) — reused across modules. First consumer: audit (REQ-USR-030).
         services.AddScoped<IPdfExportService, PdfExportService>();
+
+        // Student barcode rendering (REQ-STU-047/052): Code 128 SVG (ZXing) + card-grid PDF (QuestPDF).
+        // Stateless renderers — the orchestrating IStudentBarcodeService lives in the Application layer.
+        services.AddSingleton<IBarcodeRenderer, BarcodeRenderer>();
+        services.AddScoped<IStudentBarcodePdfBuilder, StudentBarcodePdfBuilder>();
     }
 }
