@@ -53,11 +53,12 @@ public class AssignmentTemplate : BaseEntity
     public string Name { get; set; } = null!;
 
     /// <summary>
-    /// Arabic display name of the assignment.
-    /// REQ-EXH-004: Mandatory; supports Egyptian Arabic dialect.
+    /// Optional Arabic display name of the assignment.
+    /// The exam name may be entered in Arabic OR English as a single field — a separate
+    /// bilingual name is no longer required — so this is nullable.
     /// REQ-EXH-NFR-003: Bilingual support across all assignment screens.
     /// </summary>
-    public string NameAr { get; set; } = null!;
+    public string? NameAr { get; set; }
 
     /// <summary>
     /// Optional free-text notes or instructions.
@@ -132,6 +133,13 @@ public class AssignmentTemplate : BaseEntity
     /// </summary>
     [Column(TypeName = "decimal(8,2)")]
     public decimal? PassingThreshold { get; set; }
+
+    /// <summary>
+    /// EXAM-ONLY: how the exam is delivered relative to its anchor session — DuringSession
+    /// (linked to a scheduled SessionOccurrence; attendance synced from that session) or
+    /// SeparateTime (its own date; attendance taken in the Exams module). Null for homework.
+    /// </summary>
+    public ExamDeliveryType? ExamDeliveryType { get; set; }
 
     // ══════════════════════════════════════════════
     // AUDIT

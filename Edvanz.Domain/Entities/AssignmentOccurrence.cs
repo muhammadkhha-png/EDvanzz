@@ -47,6 +47,26 @@ public class AssignmentOccurrence : BaseEntity
     public Teacher Teacher { get; set; } = null!;
 
     // ══════════════════════════════════════════════
+    // SESSION ANCHOR (exam delivery)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// EXAM-ONLY: the session this exam occurrence is assigned to. Every exam occurrence is
+    /// anchored to exactly one session (both DuringSession and SeparateTime). Null for homework.
+    /// Fluent-only FK (no [ForeignKey] annotation) with OnDelete: SetNull.
+    /// </summary>
+    public long? SessionId { get; set; }
+    public Session? Session { get; set; }
+
+    /// <summary>
+    /// EXAM-ONLY, DuringSession only: the concrete scheduled session occurrence the exam is taken
+    /// during. Exam attendance is driven by and kept in sync with this occurrence's attendance.
+    /// Null for SeparateTime exams and for homework.
+    /// </summary>
+    public long? SessionOccurrenceId { get; set; }
+    public SessionOccurrence? SessionOccurrence { get; set; }
+
+    // ══════════════════════════════════════════════
     // OCCURRENCE IDENTITY
     // ══════════════════════════════════════════════
 

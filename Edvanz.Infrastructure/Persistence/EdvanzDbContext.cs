@@ -1865,9 +1865,10 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
         .HasMaxLength(200)
         .IsRequired();
 
+    // Optional: exam/assignment name may be a single Arabic-or-English value (stored in Name);
+    // a separate Arabic name is no longer mandatory.
     entity.Property(t => t.NameAr)
-        .HasMaxLength(200)
-        .IsRequired();
+        .HasMaxLength(200);
 
     entity.Property(t => t.Notes)
         .HasMaxLength(2000);
@@ -2066,6 +2067,19 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(o => o.TeacherId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            // Session anchor FK (exam): SET NULL — deleting a session preserves the exam
+            // occurrence with a null anchor. Fluent-only per §4.1 (no [ForeignKey] annotation).
+            entity.HasOne(o => o.Session)
+                .WithMany()
+                .HasForeignKey(o => o.SessionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // DuringSession link FK (exam): SET NULL — mirrors AttendanceRecord.SessionOccurrence.
+            entity.HasOne(o => o.SessionOccurrence)
+                .WithMany()
+                .HasForeignKey(o => o.SessionOccurrenceId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // ── INDEXES ───────────────────────────────────────────────────────
 
             // Unique: one occurrence per (template, OccurrenceNumber).
@@ -2081,6 +2095,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // Status filter for grade-entry workflows: which occurrences are still open?
             entity.HasIndex(o => new { o.TeacherId, o.Status })
                 .HasDatabaseName("IX_AssignmentOccurrences_TeacherId_Status");
+
+            // Exam per-session grouping: occurrences of a session for a teacher (exam-view/home).
+            entity.HasIndex(o => new { o.TeacherId, o.SessionId })
+                .HasDatabaseName("IX_AssignmentOccurrences_TeacherId_SessionId");
+
+            // Attendance→exam sync hot path: find the exam occurrence for a session occurrence.
+            entity.HasIndex(o => o.SessionOccurrenceId)
+                .HasDatabaseName("IX_AssignmentOccurrences_SessionOccurrenceId");
         });
         #endregion
 

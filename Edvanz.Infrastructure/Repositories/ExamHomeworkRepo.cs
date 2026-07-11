@@ -987,6 +987,155 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForHomeAsync(long teacherId)
+    {
+        return await _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId && o.Template.AssignmentType == AssignmentType.Exam)
+            .OrderBy(o => o.DueDate)
+            .Select(o => new ExamHomeOccurrenceRow
+            {
+                OccurrenceId = o.Id,
+                TemplateId = o.TemplateId,
+                ExamName = o.Template.Name,
+                DeliveryType = o.Template.ExamDeliveryType,
+                SessionId = o.SessionId,
+                SessionName = o.Session != null ? o.Session.SessionName : null,
+                SessionOccurrenceId = o.SessionOccurrenceId,
+                DueDate = o.DueDate,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForDateAsync(
+        long teacherId, DateTime date)
+    {
+        var day = date.Date;
+        return await _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId
+                     && o.DueDate == day
+                     && o.Template.AssignmentType == AssignmentType.Exam)
+            .OrderBy(o => o.DueDate)
+            .Select(o => new ExamHomeOccurrenceRow
+            {
+                OccurrenceId = o.Id,
+                TemplateId = o.TemplateId,
+                ExamName = o.Template.Name,
+                DeliveryType = o.Template.ExamDeliveryType,
+                SessionId = o.SessionId,
+                SessionName = o.Session != null ? o.Session.SessionName : null,
+                SessionOccurrenceId = o.SessionOccurrenceId,
+                DueDate = o.DueDate,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ExamOccurrenceInfoRow>> GetExamOccurrencesByTemplateAsync(
+        long teacherId, long templateId)
+    {
+        return await _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId && o.TemplateId == templateId)
+            .OrderBy(o => o.DueDate).ThenBy(o => o.OccurrenceNumber)
+            .Select(o => new ExamOccurrenceInfoRow
+            {
+                OccurrenceId = o.Id,
+                SessionId = o.SessionId,
+                SessionName = o.Session != null ? o.Session.SessionName : null,
+                DueDate = o.DueDate,
+                MaxGradeSnapshot = o.MaxGradeSnapshot,
+                PassingThresholdSnapshot = o.PassingThresholdSnapshot,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ExamRosterRow>> GetExamRosterByTemplateAsync(
+        long teacherId, long templateId)
+    {
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId && o.Occurrence.TemplateId == templateId)
+            .OrderBy(o => o.TeacherStudent.StudentName)
+            .Select(o => new ExamRosterRow
+            {
+                OccurrenceId = o.OccurrenceId,
+                ObligationId = o.Id,
+                TeacherStudentId = o.TeacherStudentId,
+                StudentName = o.TeacherStudent.StudentName,
+                StudentCode = o.TeacherStudent.StudentCode,
+                Status = o.Status,
+                GradeValue = o.GradeValue,
+                IsGradeEntered = o.IsGradeEntered,
+                ObligationRowVersion = o.RowVersion,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsForGradingByIdsAsync(
+        long teacherId, IEnumerable<long> obligationIds)
+    {
+        var ids = obligationIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<StudentAssignmentObligation>();
+
+        // Tracked (no AsNoTracking) so the batch grade path can apply RowVersion concurrency.
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId && ids.Contains(o.Id))
+            .Include(o => o.Occurrence)
+                .ThenInclude(occ => occ.Template)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetExamOccurrenceIdsBySessionOccurrenceAsync(
+        long teacherId, long sessionOccurrenceId)
+    {
+        return await _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId
+                     && o.SessionOccurrenceId == sessionOccurrenceId
+                     && o.Template.AssignmentType == AssignmentType.Exam)
+            .Select(o => o.Id)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> SetExamAttendanceByOccurrenceAsync(
+        long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds,
+        ObligationStatus newStatus, bool clearGrade, bool skipGraded, DateTime utcNow, long actingUserId)
+    {
+        var ids = teacherStudentIds.Distinct().ToList();
+        if (ids.Count == 0) return 0;
+
+        var query = _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.OccurrenceId == occurrenceId
+                     && ids.Contains(o.TeacherStudentId));
+
+        // Preserve already-entered grades when marking "present".
+        if (skipGraded)
+            query = query.Where(o => o.Status != ObligationStatus.AttendedWithGrade);
+
+        if (clearGrade)
+        {
+            return await query.ExecuteUpdateAsync(setters => setters
+                .SetProperty(o => o.Status, newStatus)
+                .SetProperty(o => o.GradeValue, (decimal?)null)
+                .SetProperty(o => o.IsGradeEntered, false)
+                .SetProperty(o => o.LastUpdatedByUserId, (long?)actingUserId)
+                .SetProperty(o => o.UpdatedAt, utcNow));
+        }
+
+        return await query.ExecuteUpdateAsync(setters => setters
+            .SetProperty(o => o.Status, newStatus)
+            .SetProperty(o => o.LastUpdatedByUserId, (long?)actingUserId)
+            .SetProperty(o => o.UpdatedAt, utcNow));
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<long, DateTime?>> GetNextOrLastOccurrenceDatesAsync(
         IEnumerable<long> templateIds, DateTime today)
     {

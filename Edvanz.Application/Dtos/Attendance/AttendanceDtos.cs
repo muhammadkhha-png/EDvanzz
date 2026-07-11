@@ -419,6 +419,22 @@ public class AttendanceDashboardDto
 
     /// <summary>Session cards with attendance status. REQ-ATT-050/051/052.</summary>
     public List<AttendanceSessionCardDto> SessionCards { get; set; } = new();
+
+    /// <summary>Exams: separate-time exams due today — the home "today's exams" section.</summary>
+    public List<TodayExamCardDto> ExamsToday { get; set; } = new();
+}
+
+/// <summary>A separate-time exam due today, surfaced on the home "today's exams" section.</summary>
+public class TodayExamCardDto
+{
+    public long ExamId { get; set; }
+    public long OccurrenceId { get; set; }
+    public string Name { get; set; } = null!;
+    public long? SessionId { get; set; }
+    public string? SessionName { get; set; }
+    public int AssignedCount { get; set; }
+    public int AttendedCount { get; set; }
+    public int MissedCount { get; set; }
 }
 
 /// <summary>
@@ -451,6 +467,16 @@ public class AttendanceSessionCardDto
 
     /// <summary>Session start time for ordering.</summary>
     public TimeSpan StartTime { get; set; }
+
+    // ── Exams ──
+    /// <summary>True when a during-session exam is held on this session's occurrence today.</summary>
+    public bool IsExamSession { get; set; }
+    /// <summary>The exam (template) id when <see cref="IsExamSession"/> is true.</summary>
+    public long? ExamId { get; set; }
+    /// <summary>The exam occurrence id for today when <see cref="IsExamSession"/> is true.</summary>
+    public long? ExamOccurrenceId { get; set; }
+    /// <summary>The exam name when <see cref="IsExamSession"/> is true.</summary>
+    public string? ExamName { get; set; }
 }
 
 /// <summary>

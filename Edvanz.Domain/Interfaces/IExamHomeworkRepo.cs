@@ -616,7 +616,52 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// </summary>
     Task<AssignmentTemplate?> LockTemplateForMaterializationAsync(long templateId);
 
+    // ══════════════════════════════════════════════════════════════════════
+    // EXAMS MODULE — home & opened-exam views (clean /api/exams surface)
+    // ══════════════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// All exam occurrences for a teacher (one per session-date) with exam name, delivery type,
+    /// session name and due date. Powers the Exam Home upcoming/past split.
+    /// </summary>
+    Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForHomeAsync(long teacherId);
+
+    /// <summary>
+    /// The occurrences (session + date + snapshotted grading config) of a single exam, ordered by
+    /// date. Powers the per-session grouping of the opened-exam view.
+    /// </summary>
+    Task<IReadOnlyList<ExamOccurrenceInfoRow>> GetExamOccurrencesByTemplateAsync(long teacherId, long templateId);
+
+    /// <summary>
+    /// The full student roster across all of an exam's occurrences in one query, ordered by student
+    /// name. Grouped by occurrence in the service to build sessions + statistics.
+    /// </summary>
+    Task<IReadOnlyList<ExamRosterRow>> GetExamRosterByTemplateAsync(long teacherId, long templateId);
+
+    /// <summary>
+    /// Loads tracked obligations by id (teacher-scoped) with their occurrence + template eagerly
+    /// included, for the batch grade-entry path. Tracked so per-row RowVersion concurrency applies.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsForGradingByIdsAsync(
+        long teacherId, IEnumerable<long> obligationIds);
+
+    /// <summary>Returns the ids of exam occurrences linked to a given session occurrence (during-session exams).</summary>
+    Task<IReadOnlyList<long>> GetExamOccurrenceIdsBySessionOccurrenceAsync(long teacherId, long sessionOccurrenceId);
+
+    /// <summary>
+    /// Exam occurrences due on a given date (during-session and separate-time), for the home dashboard's
+    /// "today's exams" section and the "this session is an exam" flag.
+    /// </summary>
+    Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForDateAsync(long teacherId, DateTime date);
+
+    /// <summary>
+    /// Atomically sets attendance-derived status on an exam occurrence's obligations for the given
+    /// students (attendance→exam sync and back-fill). Optionally clears the grade and/or skips
+    /// already-graded rows (to preserve grades on "present"). Returns rows affected.
+    /// </summary>
+    Task<int> SetExamAttendanceByOccurrenceAsync(
+        long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds,
+        ObligationStatus newStatus, bool clearGrade, bool skipGraded, DateTime utcNow, long actingUserId);
 }
 
 // ══════════════════════════════════════════════

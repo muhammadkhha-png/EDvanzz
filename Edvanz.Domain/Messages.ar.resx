@@ -993,6 +993,72 @@
   <data name="PassingThresholdOutOfRange" xml:space="preserve">
     <value>درجة النجاح لازم تكون بين صفر وأقصى درجة</value>
   </data>
+  <data name="ExamNameRequired" xml:space="preserve">
+    <value>اسم الامتحان مطلوب وما يزيدش عن 200 حرف</value>
+  </data>
+  <data name="SuccessScoreExceedsMax" xml:space="preserve">
+    <value>درجة النجاح ما ينفعش تكون أكبر من الدرجة العظمى للامتحان</value>
+  </data>
+  <data name="ExamRequiresSession" xml:space="preserve">
+    <value>لازم تحدد على الأقل سيشن واحدة للامتحان</value>
+  </data>
+  <data name="DuplicateSessionInExam" xml:space="preserve">
+    <value>اخترت نفس السيشن أكتر من مرة للامتحان</value>
+  </data>
+  <data name="SessionNotFoundOrForeign" xml:space="preserve">
+    <value>السيشن المختارة مش موجودة أو مش بتاعتك</value>
+  </data>
+  <data name="SessionOccurrenceRequired" xml:space="preserve">
+    <value>لازم تختار تاريخ السيشن للامتحان اللي جوه السيشن</value>
+  </data>
+  <data name="SessionOccurrenceNotFound" xml:space="preserve">
+    <value>تاريخ السيشن المختار مش موجود أو مش تابع للسيشن دي</value>
+  </data>
+  <data name="ExamDateRequired" xml:space="preserve">
+    <value>لازم تحدد تاريخ الامتحان للامتحان اللي في وقت منفصل</value>
+  </data>
+  <data name="StudentNotInSession" xml:space="preserve">
+    <value>فيه طالب أو أكتر مش موجود في السيشن المختارة</value>
+  </data>
+  <data name="SessionHasNoStudents" xml:space="preserve">
+    <value>السيشن المختارة مافيهاش طلاب علشان نضيفلهم الامتحان</value>
+  </data>
+  <data name="ExamCreated" xml:space="preserve">
+    <value>تم إنشاء الامتحان بنجاح</value>
+  </data>
+  <data name="ExamNotFound" xml:space="preserve">
+    <value>الامتحان مش موجود</value>
+  </data>
+  <data name="SessionNotInExam" xml:space="preserve">
+    <value>السيشن دي مش جزء من الامتحان ده</value>
+  </data>
+  <data name="GradeExceedsMax" xml:space="preserve">
+    <value>الدرجة ما ينفعش تكون أكبر من الدرجة العظمى للامتحان</value>
+  </data>
+  <data name="CannotGradeAbsentStudent" xml:space="preserve">
+    <value>ما ينفعش تحط درجة لطالب محضرش الامتحان</value>
+  </data>
+  <data name="AttendanceNotRecordedForExam" xml:space="preserve">
+    <value>حضور الامتحان اللي جوه السيشن بيتاخد من السيشن، والطالب لسه ماتسجلش إنه حضر</value>
+  </data>
+  <data name="GradesSaved" xml:space="preserve">
+    <value>تم حفظ الدرجات</value>
+  </data>
+  <data name="NotAnExam" xml:space="preserve">
+    <value>العنصر ده مش امتحان</value>
+  </data>
+  <data name="AttendanceReadOnlyForDuringSession" xml:space="preserve">
+    <value>حضور الامتحان اللي جوه السيشن بيتاخد من السيشن ومش ممكن تغيّره من هنا</value>
+  </data>
+  <data name="ExamAttendanceSaved" xml:space="preserve">
+    <value>تم حفظ حضور الامتحان</value>
+  </data>
+  <data name="ExamStudentNotFound" xml:space="preserve">
+    <value>الطالب ده مش متعيّن على الامتحان ده</value>
+  </data>
+  <data name="InvalidMonth" xml:space="preserve">
+    <value>من فضلك اختار شهر وسنة صح</value>
+  </data>
   <data name="InvalidRecurrenceForExam" xml:space="preserve">
     <value>الامتحانات تتكرر بس "مرة واحدة" أو "شهرياً"</value>
   </data>
