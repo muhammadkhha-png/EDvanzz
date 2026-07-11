@@ -231,13 +231,13 @@ public class AttendanceService : IAttendanceService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<PaginatedResponse<List<AttendanceStudentRowDto>>>> GetAttendanceStudentListAsync(
+    public async Task<Result<AttendanceStudentListDto>> GetAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime? occurrenceDate,
         AttendanceStudentListRequest request)
     {
         var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
         if (session is null)
-            return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Failure(
+            return Result<AttendanceStudentListDto>.Failure(
                 _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
         var date = occurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
@@ -245,10 +245,11 @@ public class AttendanceService : IAttendanceService
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
         var linkedSessionIds = linkedSessions.Select(s => s.Id).ToList();
 
-        var (items, totalCount) = await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
-            teacherId, sessionId, date, linkedSessionIds,
-            request.Search, request.UnmarkedOnly,
-            request.Page, request.PageSize);
+        var (items, totalCount, assignedCount, notAssignedCount) =
+            await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
+                teacherId, sessionId, date, linkedSessionIds,
+                request.Search, request.UnmarkedOnly,
+                request.Page, request.PageSize);
 
         var dtos = items.Select(row => new AttendanceStudentRowDto
         {
@@ -265,16 +266,18 @@ public class AttendanceService : IAttendanceService
             TotalAbsences = row.TotalAbsences
         }).ToList();
 
-        var response = new PaginatedResponse<List<AttendanceStudentRowDto>>
+        var response = new AttendanceStudentListDto
         {
             totalCount = totalCount,
             page = request.Page,
             pageSize = request.PageSize,
             totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
-            data = dtos
+            data = dtos,
+            AssignedCount = assignedCount,
+            NotAssignedCount = notAssignedCount
         };
 
-        return Result<PaginatedResponse<List<AttendanceStudentRowDto>>>.Success(
+        return Result<AttendanceStudentListDto>.Success(
             response, _localizer, AttendanceConstants.Messages.Success);
     }
 

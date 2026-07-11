@@ -461,9 +461,11 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
 
     /// <summary>
     /// Retrieves the paginated student list for Take Attendance entirely in the database.
-    /// REQ-ATT-008/014/015/036/054.
+    /// REQ-ATT-008/014/015/036/054. Also returns AssignedCount (students in THIS session) and
+    /// NotAssignedCount (students shown from linked sessions); the two split the result set and
+    /// sum to TotalCount. Soft-deleted students are excluded (no more "Unknown" rows).
     /// </summary>
-    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount)> GetPagedAttendanceStudentListAsync(
+    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount)> GetPagedAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime occurrenceDate,
         IEnumerable<long> linkedSessionIds,
         string? search, bool unmarkedOnly,
