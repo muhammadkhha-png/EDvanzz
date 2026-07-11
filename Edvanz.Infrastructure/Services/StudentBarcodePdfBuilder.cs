@@ -65,8 +65,10 @@ public sealed class StudentBarcodePdfBuilder : IStudentBarcodePdfBuilder
                     col.Item().AlignCenter().Text(card.StudentName)
                         .SemiBold().FontSize(12);
 
-                    // Vector barcode — scales without pixelation on print.
-                    col.Item().PaddingVertical(6).Height(60).AlignCenter().Svg(card.BarcodeSvg);
+                    // Vector barcode — scales without pixelation on print. The barcode fills
+                    // the cell width within a fixed height; note QuestPDF rejects an .AlignCenter()
+                    // between .Height() and .Svg() (Svg derives its own size → conflicting constraints).
+                    col.Item().PaddingVertical(6).Height(60).Svg(card.BarcodeSvg);
 
                     col.Item().AlignCenter().Text(card.StudentCode)
                         .FontSize(11).FontColor(Colors.Grey.Darken2);
