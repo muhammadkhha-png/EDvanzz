@@ -66,6 +66,21 @@ public static class VideoConstants
     /// </summary>
     public const int ResumeEndOfVideoBufferSeconds = 5;
 
+    /// <summary>
+    /// Minimum <c>EstimatedCompletionPct</c> (0-100) for a student to count as
+    /// having "completed" a video. Drives the <c>completedCount</c> aggregate
+    /// (G-ANL-1) and the <c>statusFilter=Completed</c> row filter (G-ANL-4) —
+    /// one threshold, reused by both so the numbers never disagree.
+    /// </summary>
+    public const int CompletionThresholdPercent = 90;
+
+    /// <summary>
+    /// Maximum size of a single video attachment upload (Track F / §5).
+    /// 25 MB — proposed default; confirm with product before this is relied
+    /// on as a hard business rule.
+    /// </summary>
+    public const long AttachmentMaxSizeBytes = 25 * 1024 * 1024;
+
     // ══════════════════════════════════════════════
     // COLUMN-LENGTH LIMITS (mirrored in fluent API)
     // ══════════════════════════════════════════════
@@ -120,12 +135,14 @@ public static class VideoConstants
     {
         // ── Success ──────────────────────────────────────────────────────────
         public const string VideoCreated   = "VideoCreated";
+        public const string VideoUpdated   = "VideoUpdated";
         public const string VideoDeleted   = "VideoDeleted";
         public const string ScopesAssigned = "ScopesAssigned";
         public const string ScopesReplaced = "ScopesReplaced";
         public const string ScopeRemoved   = "ScopeRemoved";
         public const string WatchStarted   = "WatchStarted";
         public const string WatchStopped   = "WatchStopped";
+        public const string VideoStatusUpdated = "VideoStatusUpdated";
 
         // ── Errors ───────────────────────────────────────────────────────────
         public const string VideoNotFound                = "VideoNotFound";
@@ -140,6 +157,23 @@ public static class VideoConstants
         public const string NoActiveSession              = "NoActiveSession";
         public const string NotVideoOwner                = "NotVideoOwner";
         public const string ScopeNotFound                = "ScopeNotFound";
+        public const string MixedScopeTypesNotAllowed    = "MixedScopeTypesNotAllowed";
+
+        // ── Track C / G-UNIT ─────────────────────────────────────────────────
+        public const string VideoUnitCreated  = "VideoUnitCreated";
+        public const string VideoUnitUpdated  = "VideoUnitUpdated";
+        public const string VideoUnitDeleted  = "VideoUnitDeleted";
+        public const string VideoUnitNotFound = "VideoUnitNotFound";
+
+        // ── Unit Scope (collection-level Target Scope, final decision) ───────
+        public const string UnitScopesAssigned = "UnitScopesAssigned";
+        public const string UnitScopesReplaced = "UnitScopesReplaced";
+
+        // ── Track F / §5 Attachments ─────────────────────────────────────────
+        public const string AttachmentUploaded    = "AttachmentUploaded";
+        public const string AttachmentDeleted     = "AttachmentDeleted";
+        public const string AttachmentNotFound    = "AttachmentNotFound";
+        public const string AttachmentTooLarge    = "AttachmentTooLarge";
         // ── BOUNDED RETRY (concurrency conflict on first-open INSERT) ────────────
 
         /// <summary>

@@ -145,6 +145,12 @@ namespace Edvanz.Domain.Interfaces
         /// teacher-purge integration hook.
         /// </summary>
         IVideoAssetRepo VideoAssetsRepo { get; }
+
+        /// <summary>
+        /// Extended repository for <c>VideoUnit</c> (Track C / G-UNIT) — a
+        /// distinct sub-aggregate from <see cref="VideoAssetsRepo"/>.
+        /// </summary>
+        IVideoUnitRepo VideoUnitsRepo { get; }
         /// <summary>
         /// 1:1 direct-chat repository — conversations and messages.
         /// </summary>

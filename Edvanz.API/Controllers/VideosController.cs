@@ -214,6 +214,83 @@ public sealed class VideosController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // G-EDIT — UPDATE VIDEO
+    // PUT /api/videos/{videoAssetId}
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Updates title/description/sourceUrl/publishDate/status/unitId.
+    //   Recipients/scopes are NOT edited here — see PUT /scopes. If
+    //   sourceUrl changes, VideoAnalytics/VideoWatchEvent reset and
+    //   DurationSeconds returns to 0 (confirmed: a changed URL is a
+    //   different video). Other field-only edits preserve analytics.
+    //
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpPut("{videoAssetId:long}")]
+    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateVideo(
+        [FromRoute] long videoAssetId, [FromBody] UpdateVideoRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _service.UpdateVideoAsync(teacherId.Value, videoAssetId, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // G-EDIT — GET VIDEO DETAIL (supporting endpoint, Edit pre-fill + Overview)
+    // GET /api/videos/{videoAssetId}
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpGet("{videoAssetId:long}")]
+    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetVideoDetail([FromRoute] long videoAssetId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _service.GetVideoDetailAsync(teacherId.Value, videoAssetId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SET VIDEO STATUS  (Track D1 — Settings-row quick toggle, §5)
+    // PATCH /api/videos/{videoAssetId}/status
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Sets Draft/Published + optional scheduled PublishDate. Distinct from
+    //   the full edit form (PUT /api/videos/{id}), which also accepts these
+    //   two fields for the S13 form.
+    //
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpPatch("{videoAssetId:long}/status")]
+    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetVideoStatus(
+        [FromRoute] long videoAssetId, [FromBody] SetVideoStatusRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _service.SetVideoStatusAsync(teacherId.Value, videoAssetId, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // ENDPOINT 6 — TEACHER VIDEO LIST  (Story B teacher endpoint)
     // GET /api/videos/teacher
     // ══════════════════════════════════════════════════════════════════════

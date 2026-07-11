@@ -73,7 +73,8 @@ public partial class DbInitializer
     {
         var teacher1 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher1Code);
         var teacher2 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher2Code);
-        if (teacher1 is null || teacher2 is null) return;
+        var teacher3 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher3Code);
+        if (teacher1 is null || teacher2 is null || teacher3 is null) return;
 
         if (!await context.TeacherStudents.AnyAsync(ts => ts.TeacherId == teacher1.Id && !ts.IsDeleted))
         {
@@ -92,6 +93,16 @@ public partial class DbInitializer
                 StudentName        = "Hana Mahmoud",
                 StudentPhoneNumber = "01000000050",
                 ParentPhoneNumber  = "01000000060"
+            });
+        }
+
+        if (!await context.TeacherStudents.AnyAsync(ts => ts.TeacherId == teacher3.Id && !ts.IsDeleted))
+        {
+            await teacherStudentService.CreateStudentAsync(teacher3.Id, new CreateTeacherStudentDto
+            {
+                StudentName        = "Nadine Samy",
+                StudentPhoneNumber = "01000000080",
+                ParentPhoneNumber  = "01000000090"
             });
         }
     }
@@ -114,7 +125,8 @@ public partial class DbInitializer
     {
         var teacher1 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher1Code);
         var teacher2 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher2Code);
-        if (teacher1 is null || teacher2 is null) return;
+        var teacher3 = await context.Teachers.FirstOrDefaultAsync(t => t.TeacherCode == Teacher3Code);
+        if (teacher1 is null || teacher2 is null || teacher3 is null) return;
 
         var teacher1Student = await context.TeacherStudents
             .FirstOrDefaultAsync(ts => ts.TeacherId == teacher1.Id && !ts.IsDeleted && ts.SessionId == null);
@@ -127,6 +139,12 @@ public partial class DbInitializer
 
         if (teacher2Student is not null)
             await SeedSessionWithStudentAsync(sessionService, teacher2.Id, Session2Name, teacher2Student.Id);
+
+        var teacher3Student = await context.TeacherStudents
+            .FirstOrDefaultAsync(ts => ts.TeacherId == teacher3.Id && !ts.IsDeleted && ts.SessionId == null);
+
+        if (teacher3Student is not null)
+            await SeedSessionWithStudentAsync(sessionService, teacher3.Id, Session3Name, teacher3Student.Id);
     }
 
     private static async Task SeedSessionWithStudentAsync(

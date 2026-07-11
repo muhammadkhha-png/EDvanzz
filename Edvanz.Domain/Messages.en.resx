@@ -1107,6 +1107,9 @@
   <data name="VideoCreated" xml:space="preserve">
     <value>Video added successfully</value>
   </data>
+  <data name="VideoUpdated" xml:space="preserve">
+    <value>Video updated successfully</value>
+  </data>
   <data name="VideoDeleted" xml:space="preserve">
     <value>Video deleted permanently</value>
   </data>
@@ -1146,11 +1149,47 @@
   <data name="LastScopeCannotBeRemoved" xml:space="preserve">
     <value>You can't remove the last access target. Delete the video instead</value>
   </data>
+  <data name="MixedScopeTypesNotAllowed" xml:space="preserve">
+    <value>All access targets must be the same type — Students, Groups, or Sessions. Mixing types isn't allowed</value>
+  </data>
   <data name="NoActiveSession" xml:space="preserve">
     <value>No active watch session was found for this device</value>
   </data>
   <data name="NotVideoOwner" xml:space="preserve">
     <value>This video does not belong to your account</value>
+  </data>
+  <data name="VideoStatusUpdated" xml:space="preserve">
+    <value>Video visibility updated</value>
+  </data>
+  <data name="VideoUnitCreated" xml:space="preserve">
+    <value>Unit created successfully</value>
+  </data>
+  <data name="VideoUnitUpdated" xml:space="preserve">
+    <value>Unit updated successfully</value>
+  </data>
+  <data name="VideoUnitDeleted" xml:space="preserve">
+    <value>Unit deleted successfully</value>
+  </data>
+  <data name="VideoUnitNotFound" xml:space="preserve">
+    <value>We couldn't find this unit. It may have been deleted</value>
+  </data>
+  <data name="UnitScopesAssigned" xml:space="preserve">
+    <value>Collection access updated</value>
+  </data>
+  <data name="UnitScopesReplaced" xml:space="preserve">
+    <value>Collection access replaced</value>
+  </data>
+  <data name="AttachmentUploaded" xml:space="preserve">
+    <value>File uploaded successfully</value>
+  </data>
+  <data name="AttachmentDeleted" xml:space="preserve">
+    <value>File deleted successfully</value>
+  </data>
+  <data name="AttachmentNotFound" xml:space="preserve">
+    <value>We couldn't find this file. It may have been deleted</value>
+  </data>
+  <data name="AttachmentTooLarge" xml:space="preserve">
+    <value>This file is too large. Please upload a smaller file</value>
   </data>
   <data name="PhoneNumberRequired" xml:space="preserve">
     <value>Phone number is required</value>

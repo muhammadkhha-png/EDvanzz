@@ -169,6 +169,28 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<VideoAssetAudit> VideoAssetAudits => Set<VideoAssetAudit>();
 
     /// <summary>
+    /// Video Content Management Module (Module 14) — organizational grouping
+    /// of a teacher's videos (Track C / G-UNIT). Soft-deleted; optional
+    /// relationship to <see cref="VideoAsset"/> (loose videos allowed).
+    /// </summary>
+    public DbSet<VideoUnit> VideoUnits => Set<VideoUnit>();
+
+    /// <summary>
+    /// Video Content Management Module (Module 14) — collection-level (unit)
+    /// Target Scope rows. Structurally identical to <see cref="VideoScope"/>
+    /// but targets a <see cref="VideoUnit"/>. A student authorized by either
+    /// a video's own scope OR its unit's scope gets access.
+    /// </summary>
+    public DbSet<VideoUnitScope> VideoUnitScopes => Set<VideoUnitScope>();
+
+    /// <summary>
+    /// Video Content Management Module (Module 14) — uploaded files attached
+    /// to a video (Track F). Hard-delete-only; blob lifecycle managed by
+    /// <c>IFileStorageService</c>.
+    /// </summary>
+    public DbSet<VideoAttachment> VideoAttachments => Set<VideoAttachment>();
+
+    /// <summary>
     /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
     /// </summary>
     public DbSet<ModuleQuota> ModuleQuotas => Set<ModuleQuota>();
@@ -2406,6 +2428,17 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasDefaultValue(0)
                 .IsRequired();
 
+            // Track D1 — Draft/Published gate. Default Published so existing
+            // rows (created before this column existed) keep their current
+            // student visibility on migration.
+            entity.Property(v => v.Status)
+                .HasConversion<byte>()
+                .HasDefaultValue(VideoStatus.Published)
+                .IsRequired();
+
+            entity.Property(v => v.PublishDate)
+                .HasColumnType("datetime2(0)");
+
             entity.Property(v => v.CreateAt)
                 .HasColumnType("datetime2(0)")
                 .IsRequired();
@@ -2436,6 +2469,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(v => v.CreatedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Unit FK: SET NULL (Track C / G-UNIT confirmed decision — optional
+            // relationship, loose videos allowed). Deleting a unit never
+            // orphans or cascades its videos; they simply become loose again.
+            entity.HasOne(v => v.Unit)
+                .WithMany(u => u.Videos)
+                .HasForeignKey(v => v.UnitId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // ── INDEXES ───────────────────────────────────────────────────────
 
             // CRITICAL — composite-FK target. Children carrying denormalized TeacherId
@@ -2455,6 +2496,207 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // toggle and on the audit-trail "did this URL ever exist?" lookup.
             entity.HasIndex(v => new { v.TeacherId, v.ExternalId })
                 .HasDatabaseName("IX_VideoAssets_TeacherId_ExternalId");
+
+            // Track C — unit drill-down (GetVideosInUnitPagedAsync) and the
+            // "loose videos" filter (UnitId == null) on the teacher list.
+            entity.HasIndex(v => new { v.UnitId, v.TeacherId })
+                .HasDatabaseName("IX_VideoAssets_UnitId_TeacherId");
+        });
+        #endregion
+
+        #region VideoUnit (Track C / G-UNIT)
+        modelBuilder.Entity<VideoUnit>(entity =>
+        {
+            entity.ToTable("VideoUnits");
+
+            entity.Property(u => u.Title)
+                .HasMaxLength(VideoConstants.TitleMaxLength)
+                .IsRequired();
+
+            entity.Property(u => u.Description)
+                .HasMaxLength(VideoConstants.DescriptionMaxLength);
+
+            entity.Property(u => u.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            entity.HasOne(u => u.Teacher)
+                .WithMany()
+                .HasForeignKey(u => u.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(u => u.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(u => u.CreatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(u => new { u.TeacherId, u.CreateAt })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_VideoUnits_TeacherId_CreatedAt");
+
+            // CRITICAL — composite-FK target for VideoUnitScope's denormalized
+            // TeacherId column, same pattern as UX_VideoAssets_Id_TeacherId.
+            entity.HasIndex(u => new { u.Id, u.TeacherId })
+                .IsUnique()
+                .HasDatabaseName("UX_VideoUnits_Id_TeacherId");
+
+            // Soft-delete filter: queries exclude deleted records by default
+            entity.HasQueryFilter(u => u.DeletedAt == null);
+        });
+        #endregion
+
+        #region VideoUnitScope (collection-level Target Scope — final decision)
+        modelBuilder.Entity<VideoUnitScope>(entity =>
+        {
+            entity.ToTable("VideoUnitScopes");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            entity.Property(s => s.ScopeType)
+                .HasConversion<byte>()
+                .IsRequired();
+
+            entity.Property(s => s.AssignedAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            entity.Property(s => s.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            // ── COMPOSITE-FK TENANT INTEGRITY ─────────────────────────────────
+            // (VideoUnitId, TeacherId) → VideoUnits(Id, TeacherId). Same
+            // rationale as VideoScope's composite FK to VideoAssets — see that
+            // region's remarks. Do NOT add a second HasOne(s => s.Teacher)
+            // declaration; EF Core 10 would merge it into this one and drop
+            // the OnDelete clause.
+            entity.HasOne(s => s.VideoUnit)
+                .WithMany(u => u.Scopes)
+                .HasForeignKey(s => new { s.VideoUnitId, s.TeacherId })
+                .HasPrincipalKey(u => new { u.Id, u.TeacherId })
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Three target FKs — same NoAction rationale as VideoScope's.
+            entity.HasOne(s => s.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(s => s.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.Session)
+                .WithMany()
+                .HasForeignKey(s => s.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.SessionGroup)
+                .WithMany()
+                .HasForeignKey(s => s.SessionGroupId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // AssignedByUser: RESTRICT — preserve audit reference.
+            entity.HasOne(s => s.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(s => s.AssignedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ── CHECK CONSTRAINTS ─────────────────────────────────────────────
+            // Same two shape rules as VideoScope. Cross-row homogeneity (all
+            // rows for one unit share one ScopeType) is an Application-layer
+            // rule — SQL Server CHECK constraints cannot reference sibling rows.
+
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_VideoUnitScopes_ExactlyOneTarget",
+                "(CASE WHEN [TeacherStudentId] IS NOT NULL THEN 1 ELSE 0 END" +
+                " + CASE WHEN [SessionId]        IS NOT NULL THEN 1 ELSE 0 END" +
+                " + CASE WHEN [SessionGroupId]   IS NOT NULL THEN 1 ELSE 0 END) = 1"));
+
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_VideoUnitScopes_ScopeTypeMatchesFK",
+                "([ScopeType] = 0 AND [TeacherStudentId] IS NOT NULL)" +
+                " OR ([ScopeType] = 1 AND [SessionId] IS NOT NULL)" +
+                " OR ([ScopeType] = 2 AND [SessionGroupId] IS NOT NULL)"));
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            entity.HasIndex(s => s.VideoUnitId)
+                .IncludeProperties(s => new
+                {
+                    s.ScopeType,
+                    s.TeacherStudentId,
+                    s.SessionId,
+                    s.SessionGroupId,
+                    s.AssignedAt
+                })
+                .HasDatabaseName("IX_VideoUnitScopes_VideoUnitId");
+
+            // Filtered indexes per scope target — drive the union access-check
+            // (video scope OR unit scope) the same way VideoScope's do.
+            entity.HasIndex(s => s.TeacherStudentId)
+                .HasFilter("[TeacherStudentId] IS NOT NULL")
+                .IncludeProperties(s => new { s.VideoUnitId, s.AssignedAt })
+                .HasDatabaseName("IX_VideoUnitScopes_TeacherStudentId");
+
+            entity.HasIndex(s => s.SessionId)
+                .HasFilter("[SessionId] IS NOT NULL")
+                .IncludeProperties(s => new { s.VideoUnitId, s.AssignedAt })
+                .HasDatabaseName("IX_VideoUnitScopes_SessionId");
+
+            entity.HasIndex(s => s.SessionGroupId)
+                .HasFilter("[SessionGroupId] IS NOT NULL")
+                .IncludeProperties(s => new { s.VideoUnitId, s.AssignedAt })
+                .HasDatabaseName("IX_VideoUnitScopes_SessionGroupId");
+
+            // Composite uniqueness per (unit, scope-type, target) — same
+            // .HasFilter((string?)null) override rationale as VideoScope's
+            // equivalent index.
+            entity.HasIndex(s => new
+            {
+                s.VideoUnitId,
+                s.ScopeType,
+                s.TeacherStudentId,
+                s.SessionId,
+                s.SessionGroupId
+            })
+                .IsUnique()
+                .HasFilter((string?)null)
+                .HasDatabaseName("UX_VideoUnitScopes_Unit_Type_Target");
+        });
+        #endregion
+
+        #region VideoAttachment (Track F / §5 "Files / Attachments")
+        modelBuilder.Entity<VideoAttachment>(entity =>
+        {
+            entity.ToTable("VideoAttachments");
+
+            entity.Property(a => a.FileName)
+                .HasMaxLength(260)
+                .IsRequired();
+
+            entity.Property(a => a.ContentType)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(a => a.BlobPath)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            entity.Property(a => a.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            // Composite-FK tenant integrity — same pattern as VideoScope.
+            entity.HasOne(a => a.VideoAsset)
+                .WithMany()
+                .HasForeignKey(a => new { a.VideoAssetId, a.TeacherId })
+                .HasPrincipalKey(v => new { v.Id, v.TeacherId })
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(a => a.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(a => a.UploadedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(a => a.VideoAssetId)
+                .HasDatabaseName("IX_VideoAttachments_VideoAssetId");
         });
         #endregion
 

@@ -244,6 +244,7 @@ builder.Services.AddScoped<Edvanz.API.Filters.TenantScopeFilter>();
 builder.Services.AddSingleton<IVideoUrlParser, VideoUrlParser>();
 builder.Services.AddScoped<IVideoScopeResolver, VideoScopeResolver>();
 builder.Services.AddScoped<IVideoService, VideoService>();
+builder.Services.AddScoped<IVideoUnitService, VideoUnitService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();

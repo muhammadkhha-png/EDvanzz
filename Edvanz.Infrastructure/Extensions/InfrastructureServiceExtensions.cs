@@ -67,6 +67,7 @@ public static class InfrastructureServiceExtensions
         services.Configure<SubscriptionCacheOptions>(configuration.GetSection(SubscriptionCacheOptions.Section));
         services.Configure<ReminderSchedulerOptions>(configuration.GetSection(ReminderSchedulerOptions.Section));
         services.Configure<SubscriptionDefaultsOptions>(configuration.GetSection(SubscriptionDefaultsOptions.Section));
+        services.Configure<AzureBlobStorageOptions>(configuration.GetSection(AzureBlobStorageOptions.Section));
 
         // ── Live permission / module-revocation cache options (REQ-USR-013 / BR-ADM-010) ──
         services.Configure<UserAuthCacheOptions>(configuration.GetSection(UserAuthCacheOptions.Section));
@@ -155,5 +156,9 @@ public static class InfrastructureServiceExtensions
         // Stateless renderers — the orchestrating IStudentBarcodeService lives in the Application layer.
         services.AddSingleton<IBarcodeRenderer, BarcodeRenderer>();
         services.AddScoped<IStudentBarcodePdfBuilder, StudentBarcodePdfBuilder>();
+
+        // Video attachments (Track F, §5) — Azure Blob Storage. No AddHttpClient
+        // needed; the Azure SDK manages its own client internally.
+        services.AddScoped<IFileStorageService, AzureBlobFileStorageService>();
     }
 }

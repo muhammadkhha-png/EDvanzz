@@ -114,6 +114,38 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         return rowsAffected > 0;
     }
 
+    /// <inheritdoc />
+    public async Task<bool> SetVideoStatusAsync(
+        long videoAssetId, long teacherId, VideoStatus status, DateTime? publishDate)
+    {
+        int rowsAffected = await _context.VideoAssets
+            .Where(v => v.Id == videoAssetId && v.TeacherId == teacherId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(v => v.Status, status)
+                .SetProperty(v => v.PublishDate, publishDate));
+
+        return rowsAffected > 0;
+    }
+
+    /// <inheritdoc />
+    public async Task ResetAnalyticsForVideoAsync(long videoAssetId)
+    {
+        // G-EDIT: sourceUrl changed — this is now a different video.
+        // ExecuteDeleteAsync: single SQL DELETE per table, no in-memory
+        // loading, same pattern as DeleteAllScopesForVideoAsync.
+        await _context.VideoWatchEvents
+            .Where(e => e.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoAnalytics
+            .Where(a => a.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoAssets
+            .Where(v => v.Id == videoAssetId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.DurationSeconds, 0));
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // VIDEO ASSET — READ PATH
     // ══════════════════════════════════════════════════════════════════════
@@ -175,10 +207,20 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 TotalOpens = _context.VideoAnalytics
                     .Where(a => a.VideoAssetId == v.Id)
                     .Sum(a => (int?)a.OpenCount) ?? 0,
+                // G-ANL-3: distinct students who opened at least once — NOT
+                // TotalOpens, which counts re-opens. Any VideoAnalytics row
+                // implies the student has opened the video once.
+                SeenStudentCount = _context.VideoAnalytics
+                    .Count(a => a.VideoAssetId == v.Id),
                 CreatedAt = v.CreateAt,
             })
             .AsNoTracking()
             .ToListAsync();
+
+        foreach (var row in rows)
+        {
+            row.UnseenStudentCount = Math.Max(0, row.StudentsInScope - row.SeenStudentCount);
+        }
 
         return (rows, totalCount);
     }
@@ -215,12 +257,22 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         //
         // EF Core translates DISTINCT + GROUP BY MIN(AssignedAt) for the
         // earliest-assignment timestamp shown on the card.
+        var utcNow = DateTime.UtcNow;
+
+        // Track D1 visibility gate: Draft videos, or Published videos whose
+        // PublishDate is still in the future, are excluded from the
+        // student-visible set entirely (not just hidden client-side).
+        var publishedVideoIds = _context.VideoAssets
+            .Where(v => v.TeacherId == teacherId
+                     && v.Status == VideoStatus.Published
+                     && (v.PublishDate == null || v.PublishDate <= utcNow))
+            .Select(v => v.Id);
+
         var visibleQuery = _context.VideoScopes
             .Where(s => s.TeacherId == teacherId)
+            .Where(s => publishedVideoIds.Contains(s.VideoAssetId))
             .Where(s =>
-                (s.ScopeType == VideoScopeType.IndividualStudent
-                 && s.TeacherStudentId == teacherStudentId)
-             || (s.ScopeType == VideoScopeType.Session
+                (s.ScopeType == VideoScopeType.Session
                  && studentSessionId.HasValue
                  && s.SessionId == studentSessionId)
              || (s.ScopeType == VideoScopeType.SessionGroup
@@ -325,8 +377,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // pass valid enum values; an unrecognized value returns false.
         return scopeType switch
         {
-            VideoScopeType.IndividualStudent => await _context.TeacherStudents
-                .AnyAsync(ts => ts.Id == targetId && ts.TeacherId == teacherId),
+          
 
             VideoScopeType.Session => await _context.Sessions
                 .AnyAsync(se => se.Id == targetId && se.TeacherId == teacherId),
@@ -368,14 +419,25 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         long? sessionId = student.SessionId;
         long? sessionGroupId = student.SessionGroupId;
 
+        // Track D1 visibility gate: Draft videos, or Published videos whose
+        // PublishDate is still in the future, are never "in scope" for a
+        // student — same posture as the ModuleDeactivated gate.
+        var utcNow = DateTime.UtcNow;
+        bool isPublished = await _context.VideoAssets
+            .AnyAsync(v => v.Id == videoAssetId
+                        && v.TeacherId == teacherId
+                        && v.Status == VideoStatus.Published
+                        && (v.PublishDate == null || v.PublishDate <= utcNow));
+        if (!isPublished)
+            return false;
+
         return await _context.VideoScopes
             .AnyAsync(s =>
                 s.VideoAssetId == videoAssetId
              && s.TeacherId == teacherId
              && (
-                    (s.ScopeType == VideoScopeType.IndividualStudent
-                     && s.TeacherStudentId == teacherStudentId)
-                 || (s.ScopeType == VideoScopeType.Session
+                   
+                 (s.ScopeType == VideoScopeType.Session
                      && sessionId.HasValue && s.SessionId == sessionId)
                  || (s.ScopeType == VideoScopeType.SessionGroup
                      && sessionGroupId.HasValue && s.SessionGroupId == sessionGroupId)
@@ -495,6 +557,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         GetAnalyticsRowsForTeacherAsync(
             long teacherId, long videoAssetId, string? search,
             VideoAnalyticsSortBy sortBy, SortDirection sortDirection,
+            VideoAnalyticsStatusFilter statusFilter,
             int page, int pageSize)
     {
         // Story F report. Build the resolved-students set in SQL via the
@@ -521,7 +584,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // EF Core 10 supports Concat + Distinct on IQueryable<long>.
         var individualScope = _context.VideoScopes
             .Where(s => s.VideoAssetId == videoAssetId
-                     && s.ScopeType == VideoScopeType.IndividualStudent
+                    
                      && s.TeacherStudentId.HasValue)
             .Select(s => s.TeacherStudentId!.Value);
 
@@ -567,11 +630,20 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                     .Where(x => x.VideoAssetId == videoAssetId)
                 on ts.Id equals an.TeacherStudentId into anGroup
             from an in anGroup.DefaultIfEmpty()
+            // sessionName (Track D1 §5): the student's active session
+            // assignment. A student has at most one active assignment at a
+            // time (BR-ATT precedent), so DefaultIfEmpty + FirstOrDefault-style
+            // left join is safe without a dedup step.
+            join ssa in _context.StudentSessionAssignments
+                    .Where(x => x.IsActive)
+                on ts.Id equals ssa.TeacherStudentId into ssaGroup
+            from ssa in ssaGroup.DefaultIfEmpty()
             select new VideoAnalyticsReportRow
             {
                 TeacherStudentId = ts.Id,
                 StudentName = ts.StudentName,
                 StudentCode = ts.StudentCode,
+                SessionName = ssa != null ? ssa.SessionName : null,
                 HasOpened = an != null,
                 OpenCount = an != null ? an.OpenCount : 0,
                 TotalWatchSeconds = an != null ? an.TotalWatchSeconds : 0L,
@@ -601,6 +673,18 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
              || EF.Functions.Like(r.StudentCode, pattern));
         }
 
+        // G-ANL-4: server-side status filter. Same 90%-threshold definition
+        // of "completed" as GetAnalyticsAggregatesAsync's CompletedCount.
+        rowsQuery = statusFilter switch
+        {
+            VideoAnalyticsStatusFilter.Seen => rowsQuery.Where(r => r.HasOpened),
+            VideoAnalyticsStatusFilter.Unseen => rowsQuery.Where(r => !r.HasOpened),
+            VideoAnalyticsStatusFilter.Completed => rowsQuery.Where(r =>
+                r.EstimatedCompletionPct != null
+             && r.EstimatedCompletionPct >= VideoConstants.CompletionThresholdPercent),
+            _ => rowsQuery,
+        };
+
         int totalCount = await rowsQuery.CountAsync();
 
         // Apply sort. EstimatedCompletionPct may be null when duration is
@@ -629,7 +713,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         //   (any analytics row implies HasOpened=true).
         var individualScope = _context.VideoScopes
             .Where(s => s.VideoAssetId == videoAssetId
-                     && s.ScopeType == VideoScopeType.IndividualStudent
+                    
                      && s.TeacherStudentId.HasValue)
             .Select(s => s.TeacherStudentId!.Value);
 
@@ -659,19 +743,42 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .Where(x => x.TeacherId == teacherId)
             .Select(x => x.Id);
 
-        int totalInScope = await individualScope
+        var resolvedStudentIds = individualScope
             .Union(sessionScope)
             .Union(groupScope)
-            .Distinct()
-            .CountAsync();
+            .Distinct();
+
+        int totalInScope = await resolvedStudentIds.CountAsync();
 
         int totalWatched = await _context.VideoAnalytics
             .CountAsync(a => a.VideoAssetId == videoAssetId);
+
+        // G-ANL-1: completedCount — resolved students whose completion meets
+        // the threshold. Needs the video's duration; 0 means "unknown", in
+        // which case no student can be Completed yet.
+        int durationSeconds = await _context.VideoAssets
+            .Where(v => v.Id == videoAssetId && v.TeacherId == teacherId)
+            .Select(v => v.DurationSeconds)
+            .FirstOrDefaultAsync();
+
+        int completedCount = 0;
+        if (durationSeconds > 0)
+        {
+            completedCount = await resolvedStudentIds
+                .Join(_context.VideoAnalytics.Where(a => a.VideoAssetId == videoAssetId),
+                      sid => sid,
+                      a => a.TeacherStudentId,
+                      (sid, a) => a.TotalWatchSeconds)
+                .CountAsync(watchSeconds =>
+                    (watchSeconds * 100 / durationSeconds) >= VideoConstants.CompletionThresholdPercent);
+        }
 
         return new VideoAnalyticsAggregates
         {
             TotalStudentsInScope = totalInScope,
             TotalStudentsWatched = totalWatched,
+            UnseenCount = Math.Max(0, totalInScope - totalWatched),
+            CompletedCount = completedCount,
         };
     }
 
@@ -764,6 +871,43 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         await _context.VideoAssets
             .Where(v => v.TeacherId == teacherId)
             .ExecuteDeleteAsync();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ATTACHMENTS (Track F / §5)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task AddAttachmentAsync(VideoAttachment attachment)
+    {
+        await _context.VideoAttachments.AddAsync(attachment);
+    }
+
+    /// <inheritdoc />
+    public async Task<VideoAttachment?> GetAttachmentByIdAsync(
+        long attachmentId, long videoAssetId, long teacherId)
+    {
+        return await _context.VideoAttachments
+            .FirstOrDefaultAsync(a =>
+                a.Id == attachmentId && a.VideoAssetId == videoAssetId && a.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<VideoAttachment>> GetAttachmentsForVideoAsync(
+        long videoAssetId, long teacherId)
+    {
+        return await _context.VideoAttachments
+            .Where(a => a.VideoAssetId == videoAssetId && a.TeacherId == teacherId)
+            .OrderByDescending(a => a.CreateAt)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteAttachmentAsync(VideoAttachment attachment)
+    {
+        _context.VideoAttachments.Remove(attachment);
+        await Task.CompletedTask;
     }
 
     // ══════════════════════════════════════════════════════════════════════

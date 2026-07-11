@@ -111,6 +111,43 @@ public class VideoAsset : BaseEntity
     public int DurationSeconds { get; set; }
 
     // ══════════════════════════════════════════════
+    // VISIBILITY (Track D1 — Draft/Published + scheduled publish)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Draft/Published gate. Draft videos are invisible to students
+    /// regardless of <see cref="PublishDate"/>. Editable via
+    /// <c>PATCH /api/videos/{id}/status</c> or the full update endpoint.
+    /// Defaults to <see cref="VideoStatus.Published"/> so existing rows keep
+    /// their current visibility.
+    /// </summary>
+    public VideoStatus Status { get; set; } = VideoStatus.Published;
+
+    /// <summary>
+    /// Optional scheduled-publish timestamp. When set in the future, the
+    /// video stays hidden from students even if <see cref="Status"/> is
+    /// <see cref="VideoStatus.Published"/> — visible once
+    /// <c>PublishDate &lt;= now</c>. Null means "publish immediately" once
+    /// <see cref="Status"/> is <see cref="VideoStatus.Published"/>.
+    /// </summary>
+    public DateTime? PublishDate { get; set; }
+
+    // ══════════════════════════════════════════════
+    // ORGANIZATION (Track C / G-UNIT)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Optional parent unit (G-UNIT). Null means the video is "loose" — no
+    /// unit assigned. Confirmed decision: optional, loose videos allowed;
+    /// deleting the unit <c>SET NULL</c>s this column rather than blocking
+    /// or cascading.
+    /// </summary>
+    public long? UnitId { get; set; }
+
+    /// <summary>The unit this video belongs to, if any. See <see cref="UnitId"/>.</summary>
+    public VideoUnit? Unit { get; set; }
+
+    // ══════════════════════════════════════════════
     // AUDIT
     // ══════════════════════════════════════════════
 

@@ -16,8 +16,6 @@ namespace Edvanz.Domain.Enums;
 /// </summary>
 public enum VideoScopeType : byte
 {
-    /// <summary>Targets exactly one <c>TeacherStudent</c> row.</summary>
-    IndividualStudent = 0,
 
     /// <summary>Targets every student currently assigned to the referenced session.</summary>
     Session = 1,

@@ -29,6 +29,33 @@ public sealed class TeacherVideoListRow
     public int DurationSeconds { get; set; }
     public int StudentsInScope { get; set; }
     public int TotalOpens { get; set; }
+
+    /// <summary>
+    /// Distinct students who have opened the video at least once (G-ANL-3).
+    /// Not the same as <see cref="TotalOpens"/>, which counts re-opens.
+    /// </summary>
+    public int SeenStudentCount { get; set; }
+
+    /// <summary>= <see cref="StudentsInScope"/> - <see cref="SeenStudentCount"/> (G-ANL-3).</summary>
+    public int UnseenStudentCount { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Projection row for a teacher's unit list (Track C / G-UNIT, S2). Rolls up
+/// child video counts and distinct seen/unseen students across the unit's
+/// videos in one grouped query — same rationale as
+/// <see cref="TeacherVideoListRow"/>'s per-video aggregates.
+/// </summary>
+public sealed class TeacherVideoUnitListRow
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public int VideoCount { get; set; }
+    public int SeenStudentCount { get; set; }
+    public int UnseenStudentCount { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -80,6 +107,14 @@ public sealed class VideoAnalyticsReportRow
     public long TeacherStudentId { get; set; }
     public string StudentName { get; set; } = null!;
     public string StudentCode { get; set; } = null!;
+
+    /// <summary>
+    /// The student's current session name (Track D1 §5 open question), read
+    /// from their active <c>StudentSessionAssignment</c>. Null when the
+    /// student has no active session assignment.
+    /// </summary>
+    public string? SessionName { get; set; }
+
     public bool HasOpened { get; set; }
     public int OpenCount { get; set; }
     public long TotalWatchSeconds { get; set; }
@@ -107,6 +142,15 @@ public sealed class VideoAnalyticsAggregates
 {
     public int TotalStudentsInScope { get; set; }
     public int TotalStudentsWatched { get; set; }
+
+    /// <summary>= <see cref="TotalStudentsInScope"/> - <see cref="TotalStudentsWatched"/> (G-ANL-2).</summary>
+    public int UnseenCount { get; set; }
+
+    /// <summary>
+    /// Students whose <c>EstimatedCompletionPct</c> meets
+    /// <c>VideoConstants.CompletionThresholdPercent</c> (G-ANL-1).
+    /// </summary>
+    public int CompletedCount { get; set; }
 }
 
 /// <summary>

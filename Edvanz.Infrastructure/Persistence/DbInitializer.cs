@@ -36,10 +36,12 @@ public partial class DbInitializer
     // Stable tenant identifiers — never change after first deploy
     private const string Teacher1Code = "T0000001";
     private const string Teacher2Code = "T0000002";
+    private const string Teacher3Code = "T0000003";
 
     // Session name constants used to guard idempotency in session seed
     private const string Session1Name = "Session A1";
     private const string Session2Name = "Session B1";
+    private const string Session3Name = "Session C1";
 
     // ════════════════════════════════════════════════
     // PUBLIC ENTRY POINT

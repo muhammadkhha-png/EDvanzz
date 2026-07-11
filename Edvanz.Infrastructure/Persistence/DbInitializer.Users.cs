@@ -16,9 +16,11 @@ namespace Edvanz.Infrastructure.Persistence;
 ///   SuperAdmin   — Platform Administrator (superadmin)
 ///   Teacher 1    — Ahmed Mostafa (teacher1)  — ALL 8 modules
 ///   Teacher 2    — Mariam Hassan (teacher2)  — Student + Session + Attendance
+///   Teacher 3    — Omar Farouk  (teacher3)  — ALL 8 modules
 ///   Assistant 1A — Sara Ibrahim  (assistant1a) — ALL permissions (full delegate)
 ///   Assistant 1B — Khaled Nasser (assistant1b) — Read-mostly, Student + Attendance
 ///   Assistant 2A — Nour Adel    (assistant2a) — Within teacher2's open modules
+///   Assistant 3A — Laila Samir  (assistant3a) — ALL permissions (full delegate)
 ///   Student      — Youssef Tarek (student1)
 ///   Parent       — Hany Saleh    (parent1)
 /// </summary>
@@ -64,6 +66,15 @@ public partial class DbInitializer
                 context, teacher2.Id,
                 moduleNames: new[] { "Student", "Session", "Attendance" });
 
+            var teacher3 = await SeedTeacherAsync(
+                context, hashedPassword, now,
+                fullName: "Omar Farouk", username: "teacher3",
+                email: "teacher3@edvanz.example", phoneNumber: "01000000003",
+                teacherCode: Teacher3Code, studentCapacity: 800,
+                createdByUserId: superAdmin.Id);
+
+            await AssignAllModulesToTeacherAsync(context, teacher3.Id);
+
             await SeedAssistantAsync(
                 context, hashedPassword, now,
                 teacherId: teacher1.Id, fullName: "Sara Ibrahim", username: "assistant1a",
@@ -82,6 +93,12 @@ public partial class DbInitializer
                 email: "assistant2a@edvanz.example", phoneNumber: "01000000020",
                 permissionFilter: PermissionFilter.WithinTutorModules,
                 tutorModuleNames: new[] { "Student", "Session", "Attendance" });
+
+            await SeedAssistantAsync(
+                context, hashedPassword, now,
+                teacherId: teacher3.Id, fullName: "Laila Samir", username: "assistant3a",
+                email: "assistant3a@edvanz.example", phoneNumber: "01000000070",
+                permissionFilter: PermissionFilter.AllPermissions);
 
             await SeedStudentUserAsync(
                 context, hashedPassword, now,

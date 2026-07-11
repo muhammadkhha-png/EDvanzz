@@ -112,6 +112,40 @@ public interface IVideoService
     Task<Result<bool>> DeleteVideoAsync(
         long teacherId, long actingUserId, long videoAssetId);
 
+    /// <summary>
+    /// Sets a video's Draft/Published status and optional scheduled
+    /// <c>PublishDate</c> (Track D1). The Settings-row quick toggle —
+    /// distinct from the full update endpoint (G-EDIT), which also accepts
+    /// these two fields alongside title/description/etc.
+    /// </summary>
+    Task<Result<bool>> SetVideoStatusAsync(
+        long teacherId, long videoAssetId, SetVideoStatusRequest request);
+
+    /// <summary>
+    /// Updates title/description/sourceUrl/publishDate/status/unitId
+    /// (G-EDIT). Recipients/scopes are untouched — see
+    /// <see cref="ReplaceScopesAsync"/>.
+    ///
+    /// Confirmed rule: when <c>SourceUrl</c> differs from the stored value,
+    /// this is treated as a different video — <c>VideoAnalytics</c> and
+    /// <c>VideoWatchEvent</c> rows reset, and <c>DurationSeconds</c> returns
+    /// to 0 to be re-learned. Every other field-only edit preserves
+    /// analytics.
+    ///
+    /// Errors: <see cref="Domain.Constants.VideoConstants.Messages.VideoNotFound"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.InvalidUrl"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.UnsupportedSource"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.VideoUnitNotFound"/>.
+    /// </summary>
+    Task<Result<VideoDetailDto>> UpdateVideoAsync(
+        long teacherId, long videoAssetId, UpdateVideoRequest request);
+
+    /// <summary>
+    /// Supporting read for G-EDIT — pre-fill payload for the Edit screen and
+    /// the Overview description field.
+    /// </summary>
+    Task<Result<VideoDetailDto>> GetVideoDetailAsync(long teacherId, long videoAssetId);
+
     // ══════════════════════════════════════════════════════════════════════
     // TEACHER READ FLOWS
     // ══════════════════════════════════════════════════════════════════════
@@ -220,4 +254,29 @@ public interface IVideoService
     Task<Result<int>> PurgeAllVideosForTeacherAsync(long teacherId, long actingAdminUserId);
 
     #endregion
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ATTACHMENTS (Track F / §5) — Azure Blob Storage
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Uploads a file and attaches it to a video, owner-scoped. Rejects
+    /// files larger than <c>VideoConstants.AttachmentMaxSizeBytes</c> with
+    /// <c>AttachmentTooLarge</c> (422).
+    /// </summary>
+    Task<Result<VideoAttachmentDto>> UploadAttachmentAsync(
+        long teacherId, long actingUserId, long videoAssetId,
+        string fileName, string contentType, long fileSizeBytes, Stream content);
+
+    /// <summary>Lists every attachment for a video, each with a fresh SAS read URL.</summary>
+    Task<Result<List<VideoAttachmentDto>>> GetAttachmentsAsync(long teacherId, long videoAssetId);
+
+    /// <summary>
+    /// Deletes an attachment. Blob is deleted first, then the DB row — a
+    /// failed DB delete leaves an orphan blob rather than a DB row pointing
+    /// at a missing blob (cheaper failure mode to clean up).
+    /// </summary>
+    Task<Result<bool>> DeleteAttachmentAsync(
+        long teacherId, long videoAssetId, long attachmentId);
+
 }

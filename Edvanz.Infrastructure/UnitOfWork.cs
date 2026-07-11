@@ -32,6 +32,7 @@ namespace Edvanz.Infrastructure
         private IRefreshTokenRepo? _refreshTokenRepo;
         private IgoogleUserRepo? _googleUserRepo;
         private IVideoAssetRepo? _videoAssetsRepo;
+        private IVideoUnitRepo? _videoUnitsRepo;
 
         private IAssitantRepo? _assistantRepo;
         private IModuleTeacherRepo? _ModuleTeacherRepo;
@@ -219,6 +220,9 @@ namespace Edvanz.Infrastructure
         /// </summary>
         public IVideoAssetRepo VideoAssetsRepo
             => _videoAssetsRepo ??= new Repositories.VideoAssetRepo(_Context);
+
+        public IVideoUnitRepo VideoUnitsRepo
+            => _videoUnitsRepo ??= new Repositories.VideoUnitRepo(_Context);
 
         public IChatRepo ChatRepo =>_chatRepo ??= new Repositories.ChatRepo(_Context);
 

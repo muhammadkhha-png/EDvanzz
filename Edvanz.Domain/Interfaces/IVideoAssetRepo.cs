@@ -80,6 +80,29 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
         int reportedDurationSeconds,
         double toleranceFraction);
 
+    /// <summary>
+    /// Sets <c>Status</c> and <c>PublishDate</c> on a video, owner-scoped.
+    /// Track D1 — backs both the quick Settings-row toggle
+    /// (<c>PATCH /api/videos/{id}/status</c>) and the full update endpoint
+    /// (G-EDIT). Single <c>ExecuteUpdateAsync</c> round trip.
+    /// </summary>
+    /// <returns><c>true</c> if a row was updated; <c>false</c> if the video
+    /// doesn't exist or belongs to a different teacher.</returns>
+    Task<bool> SetVideoStatusAsync(
+        long videoAssetId,
+        long teacherId,
+        VideoStatus status,
+        DateTime? publishDate);
+
+    /// <summary>
+    /// Hard-deletes every <c>VideoAnalytics</c> and <c>VideoWatchEvent</c> row
+    /// for a video and resets <c>DurationSeconds</c> to 0. Called by G-EDIT's
+    /// update flow only when <c>SourceUrl</c> changes — confirmed rule: a
+    /// changed URL is a different video, so its watch history restarts.
+    /// Does NOT touch <c>VideoScope</c> rows.
+    /// </summary>
+    Task ResetAnalyticsForVideoAsync(long videoAssetId);
+
     // ══════════════════════════════════════════════════════════════════════
     // VIDEO ASSET — READ PATH
     // ══════════════════════════════════════════════════════════════════════
@@ -313,6 +336,10 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// <param name="sortBy">Column to sort by — see
     /// <see cref="VideoAnalyticsSortBy"/>.</param>
     /// <param name="sortDirection">Asc or Desc.</param>
+    /// <param name="statusFilter">Narrows rows to Seen/Unseen/Completed
+    /// (G-ANL-4). "Completed" uses the same
+    /// <c>VideoConstants.CompletionThresholdPercent</c> threshold as
+    /// <see cref="GetAnalyticsAggregatesAsync"/>'s <c>CompletedCount</c>.</param>
     /// <param name="page">1-based.</param>
     /// <param name="pageSize">Clamped by caller.</param>
     Task<(IReadOnlyList<VideoAnalyticsReportRow> Items, int TotalCount)>
@@ -322,6 +349,7 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
             string? search,
             VideoAnalyticsSortBy sortBy,
             SortDirection sortDirection,
+            VideoAnalyticsStatusFilter statusFilter,
             int page,
             int pageSize);
 
@@ -413,4 +441,24 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// every video before calling.
     /// </summary>
     Task DeleteAllVideosForTeacherAsync(long teacherId);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ATTACHMENTS (Track F / §5) — blob lifecycle owned by IFileStorageService
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>Queues an INSERT for a new attachment row. Caller calls SaveChanges.</summary>
+    Task AddAttachmentAsync(VideoAttachment attachment);
+
+    /// <summary>
+    /// Fetches an attachment by id, scoped to the video and teacher.
+    /// Returns <c>null</c> if it doesn't exist or belongs to a different
+    /// video/teacher.
+    /// </summary>
+    Task<VideoAttachment?> GetAttachmentByIdAsync(long attachmentId, long videoAssetId, long teacherId);
+
+    /// <summary>Lists every attachment for a video, newest first.</summary>
+    Task<IReadOnlyList<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId, long teacherId);
+
+    /// <summary>Hard-deletes a single attachment row (blob deleted separately by the service).</summary>
+    Task DeleteAttachmentAsync(VideoAttachment attachment);
 }

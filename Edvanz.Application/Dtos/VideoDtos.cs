@@ -58,6 +58,13 @@ public sealed class CreateVideoRequest
     /// </summary>
     [Required]
     public string SourceUrl { get; set; } = null!;
+
+    /// <summary>
+    /// Optional parent unit (G-UNIT). Null means the video is created loose —
+    /// no unit assigned. Must belong to the calling teacher; service returns
+    /// <c>VideoUnitNotFound</c> otherwise.
+    /// </summary>
+    public long? UnitId { get; set; }
 }
 
 /// <summary>
@@ -68,6 +75,173 @@ public sealed class CreateVideoRequest
 public sealed class CreateVideoResponse
 {
     public long VideoAssetId { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// UPDATE VIDEO (G-EDIT) — PUT /api/videos/{id} + supporting GET
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Request body for <c>PUT /api/videos/{id}</c>. Recipients/scopes are NOT
+/// edited here — that stays on <c>PUT /videos/{id}/scopes</c>.
+///
+/// Confirmed rule: if <see cref="SourceUrl"/> differs from the stored value,
+/// the service treats it as a different video — <c>VideoAnalytics</c> and
+/// <c>VideoWatchEvent</c> rows for this asset are cleared and
+/// <c>DurationSeconds</c> resets to 0 to be re-learned. Every other
+/// field-only edit preserves analytics.
+/// </summary>
+public sealed class UpdateVideoRequest
+{
+    [Required]
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+
+    [Required]
+    public string SourceUrl { get; set; } = null!;
+
+    public DateTime? PublishDate { get; set; }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoStatus? Status { get; set; }
+
+    public long? UnitId { get; set; }
+}
+
+/// <summary>
+/// Response for <c>PUT /api/videos/{id}</c> and <c>GET /api/videos/{id}</c>.
+/// Powers the Edit-screen pre-fill and the Overview description field.
+/// </summary>
+public sealed class VideoDetailDto
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoSourceType SourceType { get; set; }
+
+    public string SourceUrl { get; set; } = null!;
+    public int DurationSeconds { get; set; }
+    public DateTime? PublishDate { get; set; }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoStatus Status { get; set; }
+
+    public long? UnitId { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VIDEO UNIT (Track C / G-UNIT) — api/video-units
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>Request body for <c>POST /api/video-units</c> and <c>PUT /api/video-units/{id}</c>.</summary>
+public sealed class VideoUnitRequest
+{
+    [Required]
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    /// <summary>Optional unit‑level scopes to be created together with the unit.</summary>
+    public List<VideoScopeInputDto>? Scopes { get; set; }
+}
+
+/// <summary>Response body for <c>POST /api/video-units</c>.</summary>
+public sealed class CreateVideoUnitResponse
+{
+    public long VideoUnitId { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VIDEO UNIT SCOPE — collection-level Target Scope (final decision)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Request body for both <c>POST /api/video-units/{id}/scopes</c> (append)
+/// and <c>PUT /api/video-units/{id}/scopes</c> (replace-all). Reuses
+/// <see cref="VideoScopeInputDto"/> — the row shape is identical to a
+/// per-video scope input, so a separate DTO would only duplicate it.
+/// </summary>
+public sealed class AssignUnitScopesRequest
+{
+    [Required]
+    public List<VideoScopeInputDto> Scopes { get; set; } = new();
+}
+
+/// <summary>
+/// Response body for <c>POST /api/video-units/{id}/scopes</c>. Mirrors
+/// <see cref="AppendScopesResponse"/>.
+/// </summary>
+public sealed class AppendUnitScopesResponse
+{
+    public int ScopesAdded { get; set; }
+    public int ScopesSkipped { get; set; }
+    public int StudentsInScope { get; set; }
+}
+
+/// <summary>
+/// Response body for <c>PUT /api/video-units/{id}/scopes</c>. Mirrors
+/// <see cref="ReplaceScopesResponse"/>.
+/// </summary>
+public sealed class ReplaceUnitScopesResponse
+{
+    public int ScopesAdded { get; set; }
+    public int ScopesRemoved { get; set; }
+    public int StudentsInScope { get; set; }
+}
+
+/// <summary>Request DTO for <c>GET /api/video-units</c>.</summary>
+public sealed class TeacherVideoUnitListRequest
+{
+    private int _page = 1;
+    private int _pageSize = 20;
+
+    public int Page
+    {
+        get => _page;
+        set => _page = value < 1 ? 1 : value;
+    }
+
+    public int PageSize
+    {
+        get => _pageSize;
+        set => _pageSize = value < 1 ? 20 : value > 100 ? 100 : value;
+    }
+
+    public string? Search { get; set; }
+}
+
+/// <summary>
+/// One row of the teacher's unit list (S2) — rolled-up child aggregates
+/// across the unit's videos.
+/// </summary>
+public sealed class TeacherVideoUnitListItemDto
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public int VideoCount { get; set; }
+    public int SeenStudentCount { get; set; }
+    public int UnseenStudentCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ATTACHMENTS (Track F / §5) — Azure Blob Storage
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// One uploaded file. <see cref="ReadUrl"/> is a time-limited SAS URL
+/// generated per request — never stored, so it can't go stale in a cached
+/// response.
+/// </summary>
+public sealed class VideoAttachmentDto
+{
+    public long Id { get; set; }
+    public string FileName { get; set; } = null!;
+    public string ContentType { get; set; } = null!;
+    public long FileSizeBytes { get; set; }
+    public string ReadUrl { get; set; } = null!;
+    public DateTime CreatedAt { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -87,9 +261,9 @@ public sealed class VideoScopeInputDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoScopeType ScopeType { get; set; }
 
-    public long? TeacherStudentId { get; set; }
     public long? SessionId { get; set; }
     public long? SessionGroupId { get; set; }
+
 }
 
 /// <summary>
@@ -124,6 +298,28 @@ public sealed class ReplaceScopesResponse
     public int ScopesAdded { get; set; }
     public int ScopesRemoved { get; set; }
     public int StudentsInScope { get; set; }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VISIBILITY (Track D1 — Draft/Published + scheduled publish)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// <summary>
+/// Request body for <c>PATCH /api/videos/{id}/status</c> — the Settings-row
+/// quick toggle, distinct from the full edit form (which also accepts these
+/// two fields).
+/// </summary>
+public sealed class SetVideoStatusRequest
+{
+    [Required]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoStatus Status { get; set; }
+
+    /// <summary>
+    /// Null = publish immediately once <see cref="Status"/> is Published. A
+    /// future date schedules the video — hidden from students until reached.
+    /// </summary>
+    public DateTime? PublishDate { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -170,6 +366,13 @@ public sealed class TeacherVideoListItemDto
     public int DurationSeconds { get; set; }
     public int StudentsInScope { get; set; }
     public int TotalOpens { get; set; }
+
+    /// <summary>Distinct students who have opened the video at least once (G-ANL-3).</summary>
+    public int SeenStudentCount { get; set; }
+
+    /// <summary>= <see cref="StudentsInScope"/> - <see cref="SeenStudentCount"/> (G-ANL-3).</summary>
+    public int UnseenStudentCount { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 
@@ -368,6 +571,15 @@ public sealed class VideoAnalyticsRequest
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public SortDirection SortDirection { get; set; } = SortDirection.Asc;
+
+    /// <summary>
+    /// Server-side row filter (G-ANL-4). Narrows <c>Rows</c> and its
+    /// pagination/<c>TotalCount</c> to the requested bucket; the top-level
+    /// aggregates in <see cref="VideoAnalyticsResponse"/> are unaffected —
+    /// they always reflect the full scope, not the filtered view.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoAnalyticsStatusFilter StatusFilter { get; set; } = VideoAnalyticsStatusFilter.All;
 }
 
 /// <summary>
@@ -381,6 +593,14 @@ public sealed class VideoAnalyticsResponse
     public int DurationSeconds { get; set; }
     public int TotalStudentsInScope { get; set; }
     public int TotalStudentsWatched { get; set; }
+
+    /// <summary>= <c>TotalStudentsInScope - TotalStudentsWatched</c> (G-ANL-2).</summary>
+    public int UnseenCount { get; set; }
+
+    /// <summary>
+    /// Students whose completion meets <c>VideoConstants.CompletionThresholdPercent</c> (G-ANL-1).
+    /// </summary>
+    public int CompletedCount { get; set; }
 
     public List<VideoAnalyticsRowDto> Rows { get; set; } = new();
 
@@ -399,6 +619,10 @@ public sealed class VideoAnalyticsRowDto
     public long TeacherStudentId { get; set; }
     public string StudentName { get; set; } = null!;
     public string StudentCode { get; set; } = null!;
+
+    /// <summary>The student's current session name, or null if unassigned.</summary>
+    public string? SessionName { get; set; }
+
     public bool HasOpened { get; set; }
     public int OpenCount { get; set; }
     public long TotalWatchSeconds { get; set; }
@@ -411,4 +635,11 @@ public sealed class VideoAnalyticsRowDto
 
     /// <summary>Uncapped; values &gt; 100 indicate rewatching.</summary>
     public int? RawWatchPct { get; set; }
+}
+public sealed class VideoUnitResponse
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public List<VideoScopeInputDto> Scopes { get; set; } = new();
 }

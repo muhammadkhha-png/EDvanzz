@@ -1,0 +1,100 @@
+using Edvanz.Domain.Entities;
+
+namespace Edvanz.Domain.Interfaces;
+
+/// <summary>
+/// Extended repository for <see cref="VideoUnit"/> (Track C / G-UNIT). Kept
+/// as its own repo rather than folded into <see cref="IVideoAssetRepo"/> —
+/// units are a distinct sub-aggregate with their own CRUD and paged-list
+/// shape, same rationale as splitting <c>IVideoQuizRepo</c> out later.
+/// </summary>
+public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
+{
+    /// <summary>Adds a new unit to the change tracker.</summary>
+    Task AddUnitAsync(VideoUnit unit);
+
+    /// <summary>
+    /// Fetches a unit by id, scoped to the teacher who owns it (and not
+    /// soft-deleted — covered by the default query filter). Tracked: caller
+    /// may mutate for update, or soft-delete.
+    /// </summary>
+    Task<VideoUnit?> GetUnitByIdAndTeacherAsync(long unitId, long teacherId);
+
+    /// <summary>
+    /// Soft-deletes a unit (sets <c>DeletedAt</c>). Does NOT touch its
+    /// videos — the FK's <c>SET NULL</c> `OnDelete` behavior only fires on a
+    /// hard DB delete, so the service layer must explicitly null out
+    /// <c>VideoAsset.UnitId</c> for this unit's videos in the same
+    /// transaction (soft-delete leaves the row in place at the DB level).
+    /// </summary>
+    Task SoftDeleteUnitAsync(VideoUnit unit, DateTime deletedAtUtc);
+
+    /// <summary>
+    /// Bulk-nulls <c>UnitId</c> for every video currently in the given unit.
+    /// Called by the service layer alongside <see cref="SoftDeleteUnitAsync"/>
+    /// so a soft-deleted unit's videos become loose immediately, not just
+    /// whenever each video is next touched.
+    /// </summary>
+    Task<int> DetachVideosFromUnitAsync(long unitId);
+
+    /// <summary>
+    /// Paged list of a teacher's units with rolled-up child aggregates
+    /// (video count, distinct seen/unseen students across the unit's
+    /// videos) — backs S2. Computed as one grouped query, not per-unit
+    /// round trips.
+    /// </summary>
+    Task<(IReadOnlyList<TeacherVideoUnitListRow> Items, int TotalCount)>
+        GetTeacherUnitsPagedAsync(long teacherId, string? search, int page, int pageSize);
+
+    /// <summary>
+    /// Paged list of videos inside a specific unit — backs the S6 drill-down.
+    /// Reuses <see cref="TeacherVideoListRow"/>, the same shape as the
+    /// top-level teacher video list.
+    /// </summary>
+    Task<(IReadOnlyList<TeacherVideoListRow> Items, int TotalCount)>
+        GetVideosInUnitPagedAsync(long unitId, long teacherId, int page, int pageSize);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // UNIT SCOPE — collection-level Target Scope (final decision)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Fetches a unit together with its scope rows eagerly loaded. Used by
+    /// the append-scopes flow to dedupe client-side before insert — same
+    /// rationale as <c>IVideoAssetRepo.GetVideoWithScopesAsync</c>.
+    /// AsNoTracking — caller does not mutate.
+    /// </summary>
+    Task<VideoUnit?> GetUnitWithScopesAsync(long unitId, long teacherId);
+
+    /// <summary>
+    /// Adds a batch of scope rows for an existing unit. Service layer is
+    /// responsible for validating each scope's target belongs to the same
+    /// teacher (via <c>IVideoAssetRepo.IsScopeTargetOwnedByTeacherAsync</c> —
+    /// reused as-is, since target ownership is not video/unit-specific) and
+    /// for enforcing the single-recipient-type-per-unit rule before calling.
+    /// </summary>
+    Task AddUnitScopesAsync(IEnumerable<VideoUnitScope> scopes);
+
+    /// <summary>
+    /// Hard-deletes every scope row for a given unit. Used by the
+    /// PUT-replace-all flow, wrapped in the service layer's transaction.
+    /// Implemented as <c>ExecuteDeleteAsync</c> for a single round trip.
+    /// </summary>
+    Task DeleteAllScopesForUnitAsync(long unitId);
+
+    /// <summary>
+    /// Hard-deletes a single unit-scope row, scoped to the teacher. Returns
+    /// <c>false</c> if the row does not exist or belongs to a different
+    /// teacher.
+    /// </summary>
+    Task<bool> DeleteUnitScopeByIdAndTeacherAsync(long scopeId, long teacherId);
+
+    /// <summary>
+    /// Returns the count of scope rows for a unit. Unlike a video, a unit is
+    /// allowed to reach zero scope rows — removing the last one is a valid
+    /// state (the unit simply stops granting supplemental access; its videos
+    /// still work through their own <c>VideoScope</c> rows), so there is no
+    /// "last scope cannot be removed" guard at the unit level.
+    /// </summary>
+    Task<int> CountScopesForUnitAsync(long unitId);
+}

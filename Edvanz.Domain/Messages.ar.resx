@@ -1107,6 +1107,9 @@
   <data name="VideoCreated" xml:space="preserve">
     <value>تم إضافة الفيديو بنجاح</value>
   </data>
+  <data name="VideoUpdated" xml:space="preserve">
+    <value>تم تحديث الفيديو بنجاح</value>
+  </data>
   <data name="VideoDeleted" xml:space="preserve">
     <value>تم حذف الفيديو نهائيًا</value>
   </data>
@@ -1146,11 +1149,47 @@
   <data name="LastScopeCannotBeRemoved" xml:space="preserve">
     <value>مينفعش تشيل آخر جهة وصول. لو عايز تلغي الفيديو، احذفه</value>
   </data>
+  <data name="MixedScopeTypesNotAllowed" xml:space="preserve">
+    <value>لازم جهات الوصول كلها تكون من نفس النوع — طلاب، جروبات، أو سيشنز. مينفعش تخلطهم</value>
+  </data>
   <data name="NoActiveSession" xml:space="preserve">
     <value>مفيش جلسة مشاهدة شغالة على الجهاز ده</value>
   </data>
   <data name="NotVideoOwner" xml:space="preserve">
     <value>الفيديو ده مش تابع لحسابك</value>
+  </data>
+  <data name="VideoStatusUpdated" xml:space="preserve">
+    <value>تم تحديث ظهور الفيديو</value>
+  </data>
+  <data name="VideoUnitCreated" xml:space="preserve">
+    <value>تم إنشاء الوحدة بنجاح</value>
+  </data>
+  <data name="VideoUnitUpdated" xml:space="preserve">
+    <value>تم تحديث الوحدة بنجاح</value>
+  </data>
+  <data name="VideoUnitDeleted" xml:space="preserve">
+    <value>تم حذف الوحدة بنجاح</value>
+  </data>
+  <data name="VideoUnitNotFound" xml:space="preserve">
+    <value>مقدرناش نلاقي الوحدة دي. ممكن تكون اتحذفت</value>
+  </data>
+  <data name="UnitScopesAssigned" xml:space="preserve">
+    <value>تم تحديث صلاحيات الوصول للمجموعة</value>
+  </data>
+  <data name="UnitScopesReplaced" xml:space="preserve">
+    <value>تم استبدال صلاحيات الوصول للمجموعة</value>
+  </data>
+  <data name="AttachmentUploaded" xml:space="preserve">
+    <value>تم رفع الملف بنجاح</value>
+  </data>
+  <data name="AttachmentDeleted" xml:space="preserve">
+    <value>تم حذف الملف بنجاح</value>
+  </data>
+  <data name="AttachmentNotFound" xml:space="preserve">
+    <value>مقدرناش نلاقي الملف ده. ممكن يكون اتحذف</value>
+  </data>
+  <data name="AttachmentTooLarge" xml:space="preserve">
+    <value>الملف ده كبير أوي. من فضلك ارفع ملف أصغر</value>
   </data>
   <data name="PhoneNumberRequired" xml:space="preserve">
     <value>رقم الموبايل مطلوب.</value>

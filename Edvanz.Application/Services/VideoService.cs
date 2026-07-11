@@ -99,6 +99,17 @@ public sealed class VideoService : IVideoService
                 _localizer, key, HttpStatusCode.BadRequest);
         }
 
+        // Track C / G-UNIT: UnitId is optional but must belong to the
+        // calling teacher when supplied.
+        if (request.UnitId.HasValue)
+        {
+            var unit = await _unitOfWork.VideoUnitsRepo
+                .GetUnitByIdAndTeacherAsync(request.UnitId.Value, teacherId);
+            if (unit is null)
+                return Result<CreateVideoResponse>.Failure(
+                    _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.BadRequest);
+        }
+
         var video = new VideoAsset
         {
             TeacherId = teacherId,
@@ -108,6 +119,7 @@ public sealed class VideoService : IVideoService
             SourceType = parseOutcome.Success!.SourceType,
             ExternalId = parseOutcome.Success.ExternalId,
             DurationSeconds = 0, // Story A: learned on first open.
+            UnitId = request.UnitId,
             CreatedByUserId = actingUserId,
             CreateAt = DateTime.UtcNow,
         };
@@ -165,7 +177,6 @@ public sealed class VideoService : IVideoService
         {
             bool isDuplicate = existing!.Scopes.Any(s =>
                 s.ScopeType == input.ScopeType
-             && s.TeacherStudentId == input.TeacherStudentId
              && s.SessionId == input.SessionId
              && s.SessionGroupId == input.SessionGroupId);
 
@@ -367,6 +378,120 @@ public sealed class VideoService : IVideoService
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // SET VIDEO STATUS (Track D1 — Settings-row quick toggle)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> SetVideoStatusAsync(
+        long teacherId, long videoAssetId, SetVideoStatusRequest request)
+    {
+        bool updated = await _unitOfWork.VideoAssetsRepo.SetVideoStatusAsync(
+            videoAssetId, teacherId, request.Status, request.PublishDate);
+
+        if (!updated)
+            return Result<bool>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+
+        return Result<bool>.Success(true, _localizer, VideoConstants.Messages.VideoStatusUpdated);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // UPDATE VIDEO (G-EDIT)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<VideoDetailDto>> UpdateVideoAsync(
+        long teacherId, long videoAssetId, UpdateVideoRequest request)
+    {
+        var video = await _unitOfWork.VideoAssetsRepo
+            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
+        if (video is null)
+            return Result<VideoDetailDto>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+
+        string title = request.Title?.Trim() ?? string.Empty;
+        if (title.Length == 0)
+            return Result<VideoDetailDto>.Failure(
+                _localizer, VideoConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
+
+        if (request.UnitId.HasValue)
+        {
+            var unit = await _unitOfWork.VideoUnitsRepo
+                .GetUnitByIdAndTeacherAsync(request.UnitId.Value, teacherId);
+            if (unit is null)
+                return Result<VideoDetailDto>.Failure(
+                    _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.BadRequest);
+        }
+
+        string newSourceUrl = request.SourceUrl.Trim();
+        bool sourceUrlChanged = !string.Equals(
+            newSourceUrl, video.SourceUrl, StringComparison.Ordinal);
+
+        if (sourceUrlChanged)
+        {
+            var parseOutcome = _urlParser.Parse(newSourceUrl);
+            if (!parseOutcome.IsSuccess)
+            {
+                string key = parseOutcome.Failure switch
+                {
+                    VideoUrlParseFailure.UnsupportedSource => VideoConstants.Messages.UnsupportedSource,
+                    _ => VideoConstants.Messages.InvalidUrl,
+                };
+                return Result<VideoDetailDto>.Failure(_localizer, key, HttpStatusCode.BadRequest);
+            }
+
+            video.SourceUrl = newSourceUrl;
+            video.SourceType = parseOutcome.Success!.SourceType;
+            video.ExternalId = parseOutcome.Success.ExternalId;
+
+            // Confirmed rule: a changed URL is a different video — watch
+            // history resets and duration is re-learned from scratch.
+            await _unitOfWork.VideoAssetsRepo.ResetAnalyticsForVideoAsync(videoAssetId);
+            video.DurationSeconds = 0;
+        }
+
+        video.Title = title;
+        video.Description = request.Description?.Trim();
+        video.PublishDate = request.PublishDate;
+        if (request.Status.HasValue)
+            video.Status = request.Status.Value;
+        video.UnitId = request.UnitId;
+
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<VideoDetailDto>.Success(MapToDetailDto(video), _localizer, VideoConstants.Messages.VideoUpdated);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // GET VIDEO DETAIL (G-EDIT supporting read)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<VideoDetailDto>> GetVideoDetailAsync(long teacherId, long videoAssetId)
+    {
+        var video = await _unitOfWork.VideoAssetsRepo
+            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
+        if (video is null)
+            return Result<VideoDetailDto>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+
+        return Result<VideoDetailDto>.Success(MapToDetailDto(video), _localizer);
+    }
+
+    private static VideoDetailDto MapToDetailDto(VideoAsset video) => new()
+    {
+        Id = video.Id,
+        Title = video.Title,
+        Description = video.Description,
+        SourceType = video.SourceType,
+        SourceUrl = video.SourceUrl,
+        DurationSeconds = video.DurationSeconds,
+        PublishDate = video.PublishDate,
+        Status = video.Status,
+        UnitId = video.UnitId,
+    };
+
+    // ══════════════════════════════════════════════════════════════════════
     // TEACHER VIDEO LIST (Story B teacher endpoint)
     // ══════════════════════════════════════════════════════════════════════
 
@@ -385,6 +510,8 @@ public sealed class VideoService : IVideoService
             DurationSeconds = r.DurationSeconds,
             StudentsInScope = r.StudentsInScope,
             TotalOpens = r.TotalOpens,
+            SeenStudentCount = r.SeenStudentCount,
+            UnseenStudentCount = r.UnseenStudentCount,
             CreatedAt = r.CreatedAt,
         }).ToList();
 
@@ -417,7 +544,7 @@ public sealed class VideoService : IVideoService
         var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
             .GetAnalyticsRowsForTeacherAsync(
                 teacherId, videoAssetId, request.Search,
-                request.SortBy, request.SortDirection,
+                request.SortBy, request.SortDirection, request.StatusFilter,
                 request.Page, request.PageSize);
 
         var aggregates = await _unitOfWork.VideoAssetsRepo
@@ -428,6 +555,7 @@ public sealed class VideoService : IVideoService
             TeacherStudentId = r.TeacherStudentId,
             StudentName = r.StudentName,
             StudentCode = r.StudentCode,
+            SessionName = r.SessionName,
             HasOpened = r.HasOpened,
             OpenCount = r.OpenCount,
             TotalWatchSeconds = r.TotalWatchSeconds,
@@ -445,6 +573,8 @@ public sealed class VideoService : IVideoService
             DurationSeconds = video.DurationSeconds,
             TotalStudentsInScope = aggregates.TotalStudentsInScope,
             TotalStudentsWatched = aggregates.TotalStudentsWatched,
+            UnseenCount = aggregates.UnseenCount,
+            CompletedCount = aggregates.CompletedCount,
             Rows = rowDtos,
             Page = request.Page,
             PageSize = request.PageSize,
@@ -767,7 +897,6 @@ public sealed class VideoService : IVideoService
         foreach (var s in scopes)
         {
             int populated =
-                (s.TeacherStudentId.HasValue ? 1 : 0)
               + (s.SessionId.HasValue ? 1 : 0)
               + (s.SessionGroupId.HasValue ? 1 : 0);
 
@@ -776,7 +905,6 @@ public sealed class VideoService : IVideoService
 
             bool typeMatches = s.ScopeType switch
             {
-                VideoScopeType.IndividualStudent => s.TeacherStudentId.HasValue,
                 VideoScopeType.Session => s.SessionId.HasValue,
                 VideoScopeType.SessionGroup => s.SessionGroupId.HasValue,
                 _ => false,
@@ -799,7 +927,6 @@ public sealed class VideoService : IVideoService
         {
             long targetId = s.ScopeType switch
             {
-                VideoScopeType.IndividualStudent => s.TeacherStudentId!.Value,
                 VideoScopeType.Session => s.SessionId!.Value,
                 VideoScopeType.SessionGroup => s.SessionGroupId!.Value,
                 _ => 0,
@@ -826,7 +953,6 @@ public sealed class VideoService : IVideoService
             VideoAssetId = video.Id,
             TeacherId = video.TeacherId,
             ScopeType = input.ScopeType,
-            TeacherStudentId = input.TeacherStudentId,
             SessionId = input.SessionId,
             SessionGroupId = input.SessionGroupId,
             AssignedByUserId = actingUserId,
@@ -1087,5 +1213,41 @@ public sealed class VideoService : IVideoService
         return (int)(totalSeconds * 100 / (analytics.Count * (long)durationSeconds));
     }
 
-  
+    public Task<Result<VideoAttachmentDto>> UploadAttachmentAsync(long teacherId, long actingUserId, long videoAssetId, string fileName, string contentType, long fileSizeBytes, Stream content)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<Result<List<VideoAttachmentDto>>> GetAttachmentsAsync(long teacherId, long videoAssetId)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task<Result<bool>> DeleteAttachmentAsync(long teacherId, long videoAssetId, long attachmentId)
+    {
+        throw new NotImplementedException();
+    }
+    public async Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId)
+    {
+        var unit = await _unitOfWork.VideoUnitsRepo.GetUnitWithScopesAsync(unitId, teacherId);
+        if (unit is null)
+            return Result<VideoUnitResponse>.Failure(
+                _localizer[VideoConstants.Messages.VideoUnitNotFound],
+                HttpStatusCode.NotFound);
+
+        var response = new VideoUnitResponse
+        {
+            Id = unit.Id,
+            Title = unit.Title,
+            Description = unit.Description,
+            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
+            {
+                ScopeType = s.ScopeType,
+                SessionId = s.SessionId,
+                SessionGroupId = s.SessionGroupId,
+            }).ToList(),
+        };
+
+        return Result<VideoUnitResponse>.Success(response, _localizer, "Success",HttpStatusCode.OK);
+    }
 }

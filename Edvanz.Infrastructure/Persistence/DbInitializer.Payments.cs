@@ -30,7 +30,7 @@ public partial class DbInitializer
         IPaymentService paymentService)
     {
         var teachers = await context.Teachers
-            .Where(t => t.TeacherCode == Teacher1Code || t.TeacherCode == Teacher2Code)
+            .Where(t => t.TeacherCode == Teacher1Code || t.TeacherCode == Teacher2Code || t.TeacherCode == Teacher3Code)
             .ToListAsync();
 
         foreach (var teacher in teachers)
