@@ -336,6 +336,21 @@ month use the teacher's **current local (Africa/Cairo) month** via `ITimeZoneSer
 `Unpaid` = any unpaid month ≤ that month; `Partial` = that month partly paid;
 `Prorated` = the prorated first month **only when the teacher has proration enabled**.
 
+**Buckets are assigned-only and reconcile to `TotalStudents`.** The status headcounts
+(`statusBreakdown.paid/prorated/unpaid` on `/api/v1/payments/tracking`) and the per-status
+lists (`/api/v1/payments/students?status=…`) classify **only students currently assigned to
+a session** (`TeacherStudents.SessionId != null` — the same population as
+`CountAssignedStudentsAsync`/`summary.totalStudents`). So `paid + prorated + unpaid ==
+totalStudents` by construction: an assigned student with no outstanding period through the
+selected month (caught up, or no obligation generated yet) counts as `Paid`. **Do not** count
+students off their historical `PaymentPeriods` alone — formerly-assigned students keep old
+periods and would inflate the buckets past the assigned headcount (this was the paid+unpaid >
+total bug). Both `GetStudentPaymentStatusCountsAsync` and `GetStudentsByPaymentStatusPagedAsync`
+gate on the assigned-student id set. Trade-off: unassigned students with lingering arrears are
+excluded from these headcounts/lists (their money still shows in cash/expected aggregates). Edge
+case: the `paid` count may exceed the `status=paid` list by 1 per assigned student who has no
+period row at all (rare — assignment normally generates one).
+
 **Collection engine (`CollectPaymentAsync`, monthly sessions).** A payment fills the
 **oldest unpaid month first and cascades forward** across months; each cleared month is
 attributed to its own period, while **one** `PaymentTransaction` records the whole cash
