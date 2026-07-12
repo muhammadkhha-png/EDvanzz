@@ -247,6 +247,23 @@ builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddScoped<IVideoUnitService, VideoUnitService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
+
+// Production secrets (currently: AzureBlobStorage:ConnectionString) come from Azure Key
+// Vault via Managed Identity — same auth model already used for prod SQL access. Locally
+// (Development), config keeps coming from appsettings.Development.json / user-secrets;
+// Key Vault is never contacted. Vault URI is non-secret, so it's just an app setting
+// ("KeyVault__Uri" in App Service). Key Vault secret names use "--" in place of ":"
+// (e.g. "AzureBlobStorage--ConnectionString" binds to AzureBlobStorage:ConnectionString).
+//if (!builder.Environment.IsDevelopment())
+//{
+//    var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+//    if (!string.IsNullOrWhiteSpace(keyVaultUri))
+//    {
+//        builder.Configuration.AddAzureKeyVault(
+//            new Uri(keyVaultUri),
+//            new Azure.Identity.DefaultAzureCredential());
+//    }
+//}
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
 //builder.Services.AddApplicationInsightsTelemetry();
 //var aiConnectionString =
