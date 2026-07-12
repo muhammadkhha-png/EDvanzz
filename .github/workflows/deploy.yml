@@ -107,26 +107,60 @@ jobs:
       - name: Package publish output
         run: cd publish && zip -qr ../package.zip .
 
-      - name: Deploy zip to App Service
+      # ASYNC deploy + explicit verification. The synchronous CLI wait blocked the job
+      # for a full 10 minutes whenever the first replacement container hit the
+      # stale-app-settings boot crash (Azure-side; Azure auto-replaces the container)
+      # and then reported a FALSE failure ("site failed to start within 10 mins") —
+      # runs 29199123220 (marked failed, code actually shipped with the next run),
+      # 29199655347 and 29204099544 (rescued by the old record-check fallback, ~13 min
+      # each). Async returns as soon as the artifact is accepted; we then verify what
+      # actually matters, with bounded budgets:
+      #   1) the deployment record reaches status 4 (deployed) + active=true — Kudu
+      #      finished extracting and registered the deployment (seconds, cap 2 min);
+      #   2) /health/live (anonymous since this commit) returns 200 — the NEW process
+      #      is serving (healthy path ~1-2 min, cap 5 min).
+      # If (2) misses its budget while (1) holds, App Service is still cycling the
+      # container through the known boot quirk: warn and exit 0 — the same trust level
+      # the old fallback applied, but the job never sits blind for 10 minutes and a
+      # red run once again means a REAL failure.
+      - name: Deploy zip to App Service (async + verify)
         run: |
-          if az webapp deploy \
-              --resource-group "$RG" --name app-edvanz-api-prod \
-              --src-path package.zip --type zip; then
-            exit 0
-          fi
-          # Known false negative (hit 2026-07-12, twice): the CLI's wait gives up with
-          # "site failed to start within 10 mins" while App Service retries a crashed
-          # first container (stale-settings quirk), even though Kudu completed the
-          # deployment. Trust the deployment record: active + status 4 = deployed.
-          echo "az webapp deploy reported failure — verifying the deployment record..."
-          sleep 45
+          az webapp deploy \
+            --resource-group "$RG" --name app-edvanz-api-prod \
+            --src-path package.zip --type zip --async true
+
           SUB=$(az account show --query id -o tsv)
           DEP_URL="https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Web/sites/app-edvanz-api-prod/deployments?api-version=2023-12-01"
-          DEP_STATUS=$(az rest --method get --url "$DEP_URL" --query "value[0].properties.status" -o tsv)
-          DEP_ACTIVE=$(az rest --method get --url "$DEP_URL" --query "value[0].properties.active" -o tsv | tr '[:upper:]' '[:lower:]')
-          if [ "$DEP_STATUS" = "4" ] && [ "$DEP_ACTIVE" = "true" ]; then
-            echo "Deployment record shows active + success — the site is swapping; treating as success."
-            exit 0
+
+          echo "Waiting for the deployment record to reach deployed+active (max 2 min)..."
+          DEP_STATUS=""; DEP_ACTIVE=""
+          for i in $(seq 1 24); do
+            DEP_STATUS=$(az rest --method get --url "$DEP_URL" --query "value[0].properties.status" -o tsv)
+            DEP_ACTIVE=$(az rest --method get --url "$DEP_URL" --query "value[0].properties.active" -o tsv | tr '[:upper:]' '[:lower:]')
+            if [ "$DEP_STATUS" = "4" ] && [ "$DEP_ACTIVE" = "true" ]; then
+              echo "Deployment record: deployed + active (~$((i*5))s)."
+              break
+            fi
+            if [ "$DEP_STATUS" = "3" ]; then
+              echo "Deployment record reports FAILED (status=3) — real failure."
+              exit 1
+            fi
+            sleep 5
+          done
+          if [ "$DEP_STATUS" != "4" ] || [ "$DEP_ACTIVE" != "true" ]; then
+            echo "Deployment record not deployed+active after 2 min (status=$DEP_STATUS active=$DEP_ACTIVE) — real failure."
+            exit 1
           fi
-          echo "Deployment record does not show success (status=$DEP_STATUS active=$DEP_ACTIVE) — real failure."
-          exit 1
+
+          echo "Polling /health/live for the new process (max 5 min)..."
+          for i in $(seq 1 30); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+              https://app-edvanz-api-prod.azurewebsites.net/health/live || true)
+            if [ "$CODE" = "200" ]; then
+              echo "Site is serving the new build (healthy after ~$((i*10))s)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::Deployment is active but the site has not reported healthy within 5 min — App Service is still retrying the container (known stale-settings boot quirk). The swap completes on Azure's side; check /health/live in a few minutes."
+          exit 0

@@ -514,10 +514,15 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 app.MapControllers();
+// AllowAnonymous: liveness must be reachable by unauthenticated probes (Azure
+// health pings, the CI deploy poll). Without it the global FallbackPolicy made
+// /health/live return 401, so nothing could actually use it. It exposes only
+// "Healthy"/"Unhealthy" text — no data. /health/ready stays behind auth because
+// its response writer includes dependency exception messages.
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
     Predicate = _ => false   // process-up only — no dependency checks
-});
+}).AllowAnonymous();
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {

@@ -34,13 +34,16 @@ authoritative CI/CD sequence (restore → build → idempotent EF script applied
 self-contained publish → `az webapp deploy --type zip` via OIDC) if you need to see how
 changes reach production.
 
-**Deploy behavior (2026-07-12):** push to `master_integration` → ~2.5–4 min CI → one
-container swap (~1–3 min). An App Service quirk can start the first replacement container
-with a **stale app-settings snapshot** (e.g., a pre-rotation DB password → SQL 18456); the
-app fails fast by design and Azure auto-replaces the container. Consequently a red
-"Deploy zip to App Service" step ("site failed to start within 10 mins") can be a FALSE
-NEGATIVE — check whether the site serves and the deployment shows `active: true` before
-re-running. `appsettings.json` holds a design-time placeholder connection string only;
+**Deploy behavior (2026-07-12, rev 2):** push to `master_integration` → ~2–2.5 min CI →
+**async** zip deploy + explicit verification: the workflow polls the deployment record to
+`deployed+active` (cap 2 min) and then `/health/live` (anonymous, cap 5 min). Healthy path
+≈ 3.5–4.5 min total. An App Service quirk can start the first replacement container with a
+**stale app-settings snapshot** (e.g., missing/pre-rotation `ConnectionStrings__con` → SQL
+18456); the app fails fast by design and Azure auto-replaces the container over ~8–10 min.
+When that happens the run ends GREEN with a `::warning::` ("site not healthy within 5 min")
+instead of blocking 10 minutes — the swap still completes on Azure's side. Since rev 2 a
+RED run means a REAL failure (record status 3, or record never active). The old synchronous
+step used to sit blind for 10 min and report false "site failed to start" failures. `appsettings.json` holds a design-time placeholder connection string only;
 runtime configuration comes from App Service settings (`ConnectionStrings__con`), and
 Program.cs refuses to boot on the placeholder. `WEBSITE_RUN_FROM_PACKAGE` is inert on this
 Linux plan and the workflow removes it if it reappears.
