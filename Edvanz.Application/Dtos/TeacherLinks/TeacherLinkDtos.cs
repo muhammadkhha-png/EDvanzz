@@ -70,14 +70,20 @@ public class RosterStudentSuggestionDto
 }
 
 /// <summary>
-/// Accept-request body. <see cref="TeacherStudentId"/> is optional: when omitted,
-/// the server auto-matches by the request's RequestedStudentCode; if neither
-/// resolves to a roster record the accept fails with 422 — every Active link must
-/// be bound to a TeacherStudent record (all module data hangs off that FK).
+/// Accept-request body. Accepting only CONNECTS the account (LinkStatus = Active);
+/// binding it to a student record is a SEPARATE step (see BindStudentLinkDto and
+/// the /bind endpoint). <see cref="TeacherStudentId"/> is an optional convenience
+/// to link in the same call ("Accept &amp; link"): when supplied it is validated and
+/// bound atomically; when omitted the link is accepted UNBOUND — connected but Not
+/// linked, no data access — and can be linked later. Accepting never fails for a
+/// missing binding.
 /// </summary>
 public class AcceptLinkRequestDto
 {
-    /// <summary>Explicit roster record to bind the link to (overrides auto-match).</summary>
+    /// <summary>
+    /// Optional student record to bind at accept time. Omit to accept without
+    /// linking (the account is connected but sees nothing until it is linked).
+    /// </summary>
     public long? TeacherStudentId { get; set; }
 }
 
@@ -96,10 +102,18 @@ public class LinkedStudentListItemDto
     public string StudentFullName { get; set; } = null!;
     public string? StudentPhoneNumber { get; set; }
 
-    /// <summary>Bound roster record id — null if the teacher deleted the record.</summary>
+    /// <summary>Bound student record id — null when Not linked (accepted only) or the record was deleted.</summary>
     public long? TeacherStudentId { get; set; }
     public string? RosterStudentName { get; set; }
     public string? RosterStudentCode { get; set; }
+
+    /// <summary>
+    /// True when this accepted connection is bound to a student record
+    /// (<see cref="TeacherStudentId"/> is set) — i.e. the account can see the
+    /// teacher's data. False = accepted/connected but Not linked yet (no access).
+    /// Drives the Linked / Not linked badge on the My Students screen.
+    /// </summary>
+    public bool IsLinked { get; set; }
 }
 
 /// <summary>
@@ -121,4 +135,22 @@ public class RemoveLinkedStudentsResultDto
 {
     public int RemovedCount { get; set; }
     public List<long> SkippedLinkIds { get; set; } = new();
+}
+
+/// <summary>
+/// Bind (link) or re-bind an accepted connection to a student record — the
+/// separate step that unlocks the student's access. Supply either an explicit
+/// <see cref="TeacherStudentId"/> or a <see cref="StudentCode"/> (the
+/// teacher-assigned code); the server resolves the record, enforces one account
+/// per record, and points the link at it. Powers "Link a student" (Not linked →
+/// Linked) and "Change linked student" (re-point). Unbinding has no body (/unbind).
+/// </summary>
+public class BindStudentLinkDto
+{
+    /// <summary>Explicit student record to link to (takes precedence over the code).</summary>
+    public long? TeacherStudentId { get; set; }
+
+    /// <summary>Teacher-assigned student code to resolve the record from, when no id is given.</summary>
+    [MaxLength(20)]
+    public string? StudentCode { get; set; }
 }

@@ -114,6 +114,59 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     }
 
     /// <summary>
+    /// Links (or re-links) an accepted connection to one of the teacher's students —
+    /// the separate step that unlocks the student's access. Bind by explicit
+    /// <c>teacherStudentId</c> or by <c>studentCode</c>. Use the <c>linkId</c> from
+    /// the requests inbox or the linked-students list. Requires <c>Student / Edit</c>.
+    /// </summary>
+    /// <response code="200">Linked; returns the updated linked-student row (IsLinked = true).</response>
+    /// <response code="400">No bind target supplied.</response>
+    /// <response code="404">Link, or the selected student record, not found.</response>
+    /// <response code="409">Link is not Active, or the record is already linked to another account.</response>
+    [HttpPost("{linkId:long}/bind")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> BindStudent(
+        [FromRoute] long linkId, [FromBody] BindStudentLinkDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.BindStudentLinkAsync(
+            teacherId.Value, linkId, GetActingUserId(), dto);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Removes the student-record binding from an accepted link. The student stays
+    /// connected (Accepted) but loses access until re-linked. Requires <c>Student / Edit</c>.
+    /// </summary>
+    /// <response code="200">Unlinked; returns the updated row (now Not linked).</response>
+    /// <response code="404">Link not found.</response>
+    /// <response code="409">Link is not Active.</response>
+    [HttpPost("{linkId:long}/unbind")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UnbindStudent([FromRoute] long linkId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.UnbindStudentLinkAsync(
+            teacherId.Value, linkId, GetActingUserId());
+        return ToResponse(result);
+    }
+
+    /// <summary>
     /// Rejects a pending request. The row is kept (status Rejected) so the
     /// student sees the outcome; they may send a new request later.
     /// </summary>

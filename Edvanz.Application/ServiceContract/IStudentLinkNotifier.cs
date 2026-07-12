@@ -34,4 +34,12 @@ public interface IStudentLinkNotifier
     /// Tells the student the teacher removed them from the linked students list.
     /// </summary>
     Task NotifyRemovedByTeacherAsync(long studentUserId, long teacherId);
+
+    /// <summary>
+    /// Tells the student their profile was linked to (or unlinked from) a student
+    /// record — i.e. they gained or lost access to this teacher's content, with no
+    /// change to the accepted connection itself.
+    /// </summary>
+    /// <param name="linked">True = linked (access granted), false = unlinked (access paused).</param>
+    Task NotifyLinkBindingChangedAsync(long studentUserId, long teacherId, bool linked);
 }

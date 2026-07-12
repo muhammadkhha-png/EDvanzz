@@ -32,15 +32,40 @@ public interface ITeacherStudentLinkService
         long teacherId, int page, int pageSize);
 
     /// <summary>
-    /// Accepts a Pending request, binding it to a TeacherStudent roster record
-    /// (explicit selection, or auto-matched from the request's student code) and
-    /// activating the link. Fails 422 when no roster record can be resolved and
-    /// 409 when the record is already claimed by another student account.
+    /// Accepts a Pending request, CONNECTING the account (LinkStatus = Active).
+    /// Binding to a student record is separate: pass an explicit TeacherStudentId
+    /// to link in the same call ("Accept &amp; link"), or omit it to accept UNBOUND
+    /// (connected but Not linked — no data access) and link later via
+    /// <see cref="BindStudentLinkAsync"/>. Accepting never fails for a missing
+    /// binding; a supplied record already claimed by another account fails 409.
     /// Notifies the student (inbox + push) post-commit, best-effort.
     /// </summary>
     /// <param name="actingUserId">User.Id of the teacher/assistant performing the accept (audit).</param>
     Task<Result<LinkedStudentListItemDto>> AcceptLinkRequestAsync(
         long teacherId, long linkId, long actingUserId, AcceptLinkRequestDto dto);
+
+    /// <summary>
+    /// Links (binds) or re-links an accepted connection to one of the teacher's
+    /// students — the step that actually unlocks the student's access, kept SEPARATE
+    /// from accept. Resolves the target by explicit id or by student code, enforces
+    /// one account per record (409), and re-points an already-linked connection when
+    /// a different record is given ("Change linked student"). Fails 404 when the link
+    /// or record is missing, 409 when the link is not Active, 400 when no target is
+    /// supplied. Notifies the student (now has access) post-commit, best-effort.
+    /// </summary>
+    /// <param name="actingUserId">User.Id of the teacher/assistant performing the link (audit).</param>
+    Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
+        long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto);
+
+    /// <summary>
+    /// Removes the student-record binding from an accepted link. The connection
+    /// stays Active (the student remains accepted) but loses data access until it is
+    /// re-linked. Idempotent when already unbound. Fails 404 when the link is missing
+    /// and 409 when it is not Active. Notifies the student post-commit, best-effort.
+    /// </summary>
+    /// <param name="actingUserId">User.Id of the teacher/assistant performing the unlink (audit).</param>
+    Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
+        long teacherId, long linkId, long actingUserId);
 
     /// <summary>
     /// Rejects a Pending request (terminal, kept for audit — the student may send

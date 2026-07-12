@@ -282,6 +282,30 @@
   <data name="LinkRemovedByTeacherNotifBody" xml:space="preserve">
     <value>الأستاذ {0} شالك من قائمة طلابه المرتبطين</value>
   </data>
+  <data name="LinkBound" xml:space="preserve">
+    <value>تم ربط الطالب بحسابك</value>
+  </data>
+  <data name="LinkUnbound" xml:space="preserve">
+    <value>تم فك ربط الطالب — لسه متصل بس مش هيشوف محتواك لحد ما تربطه تاني</value>
+  </data>
+  <data name="BindTargetRequired" xml:space="preserve">
+    <value>اكتب كود الطالب أو اختار واحد من طلابك عشان تربطه</value>
+  </data>
+  <data name="LinkNotActive" xml:space="preserve">
+    <value>الطالب المقبول بس هو اللي ينفع يتربط</value>
+  </data>
+  <data name="LinkBoundNotifTitle" xml:space="preserve">
+    <value>تم ربطك</value>
+  </data>
+  <data name="LinkBoundNotifBody" xml:space="preserve">
+    <value>الأستاذ {0} ربط ملفك. محتواه دلوقتي ظاهر على لوحتك</value>
+  </data>
+  <data name="LinkUnboundNotifTitle" xml:space="preserve">
+    <value>الوصول متوقف مؤقتًا</value>
+  </data>
+  <data name="LinkUnboundNotifBody" xml:space="preserve">
+    <value>الأستاذ {0} فك ربط ملفك. هتشوف محتواه تاني لما يربطك من جديد</value>
+  </data>
   <data name="ParentUserInitializedSuccess" xml:space="preserve">
     <value>تم إنشاء حساب ولي الأمر بنجاح</value>
   </data>

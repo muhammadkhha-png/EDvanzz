@@ -129,34 +129,25 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         if (link.LinkStatus != LinkStatus.Pending)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkRequestAlreadyResolved", HttpStatusCode.Conflict);
 
-        // ── Resolve the roster record the link will be bound to. Every Active link
-        // MUST reference a TeacherStudent — attendance, payments, homework, exams
-        // and videos all hang off that FK, so an unbound accept is meaningless. ──
-        TeacherStudent? rosterStudent;
+        // ── Accept CONNECTS the account (Active); binding it to a student record is
+        // a SEPARATE step (BindStudentLinkAsync). TeacherStudentId is an optional
+        // "Accept & link" shortcut — when omitted the link is accepted UNBOUND
+        // (connected but Not linked, no data access) and can be linked later. ──
+        TeacherStudent? rosterStudent = null;
         if (dto.TeacherStudentId.HasValue)
         {
             rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, dto.TeacherStudentId.Value);
             if (rosterStudent is null)
                 return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentNotFound", HttpStatusCode.NotFound);
-        }
-        else if (!string.IsNullOrWhiteSpace(link.RequestedStudentCode))
-        {
-            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByCodeAsync(teacherId, link.RequestedStudentCode);
-            if (rosterStudent is null)
-                return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentSelectionRequired", HttpStatusCode.UnprocessableEntity);
-        }
-        else
-        {
-            return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentSelectionRequired", HttpStatusCode.UnprocessableEntity);
-        }
 
-        // ── One student account per roster record ──
-        bool alreadyClaimed = await _unitOfWork.Users.IsTeacherStudentActivelyLinkedAsync(rosterStudent.Id);
-        if (alreadyClaimed)
-            return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentAlreadyClaimed", HttpStatusCode.Conflict);
+            // One student account per student record.
+            bool alreadyClaimed = await _unitOfWork.Users.IsTeacherStudentActivelyLinkedAsync(rosterStudent.Id);
+            if (alreadyClaimed)
+                return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentAlreadyClaimed", HttpStatusCode.Conflict);
+        }
 
         var now = DateTime.UtcNow;
-        link.TeacherStudentId = rosterStudent.Id;
+        link.TeacherStudentId = rosterStudent?.Id;   // null = accepted but Not linked
         link.LinkStatus = LinkStatus.Active;
         link.LinkedAt = now;
         link.RespondedAt = now;
@@ -174,6 +165,96 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
         var item = await BuildLinkedStudentItemAsync(link, rosterStudent);
         return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkRequestAccepted");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
+        long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto)
+    {
+        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
+        if (link is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Only an ACCEPTED (Active) connection can be linked — Pending must be
+        // accepted first, terminal states are not linkable.
+        if (link.LinkStatus != LinkStatus.Active)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
+
+        // ── Resolve the target student record: explicit id wins, else by code ──
+        TeacherStudent? rosterStudent;
+        if (dto.TeacherStudentId.HasValue)
+        {
+            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, dto.TeacherStudentId.Value);
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.StudentCode))
+        {
+            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByCodeAsync(
+                teacherId, dto.StudentCode.Trim().ToUpperInvariant());
+        }
+        else
+        {
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "BindTargetRequired", HttpStatusCode.BadRequest);
+        }
+
+        if (rosterStudent is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentNotFound", HttpStatusCode.NotFound);
+
+        // Already pointed at this record → idempotent success (no notification).
+        if (link.TeacherStudentId == rosterStudent.Id)
+        {
+            var same = await BuildLinkedStudentItemAsync(link, rosterStudent);
+            return Result<LinkedStudentListItemDto>.Success(same, _localizer, "LinkBound");
+        }
+
+        // One student account per record. This link holds a different (or no) record,
+        // so any Active holder of the target is necessarily a DIFFERENT account.
+        bool alreadyClaimed = await _unitOfWork.Users.IsTeacherStudentActivelyLinkedAsync(rosterStudent.Id);
+        if (alreadyClaimed)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentAlreadyClaimed", HttpStatusCode.Conflict);
+
+        link.TeacherStudentId = rosterStudent.Id;   // first bind, or re-point ("Change")
+        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
+        await _unitOfWork.SaveChangesAsync();
+
+        // ── Post-commit, best-effort: the student just gained access ──
+        try
+        {
+            await _linkNotifier.NotifyLinkBindingChangedAsync(link.StudentUserId, teacherId, linked: true);
+        }
+        catch { /* notification failure must not fail the bind */ }
+
+        var item = await BuildLinkedStudentItemAsync(link, rosterStudent);
+        return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkBound");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
+        long teacherId, long linkId, long actingUserId)
+    {
+        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
+        if (link is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        if (link.LinkStatus != LinkStatus.Active)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
+
+        bool wasLinked = link.TeacherStudentId.HasValue;
+        link.TeacherStudentId = null;               // stays Active (connected), loses access
+        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
+        await _unitOfWork.SaveChangesAsync();
+
+        if (wasLinked)
+        {
+            // ── Post-commit, best-effort: the student just lost access ──
+            try
+            {
+                await _linkNotifier.NotifyLinkBindingChangedAsync(link.StudentUserId, teacherId, linked: false);
+            }
+            catch { /* notification failure must not fail the unbind */ }
+        }
+
+        var item = await BuildLinkedStudentItemAsync(link, rosterStudent: null);
+        return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkUnbound");
     }
 
     /// <inheritdoc />
@@ -221,7 +302,8 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             StudentPhoneNumber = r.StudentPhoneNumber,
             TeacherStudentId = r.TeacherStudentId,
             RosterStudentName = r.RosterStudentName,
-            RosterStudentCode = r.RosterStudentCode
+            RosterStudentCode = r.RosterStudentCode,
+            IsLinked = r.TeacherStudentId.HasValue
         }).ToList();
 
         var response = new PaginatedResponse<List<LinkedStudentListItemDto>>
@@ -296,7 +378,7 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
     /// teacher UI can insert the row without refetching the whole list.
     /// </summary>
     private async Task<LinkedStudentListItemDto> BuildLinkedStudentItemAsync(
-        StudentTeacherLink link, TeacherStudent rosterStudent)
+        StudentTeacherLink link, TeacherStudent? rosterStudent)
     {
         var studentUser = await _unitOfWork.Users.GetStudentUserByIdAsync(link.StudentUserId);
         User? accountUser = studentUser is null
@@ -310,9 +392,10 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             StudentAccountCode = studentUser?.StudentAccountCode ?? string.Empty,
             StudentFullName = accountUser?.FullName ?? string.Empty,
             StudentPhoneNumber = accountUser?.PhoneNumber,
-            TeacherStudentId = rosterStudent.Id,
-            RosterStudentName = rosterStudent.StudentName,
-            RosterStudentCode = rosterStudent.StudentCode
+            TeacherStudentId = rosterStudent?.Id,
+            RosterStudentName = rosterStudent?.StudentName,
+            RosterStudentCode = rosterStudent?.StudentCode,
+            IsLinked = rosterStudent is not null
         };
     }
 }

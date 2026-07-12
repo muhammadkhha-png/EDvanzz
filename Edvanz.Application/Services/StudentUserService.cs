@@ -444,6 +444,7 @@ public class StudentUserService : IStudentUserService
             SubjectName = subjectName,
             LinkedAt = link.LinkedAt,
             IsEnrollmentActive = link.LinkStatus == LinkStatus.Active && link.TeacherStudentId.HasValue,
+            IsLinked = link.LinkStatus == LinkStatus.Active && link.TeacherStudentId.HasValue,
             VisibilityAttendance = config?.StudentVisibilityAttendance ?? true,
             VisibilityPayment = config?.StudentVisibilityPayment ?? true,
             VisibilityHomework = config?.StudentVisibilityHomework ?? true,

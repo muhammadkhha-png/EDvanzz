@@ -282,6 +282,30 @@
   <data name="LinkRemovedByTeacherNotifBody" xml:space="preserve">
     <value>Teacher {0} removed you from their linked students</value>
   </data>
+  <data name="LinkBound" xml:space="preserve">
+    <value>Student linked to your account</value>
+  </data>
+  <data name="LinkUnbound" xml:space="preserve">
+    <value>Student unlinked — they stay connected but can't see your content until you re-link them</value>
+  </data>
+  <data name="BindTargetRequired" xml:space="preserve">
+    <value>Enter the student code or pick one of your students to link</value>
+  </data>
+  <data name="LinkNotActive" xml:space="preserve">
+    <value>Only an accepted student can be linked</value>
+  </data>
+  <data name="LinkBoundNotifTitle" xml:space="preserve">
+    <value>You're linked</value>
+  </data>
+  <data name="LinkBoundNotifBody" xml:space="preserve">
+    <value>Teacher {0} linked your profile. Their content is now on your dashboard</value>
+  </data>
+  <data name="LinkUnboundNotifTitle" xml:space="preserve">
+    <value>Access paused</value>
+  </data>
+  <data name="LinkUnboundNotifBody" xml:space="preserve">
+    <value>Teacher {0} unlinked your profile. You'll see their content again once they re-link you</value>
+  </data>
   <data name="ParentUserInitializedSuccess" xml:space="preserve">
     <value>Your parent account has been created successfully</value>
   </data>

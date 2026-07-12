@@ -75,6 +75,20 @@ public class StudentLinkNotifier : IStudentLinkNotifier
         await PersistAndPushAsync(studentUser.UserId, title, body, StudentDeepLink);
     }
 
+    /// <inheritdoc />
+    public async Task NotifyLinkBindingChangedAsync(long studentUserId, long teacherId, bool linked)
+    {
+        var (studentUser, teacherName) = await ResolveStudentAndTeacherNameAsync(studentUserId, teacherId);
+        if (studentUser is null) return;
+
+        string titleKey = linked ? "LinkBoundNotifTitle" : "LinkUnboundNotifTitle";
+        string bodyKey = linked ? "LinkBoundNotifBody" : "LinkUnboundNotifBody";
+
+        var (title, body) = RenderInCulture(studentUser.LanguagePreference, titleKey, bodyKey, teacherName);
+
+        await PersistAndPushAsync(studentUser.UserId, title, body, StudentDeepLink);
+    }
+
     // ══════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════

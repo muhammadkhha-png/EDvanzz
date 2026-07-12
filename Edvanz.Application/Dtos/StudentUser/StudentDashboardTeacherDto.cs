@@ -57,6 +57,14 @@ public class StudentDashboardTeacherDto
     /// </summary>
     public bool IsEnrollmentActive { get; set; }
 
+    /// <summary>
+    /// Whether this connection is LINKED to one of the teacher's students (bound by
+    /// code). Only when true — and <see cref="Status"/> is Active — can the student
+    /// see this teacher's data. Active-but-not-linked = connected, no access yet
+    /// ("Awaiting link"). Distinct from <see cref="Status"/> (the request lifecycle).
+    /// </summary>
+    public bool IsLinked { get; set; }
+
     // ─── Visibility flags from TeacherConfiguration (AAM-FR-04.8 / AAM-FR-05.8) ───
 
     /// <summary>
