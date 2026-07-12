@@ -1,4 +1,5 @@
 using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -6,6 +7,7 @@ using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Localization;
 
 namespace Edvanz.API.Controllers;
 
@@ -36,52 +38,37 @@ namespace Edvanz.API.Controllers;
 public sealed class VideosController : ModuleSixApiBaseController
 {
     private readonly IVideoService _service;
+    private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public VideosController(
         IVideoService service,
         ICurrentUserService currentUser,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IStringLocalizer<Domain.Resources.Messages> localizer)
         : base(currentUser, unitOfWork)
     {
         _service = service;
+        _localizer = localizer;
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // ENDPOINT 1 — CREATE VIDEO  (Story A, REQ-VCM-FR-01)
-    // POST /api/videos
-    // ══════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Creates a new video reference for the calling teacher. Parses the
-    //   teacher-supplied URL into (provider, externalId). Returns the new
-    //   video id; Flutter then chains a POST /scopes call.
-    //
-    // TABLES WRITTEN:
-    //   VideoAssets (1 row)
-    //
-    // SAMPLE REQUEST:
-    //   POST /api/videos
-    //   {
-    //     "title": "Newton's Laws — Lecture 1",
-    //     "description": "Watch before next class.",
-    //     "sourceUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════
     [HttpPost]
+    [Consumes("multipart/form-data")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> CreateVideo([FromBody] CreateVideoRequest request)
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> CreateVideo(
+       [FromForm] CreateVideoRequest request,
+       IFormFile? thumbnail,
+       IFormFile? attachment)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _service.CreateVideoAsync(
-            teacherId.Value, GetActingUserId(), request);
+            teacherId.Value, GetActingUserId(), request, thumbnail, attachment);
         return ToResponse(result);
     }
 
@@ -213,17 +200,14 @@ public sealed class VideosController : ModuleSixApiBaseController
         return ToResponse(result);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // G-EDIT — UPDATE VIDEO
-    // PUT /api/videos/{videoAssetId}
-    // ══════════════════════════════════════════════════════════════════════
-    //
     // WHAT IT DOES:
-    //   Updates title/description/sourceUrl/publishDate/status/unitId.
-    //   Recipients/scopes are NOT edited here — see PUT /scopes. If
-    //   sourceUrl changes, VideoAnalytics/VideoWatchEvent reset and
-    //   DurationSeconds returns to 0 (confirmed: a changed URL is a
-    //   different video). Other field-only edits preserve analytics.
+    //   Updates title/description/sourceUrl/publishDate/status/unitIds, plus
+    //   (Phase 4) an optional duration override and optional folded-in scope
+    //   replacement. Guarded by optimistic concurrency — a stale RowVersion
+    //   returns 409. If sourceUrl changes, VideoAnalytics/VideoWatchEvent
+    //   reset and DurationSeconds returns to 0 (confirmed: a changed URL is
+    //   a different video). Other field-only edits preserve analytics.
+    //   PUT /videos/{id}/scopes remains available for scope-only updates.
     //
     // ══════════════════════════════════════════════════════════════════════
     [HttpPut("{videoAssetId:long}")]
@@ -233,13 +217,15 @@ public sealed class VideosController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateVideo(
         [FromRoute] long videoAssetId, [FromBody] UpdateVideoRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _service.UpdateVideoAsync(teacherId.Value, videoAssetId, request);
+        var result = await _service.UpdateVideoAsync(
+            teacherId.Value, GetActingUserId(), videoAssetId, request);
         return ToResponse(result);
     }
 
@@ -341,4 +327,66 @@ public sealed class VideosController : ModuleSixApiBaseController
         var result = await _service.GetAnalyticsAsync(teacherId.Value, videoAssetId, request);
         return ToResponse(result);
     }
+   
+    // ══════════════════════════════════════════════════════════════════════
+    // REPLACE THUMBNAIL (Phase 5) — upload-new → update-DB → delete-old
+    // PUT /api/videos/{videoAssetId}/thumbnail
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpPut("{videoAssetId:long}/thumbnail")]
+    [Consumes("multipart/form-data")]
+    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ReplaceThumbnail(
+        [FromRoute] long videoAssetId,  IFormFile thumbnail)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        await using var stream = thumbnail.OpenReadStream();
+        var result = await _service.ReplaceThumbnailAsync(
+            teacherId.Value, videoAssetId, thumbnail.FileName, thumbnail.ContentType,
+            thumbnail.Length, stream);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // UPLOAD ATTACHMENT (Track F / §5) — added Phase 5 alongside PDF-only
+    // enforcement; without this endpoint UploadAttachmentAsync was
+    // unreachable and its validation untestable. Not in the Phase 5 spec
+    // verbatim — added because the spec assumed this endpoint already
+    // existed, and it didn't.
+    // POST /api/videos/{videoAssetId}/attachments
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpPost("{videoAssetId:long}/attachments")]
+    [Consumes("multipart/form-data")]
+    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> UploadAttachment(
+        [FromRoute] long videoAssetId,  IFormFile attachment)
+    {
+        if (attachment is null)
+            return BadRequest();
+
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        await using var stream = attachment.OpenReadStream();
+        var result = await _service.UploadAttachmentAsync(
+            teacherId.Value, GetActingUserId(), videoAssetId,
+            attachment.FileName, attachment.ContentType, attachment.Length, stream);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // G-EDIT — GET VIDEO DETAIL (supporting endpoint, Edit pre-fill + Overview)
+    // GET /api/videos/{videoAssetId}
+    // ══════════════════════════════════════════════════════════════════════
 }

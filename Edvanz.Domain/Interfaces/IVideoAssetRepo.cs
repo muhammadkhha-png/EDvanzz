@@ -467,4 +467,11 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
 
     Task<List<long>> GetLinkedUnitIdsAsync(
         long videoAssetId);
+    /// <summary>
+    /// Sets <c>ThumbnailBlobPath</c> on a video after a successful blob upload
+    /// (Phase 3 create saga). Single <c>ExecuteUpdateAsync</c> round trip — same
+    /// pattern as <see cref="SetVideoStatusAsync"/>; no transaction needed for a
+    /// one-column update once the row already exists.
+    /// </summary>
+    Task SetThumbnailBlobPathAsync(long videoAssetId, string blobPath);
 }

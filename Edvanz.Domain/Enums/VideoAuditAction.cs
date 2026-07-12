@@ -24,4 +24,12 @@ public static class VideoAuditAction
     /// rename when the feature ships.
     /// </summary>
     public const string BulkDelete = "BULK_DELETE";
+
+    /// <summary>
+    /// Video was edited via <c>PUT /api/videos/{id}</c> (Phase 4 / G-EDIT). The
+    /// video still exists — this row is a pre-mutation snapshot, not evidence of
+    /// deletion. <c>VideoAssetAudit.DeletedByUserId</c>/<c>DeletedAt</c> are
+    /// reused to mean "actor/timestamp of this audit event" for this action.
+    /// </summary>
+    public const string Updated = "UPDATED";
 }

@@ -1,14 +1,16 @@
-using System.Net;
-using System.Text.Json;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using System.Net;
+using System.Text.Json;
 
 namespace Edvanz.Application.Services;
 
@@ -50,6 +52,7 @@ public sealed class VideoService : IVideoService
     private readonly IVideoScopeResolver _scopeResolver;
     private readonly IVideoUrlParser _urlParser;
     private readonly ISubscriptionGateService _subscriptionGate;
+    private readonly IFileStorageService _fileStorage;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public VideoService(
@@ -57,82 +60,18 @@ public sealed class VideoService : IVideoService
         IVideoScopeResolver scopeResolver,
         IVideoUrlParser urlParser,
         ISubscriptionGateService subscriptionGate,
+        IFileStorageService fileStorage,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _scopeResolver = scopeResolver;
         _urlParser = urlParser;
         _subscriptionGate = subscriptionGate;
+        _fileStorage = fileStorage;
         _localizer = localizer;
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // CREATE VIDEO (Story A)
-    // ══════════════════════════════════════════════════════════════════════
 
-    /// <inheritdoc />
-    public async Task<Result<CreateVideoResponse>> CreateVideoAsync(
-        long teacherId, long actingUserId, CreateVideoRequest request)
-    {
-        // Free-tier quota: videos (see ModuleQuota table).
-        if (!await _subscriptionGate.CanCreateAsync(
-                teacherId, ModuleQuotaKeys.Videos,
-                () => _unitOfWork.VideoAssetsRepo.CountByTeacherAsync(teacherId)))
-            return Result<CreateVideoResponse>.Failure(
-                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
-
-        string title = request.Title?.Trim() ?? string.Empty;
-        if (title.Length == 0)
-            return Result<CreateVideoResponse>.Failure(
-                _localizer, VideoConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
-
-        // Parse URL — distinguishes "not a URL" from "unsupported provider".
-        var parseOutcome = _urlParser.Parse(request.SourceUrl);
-        if (!parseOutcome.IsSuccess)
-        {
-            string key = parseOutcome.Failure switch
-            {
-                VideoUrlParseFailure.UnsupportedSource => VideoConstants.Messages.UnsupportedSource,
-                _ => VideoConstants.Messages.InvalidUrl,
-            };
-            return Result<CreateVideoResponse>.Failure(
-                _localizer, key, HttpStatusCode.BadRequest);
-        }
-
-        // Track C / G-UNIT: UnitId is optional but must belong to the
-        // calling teacher when supplied.
-        if (request.UnitId.HasValue)
-        {
-            var unit = await _unitOfWork.VideoUnitsRepo
-                .GetUnitByIdAndTeacherAsync(request.UnitId.Value, teacherId);
-            if (unit is null)
-                return Result<CreateVideoResponse>.Failure(
-                    _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.BadRequest);
-        }
-
-        var video = new VideoAsset
-        {
-            TeacherId = teacherId,
-            Title = title,
-            Description = request.Description?.Trim(),
-            SourceUrl = request.SourceUrl.Trim(),
-            SourceType = parseOutcome.Success!.SourceType,
-            ExternalId = parseOutcome.Success.ExternalId,
-            DurationSeconds = 0, // Story A: learned on first open.
-            //UnitId = request.UnitId,
-            CreatedByUserId = actingUserId,
-            CreateAt = DateTime.UtcNow,
-        };
-
-        await _unitOfWork.VideoAssetsRepo.AddVideoAsync(video);
-        await _unitOfWork.SaveChangesAsync();
-
-        return Result<CreateVideoResponse>.Success(
-            new CreateVideoResponse { VideoAssetId = video.Id },
-            _localizer,
-            VideoConstants.Messages.VideoCreated,
-            HttpStatusCode.Created);
-    }
 
     // ══════════════════════════════════════════════════════════════════════
     // APPEND SCOPES (Story A step 7, idempotent on duplicates)
@@ -210,7 +149,6 @@ public sealed class VideoService : IVideoService
     // ══════════════════════════════════════════════════════════════════════
     // REPLACE SCOPES (Story D, transactional)
     // ══════════════════════════════════════════════════════════════════════
-
     /// <inheritdoc />
     public async Task<Result<ReplaceScopesResponse>> ReplaceScopesAsync(
         long teacherId, long actingUserId, long videoAssetId, AssignScopesRequest request)
@@ -219,34 +157,72 @@ public sealed class VideoService : IVideoService
             return Result<ReplaceScopesResponse>.Failure(
                 _localizer, VideoConstants.Messages.ScopeCannotBeEmpty, HttpStatusCode.BadRequest);
 
-        var video = await _unitOfWork.VideoAssetsRepo
-            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
-        if (video is null)
-            return Result<ReplaceScopesResponse>.Failure(
-                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-        var shapeError = ValidateScopeShape(request.Scopes);
-        if (shapeError is not null)
-            return Result<ReplaceScopesResponse>.Failure(
-                _localizer, shapeError, HttpStatusCode.BadRequest);
-
-        var ownershipError = await ValidateScopeOwnershipAsync(teacherId, request.Scopes);
-        if (ownershipError is not null)
-            return Result<ReplaceScopesResponse>.Failure(
-                _localizer, ownershipError, HttpStatusCode.BadRequest);
-
-        int oldCount = await _unitOfWork.VideoAssetsRepo.CountScopesForVideoAsync(videoAssetId);
-
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
+
+        return await ReplaceScopesInternalAsync(
+            teacherId, actingUserId, videoAssetId, request.Scopes, ownsTransaction);
+    }
+
+    /// <summary>
+    /// Transactional body of scope replacement: video lookup → shape
+    /// validation → ownership validation → delete-all → insert-new →
+    /// resolve StudentsInScope. Extracted from <see cref="ReplaceScopesAsync"/>
+    /// so Phase 4's extended <c>UpdateVideoAsync</c> can call it inside its
+    /// own already-open transaction (<paramref name="ownsTransaction"/> =
+    /// <c>false</c>) when the update request carries a non-null
+    /// <c>Scopes</c> list — one code path for both the dedicated
+    /// PUT-scopes endpoint and a folded-in scope replace during full update.
+    ///
+    /// Every validation/error path is unchanged from the pre-refactor
+    /// inline version (<c>ScopeCannotBeEmpty</c> stays in the public
+    /// wrapper since it's a request-shape check independent of any video;
+    /// everything from video lookup onward — including
+    /// <c>ScopeShapeInvalid</c> and <c>ScopeTargetNotFoundOrForeign</c> —
+    /// lives here so it re-runs correctly under Phase 4's shared
+    /// transaction). <c>VideoAnalytics</c> remains deliberately untouched.
+    /// </summary>
+    private async Task<Result<ReplaceScopesResponse>> ReplaceScopesInternalAsync(
+        long teacherId, long actingUserId, long videoAssetId,
+        List<VideoScopeInputDto> scopes, bool ownsTransaction)
+    {
+        var video = await _unitOfWork.VideoAssetsRepo
+            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
+        if (video is null)
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            return Result<ReplaceScopesResponse>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+        }
+
+        var shapeError = ValidateScopeShape(scopes);
+        if (shapeError is not null)
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            return Result<ReplaceScopesResponse>.Failure(
+                _localizer, shapeError, HttpStatusCode.BadRequest);
+        }
+
+        var ownershipError = await ValidateScopeOwnershipAsync(teacherId, scopes);
+        if (ownershipError is not null)
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            return Result<ReplaceScopesResponse>.Failure(
+                _localizer, ownershipError, HttpStatusCode.BadRequest);
+        }
+
+        int oldCount = await _unitOfWork.VideoAssetsRepo.CountScopesForVideoAsync(videoAssetId);
 
         try
         {
             await _unitOfWork.VideoAssetsRepo.DeleteAllScopesForVideoAsync(videoAssetId);
 
             var utcNow = DateTime.UtcNow;
-            var newRows = request.Scopes
+            var newRows = scopes
                 .Select(input => BuildScopeEntity(input, video, actingUserId, utcNow))
                 .ToList();
 
@@ -398,11 +374,10 @@ public sealed class VideoService : IVideoService
     // ══════════════════════════════════════════════════════════════════════
     // UPDATE VIDEO (G-EDIT)
     // ══════════════════════════════════════════════════════════════════════
-
-    /// <inheritdoc />
     public async Task<Result<VideoDetailDto>> UpdateVideoAsync(
-        long teacherId, long videoAssetId, UpdateVideoRequest request)
+            long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request)
     {
+        // Step 1 — fetch the tracked entity (unchanged).
         var video = await _unitOfWork.VideoAssetsRepo
             .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
         if (video is null)
@@ -414,52 +389,168 @@ public sealed class VideoService : IVideoService
             return Result<VideoDetailDto>.Failure(
                 _localizer, VideoConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
 
-        if (request.UnitId.HasValue)
-        {
-            var unit = await _unitOfWork.VideoUnitsRepo
-                .GetUnitByIdAndTeacherAsync(request.UnitId.Value, teacherId);
-            if (unit is null)
-                return Result<VideoDetailDto>.Failure(
-                    _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.BadRequest);
-        }
+        // Step 2 — in-application concurrency check, before any mutation.
+        if (!request.RowVersion.AsSpan().SequenceEqual(video.RowVersion))
+            return Result<VideoDetailDto>.Failure(
+                _localizer, VideoConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
 
-        string newSourceUrl = request.SourceUrl.Trim();
-        bool sourceUrlChanged = !string.Equals(
-            newSourceUrl, video.SourceUrl, StringComparison.Ordinal);
+        // Step 3 — pre-update audit snapshot, built from data as it stood
+        // BEFORE any mutation below. GetVideoByIdAndTeacherAsync doesn't
+        // load Scopes (it's the tracked-for-mutation fetch), so scopes are
+        // read separately via the same AsNoTracking method DeleteVideoAsync
+        // uses for its own snapshot.
+        var snapshotSource = await _unitOfWork.VideoAssetsRepo
+            .GetVideoWithScopesAsync(videoAssetId, teacherId);
+        var linkedUnitIdsBeforeUpdate = await _unitOfWork.VideoAssetsRepo
+            .GetLinkedUnitIdsAsync(videoAssetId);
+        var analyticsRows = await _unitOfWork.VideoAssetsRepo
+            .GetAnalyticsForAuditSnapshotAsync(videoAssetId);
+        var aggregates = await _unitOfWork.VideoAssetsRepo
+            .GetAnalyticsAggregatesAsync(teacherId, videoAssetId);
 
-        if (sourceUrlChanged)
+        var utcNow = DateTime.UtcNow;
+        string snapshotJson = BuildAuditSnapshot(
+            snapshotSource!, analyticsRows, aggregates, actingUserId, utcNow,
+            VideoAuditAction.Updated, linkedUnitIdsBeforeUpdate);
+
+        // Step 4 — begin transaction (reentrant, same pattern as elsewhere).
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
         {
-            var parseOutcome = _urlParser.Parse(newSourceUrl);
-            if (!parseOutcome.IsSuccess)
+            await _unitOfWork.VideoAssetsRepo.AddAuditAsync(new VideoAssetAudit
             {
-                string key = parseOutcome.Failure switch
+                VideoAssetId = video.Id,
+                TeacherId = teacherId,
+                Action = VideoAuditAction.Updated,
+                SnapshotJson = snapshotJson,
+                SnapshotArchiveUrl = null,
+                DeletedByUserId = actingUserId,
+                DeletedAt = utcNow,
+                CreateAt = utcNow,
+            });
+
+            // Step 5 — title/description (unchanged existing logic).
+            video.Title = title;
+            video.Description = request.Description?.Trim();
+
+            // Step 6 — sourceUrl change detection + analytics reset
+            // (UNCHANGED existing rule — do not alter).
+            string newSourceUrl = request.SourceUrl.Trim();
+            bool sourceUrlChanged = !string.Equals(
+                newSourceUrl, video.SourceUrl, StringComparison.Ordinal);
+
+            if (sourceUrlChanged)
+            {
+                var parseOutcome = _urlParser.Parse(newSourceUrl);
+                if (!parseOutcome.IsSuccess)
                 {
-                    VideoUrlParseFailure.UnsupportedSource => VideoConstants.Messages.UnsupportedSource,
-                    _ => VideoConstants.Messages.InvalidUrl,
-                };
-                return Result<VideoDetailDto>.Failure(_localizer, key, HttpStatusCode.BadRequest);
+                    string urlErrorKey = parseOutcome.Failure switch
+                    {
+                        VideoUrlParseFailure.UnsupportedSource => VideoConstants.Messages.UnsupportedSource,
+                        _ => VideoConstants.Messages.InvalidUrl,
+                    };
+                    if (ownsTransaction)
+                        await _unitOfWork.RollbackAsync();
+                    return Result<VideoDetailDto>.Failure(_localizer, urlErrorKey, HttpStatusCode.BadRequest);
+                }
+
+                video.SourceUrl = newSourceUrl;
+                video.SourceType = parseOutcome.Success!.SourceType;
+                video.ExternalId = parseOutcome.Success.ExternalId;
+
+                // Confirmed rule: a changed URL is a different video — watch
+                // history resets and duration is re-learned from scratch.
+                await _unitOfWork.VideoAssetsRepo.ResetAnalyticsForVideoAsync(videoAssetId);
+                video.DurationSeconds = 0;
+                video.IsDurationManuallySet = false;
             }
 
-            video.SourceUrl = newSourceUrl;
-            video.SourceType = parseOutcome.Success!.SourceType;
-            video.ExternalId = parseOutcome.Success.ExternalId;
+            // Step 7 — publishDate/status (unchanged existing logic).
+            video.PublishDate = request.PublishDate;
+            if (request.Status.HasValue)
+                video.Status = request.Status.Value;
 
-            // Confirmed rule: a changed URL is a different video — watch
-            // history resets and duration is re-learned from scratch.
-            await _unitOfWork.VideoAssetsRepo.ResetAnalyticsForVideoAsync(videoAssetId);
-            video.DurationSeconds = 0;
+            // Step 8 — new: explicit duration override wins over the
+            // sourceUrl-change reset above (applied after it).
+            if (request.DurationSeconds.HasValue)
+            {
+                video.DurationSeconds = request.DurationSeconds.Value;
+                video.IsDurationManuallySet = true;
+            }
+
+            // Step 9 — new: unit links. null = untouched; empty list = unlink all.
+            if (request.UnitIds is not null)
+            {
+                foreach (var unitId in request.UnitIds.Distinct())
+                {
+                    var unit = await _unitOfWork.VideoUnitsRepo
+                        .GetUnitByIdAndTeacherAsync(unitId, teacherId);
+                    if (unit is null)
+                    {
+                        if (ownsTransaction)
+                            await _unitOfWork.RollbackAsync();
+                        return Result<VideoDetailDto>.Failure(
+                            _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.BadRequest);
+                    }
+                }
+
+                await _unitOfWork.VideoAssetsRepo.ReplaceUnitLinksAsync(videoAssetId, request.UnitIds);
+            }
+
+            // Step 10 — new: optional scope replacement, folded into this
+            // transaction via the Phase 2 shared helper.
+            if (request.Scopes is not null)
+            {
+                var scopesResult = await ReplaceScopesInternalAsync(
+                    teacherId, actingUserId, videoAssetId, request.Scopes, ownsTransaction: false);
+
+                if (!scopesResult.IsSuccess)
+                {
+                    if (ownsTransaction)
+                        await _unitOfWork.RollbackAsync();
+                    // Message is already localized by ReplaceScopesInternalAsync —
+                    // propagate as-is rather than re-keying through the localizer
+                    // (same convention as ExamHomeworkService.AddStudentsAsync).
+                    return Result<VideoDetailDto>.Failure(
+                        scopesResult.Message ?? string.Empty, scopesResult.StatusCode);
+                }
+            }
+
+            // Step 11 — stamp UpdatedAt.
+            video.UpdatedAt = utcNow;
+
+            // Step 12 — SaveChangesAsync is also where EF Core's RowVersion
+            // token gets checked at the SQL level (WHERE RowVersion =
+            // @original) — second-layer safety net on top of Step 2's
+            // in-application check, covering the race where two edits pass
+            // Step 2 concurrently.
+            try
+            {
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (ownsTransaction)
+                    await _unitOfWork.RollbackAsync();
+                return Result<VideoDetailDto>.Failure(
+                    _localizer, VideoConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
+            }
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
         }
 
-        video.Title = title;
-        video.Description = request.Description?.Trim();
-        video.PublishDate = request.PublishDate;
-        if (request.Status.HasValue)
-            video.Status = request.Status.Value;
-        //video.UnitId = request.UnitId;
-
-        await _unitOfWork.SaveChangesAsync();
-
-        return Result<VideoDetailDto>.Success(MapToDetailDto(video), _localizer, VideoConstants.Messages.VideoUpdated);
+        return Result<VideoDetailDto>.Success(
+            MapToDetailDto(video), _localizer, VideoConstants.Messages.VideoUpdated);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -488,7 +579,7 @@ public sealed class VideoService : IVideoService
         DurationSeconds = video.DurationSeconds,
         PublishDate = video.PublishDate,
         Status = video.Status,
-        //UnitId = video.UnitId,
+        RowVersion = video.RowVersion,
     };
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1146,17 +1237,30 @@ public sealed class VideoService : IVideoService
     }
 
     /// <summary>
-    /// Serializes the audit snapshot per spec §2.5.1.
+    /// Shared audit-snapshot serializer for both delete-time (Story E) and
+    /// pre-update (Phase 4 / G-EDIT) audit rows. <paramref name="action"/> and
+    /// <paramref name="linkedUnitIds"/> default so the two pre-existing delete
+    /// call sites need no changes; <c>UpdateVideoAsync</c> passes both
+    /// explicitly.
+    ///
+    /// NOTE: the payload field names <c>deletedByUserId</c>/<c>deletedAt</c>
+    /// are historical — for an "Updated" snapshot they mean "actor/timestamp
+    /// of this audit event," not literal deletion. The sibling <c>action</c>
+    /// field disambiguates. Not renaming the JSON shape here to avoid
+    /// changing the read contract for existing delete-snapshot rows.
     /// </summary>
     private static string BuildAuditSnapshot(
         VideoAsset video,
         IReadOnlyList<VideoAnalyticsAuditRow> analytics,
         VideoAnalyticsAggregates aggregates,
         long deletedByUserId,
-        DateTime deletedAt)
+        DateTime deletedAt,
+        string action = VideoAuditAction.HardDelete,
+        IReadOnlyList<long>? linkedUnitIds = null)
     {
         var payload = new
         {
+            action,
             videoAsset = new
             {
                 id = video.Id,
@@ -1170,6 +1274,7 @@ public sealed class VideoService : IVideoService
                 createdAt = video.CreateAt,
                 createdByUserId = video.CreatedByUserId,
             },
+            unitIds = linkedUnitIds ?? Array.Empty<long>(),
             scopes = video.Scopes.Select(s => new
             {
                 id = s.Id,
@@ -1213,14 +1318,174 @@ public sealed class VideoService : IVideoService
         return (int)(totalSeconds * 100 / (analytics.Count * (long)durationSeconds));
     }
 
-    public Task<Result<VideoAttachmentDto>> UploadAttachmentAsync(long teacherId, long actingUserId, long videoAssetId, string fileName, string contentType, long fileSizeBytes, Stream content)
+    /// <inheritdoc />
+    public async Task<Result<VideoAttachmentDto>> UploadAttachmentAsync(
+        long teacherId, long actingUserId, long videoAssetId,
+        string fileName, string contentType, long fileSizeBytes, Stream content)
     {
-        throw new NotImplementedException();
+        // Phase 5 Step 1 — PDF-only, checked before any I/O. Same 422 pattern
+        // Phase 3 already uses for create-time attachment validation.
+        if (!VideoConstants.AllowedAttachmentContentTypes.Contains(
+                contentType, StringComparer.OrdinalIgnoreCase))
+            return Result<VideoAttachmentDto>.Failure(
+                _localizer, VideoConstants.Messages.AttachmentInvalidType, HttpStatusCode.UnprocessableEntity);
+
+        if (fileSizeBytes > VideoConstants.AttachmentMaxSizeBytes)
+            return Result<VideoAttachmentDto>.Failure(
+                _localizer, VideoConstants.Messages.AttachmentTooLarge, HttpStatusCode.UnprocessableEntity);
+
+        var video = await _unitOfWork.VideoAssetsRepo.GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
+        if (video is null)
+            return Result<VideoAttachmentDto>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+
+        // Exact convention documented on VideoAttachment.BlobPath — same one
+        // Phase 3's CreateVideoAsync saga already uses for create-time uploads.
+        string blobPath = $"{teacherId}/{videoAssetId}/{Guid.NewGuid()}-{fileName}";
+        string uploadedBlobPath = await _fileStorage.UploadAsync(blobPath, content, contentType);
+
+        var attachment = new VideoAttachment
+        {
+            VideoAssetId = videoAssetId,
+            TeacherId = teacherId,
+            FileName = fileName,
+            ContentType = contentType,
+            FileSizeBytes = fileSizeBytes,
+            BlobPath = uploadedBlobPath,
+            UploadedByUserId = actingUserId,
+            CreateAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.VideoAssetsRepo.AddAttachmentAsync(attachment);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Blob uploaded but the DB row never landed — compensate so we
+            // don't orphan a blob nothing references. Same saga philosophy
+            // as Phase 3's CreateVideoAsync.
+            Console.Error.WriteLine(
+                $"[VideoService] UploadAttachmentAsync: DB insert failed after blob upload for " +
+                $"videoAssetId={videoAssetId}. Deleting orphaned blob '{uploadedBlobPath}'. " +
+                $"Reason: {ex.Message}");
+            try { await _fileStorage.DeleteAsync(uploadedBlobPath); }
+            catch (Exception cleanupEx)
+            {
+                Console.Error.WriteLine(
+                    $"[VideoService] UploadAttachmentAsync: failed to delete orphaned blob " +
+                    $"'{uploadedBlobPath}': {cleanupEx.Message}");
+            }
+            return Result<VideoAttachmentDto>.Failure(
+                _localizer, "ServerError", HttpStatusCode.InternalServerError);
+        }
+
+        return Result<VideoAttachmentDto>.Success(
+            new VideoAttachmentDto
+            {
+                Id = attachment.Id,
+                FileName = attachment.FileName,
+                ContentType = attachment.ContentType,
+                FileSizeBytes = attachment.FileSizeBytes,
+                ReadUrl = await _fileStorage.GetReadUrlAsync(uploadedBlobPath),
+                CreatedAt = attachment.CreateAt,
+            },
+            _localizer,
+            VideoConstants.Messages.AttachmentUploaded,
+            HttpStatusCode.Created);
     }
 
     public Task<Result<List<VideoAttachmentDto>>> GetAttachmentsAsync(long teacherId, long videoAssetId)
     {
         throw new NotImplementedException();
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
+        long teacherId, long videoAssetId, string fileName, string contentType,
+        long fileSizeBytes, Stream content)
+    {
+        // Step 1 — validate before any I/O.
+        if (!VideoConstants.AllowedThumbnailContentTypes.Contains(
+                contentType, StringComparer.OrdinalIgnoreCase))
+            return Result<ThumbnailDto>.Failure(
+                _localizer, VideoConstants.Messages.ThumbnailInvalidType, HttpStatusCode.UnprocessableEntity);
+
+        if (fileSizeBytes > VideoConstants.ThumbnailMaxSizeBytes)
+            return Result<ThumbnailDto>.Failure(
+                _localizer, VideoConstants.Messages.ThumbnailTooLarge, HttpStatusCode.UnprocessableEntity);
+
+        // Step 2 — fetch, tracked (so setting ThumbnailBlobPath below and
+        // calling SaveChangesAsync is a normal EF Core update).
+        var video = await _unitOfWork.VideoAssetsRepo.GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
+        if (video is null)
+            return Result<ThumbnailDto>.Failure(
+                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
+
+        // Step 3 — capture the old path BEFORE any mutation. Null on a
+        // video's first-ever thumbnail — nothing to delete in step 6.
+        string? oldBlobPath = video.ThumbnailBlobPath;
+
+        // Step 4 — upload the new blob FIRST. Confirmed ordering: a replace
+        // must never lose the old, live asset if the new upload or the DB
+        // write fails.
+        string ext = Path.GetExtension(fileName);
+        string newBlobPath = $"{teacherId}/{videoAssetId}/thumbnail-{Guid.NewGuid()}{ext}";
+        string uploadedBlobPath = await _fileStorage.UploadAsync(newBlobPath, content, contentType);
+
+        // Step 5 — point the DB at the new blob. On failure, compensate by
+        // deleting the just-uploaded blob; the old thumbnail (still the
+        // value referenced by the DB row up to this point) is untouched.
+        video.ThumbnailBlobPath = uploadedBlobPath;
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[VideoService] ReplaceThumbnailAsync: DB update failed after blob upload for " +
+                $"videoAssetId={videoAssetId}. Deleting orphaned new blob '{uploadedBlobPath}'. " +
+                $"Reason: {ex.Message}");
+            try { await _fileStorage.DeleteAsync(uploadedBlobPath); }
+            catch (Exception cleanupEx)
+            {
+                Console.Error.WriteLine(
+                    $"[VideoService] ReplaceThumbnailAsync: failed to delete orphaned new blob " +
+                    $"'{uploadedBlobPath}' during compensation: {cleanupEx.Message}");
+            }
+            return Result<ThumbnailDto>.Failure(
+                _localizer, "ServerError", HttpStatusCode.InternalServerError);
+        }
+
+        // Step 6 — ONLY after the DB write succeeds, best-effort delete the
+        // old blob. Non-blocking: an orphaned old blob is cheap, non-user-
+        // facing cleanup debt; failing the whole request here would be worse.
+        if (oldBlobPath is not null)
+        {
+            try
+            {
+                await _fileStorage.DeleteAsync(oldBlobPath);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[VideoService] ReplaceThumbnailAsync: failed to delete old thumbnail blob " +
+                    $"'{oldBlobPath}' for videoAssetId={videoAssetId} — orphaned, non-blocking. " +
+                    $"Reason: {ex.Message}");
+            }
+        }
+
+        // Step 7 — fresh SAS URL for the new blob.
+        string readUrl = await _fileStorage.GetReadUrlAsync(uploadedBlobPath);
+
+        return Result<ThumbnailDto>.Success(
+            new ThumbnailDto { ReadUrl = readUrl },
+            _localizer,
+            VideoConstants.Messages.ThumbnailReplaced,
+            HttpStatusCode.OK);
     }
 
     public Task<Result<bool>> DeleteAttachmentAsync(long teacherId, long videoAssetId, long attachmentId)
@@ -1249,5 +1514,283 @@ public sealed class VideoService : IVideoService
         };
 
         return Result<VideoUnitResponse>.Success(response, _localizer, "Success",HttpStatusCode.OK);
+    }
+
+    
+    /// <inheritdoc />
+    public async Task<Result<CreateVideoResponse>> CreateVideoAsync(
+        long teacherId, long actingUserId, CreateVideoRequest request,
+        IFormFile? thumbnail, IFormFile? attachment)
+    {
+        // Free-tier quota: videos (see ModuleQuota table).
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, ModuleQuotaKeys.Videos,
+                () => _unitOfWork.VideoAssetsRepo.CountByTeacherAsync(teacherId)))
+            return Result<CreateVideoResponse>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired, HttpStatusCode.Forbidden);
+
+        string title = request.Title?.Trim() ?? string.Empty;
+        if (title.Length == 0)
+            return Result<CreateVideoResponse>.Failure(
+                _localizer, VideoConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
+
+        // Parse URL — distinguishes "not a URL" from "unsupported provider".
+        var parseOutcome = _urlParser.Parse(request.SourceUrl);
+        if (!parseOutcome.IsSuccess)
+        {
+            string urlErrorKey = parseOutcome.Failure switch
+            {
+                VideoUrlParseFailure.UnsupportedSource => VideoConstants.Messages.UnsupportedSource,
+                _ => VideoConstants.Messages.InvalidUrl,
+            };
+            return Result<CreateVideoResponse>.Failure(
+                _localizer, urlErrorKey, HttpStatusCode.BadRequest);
+        }
+
+        // Phase 3 Step 2: fail fast on file shape BEFORE any DB or blob write.
+        // 422 matches the existing UploadAttachmentAsync doc-comment convention
+        // for AttachmentTooLarge — a well-formed request whose payload is
+        // semantically rejected, not a malformed request (400).
+        if (thumbnail is not null)
+        {
+            string? thumbnailShapeError = ValidateUploadedFile(
+                thumbnail,
+                VideoConstants.AllowedThumbnailContentTypes,
+                VideoConstants.ThumbnailMaxSizeBytes,
+                VideoConstants.Messages.ThumbnailInvalidType,
+                VideoConstants.Messages.ThumbnailTooLarge);
+            if (thumbnailShapeError is not null)
+                return Result<CreateVideoResponse>.Failure(
+                    _localizer, thumbnailShapeError, HttpStatusCode.UnprocessableEntity);
+        }
+
+        if (attachment is not null)
+        {
+            string? attachmentShapeError = ValidateUploadedFile(
+                attachment,
+                VideoConstants.AllowedAttachmentContentTypes,
+                VideoConstants.AttachmentMaxSizeBytes,
+                VideoConstants.Messages.AttachmentInvalidType,
+                VideoConstants.Messages.AttachmentTooLarge);
+            if (attachmentShapeError is not null)
+                return Result<CreateVideoResponse>.Failure(
+                    _localizer, attachmentShapeError, HttpStatusCode.UnprocessableEntity);
+        }
+
+       
+        // ── Saga step 1: VideoAsset row (+ unit links) commits BEFORE any blob I/O ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        VideoAsset video;
+        try
+        {
+            video = new VideoAsset
+            {
+                TeacherId = teacherId,
+                Title = title,
+                Description = request.Description?.Trim(),
+                SourceUrl = request.SourceUrl.Trim(),
+                SourceType = parseOutcome.Success!.SourceType,
+                ExternalId = parseOutcome.Success.ExternalId,
+                DurationSeconds = 0, // Story A: learned on first open.
+                CreatedByUserId = actingUserId,
+                CreateAt = DateTime.UtcNow,
+            };
+
+            await _unitOfWork.VideoAssetsRepo.AddVideoAsync(video);
+            await _unitOfWork.SaveChangesAsync(); // generates video.Id
+
+            
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        // ── Saga step 2: blob I/O — outside the SQL transaction, compensated on failure ──
+        string? thumbnailBlobPath = null;
+        if (thumbnail is not null)
+        {
+            try
+            {
+                thumbnailBlobPath = await UploadThumbnailBlobAsync(teacherId, video.Id, thumbnail);
+                await _unitOfWork.VideoAssetsRepo.SetThumbnailBlobPathAsync(video.Id, thumbnailBlobPath);
+            }
+            catch (Exception ex)
+            {
+                await CompensateFailedCreateAsync(
+                    teacherId, actingUserId, video.Id,
+                    thumbnailBlobPath, attachmentBlobPath: null, ex, "thumbnail upload");
+                return Result<CreateVideoResponse>.Failure(
+                    _localizer, "ServerError", HttpStatusCode.InternalServerError);
+            }
+        }
+
+        VideoAttachmentDto? attachmentDto = null;
+        if (attachment is not null)
+        {
+            string? attachmentBlobPath = null;
+            try
+            {
+                attachmentBlobPath = await UploadAttachmentBlobAsync(teacherId, video.Id, attachment);
+
+                var attachmentEntity = new VideoAttachment
+                {
+                    VideoAssetId = video.Id,
+                    TeacherId = teacherId,
+                    FileName = attachment.FileName,
+                    ContentType = attachment.ContentType,
+                    FileSizeBytes = attachment.Length,
+                    BlobPath = attachmentBlobPath,
+                    UploadedByUserId = actingUserId,
+                    CreateAt = DateTime.UtcNow,
+                };
+
+                await _unitOfWork.VideoAssetsRepo.AddAttachmentAsync(attachmentEntity);
+                await _unitOfWork.SaveChangesAsync();
+
+                attachmentDto = new VideoAttachmentDto
+                {
+                    Id = attachmentEntity.Id,
+                    FileName = attachmentEntity.FileName,
+                    ContentType = attachmentEntity.ContentType,
+                    FileSizeBytes = attachmentEntity.FileSizeBytes,
+                    ReadUrl = await _fileStorage.GetReadUrlAsync(attachmentBlobPath),
+                    CreatedAt = attachmentEntity.CreateAt,
+                };
+            }
+            catch (Exception ex)
+            {
+                await CompensateFailedCreateAsync(
+                    teacherId, actingUserId, video.Id,
+                    thumbnailBlobPath, attachmentBlobPath, ex, "attachment upload");
+                return Result<CreateVideoResponse>.Failure(
+                    _localizer, "ServerError", HttpStatusCode.InternalServerError);
+            }
+        }
+
+        string? thumbnailReadUrl = thumbnailBlobPath is null
+            ? null
+            : await _fileStorage.GetReadUrlAsync(thumbnailBlobPath);
+
+        return Result<CreateVideoResponse>.Success(
+            new CreateVideoResponse
+            {
+                VideoAssetId = video.Id,
+                ThumbnailReadUrl = thumbnailReadUrl,
+                Attachment = attachmentDto,
+            },
+            _localizer,
+            VideoConstants.Messages.VideoCreated,
+            HttpStatusCode.Created);
+    }
+
+    /// <summary>
+    /// Validates an uploaded file's content-type and size before any DB or blob
+    /// write (Phase 3 Step 2 — fail fast). Returns a localization key on
+    /// failure, null on success.
+    /// </summary>
+    private static string? ValidateUploadedFile(
+        IFormFile file, string[] allowedContentTypes, long maxSizeBytes,
+        string invalidTypeKey, string tooLargeKey)
+    {
+        bool typeAllowed = allowedContentTypes.Any(
+            t => string.Equals(t, file.ContentType, StringComparison.OrdinalIgnoreCase));
+        if (!typeAllowed)
+            return invalidTypeKey;
+
+        if (file.Length > maxSizeBytes)
+            return tooLargeKey;
+
+        return null;
+    }
+
+    /// <summary>
+    /// Uploads a thumbnail to <c>{teacherId}/{videoAssetId}/thumbnail-{guid}.{ext}</c>,
+    /// mirroring <see cref="VideoAttachment.BlobPath"/>'s documented convention.
+    /// </summary>
+    private async Task<string> UploadThumbnailBlobAsync(
+        long teacherId, long videoAssetId, IFormFile thumbnail)
+    {
+        string ext = Path.GetExtension(thumbnail.FileName);
+        string blobPath = $"{teacherId}/{videoAssetId}/thumbnail-{Guid.NewGuid()}{ext}";
+
+        await using var stream = thumbnail.OpenReadStream();
+        return await _fileStorage.UploadAsync(blobPath, stream, thumbnail.ContentType);
+    }
+
+    /// <summary>
+    /// Uploads an attachment to <c>{teacherId}/{videoAssetId}/{guid}-{fileName}</c> —
+    /// the exact convention documented on <see cref="VideoAttachment.BlobPath"/>.
+    /// </summary>
+    private async Task<string> UploadAttachmentBlobAsync(
+        long teacherId, long videoAssetId, IFormFile attachment)
+    {
+        string blobPath = $"{teacherId}/{videoAssetId}/{Guid.NewGuid()}-{attachment.FileName}";
+
+        await using var stream = attachment.OpenReadStream();
+        return await _fileStorage.UploadAsync(blobPath, stream, attachment.ContentType);
+    }
+
+    /// <summary>
+    /// Compensating action for the CreateVideoAsync saga (Phase 3): a blob step
+    /// failed after the VideoAsset row already committed. Deletes whichever
+    /// blobs did upload, then hard-deletes the video row via the same
+    /// <see cref="DeleteVideoAsync(long, long, long)"/> path Story E uses — so a
+    /// compensated create gets an audit trail exactly like a deliberate delete,
+    /// and unit links are removed by the same NoAction FK chain.
+    ///
+    /// NOTE: no ILogger is injected into VideoService (same gap noted in
+    /// PaymentService) — using Console.Error as an interim measure. Swap for
+    /// ILogger once one is added to this service's dependencies.
+    /// </summary>
+    private async Task CompensateFailedCreateAsync(
+        long teacherId, long actingUserId, long videoAssetId,
+        string? thumbnailBlobPath, string? attachmentBlobPath,
+        Exception originalException, string failedStep)
+    {
+        Console.Error.WriteLine(
+            $"[VideoService] CreateVideoAsync compensation triggered: {failedStep} failed for " +
+            $"videoAssetId={videoAssetId}, teacherId={teacherId}. Reason: {originalException.Message}");
+
+        if (thumbnailBlobPath is not null)
+        {
+            try { await _fileStorage.DeleteAsync(thumbnailBlobPath); }
+            catch (Exception cleanupEx)
+            {
+                Console.Error.WriteLine(
+                    $"[VideoService] Compensation: failed to delete thumbnail blob " +
+                    $"'{thumbnailBlobPath}': {cleanupEx.Message}");
+            }
+        }
+
+        if (attachmentBlobPath is not null)
+        {
+            try { await _fileStorage.DeleteAsync(attachmentBlobPath); }
+            catch (Exception cleanupEx)
+            {
+                Console.Error.WriteLine(
+                    $"[VideoService] Compensation: failed to delete attachment blob " +
+                    $"'{attachmentBlobPath}': {cleanupEx.Message}");
+            }
+        }
+
+        try
+        {
+            await DeleteVideoAsync(teacherId, actingUserId, videoAssetId);
+        }
+        catch (Exception deleteEx)
+        {
+            Console.Error.WriteLine(
+                $"[VideoService] Compensation: failed to delete orphaned VideoAsset " +
+                $"{videoAssetId}: {deleteEx.Message}. Manual cleanup required — the video row " +
+                "may still exist pointing at a missing or partial blob.");
+        }
     }
 }

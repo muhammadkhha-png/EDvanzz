@@ -1345,4 +1345,14 @@
 <data name="PhoneAlreadyExists" xml:space="preserve">
   <value>رقم التليفون ده متسجّل قبل كده.</value>
 </data>
+<data name="RequestValidationFailed" xml:space="preserve">
+    <value>مقدرناش نعالج الطلب ده. من فضلك راجع الحقول المطلوبة وحاول تاني</value>
+  </data>
+  <data name="ConcurrencyConflict" xml:space="preserve">
+    <value>حد تاني عدّل الفيديو ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
+  </data>
+  <data name="ThumbnailTooLarge" xml:space="preserve">
+    <value>الصورة المصغرة دي كبيرة أوي.</value>
+</data>
+
 </root>

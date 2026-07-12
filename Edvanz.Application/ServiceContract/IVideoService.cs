@@ -1,5 +1,6 @@
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
+using Microsoft.AspNetCore.Http;
 
 namespace Edvanz.Application.ServiceContract;
 
@@ -42,21 +43,30 @@ public interface IVideoService
     // TEACHER + ASSISTANT WRITE FLOWS
     // ══════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Creates a new video for the teacher. The newly-created row has zero
-    /// scope rows — Flutter immediately follows up with a
-    /// <see cref="AppendScopesAsync"/> call.
-    ///
-    /// REQ-VCM-FR-01. Story A. Errors:
+    /// REQ-VCM-FR-01. Story A. Phase 3: multipart create — optional thumbnail
+    /// (image/jpeg, image/png) and optional PDF attachment are uploaded to blob
+    /// storage and linked atomically with the video row. This is a saga, not a
+    /// single DB transaction: the <c>VideoAsset</c> row (+ unit links) commits
+    /// first; blob uploads happen after commit; a blob failure compensates by
+    /// hard-deleting the video row and any blob that did upload. Errors:
     /// <see cref="Domain.Constants.VideoConstants.Messages.InvalidUrl"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.UnsupportedSource"/>.
+    /// <see cref="Domain.Constants.VideoConstants.Messages.UnsupportedSource"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.VideoUnitNotFound"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.ThumbnailInvalidType"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.ThumbnailTooLarge"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.AttachmentInvalidType"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.AttachmentTooLarge"/>.
     /// </summary>
     /// <param name="teacherId">Tenant scope from JWT.</param>
     /// <param name="actingUserId">User who clicked Create — Teacher or
     /// Assistant. Stored on <c>VideoAsset.CreatedByUserId</c>.</param>
-    /// <param name="request">Create payload.</param>
+    /// <param name="request">Create payload (deserialized from the multipart
+    /// <c>request</c> form field).</param>
+    /// <param name="thumbnail">Optional thumbnail image.</param>
+    /// <param name="attachment">Optional PDF attachment.</param>
     Task<Result<CreateVideoResponse>> CreateVideoAsync(
-        long teacherId, long actingUserId, CreateVideoRequest request);
+        long teacherId, long actingUserId, CreateVideoRequest request,
+        IFormFile? thumbnail, IFormFile? attachment);
 
     /// <summary>
     /// Appends scope rows to an existing video. Idempotent on duplicates —
@@ -120,11 +130,10 @@ public interface IVideoService
     /// </summary>
     Task<Result<bool>> SetVideoStatusAsync(
         long teacherId, long videoAssetId, SetVideoStatusRequest request);
-
-    /// <summary>
-    /// Updates title/description/sourceUrl/publishDate/status/unitId
-    /// (G-EDIT). Recipients/scopes are untouched — see
-    /// <see cref="ReplaceScopesAsync"/>.
+    /// Updates title/description/sourceUrl/publishDate/status/unitIds
+    /// (G-EDIT), plus (Phase 4) an optional teacher-set duration override and
+    /// optional folded-in scope replacement, guarded by optimistic
+    /// concurrency (<c>RowVersion</c>).
     ///
     /// Confirmed rule: when <c>SourceUrl</c> differs from the stored value,
     /// this is treated as a different video — <c>VideoAnalytics</c> and
@@ -132,13 +141,25 @@ public interface IVideoService
     /// to 0 to be re-learned. Every other field-only edit preserves
     /// analytics.
     ///
+    /// A pre-update <c>VideoAssetAudit</c> snapshot (<c>Action = "UPDATED"</c>)
+    /// is written in the same transaction, mirroring the delete-time
+    /// snapshot pattern.
+    ///
     /// Errors: <see cref="Domain.Constants.VideoConstants.Messages.VideoNotFound"/>,
     /// <see cref="Domain.Constants.VideoConstants.Messages.InvalidUrl"/>,
     /// <see cref="Domain.Constants.VideoConstants.Messages.UnsupportedSource"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.VideoUnitNotFound"/>.
+    /// <see cref="Domain.Constants.VideoConstants.Messages.VideoUnitNotFound"/>,
+    /// <see cref="Domain.Constants.VideoConstants.Messages.ConcurrencyConflict"/> (409),
+    /// plus any error <see cref="ReplaceScopesAsync"/> can return, propagated
+    /// unchanged when <c>Scopes</c> is provided.
     /// </summary>
+    /// <param name="teacherId">Tenant scope from JWT.</param>
+    /// <param name="actingUserId">User performing the edit — stored on the
+    /// audit snapshot and passed through to scope replacement.</param>
+    /// <param name="videoAssetId">Target video.</param>
+    /// <param name="request">Update payload, including the concurrency token.</param>
     Task<Result<VideoDetailDto>> UpdateVideoAsync(
-        long teacherId, long videoAssetId, UpdateVideoRequest request);
+        long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request);
 
     /// <summary>
     /// Supporting read for G-EDIT — pre-fill payload for the Edit screen and
@@ -278,5 +299,19 @@ public interface IVideoService
     /// </summary>
     Task<Result<bool>> DeleteAttachmentAsync(
         long teacherId, long videoAssetId, long attachmentId);
+
+    /// <summary>
+    /// Replaces the video's thumbnail (Phase 5). Confirmed ordering — upload
+    /// new blob → update DB reference → delete old blob only after the DB
+    /// write commits — so a failure at any step never loses the previously
+    /// live thumbnail. Opposite ordering from <see cref="DeleteAttachmentAsync"/>
+    /// deliberately: a replace must never lose the old asset; a delete must
+    /// never leave a DB row pointing at a blob the user asked to remove.
+    /// Rejects with <c>ThumbnailInvalidType</c>/<c>ThumbnailTooLarge</c> (422)
+    /// before any I/O.
+    /// </summary>
+    Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
+        long teacherId, long videoAssetId, string fileName, string contentType,
+        long fileSizeBytes, Stream content);
 
 }

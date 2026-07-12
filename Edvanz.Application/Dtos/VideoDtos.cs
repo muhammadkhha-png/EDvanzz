@@ -59,12 +59,7 @@ public sealed class CreateVideoRequest
     [Required]
     public string SourceUrl { get; set; } = null!;
 
-    /// <summary>
-    /// Optional parent unit (G-UNIT). Null means the video is created loose —
-    /// no unit assigned. Must belong to the calling teacher; service returns
-    /// <c>VideoUnitNotFound</c> otherwise.
-    /// </summary>
-    public long? UnitId { get; set; }
+   
 }
 
 /// <summary>
@@ -75,21 +70,30 @@ public sealed class CreateVideoRequest
 public sealed class CreateVideoResponse
 {
     public long VideoAssetId { get; set; }
+
+    /// <summary>Fresh SAS read URL for the uploaded thumbnail, or null if none was provided.</summary>
+    public string? ThumbnailReadUrl { get; set; }
+
+    /// <summary>The uploaded attachment's DTO, or null if none was provided.</summary>
+    public VideoAttachmentDto? Attachment { get; set; }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// UPDATE VIDEO (G-EDIT) — PUT /api/videos/{id} + supporting GET
-// ══════════════════════════════════════════════════════════════════════════
-
 /// <summary>
-/// Request body for <c>PUT /api/videos/{id}</c>. Recipients/scopes are NOT
-/// edited here — that stays on <c>PUT /videos/{id}/scopes</c>.
+/// Request body for <c>PUT /api/videos/{id}</c>.
 ///
 /// Confirmed rule: if <see cref="SourceUrl"/> differs from the stored value,
 /// the service treats it as a different video — <c>VideoAnalytics</c> and
 /// <c>VideoWatchEvent</c> rows for this asset are cleared and
 /// <c>DurationSeconds</c> resets to 0 to be re-learned. Every other
 /// field-only edit preserves analytics.
+///
+/// Scope replacement is optional here (Phase 4): if <see cref="Scopes"/> is
+/// provided, it replaces all scope rows via the same logic backing
+/// <c>PUT /videos/{id}/scopes</c>; if omitted, existing scopes are left
+/// untouched. <c>PUT /videos/{id}/scopes</c> remains available as a
+/// standalone endpoint for scope-only updates (e.g. a "Manage Access" screen
+/// that doesn't want to resend the whole video form) — both routes share one
+/// code path.
 /// </summary>
 public sealed class UpdateVideoRequest
 {
@@ -105,7 +109,37 @@ public sealed class UpdateVideoRequest
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoStatus? Status { get; set; }
 
-    public long? UnitId { get; set; }
+    /// <summary>
+    /// Replaces the video's unit links (M:N). <c>null</c> = leave unit links
+    /// unchanged; empty list = unlink from all units. This distinction is
+    /// load-bearing — the service treats null and empty-list differently.
+    /// </summary>
+    public List<long>? UnitIds { get; set; }
+
+    /// <summary>
+    /// Optional explicit duration override. When set, <c>DurationSeconds</c>
+    /// is updated directly and <c>IsDurationManuallySet</c> is set true.
+    /// Null = leave duration as-is (student-reported value, or whatever was
+    /// previously set).
+    /// </summary>
+    public int? DurationSeconds { get; set; }
+
+    /// <summary>
+    /// Optional scope replacement, folded into this endpoint. Null = leave
+    /// existing scopes untouched. Non-null (including empty list) delegates
+    /// to the same <c>ReplaceScopesInternalAsync</c> path as
+    /// <c>PUT /videos/{id}/scopes</c> — an empty list correctly fails with
+    /// <c>ScopeCannotBeEmpty</c> via that shared logic.
+    /// </summary>
+    public List<VideoScopeInputDto>? Scopes { get; set; }
+
+    /// <summary>
+    /// Optimistic concurrency token, echoed back from the last GET/PUT
+    /// response. Required to prevent silent lost updates between concurrent
+    /// editors.
+    /// </summary>
+    [Required]
+    public byte[] RowVersion { get; set; } = null!;
 }
 
 /// <summary>
@@ -124,11 +158,13 @@ public sealed class VideoDetailDto
     public string SourceUrl { get; set; } = null!;
     public int DurationSeconds { get; set; }
     public DateTime? PublishDate { get; set; }
-
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoStatus Status { get; set; }
 
-    public long? UnitId { get; set; }
+    /// <summary>Concurrency token to echo back on the next PUT.</summary>
+    public byte[] RowVersion { get; set; } = null!;
+
+   
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -229,11 +265,6 @@ public sealed class TeacherVideoUnitListItemDto
 // ATTACHMENTS (Track F / §5) — Azure Blob Storage
 // ══════════════════════════════════════════════════════════════════════════
 
-/// <summary>
-/// One uploaded file. <see cref="ReadUrl"/> is a time-limited SAS URL
-/// generated per request — never stored, so it can't go stale in a cached
-/// response.
-/// </summary>
 public sealed class VideoAttachmentDto
 {
     public long Id { get; set; }
@@ -242,6 +273,15 @@ public sealed class VideoAttachmentDto
     public long FileSizeBytes { get; set; }
     public string ReadUrl { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Response for <c>PUT /api/videos/{id}/thumbnail</c>. A video has at most one
+/// thumbnail, so no <c>Id</c> is needed — just a fresh SAS read URL.
+/// </summary>
+public sealed class ThumbnailDto
+{
+    public string ReadUrl { get; set; } = null!;
 }
 
 // ══════════════════════════════════════════════════════════════════════════

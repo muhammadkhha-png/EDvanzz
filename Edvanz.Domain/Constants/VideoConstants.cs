@@ -192,8 +192,14 @@ public static class VideoConstants
         public const string ThumbnailReplaced     = "ThumbnailReplaced";
         public const string ThumbnailInvalidType  = "ThumbnailInvalidType";
         public const string ThumbnailTooLarge     = "ThumbnailTooLarge";
-        public const string ThumbnailNotFound     = "ThumbnailNotFound";
-        // ── BOUNDED RETRY (concurrency conflict on first-open INSERT) ────────────
+        public const string ThumbnailNotFound = "ThumbnailNotFound";
+
+        // ── Phase 3 — multipart create request shape ──────────────────────────
+        // ── Phase 3 — multipart create request shape ──────────────────────────
+        public const string RequestValidationFailed = "RequestValidationFailed";
+
+        // ── Phase 4 — full update (optimistic concurrency) ─────────────────────
+        public const string ConcurrencyConflict = "ConcurrencyConflict";
 
         /// <summary>
         /// Maximum retry attempts for the StartWatch flow when a concurrent first-time

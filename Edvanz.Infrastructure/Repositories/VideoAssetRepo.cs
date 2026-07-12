@@ -99,17 +99,26 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // as parameters and build the predicate against integer columns.
 
         var rowsAffected = await _context.VideoAssets
-            .Where(v => v.Id == videoAssetId)
-            .Where(v =>
-                // First-watch claim: current value is 0, accept anything.
-                v.DurationSeconds == 0
-                // Subsequent: |reported - stored| / stored <= tolerance.
-                // Rearranged to integer-only math:
-                //   stored * (1 - tolerance) <= reported <= stored * (1 + tolerance)
-                || (reportedDurationSeconds >= v.DurationSeconds * (1 - toleranceFraction)
-                 && reportedDurationSeconds <= v.DurationSeconds * (1 + toleranceFraction)))
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(v => v.DurationSeconds, reportedDurationSeconds));
+             .Where(v => v.Id == videoAssetId)
+             .Where(v =>
+                 // First-watch claim: current value is 0 AND the teacher has
+                 // NOT manually set it (Phase 5) — accept anything. Without
+                 // the IsDurationManuallySet guard, a teacher explicitly
+                 // setting 0 (plausible when they genuinely don't know the
+                 // duration) would silently re-open first-report-wins.
+                 (v.DurationSeconds == 0 && !v.IsDurationManuallySet)
+                 // Subsequent (or manually-set): |reported - stored| / stored <= tolerance.
+                 // Rearranged to integer-only math:
+                 //   stored * (1 - tolerance) <= reported <= stored * (1 + tolerance)
+                 // NOTE: if a teacher manually sets 0 (IsDurationManuallySet=true,
+                 // DurationSeconds=0), this branch's bounds collapse to exactly
+                 // 0, so every nonzero student report is silently ignored —
+                 // that is the correct, intended behavior here, not a bug: a
+                 // manually-set 0 means "stay 0," not "still unset."
+                 || (reportedDurationSeconds >= v.DurationSeconds * (1 - toleranceFraction)
+                  && reportedDurationSeconds <= v.DurationSeconds * (1 + toleranceFraction)))
+             .ExecuteUpdateAsync(s => s
+                 .SetProperty(v => v.DurationSeconds, reportedDurationSeconds));
 
         return rowsAffected > 0;
     }
@@ -911,6 +920,38 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // UNIT LINKS — WRITE/READ PATH (M:N, Phase 1 VideoAssetUnit join table)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task ReplaceUnitLinksAsync(long videoAssetId, IEnumerable<long> unitIds)
+    {
+        // Same single-round-trip convention as DeleteAllScopesForVideoAsync:
+        // ExecuteDeleteAsync, no in-memory load-then-remove. No SaveChangesAsync
+        // here — caller (service, inside its own transaction) owns the commit.
+        await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        var rows = unitIds.Distinct().Select(unitId => new VideoAssetUnit
+        {
+            VideoAssetId = videoAssetId,
+            UnitId = unitId,
+        });
+
+        await _context.VideoAssetUnits.AddRangeAsync(rows);
+    }
+
+    /// <inheritdoc />
+    public async Task<List<long>> GetLinkedUnitIdsAsync(long videoAssetId)
+    {
+        return await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .Select(x => x.UnitId)
+            .ToListAsync();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════
 
@@ -948,5 +989,12 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 ? query.OrderBy(r => r.StudentName)
                 : query.OrderByDescending(r => r.StudentName),
         };
+    }
+    /// <inheritdoc />
+    public async Task SetThumbnailBlobPathAsync(long videoAssetId, string blobPath)
+    {
+        await _context.VideoAssets
+            .Where(v => v.Id == videoAssetId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.ThumbnailBlobPath, blobPath));
     }
 }
