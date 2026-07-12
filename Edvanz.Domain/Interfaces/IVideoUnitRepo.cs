@@ -22,15 +22,15 @@ public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
 
     /// <summary>
     /// Soft-deletes a unit (sets <c>DeletedAt</c>). Does NOT touch its
-    /// videos — the FK's <c>SET NULL</c> `OnDelete` behavior only fires on a
-    /// hard DB delete, so the service layer must explicitly null out
-    /// <c>VideoAsset.UnitId</c> for this unit's videos in the same
-    /// transaction (soft-delete leaves the row in place at the DB level).
+    /// videos — the FK's <c>NoAction</c> `OnDelete` behavior only fires on a
+    /// hard DB delete, so the service layer must explicitly remove this
+    /// unit's <c>VideoAssetUnit</c> join rows in the same transaction
+    /// (soft-delete leaves the row in place at the DB level).
     /// </summary>
     Task SoftDeleteUnitAsync(VideoUnit unit, DateTime deletedAtUtc);
 
     /// <summary>
-    /// Bulk-nulls <c>UnitId</c> for every video currently in the given unit.
+    /// Bulk-deletes every <c>VideoAssetUnit</c> join row for the given unit.
     /// Called by the service layer alongside <see cref="SoftDeleteUnitAsync"/>
     /// so a soft-deleted unit's videos become loose immediately, not just
     /// whenever each video is next touched.

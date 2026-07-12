@@ -15,12 +15,13 @@ namespace Edvanz.Domain.Entities;
 /// <c>IVideoAssetRepo.IsStudentInVideoScopeAsync</c> for the union check and
 /// <see cref="VideoUnitScope"/> for the scope-row shape.
 ///
-/// Optional relationship: <see cref="VideoAsset.UnitId"/> is nullable —
-/// "loose" videos with no unit are valid; their access is governed solely by
-/// their own <see cref="VideoScope"/> rows (no unit scope applies). Deleting
-/// a unit does not delete or orphan its videos; the FK is configured
-/// <c>SET NULL</c>, so videos simply become loose again — and, once loose,
-/// stop being covered by the (now-deleted) unit's scope entirely.
+/// Optional relationship: Video↔Unit is M:N via <see cref="VideoAssetUnit"/> —
+/// "loose" videos with no unit link rows are valid; their access is governed
+/// solely by their own <see cref="VideoScope"/> rows (no unit scope applies).
+/// Deleting a unit does not delete or orphan its videos; the service layer
+/// removes the unit's <see cref="VideoAssetUnit"/> rows, so videos simply
+/// become loose again for that unit — and, once loose, stop being covered by
+/// the (now-deleted) unit's scope entirely.
 ///
 /// Soft-delete via <see cref="DeletedAt"/>, same convention as
 /// <c>Teacher</c>/<c>StudentUser</c>/<c>ParentUser</c> — unlike
@@ -53,8 +54,12 @@ public class VideoUnit : BaseEntity
     /// <summary>Soft-delete marker. Null = active. Query-filtered by default.</summary>
     public DateTime? DeletedAt { get; set; }
 
-    /// <summary>Videos currently assigned to this unit. Nullable FK — see class remarks.</summary>
-    public ICollection<VideoAsset> Videos { get; set; } = new List<VideoAsset>();
+    /// <summary>
+    /// M:N link rows to the videos currently assigned to this unit. See
+    /// <see cref="VideoAsset.AssetUnits"/> remarks — a video can belong to multiple
+    /// units, and a unit's videos are the other side of the same join table.
+    /// </summary>
+    public ICollection<VideoAssetUnit> AssetUnits { get; set; } = new List<VideoAssetUnit>();
 
     /// <summary>
     /// This unit's own Target Scope rows. NoAction-deleted with the unit.

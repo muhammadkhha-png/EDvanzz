@@ -176,6 +176,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<VideoUnit> VideoUnits => Set<VideoUnit>();
 
     /// <summary>
+    /// Video Content Management Module (Module 14) — M:N join rows between
+    /// <see cref="VideoAsset"/> and <see cref="VideoUnit"/>. A video can belong to
+    /// multiple units; access is the union of the video's own scope OR any linked
+    /// unit's scope.
+    /// </summary>
+    public DbSet<VideoAssetUnit> VideoAssetUnits => Set<VideoAssetUnit>();
+
+    /// <summary>
     /// Video Content Management Module (Module 14) — collection-level (unit)
     /// Target Scope rows. Structurally identical to <see cref="VideoScope"/>
     /// but targets a <see cref="VideoUnit"/>. A student authorized by either
@@ -2465,6 +2473,19 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasColumnType("datetime2(0)")
                 .IsRequired();
 
+            entity.Property(v => v.UpdatedAt)
+                .HasColumnType("datetime2(0)");
+
+            entity.Property(v => v.RowVersion)
+                .IsRowVersion();
+
+            entity.Property(v => v.ThumbnailBlobPath)
+                .HasMaxLength(500);
+
+            entity.Property(v => v.IsDurationManuallySet)
+                .HasDefaultValue(false)
+                .IsRequired();
+
             // ── RELATIONSHIPS ─────────────────────────────────────────────────
             // Teacher FK: NO_ACTION at DB level.
             //
@@ -2491,14 +2512,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(v => v.CreatedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Unit FK: SET NULL (Track C / G-UNIT confirmed decision — optional
-            // relationship, loose videos allowed). Deleting a unit never
-            // orphans or cascades its videos; they simply become loose again.
-            entity.HasOne(v => v.Unit)
-                .WithMany(u => u.Videos)
-                .HasForeignKey(v => v.UnitId)
-                .OnDelete(DeleteBehavior.SetNull);
-
             // ── INDEXES ───────────────────────────────────────────────────────
 
             // CRITICAL — composite-FK target. Children carrying denormalized TeacherId
@@ -2518,11 +2531,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             // toggle and on the audit-trail "did this URL ever exist?" lookup.
             entity.HasIndex(v => new { v.TeacherId, v.ExternalId })
                 .HasDatabaseName("IX_VideoAssets_TeacherId_ExternalId");
-
-            // Track C — unit drill-down (GetVideosInUnitPagedAsync) and the
-            // "loose videos" filter (UnitId == null) on the teacher list.
-            entity.HasIndex(v => new { v.UnitId, v.TeacherId })
-                .HasDatabaseName("IX_VideoAssets_UnitId_TeacherId");
         });
         #endregion
 
@@ -2564,6 +2572,25 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // Soft-delete filter: queries exclude deleted records by default
             entity.HasQueryFilter(u => u.DeletedAt == null);
+        });
+        #endregion
+
+        #region VideoAssetUnit (Video↔Unit M:N join, Module 14)
+        modelBuilder.Entity<VideoAssetUnit>(b =>
+        {
+            b.ToTable("VideoAssetUnits");
+
+            b.HasKey(x => new { x.VideoAssetId, x.UnitId });
+
+            b.HasOne(x => x.VideoAsset)
+                .WithMany(v => v.AssetUnits)
+                .HasForeignKey(x => x.VideoAssetId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            b.HasOne(x => x.Unit)
+                .WithMany(u => u.AssetUnits)
+                .HasForeignKey(x => x.UnitId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
 

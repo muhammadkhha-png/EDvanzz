@@ -119,7 +119,7 @@ public sealed class VideoService : IVideoService
             SourceType = parseOutcome.Success!.SourceType,
             ExternalId = parseOutcome.Success.ExternalId,
             DurationSeconds = 0, // Story A: learned on first open.
-            UnitId = request.UnitId,
+            //UnitId = request.UnitId,
             CreatedByUserId = actingUserId,
             CreateAt = DateTime.UtcNow,
         };
@@ -455,7 +455,7 @@ public sealed class VideoService : IVideoService
         video.PublishDate = request.PublishDate;
         if (request.Status.HasValue)
             video.Status = request.Status.Value;
-        video.UnitId = request.UnitId;
+        //video.UnitId = request.UnitId;
 
         await _unitOfWork.SaveChangesAsync();
 
@@ -488,7 +488,7 @@ public sealed class VideoService : IVideoService
         DurationSeconds = video.DurationSeconds,
         PublishDate = video.PublishDate,
         Status = video.Status,
-        UnitId = video.UnitId,
+        //UnitId = video.UnitId,
     };
 
     // ══════════════════════════════════════════════════════════════════════

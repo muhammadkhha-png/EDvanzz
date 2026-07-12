@@ -1,5 +1,6 @@
 using Edvanz.Domain.Entities.ShareProp;
 using Edvanz.Domain.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
@@ -20,11 +21,17 @@ namespace Edvanz.Domain.Entities;
 /// as the <c>DELETE</c>. Once a row is gone, it is gone — recovery is only
 /// possible by replaying the audit snapshot back into the table.
 ///
-/// IMMUTABILITY: Title, description, and source URL are set once at creation and
-/// never change afterwards. There is no edit endpoint and no <c>UpdatedAt</c>
-/// column (Q2(a) decision). Only <see cref="DurationSeconds"/> may be mutated
-/// after creation, and only by the first-watch flow with ±5% tolerance against
-/// any prior value (see <c>VideoConstants.DurationToleranceFraction</c>).
+/// EDITABILITY: <c>PUT /api/videos/{id}</c> exists and allows the teacher to edit
+/// title, description, source URL, publish date, status, and unit links after
+/// creation — everything except <see cref="TeacherId"/>, <see cref="CreatedByUserId"/>,
+/// and <see cref="Id"/>. Changing <see cref="SourceUrl"/> resets watch analytics
+/// (<see cref="VideoAnalytics"/>/<see cref="VideoWatchEvent"/>) and zeroes
+/// <see cref="DurationSeconds"/>, since a new URL is treated as a different video
+/// (unchanged rule). <see cref="DurationSeconds"/> may also be set explicitly by the
+/// teacher on update (see <see cref="IsDurationManuallySet"/>); absent a manual
+/// override, it remains purely student-reported via the first-watch flow with ±5%
+/// tolerance against any prior value (see <c>VideoConstants.DurationToleranceFraction</c>).
+/// <see cref="UpdatedAt"/> tracks the timestamp of the last edit.
 ///
 /// PERSISTED CONTRACT: column types, lengths, and FK behaviors are defined in
 /// <c>EdvanzDbContext.OnModelCreating</c>. <see cref="TeacherId"/> and
@@ -133,19 +140,53 @@ public class VideoAsset : BaseEntity
     public DateTime? PublishDate { get; set; }
 
     // ══════════════════════════════════════════════
+    // RUNTIME-EDITABLE METADATA
+    // ══════════════════════════════════════════════
+
+    /// <summary>Last update timestamp. Set on every <c>PUT /api/videos/{id}</c> call.</summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic concurrency token. <c>PUT /api/videos/{id}</c> now spans multiple
+    /// related writes (fields, unit links, optionally scopes) — this guards against
+    /// two concurrent editors (e.g., teacher + assistant) silently overwriting each
+    /// other. Same pattern as <c>TeacherSubscription.RowVersion</c> /
+    /// <c>AssignmentTemplate.RowVersion</c>.
+    /// </summary>
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = null!;
+
+    /// <summary>
+    /// Blob path to the uploaded thumbnail image, or null if none set. Same
+    /// convention as <see cref="VideoAttachment.BlobPath"/> — canonical reference
+    /// stored in DB; SAS read URL generated per request via
+    /// <c>IFileStorageService.GetReadUrlAsync</c>, never persisted.
+    /// </summary>
+    [MaxLength(500)]
+    public string? ThumbnailBlobPath { get; set; }
+
+    /// <summary>
+    /// True once a teacher has explicitly set <see cref="DurationSeconds"/> via
+    /// <c>PUT /api/videos/{id}</c>. When true, StartWatch's first-report-wins logic
+    /// must NOT overwrite the value — subsequent student reports are
+    /// tolerance-checked against it instead, same as the existing non-zero-duration
+    /// branch in <c>TryUpdateDurationWithinToleranceAsync</c>.
+    /// </summary>
+    public bool IsDurationManuallySet { get; set; } = false;
+
+    // ══════════════════════════════════════════════
     // ORGANIZATION (Track C / G-UNIT)
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// Optional parent unit (G-UNIT). Null means the video is "loose" — no
-    /// unit assigned. Confirmed decision: optional, loose videos allowed;
-    /// deleting the unit <c>SET NULL</c>s this column rather than blocking
-    /// or cascading.
+    /// M:N link rows to this video's parent units (G-UNIT). No rows means the
+    /// video is "loose" — no unit assigned. Access to the video is the union of
+    /// its own <see cref="Scopes"/> OR any linked unit's <see cref="VideoUnit.Scopes"/>.
+    /// Deleting a unit does not delete or orphan its videos; the service layer
+    /// removes the corresponding <see cref="VideoAssetUnit"/> rows, and the video
+    /// simply becomes loose again for that unit.
     /// </summary>
-    public long? UnitId { get; set; }
-
-    /// <summary>The unit this video belongs to, if any. See <see cref="UnitId"/>.</summary>
-    public VideoUnit? Unit { get; set; }
+    public ICollection<VideoAssetUnit> AssetUnits { get; set; } = new List<VideoAssetUnit>();
 
     // ══════════════════════════════════════════════
     // AUDIT

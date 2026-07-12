@@ -1257,6 +1257,24 @@
   <data name="AttachmentTooLarge" xml:space="preserve">
     <value>This file is too large. Please upload a smaller file</value>
   </data>
+  <data name="AttachmentInvalidType" xml:space="preserve">
+    <value>Only PDF files are allowed for attachments</value>
+  </data>
+  <data name="ThumbnailUploaded" xml:space="preserve">
+    <value>Thumbnail uploaded successfully</value>
+  </data>
+  <data name="ThumbnailReplaced" xml:space="preserve">
+    <value>Thumbnail replaced successfully</value>
+  </data>
+  <data name="ThumbnailInvalidType" xml:space="preserve">
+    <value>Only JPEG or PNG images are allowed for thumbnails</value>
+  </data>
+  <data name="ThumbnailTooLarge" xml:space="preserve">
+    <value>This thumbnail is too large. Please upload a smaller image</value>
+  </data>
+  <data name="ThumbnailNotFound" xml:space="preserve">
+    <value>We couldn't find a thumbnail for this video</value>
+  </data>
   <data name="PhoneNumberRequired" xml:space="preserve">
     <value>Phone number is required</value>
   </data>

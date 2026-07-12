@@ -41,12 +41,12 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
     /// <inheritdoc />
     public async Task<int> DetachVideosFromUnitAsync(long unitId)
     {
-        // Single SQL UPDATE — makes the unit's videos loose immediately
-        // rather than waiting for the FK's SET NULL to fire on a hard DB
-        // delete (this is a soft-delete, so the DB-level FK never fires).
-        return await _context.VideoAssets
-            .Where(v => v.UnitId == unitId)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.UnitId, (long?)null));
+        // Single SQL DELETE against the M:N join table — makes the unit's
+        // videos loose immediately rather than waiting for a hard DB delete
+        // (this is a soft-delete of the unit, so the FK's NoAction never fires).
+        return await _context.VideoAssetUnits
+            .Where(au => au.UnitId == unitId)
+            .ExecuteDeleteAsync();
     }
 
     /// <inheritdoc />
@@ -77,15 +77,15 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
                 Id = u.Id,
                 Title = u.Title,
                 Description = u.Description,
-                VideoCount = _context.VideoAssets.Count(v => v.UnitId == u.Id),
+                VideoCount = _context.VideoAssetUnits.Count(au => au.UnitId == u.Id),
                 SeenStudentCount = _context.VideoAnalytics
-                    .Count(a => _context.VideoAssets
-                        .Any(v => v.UnitId == u.Id && v.Id == a.VideoAssetId)),
+                    .Count(a => _context.VideoAssetUnits
+                        .Any(au => au.UnitId == u.Id && au.VideoAssetId == a.VideoAssetId)),
                 UnseenStudentCount = _context.VideoScopes
-                    .Count(s => _context.VideoAssets.Any(v => v.UnitId == u.Id && v.Id == s.VideoAssetId))
+                    .Count(s => _context.VideoAssetUnits.Any(au => au.UnitId == u.Id && au.VideoAssetId == s.VideoAssetId))
                     - _context.VideoAnalytics
-                        .Count(a => _context.VideoAssets
-                            .Any(v => v.UnitId == u.Id && v.Id == a.VideoAssetId)),
+                        .Count(a => _context.VideoAssetUnits
+                            .Any(au => au.UnitId == u.Id && au.VideoAssetId == a.VideoAssetId)),
                 CreatedAt = u.CreateAt,
             })
             .AsNoTracking()
@@ -104,7 +104,8 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
         GetVideosInUnitPagedAsync(long unitId, long teacherId, int page, int pageSize)
     {
         var query = _context.VideoAssets
-            .Where(v => v.TeacherId == teacherId && v.UnitId == unitId);
+            .Where(v => v.TeacherId == teacherId
+                && _context.VideoAssetUnits.Any(au => au.UnitId == unitId && au.VideoAssetId == v.Id));
 
         int totalCount = await query.CountAsync();
 

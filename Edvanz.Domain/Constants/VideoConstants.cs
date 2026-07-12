@@ -76,10 +76,23 @@ public static class VideoConstants
 
     /// <summary>
     /// Maximum size of a single video attachment upload (Track F / §5).
-    /// 25 MB — proposed default; confirm with product before this is relied
-    /// on as a hard business rule.
+    /// 25 MB — ratified business rule.
     /// </summary>
     public const long AttachmentMaxSizeBytes = 25 * 1024 * 1024;
+
+    /// <summary>
+    /// Maximum size of a single thumbnail image upload. 5 MB — proposed default;
+    /// confirm with product before relying on this as a hard business rule.
+    /// (Same caveat pattern as <see cref="AttachmentMaxSizeBytes"/> carried before
+    /// ratification.)
+    /// </summary>
+    public const long ThumbnailMaxSizeBytes = 5 * 1024 * 1024;
+
+    /// <summary>Allowed content types for thumbnail uploads.</summary>
+    public static readonly string[] AllowedThumbnailContentTypes = { "image/jpeg", "image/png" };
+
+    /// <summary>Allowed content types for video attachments — PDF only (ratified).</summary>
+    public static readonly string[] AllowedAttachmentContentTypes = { "application/pdf" };
 
     // ══════════════════════════════════════════════
     // COLUMN-LENGTH LIMITS (mirrored in fluent API)
@@ -174,6 +187,12 @@ public static class VideoConstants
         public const string AttachmentDeleted     = "AttachmentDeleted";
         public const string AttachmentNotFound    = "AttachmentNotFound";
         public const string AttachmentTooLarge    = "AttachmentTooLarge";
+        public const string AttachmentInvalidType = "AttachmentInvalidType";
+        public const string ThumbnailUploaded     = "ThumbnailUploaded";
+        public const string ThumbnailReplaced     = "ThumbnailReplaced";
+        public const string ThumbnailInvalidType  = "ThumbnailInvalidType";
+        public const string ThumbnailTooLarge     = "ThumbnailTooLarge";
+        public const string ThumbnailNotFound     = "ThumbnailNotFound";
         // ── BOUNDED RETRY (concurrency conflict on first-open INSERT) ────────────
 
         /// <summary>

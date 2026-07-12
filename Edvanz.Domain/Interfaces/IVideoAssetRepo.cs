@@ -461,4 +461,10 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
 
     /// <summary>Hard-deletes a single attachment row (blob deleted separately by the service).</summary>
     Task DeleteAttachmentAsync(VideoAttachment attachment);
+    Task ReplaceUnitLinksAsync(
+    long videoAssetId,
+    IEnumerable<long> unitIds);
+
+    Task<List<long>> GetLinkedUnitIdsAsync(
+        long videoAssetId);
 }
