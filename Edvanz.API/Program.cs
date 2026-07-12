@@ -317,6 +317,26 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+// Refuse to run against the design-time placeholder connection string — FIRST thing after
+// Build, before seeding, Hangfire storage init, or anything else can dial it. The App
+// Service first-boot quirk can start a container BEFORE app settings are injected;
+// configuration then falls back to the committed appsettings.json placeholder. Nothing can
+// work in that state, so die immediately with a clear message — Azure replaces the
+// container and the replacement gets the real settings. (EF design-time tooling never
+// reaches this code: it stops at builder.Build().)
+{
+    var runtimeCon = app.Configuration.GetConnectionString("con");
+    if (string.IsNullOrWhiteSpace(runtimeCon) || runtimeCon.Contains("EDVANZ_DESIGN_TIME_ONLY"))
+    {
+        app.Logger.LogCritical(
+            "ConnectionStrings__con is missing or is the design-time placeholder — this container " +
+            "booted without App Service settings (first-boot sync quirk). Exiting so the platform " +
+            "starts a replacement container with real settings.");
+        throw new InvalidOperationException(
+            "No runtime database connection string configured (ConnectionStrings__con).");
+    }
+}
+
 // Demo/baseline seeding runs only outside Production (prod already holds its real
 // reference data), and is wrapped so a seed failure can NEVER abort app startup.
 // Regression guard: the 6868b41 seeder threw a duplicate-key (soft-deleted student
