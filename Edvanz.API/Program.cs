@@ -424,13 +424,25 @@ for (int attempt = 1; ; attempt++)
 
         break;
     }
-    catch (Exception ex) when (attempt < 4)
+    catch (Exception ex) when (attempt < 4 && !ContainsSqlLoginFailure(ex))
     {
         app.Logger.LogWarning(ex,
             "Hangfire recurring-job registration attempt {Attempt}/4 failed; retrying in {DelaySeconds}s",
             attempt, 5 * attempt);
         Thread.Sleep(TimeSpan.FromSeconds(5 * attempt));
     }
+}
+
+// SQL error 18456 (login failed) is a credentials/config problem, never a transient blip:
+// the first container after a deploy can boot without the ConnectionStrings__con app
+// setting (App Service worker sync quirk) and fall back to the committed, rotated
+// connection string. Retrying inside the process only delays Azure's container
+// replacement — which is what actually heals that case — so fail immediately.
+static bool ContainsSqlLoginFailure(Exception? ex)
+{
+    for (; ex is not null; ex = ex.InnerException)
+        if (ex is Microsoft.Data.SqlClient.SqlException { Number: 18456 }) return true;
+    return false;
 }
 
 app.UseHttpsRedirection();
