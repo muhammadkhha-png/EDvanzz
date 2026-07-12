@@ -1035,6 +1035,9 @@
   <data name="SessionHasNoStudents" xml:space="preserve">
     <value>The selected session has no students to assign the exam to</value>
   </data>
+  <data name="ExamDeleted" xml:space="preserve">
+    <value>Exam deleted successfully</value>
+  </data>
   <data name="ExamCreated" xml:space="preserve">
     <value>Exam created successfully</value>
   </data>

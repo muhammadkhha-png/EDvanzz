@@ -67,4 +67,14 @@ public interface IExamService
     /// </summary>
     Task<Result<ExamScanResultDto>> ScanExamAttendanceAsync(
         long teacherId, long actingUserId, ExamScanDto dto);
+
+    /// <summary>
+    /// Permanently deletes an exam: the template, all its per-session occurrences, every student
+    /// obligation, and the grade/attendance audit history — after archiving a JSON snapshot into
+    /// <c>AssignmentDeletionLogs</c> (REQ-EXH-037 semantics, delegated to the shared template
+    /// deletion flow). Scoped to <c>AssignmentType.Exam</c>: homework templates return
+    /// <c>ExamNotFound</c> from this surface. <paramref name="confirm"/> must be true
+    /// (<c>DeletionConfirmationRequired</c> otherwise) — there is no recovery.
+    /// </summary>
+    Task<Result<bool>> DeleteExamAsync(long teacherId, long actingUserId, long examId, bool confirm);
 }

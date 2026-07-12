@@ -1035,6 +1035,9 @@
   <data name="SessionHasNoStudents" xml:space="preserve">
     <value>السيشن المختارة مافيهاش طلاب علشان نضيفلهم الامتحان</value>
   </data>
+  <data name="ExamDeleted" xml:space="preserve">
+    <value>الامتحان اتمسح نهائيًا بكل درجاته وحضوره</value>
+  </data>
   <data name="ExamCreated" xml:space="preserve">
     <value>تم إنشاء الامتحان بنجاح</value>
   </data>

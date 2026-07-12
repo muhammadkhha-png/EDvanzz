@@ -31,17 +31,20 @@ public class ExamService : IExamService
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly ITimeZoneService _timeZoneService;
     private readonly IExamAttendanceSyncService _examAttendanceSync;
+    private readonly IExamHomeworkService _examHomework;
 
     public ExamService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Messages> localizer,
         ITimeZoneService timeZoneService,
-        IExamAttendanceSyncService examAttendanceSync)
+        IExamAttendanceSyncService examAttendanceSync,
+        IExamHomeworkService examHomework)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
         _examAttendanceSync = examAttendanceSync;
+        _examHomework = examHomework;
     }
 
     /// <inheritdoc />
@@ -894,6 +897,35 @@ public class ExamService : IExamService
             BelowPassingCount = passingThreshold.HasValue
                 ? graded.Count(g => g < passingThreshold.Value) : 0,
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> DeleteExamAsync(
+        long teacherId, long actingUserId, long examId, bool confirm)
+    {
+        if (!confirm)
+            return Result<bool>.Failure(
+                _localizer, "DeletionConfirmationRequired", HttpStatusCode.BadRequest);
+
+        // Exam-surface guard: only templates of type Exam are reachable here. Homework
+        // templates (still served by the legacy assignment endpoints) must 404 so this
+        // endpoint can never be used to delete them.
+        var template = await _unitOfWork.ExamHomeworkRepo
+            .GetTemplateWithScopesAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<bool>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        // Delegate to the shared REQ-EXH-037 hard-delete flow (snapshot into
+        // AssignmentDeletionLogs, audit-log purge, template/occurrences/obligations delete —
+        // all in one transaction owned by that method).
+        var deleted = await _examHomework.DeleteTemplateAsync(
+            teacherId, actingUserId, examId, confirm: true);
+        if (!deleted.IsSuccess)
+            return deleted;
+
+        // Re-envelope with the exams-surface code (200 + body: the frontend branches on
+        // `code`, which a legacy-style 204 cannot carry).
+        return Result<bool>.Success(true, _localizer, "ExamDeleted");
     }
 
     /// <summary>Internal per-session materialization plan (mutated with the built occurrence).</summary>

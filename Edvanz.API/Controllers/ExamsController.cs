@@ -172,4 +172,29 @@ public class ExamsController : ModuleSixApiBaseController
 
         return ToResponse(await _exams.ScanExamAttendanceAsync(teacherId.Value, GetActingUserId(), dto));
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // DELETE EXAM (permanent — REQ-EXH-037)
+    // DELETE /api/exams/{examId}?confirm=true
+    // Hard-deletes the exam template, its per-session occurrences, all student
+    // obligations and grade/attendance audit rows, after archiving a JSON snapshot
+    // into AssignmentDeletionLogs. `confirm=true` is required (the UI shows the
+    // confirmation dialog; the API enforces it). Homework templates are NOT
+    // deletable here — they 404, this surface owns exams only.
+    // Success is 200 + envelope code "ExamDeleted" (not 204: the exams frontend
+    // contract branches on the body `code`).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("{examId:long}")]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteExam(
+        [FromRoute] long examId, [FromQuery] bool confirm = false)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.DeleteExamAsync(teacherId.Value, GetActingUserId(), examId, confirm));
+    }
 }
