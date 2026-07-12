@@ -29,9 +29,21 @@ dotnet ef database update --project Edvanz.Infrastructure --startup-project Edva
 ```
 
 `migrate.sql` at repo root is a generated migration script (EF `script` output), not
-hand-written seed SQL — don't edit it directly. `deploy-prod.yml` is the authoritative
-CI/CD sequence (restore → build → `dotnet ef database update` against Azure SQL → publish →
-deploy via OIDC) if you need to see how migrations reach production.
+hand-written seed SQL — don't edit it directly. `.github/workflows/deploy.yml` is the
+authoritative CI/CD sequence (restore → build → idempotent EF script applied to Azure SQL →
+self-contained publish → `az webapp deploy --type zip` via OIDC) if you need to see how
+changes reach production.
+
+**Deploy behavior (2026-07-12):** push to `master_integration` → ~2.5–4 min CI → one
+container swap (~1–3 min). An App Service quirk can start the first replacement container
+with a **stale app-settings snapshot** (e.g., a pre-rotation DB password → SQL 18456); the
+app fails fast by design and Azure auto-replaces the container. Consequently a red
+"Deploy zip to App Service" step ("site failed to start within 10 mins") can be a FALSE
+NEGATIVE — check whether the site serves and the deployment shows `active: true` before
+re-running. `appsettings.json` holds a design-time placeholder connection string only;
+runtime configuration comes from App Service settings (`ConnectionStrings__con`), and
+Program.cs refuses to boot on the placeholder. `WEBSITE_RUN_FROM_PACKAGE` is inert on this
+Linux plan and the workflow removes it if it reappears.
 
 **Tests:** there is no automated test project in this solution. Validate changes with
 `dotnet build` plus manual exercise via Swagger UI or the root `EDvanz.postman_collection.json`
