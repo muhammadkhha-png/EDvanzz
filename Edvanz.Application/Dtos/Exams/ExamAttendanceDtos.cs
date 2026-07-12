@@ -12,7 +12,8 @@ public class ExamAttendanceDto
 
 public class ExamAttendanceItemDto
 {
-    public long ObligationId { get; set; }
+    /// <summary>The student to mark; resolved to their obligation within <see cref="ExamAttendanceDto.OccurrenceId"/>.</summary>
+    public long TeacherStudentId { get; set; }
     public bool Present { get; set; }
 }
 
@@ -25,7 +26,12 @@ public class ExamAttendanceResultDto
 
 public class ExamAttendanceItemResultDto
 {
-    public long ObligationId { get; set; }
+    /// <summary>The student this result is for (echoes the request).</summary>
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>The resolved obligation id (null when the student could not be resolved).</summary>
+    public long? ObligationId { get; set; }
+
     public bool Success { get; set; }
     public string? Code { get; set; }
     public string? Status { get; set; }

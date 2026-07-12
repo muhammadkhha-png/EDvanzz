@@ -65,62 +65,88 @@ public class ExamService : IExamService
         if (dto.SuccessScore > dto.MaxGrade)
             return Fail("SuccessScoreExceedsMax");
 
-        if (dto.Sessions is null || dto.Sessions.Count == 0)
-            return Fail("ExamRequiresSession");
+        if (dto.ExamDate is null)
+            return Fail("ExamDateRequired");
 
-        var sessionIds = dto.Sessions.Select(s => s.SessionId).ToList();
-        if (sessionIds.Distinct().Count() != sessionIds.Count)
-            return Fail("DuplicateSessionInExam");
+        // Recipient is EITHER sessions OR groups (leave the other null/empty). Groups expand to sessions below.
+        bool hasSessions = dto.SessionIds is { Count: > 0 };
+        bool hasGroups = dto.GroupIds is { Count: > 0 };
+        if (hasSessions == hasGroups)
+            return Fail("SelectEitherSessionsOrGroups");
 
         DateTime utcNow = DateTime.UtcNow;
         DateTime today = utcNow.Date;
 
-        // ── 2. Resolve & validate each session into a materialization plan ────
-        var plans = new List<SessionPlan>();
-        foreach (var input in dto.Sessions)
-        {
-            var session = await _unitOfWork.SessionsRepo
-                .GetByIdAndTeacherAsync(input.SessionId, teacherId);
-            if (session is null)
-                return Fail("SessionNotFoundOrForeign");
+        DateTime examDate = dto.ExamDate.Value.Date;
+        if (dto.DeliveryType == ExamDeliveryType.SeparateTime && examDate < today)
+            return Fail("AssignmentDateInPast");
 
+        // ── 2. Resolve the recipient into the set of target sessions ─────────
+        var groupIds = new List<long>();
+        List<long> targetSessionIds;
+        if (hasGroups)
+        {
+            groupIds = dto.GroupIds!.Distinct().ToList();
+            foreach (var gid in groupIds)
+            {
+                var group = await _unitOfWork.SessionsRepo.GetGroupByIdAndTeacherAsync(gid, teacherId);
+                if (group is null)
+                    return Fail("GroupNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+            var groupSessions = await _unitOfWork.SessionsRepo
+                .GetSessionsByGroupIdsAsync(teacherId, groupIds);
+            targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
+        }
+        else
+        {
+            targetSessionIds = dto.SessionIds!.Distinct().ToList();
+            foreach (var sid in targetSessionIds)
+            {
+                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
+                if (session is null)
+                    return Fail("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+        }
+
+        if (targetSessionIds.Count == 0)
+            return Fail("ExamRequiresSession");
+
+        // Optional global student subset, validated against the union of the target sessions.
+        HashSet<long>? studentFilter = dto.StudentIds is { Count: > 0 }
+            ? dto.StudentIds.Distinct().ToHashSet()
+            : null;
+        var matchedFilterStudents = new HashSet<long>();
+
+        // ── 2b. Build a per-session materialization plan ─────────────────────
+        var plans = new List<SessionPlan>();
+        foreach (var sessionId in targetSessionIds)
+        {
             DateTime dueDate;
             long? sessionOccurrenceId = null;
 
             if (dto.DeliveryType == ExamDeliveryType.DuringSession)
             {
-                if (input.SessionOccurrenceId is null)
-                    return Fail("SessionOccurrenceRequired");
-
+                // One date for the exam: each targeted session must have a scheduled class that day.
                 var occ = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceByIdAndTeacherAsync(input.SessionOccurrenceId.Value, teacherId);
-                if (occ is null || occ.SessionId != input.SessionId)
-                    return Fail("SessionOccurrenceNotFound", HttpStatusCode.NotFound);
-
+                    .GetOccurrenceBySessionAndDateAsync(sessionId, examDate);
+                if (occ is null)
+                    return Fail("SessionOccurrenceNotFoundForDate", HttpStatusCode.NotFound);
                 dueDate = occ.OccurrenceDate.Date;
                 sessionOccurrenceId = occ.Id;
             }
-            else // SeparateTime
+            else
             {
-                if (input.ExamDate is null)
-                    return Fail("ExamDateRequired");
-
-                dueDate = input.ExamDate.Value.Date;
-                if (dueDate < today)
-                    return Fail("AssignmentDateInPast");
+                dueDate = examDate;
             }
 
-            // Resolve the session's students (single source of truth), then apply the subset if any.
-            var sessionStudentIds = await _unitOfWork.PaymentsRepo
-                .GetStudentIdsBySessionAsync(teacherId, input.SessionId);
-            var sessionStudentSet = sessionStudentIds.ToHashSet();
+            var sessionStudentSet = (await _unitOfWork.PaymentsRepo
+                .GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
 
             List<long> studentIds;
-            if (input.StudentIds is not null && input.StudentIds.Count > 0)
+            if (studentFilter is not null)
             {
-                studentIds = input.StudentIds.Distinct().ToList();
-                if (studentIds.Any(id => !sessionStudentSet.Contains(id)))
-                    return Fail("StudentNotInSession");
+                studentIds = sessionStudentSet.Where(studentFilter.Contains).ToList();
+                foreach (var id in studentIds) matchedFilterStudents.Add(id);
             }
             else
             {
@@ -128,16 +154,23 @@ public class ExamService : IExamService
             }
 
             if (studentIds.Count == 0)
-                return Fail("SessionHasNoStudents");
+                continue;   // skip an empty session (common when expanding a group)
 
             plans.Add(new SessionPlan
             {
-                SessionId = input.SessionId,
+                SessionId = sessionId,
                 DueDate = dueDate,
                 SessionOccurrenceId = sessionOccurrenceId,
                 StudentIds = studentIds,
             });
         }
+
+        // Every explicitly-listed student must belong to one of the target sessions.
+        if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
+            return Fail("StudentNotInSession");
+
+        if (plans.Count == 0)
+            return Fail("SessionHasNoStudents");
 
         // ── 3. Build the entity graph: template → session scopes → per-session occurrences → obligations ──
         var template = new AssignmentTemplate
@@ -159,14 +192,25 @@ public class ExamService : IExamService
             CreateAt = utcNow,
         };
 
-        var scopes = plans.Select(p => new AssignmentScope
-        {
-            TeacherId = teacherId,
-            Template = template,
-            ScopeType = AssignmentScopeType.Session,
-            SessionId = p.SessionId,
-            CreateAt = utcNow,
-        }).ToList();
+        // Persist the selection mode so the home screen can report "by sessions" vs "by groups":
+        // group selection stores one SessionGroup scope per group; session selection stores one per session.
+        var scopes = hasGroups
+            ? groupIds.Select(gid => new AssignmentScope
+            {
+                TeacherId = teacherId,
+                Template = template,
+                ScopeType = AssignmentScopeType.SessionGroup,
+                SessionGroupId = gid,
+                CreateAt = utcNow,
+            }).ToList()
+            : plans.Select(p => new AssignmentScope
+            {
+                TeacherId = teacherId,
+                Template = template,
+                ScopeType = AssignmentScopeType.Session,
+                SessionId = p.SessionId,
+                CreateAt = utcNow,
+            }).ToList();
 
         var occurrences = new List<AssignmentOccurrence>();
         var obligations = new List<StudentAssignmentObligation>();
@@ -289,17 +333,59 @@ public class ExamService : IExamService
     }
 
     /// <inheritdoc />
-    public async Task<Result<ExamHomeDto>> GetExamHomeAsync(long teacherId)
+    public async Task<Result<ExamHomeDto>> GetExamHomeAsync(
+        long teacherId, int upcomingPage, int pastPage, int pageSize)
     {
-        var occurrences = await _unitOfWork.ExamHomeworkRepo.GetExamOccurrencesForHomeAsync(teacherId);
-        var summaries = await _unitOfWork.ExamHomeworkRepo
-            .GetCompletionSummariesByOccurrenceIdsAsync(occurrences.Select(o => o.OccurrenceId));
+        int safeSize = pageSize is < 1 or > 100 ? 20 : pageSize;
+        int safeUpcoming = upcomingPage < 1 ? 1 : upcomingPage;
+        int safePast = pastPage < 1 ? 1 : pastPage;
 
         DateTime today = _timeZoneService.GetTeacherLocalDate(teacherId);
 
-        var cards = occurrences.Select(o =>
+        var (upcomingRows, upcomingTotal) = await _unitOfWork.ExamHomeworkRepo
+            .GetExamOccurrencesForHomePagedAsync(teacherId, isPast: false, today, safeUpcoming, safeSize);
+        var (pastRows, pastTotal) = await _unitOfWork.ExamHomeworkRepo
+            .GetExamOccurrencesForHomePagedAsync(teacherId, isPast: true, today, safePast, safeSize);
+
+        var allRows = upcomingRows.Concat(pastRows).ToList();
+        var summaries = await _unitOfWork.ExamHomeworkRepo
+            .GetCompletionSummariesByOccurrenceIdsAsync(allRows.Select(o => o.OccurrenceId));
+
+        // Scope metadata (selection mode + assigned sessions/groups), batched for the page's exams.
+        var templateIds = allRows.Select(o => o.TemplateId).Distinct().ToList();
+        var scopes = await _unitOfWork.ExamHomeworkRepo.GetScopesByTemplateIdsAsync(templateIds);
+        var scopesByTemplate = scopes.GroupBy(s => s.TemplateId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Expand every referenced group to its member sessions in a single query.
+        var groupIds = scopes
+            .Where(s => s.ScopeType == AssignmentScopeType.SessionGroup && s.SessionGroupId.HasValue)
+            .Select(s => s.SessionGroupId!.Value).Distinct().ToList();
+        var groupSessions = await _unitOfWork.SessionsRepo.GetSessionsByGroupIdsAsync(teacherId, groupIds);
+        var sessionsByGroup = groupSessions.GroupBy(s => s.GroupId).ToDictionary(
+            g => g.Key,
+            g => g.Select(x => new SessionRefDto { Id = x.Id, Name = x.SessionName }).ToList());
+
+        ExamHomeCardDto BuildCard(ExamHomeOccurrenceRow o)
         {
             var s = summaries.GetValueOrDefault(o.OccurrenceId);
+            var tplScopes = scopesByTemplate.GetValueOrDefault(o.TemplateId) ?? new List<AssignmentScope>();
+            bool byGroups = tplScopes.Any(sc => sc.ScopeType == AssignmentScopeType.SessionGroup);
+
+            var assignedSessions = tplScopes
+                .Where(sc => sc.ScopeType == AssignmentScopeType.Session && sc.Session != null)
+                .Select(sc => new SessionRefDto { Id = sc.SessionId!.Value, Name = sc.Session!.SessionName })
+                .ToList();
+
+            var assignedGroups = tplScopes
+                .Where(sc => sc.ScopeType == AssignmentScopeType.SessionGroup && sc.SessionGroup != null)
+                .Select(sc => new GroupRefDto
+                {
+                    Id = sc.SessionGroupId!.Value,
+                    Name = sc.SessionGroup!.GroupName,
+                    Sessions = sessionsByGroup.GetValueOrDefault(sc.SessionGroupId!.Value) ?? new List<SessionRefDto>(),
+                })
+                .ToList();
+
             return new ExamHomeCardDto
             {
                 ExamId = o.TemplateId,
@@ -315,13 +401,30 @@ public class ExamService : IExamService
                 MissedCount = s?.NotDoneOrAbsent ?? 0,
                 PendingCount = s?.Pending ?? 0,
                 IsPast = o.DueDate.Date < today,
+                SelectionMode = byGroups ? "Groups" : "Sessions",
+                AssignedSessions = assignedSessions,
+                AssignedGroups = assignedGroups,
             };
-        }).ToList();
+        }
 
         var result = new ExamHomeDto
         {
-            Upcoming = cards.Where(c => !c.IsPast).OrderBy(c => c.Date).ToList(),
-            Past = cards.Where(c => c.IsPast).OrderByDescending(c => c.Date).ToList(),
+            Upcoming = new PaginatedResponse<List<ExamHomeCardDto>>
+            {
+                data = upcomingRows.Select(BuildCard).ToList(),
+                page = safeUpcoming,
+                pageSize = safeSize,
+                totalCount = upcomingTotal,
+                totalPages = (int)Math.Ceiling(upcomingTotal / (double)safeSize),
+            },
+            Past = new PaginatedResponse<List<ExamHomeCardDto>>
+            {
+                data = pastRows.Select(BuildCard).ToList(),
+                page = safePast,
+                pageSize = safeSize,
+                totalCount = pastTotal,
+                totalPages = (int)Math.Ceiling(pastTotal / (double)safeSize),
+            },
         };
         return Result<ExamHomeDto>.Success(result, _localizer);
     }
@@ -439,26 +542,32 @@ public class ExamService : IExamService
         if (dto.Items.Count > maxItems)
             return Result<BatchGradeResultDto>.Failure(_localizer, "BulkItemsTooMany", HttpStatusCode.BadRequest);
 
-        // De-duplicate by obligation id (last value wins) so a batch can't fight itself.
-        var itemsById = new Dictionary<long, GradeItemDto>();
-        foreach (var it in dto.Items) itemsById[it.ObligationId] = it;
+        // The exam these grades belong to; each student resolves to their single obligation within it.
+        var template = await _unitOfWork.ExamHomeworkRepo.GetTemplateByIdAndTeacherAsync(dto.ExamId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<BatchGradeResultDto>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        // De-duplicate by student id (last value wins) so a batch can't fight itself.
+        var itemsByStudent = new Dictionary<long, GradeItemDto>();
+        foreach (var it in dto.Items) itemsByStudent[it.TeacherStudentId] = it;
 
         var obligations = await _unitOfWork.ExamHomeworkRepo
-            .GetObligationsForGradingByIdsAsync(teacherId, itemsById.Keys);
-        var byId = obligations.ToDictionary(o => o.Id);
+            .GetObligationsForGradingByTemplateAndStudentsAsync(teacherId, dto.ExamId, itemsByStudent.Keys);
+        var byStudent = obligations.GroupBy(o => o.TeacherStudentId).ToDictionary(g => g.Key, g => g.ToList());
 
         DateTime utcNow = DateTime.UtcNow;
         var results = new List<BatchGradeItemResultDto>();
         var toApply = new List<(StudentAssignmentObligation Obligation, GradeItemDto Item)>();
 
-        foreach (var (obligationId, item) in itemsById)
+        foreach (var (studentId, item) in itemsByStudent)
         {
-            if (!byId.TryGetValue(obligationId, out var o))
-            { results.Add(FailItem(obligationId, "ObligationNotFound")); continue; }
+            if (!byStudent.TryGetValue(studentId, out var matches) || matches.Count == 0)
+            { results.Add(FailItem(studentId, "ObligationNotFound")); continue; }
+            if (matches.Count > 1)
+            { results.Add(FailItem(studentId, "AmbiguousStudentInExam")); continue; }
 
+            var o = matches[0];
             var occurrence = o.Occurrence;
-            if (occurrence.Template.AssignmentType != AssignmentType.Exam)
-            { results.Add(FailItem(obligationId, "NotAnExam")); continue; }
 
             // A null grade means "clear this student's grade" — always allowed (a harmless no-op when
             // there is nothing to clear). The set-a-value guards below apply only when a grade is supplied.
@@ -466,19 +575,19 @@ public class ExamService : IExamService
             {
                 // Grade range — the core rule: 0 ≤ grade ≤ the exam's max.
                 if (item.Grade.Value < 0m)
-                { results.Add(FailItem(obligationId, "GradeOutOfRange")); continue; }
+                { results.Add(FailItem(studentId, "GradeOutOfRange")); continue; }
                 if (occurrence.MaxGradeSnapshot.HasValue && item.Grade.Value > occurrence.MaxGradeSnapshot.Value)
-                { results.Add(FailItem(obligationId, "GradeExceedsMax")); continue; }
+                { results.Add(FailItem(studentId, "GradeExceedsMax")); continue; }
 
                 // You cannot grade a student who did not attend.
                 if (o.Status == ObligationStatus.DidNotAttend)
-                { results.Add(FailItem(obligationId, "CannotGradeAbsentStudent")); continue; }
+                { results.Add(FailItem(studentId, "CannotGradeAbsentStudent")); continue; }
 
                 // During-session grades-only guard: attendance comes from the session. A during-session
                 // student not yet marked attended cannot be graded from the exam screen.
                 if (occurrence.Template.ExamDeliveryType == ExamDeliveryType.DuringSession
                     && o.Status == ObligationStatus.Pending)
-                { results.Add(FailItem(obligationId, "AttendanceNotRecordedForExam")); continue; }
+                { results.Add(FailItem(studentId, "AttendanceNotRecordedForExam")); continue; }
             }
 
             toApply.Add((o, item));
@@ -546,6 +655,7 @@ public class ExamService : IExamService
             {
                 results.Add(new BatchGradeItemResultDto
                 {
+                    TeacherStudentId = o.TeacherStudentId,
                     ObligationId = o.Id,
                     Success = true,
                     Status = o.Status.ToString(),
@@ -584,23 +694,23 @@ public class ExamService : IExamService
             return Result<ExamAttendanceResultDto>.Failure(
                 _localizer, "AttendanceReadOnlyForDuringSession", HttpStatusCode.Conflict);
 
-        var itemsById = new Dictionary<long, ExamAttendanceItemDto>();
-        foreach (var it in dto.Items) itemsById[it.ObligationId] = it;
+        var itemsByStudent = new Dictionary<long, ExamAttendanceItemDto>();
+        foreach (var it in dto.Items) itemsByStudent[it.TeacherStudentId] = it;
 
         var obligations = await _unitOfWork.ExamHomeworkRepo
-            .GetObligationsByIdsAsync(teacherId, dto.OccurrenceId, itemsById.Keys);
-        var byId = obligations.ToDictionary(o => o.Id);
+            .GetObligationsByOccurrenceAndStudentsAsync(teacherId, dto.OccurrenceId, itemsByStudent.Keys);
+        var byStudent = obligations.ToDictionary(o => o.TeacherStudentId);
 
         DateTime utcNow = DateTime.UtcNow;
         var results = new List<ExamAttendanceItemResultDto>();
         var toApply = new List<(StudentAssignmentObligation Obligation, bool Present)>();
 
-        foreach (var (obligationId, item) in itemsById)
+        foreach (var (studentId, item) in itemsByStudent)
         {
-            if (!byId.TryGetValue(obligationId, out var o))
+            if (!byStudent.TryGetValue(studentId, out var o))
             {
                 results.Add(new ExamAttendanceItemResultDto
-                { ObligationId = obligationId, Success = false, Code = "ObligationNotFound" });
+                { TeacherStudentId = studentId, Success = false, Code = "ObligationNotFound" });
                 continue;
             }
             toApply.Add((o, item.Present));
@@ -675,6 +785,7 @@ public class ExamService : IExamService
             {
                 results.Add(new ExamAttendanceItemResultDto
                 {
+                    TeacherStudentId = o.TeacherStudentId,
                     ObligationId = o.Id,
                     Success = true,
                     Status = o.Status.ToString(),
@@ -745,8 +856,8 @@ public class ExamService : IExamService
     private Result<ExamCreatedDto> Fail(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
         Result<ExamCreatedDto>.Failure(_localizer, key, status);
 
-    private static BatchGradeItemResultDto FailItem(long obligationId, string code) =>
-        new() { ObligationId = obligationId, Success = false, Code = code };
+    private static BatchGradeItemResultDto FailItem(long teacherStudentId, string code) =>
+        new() { TeacherStudentId = teacherStudentId, Success = false, Code = code };
 
     private static bool IsAttended(ObligationStatus status) =>
         status == ObligationStatus.Attended || status == ObligationStatus.AttendedWithGrade;

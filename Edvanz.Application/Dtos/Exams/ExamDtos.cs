@@ -18,7 +18,7 @@ public class CreateExamDto
     /// <summary>Optional description / notes.</summary>
     public string? Notes { get; set; }
 
-    /// <summary>DuringSession (taken inside a scheduled session occurrence) or SeparateTime (own date).</summary>
+    /// <summary>DuringSession (taken inside a scheduled class) or SeparateTime (own date).</summary>
     public ExamDeliveryType DeliveryType { get; set; }
 
     /// <summary>Maximum exam score (must be &gt; 0).</summary>
@@ -27,26 +27,26 @@ public class CreateExamDto
     /// <summary>Passing / success score (0 ≤ value ≤ MaxGrade).</summary>
     public decimal SuccessScore { get; set; }
 
-    /// <summary>The sessions this exam is taken in, each with its date and (optionally) a student subset.</summary>
-    public List<ExamSessionInputDto> Sessions { get; set; } = new();
-}
-
-/// <summary>One session participating in an exam, with its exam date and optional student subset.</summary>
-public class ExamSessionInputDto
-{
-    /// <summary>The session being examined (must belong to the caller).</summary>
-    public long SessionId { get; set; }
-
     /// <summary>
-    /// DuringSession only: the chosen scheduled session occurrence — its date becomes the exam date
-    /// and its attendance drives the exam. Required when DeliveryType = DuringSession.
+    /// The single exam date, applied to every resolved session. Required.
+    /// SeparateTime: the exam's own date (today or future). DuringSession: the date whose scheduled
+    /// class (per session) the exam is taken in — each targeted session must have a class that day.
     /// </summary>
-    public long? SessionOccurrenceId { get; set; }
-
-    /// <summary>SeparateTime only: the standalone exam date. Required when DeliveryType = SeparateTime.</summary>
     public DateTime? ExamDate { get; set; }
 
-    /// <summary>Optional subset of students in this session; null/empty = every student in the session.</summary>
+    /// <summary>
+    /// Recipient by sessions — the session ids. Provide EITHER <see cref="SessionIds"/> OR
+    /// <see cref="GroupIds"/> (leave the other null/empty).
+    /// </summary>
+    public List<long>? SessionIds { get; set; }
+
+    /// <summary>
+    /// Recipient by groups — the group ids; each expands to its member sessions server-side.
+    /// Provide EITHER this OR <see cref="SessionIds"/>.
+    /// </summary>
+    public List<long>? GroupIds { get; set; }
+
+    /// <summary>Optional global student subset across the resolved sessions; null/empty = every student.</summary>
     public List<long>? StudentIds { get; set; }
 }
 

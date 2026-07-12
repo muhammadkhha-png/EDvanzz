@@ -130,6 +130,13 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     Task<IReadOnlyList<SessionGroup>> GetGroupsByTeacherAsync(long teacherId);
 
     /// <summary>
+    /// Returns the sessions (id + name + owning group id) belonging to any of the given groups,
+    /// scoped to the teacher. Expands group selections into their member sessions (exam creation,
+    /// exam home). Empty groups contribute no rows.
+    /// </summary>
+    Task<IReadOnlyList<GroupSessionRow>> GetSessionsByGroupIdsAsync(long teacherId, IEnumerable<long> groupIds);
+
+    /// <summary>
     /// Adds a new session group.
     /// </summary>
     Task AddGroupAsync(SessionGroup group);

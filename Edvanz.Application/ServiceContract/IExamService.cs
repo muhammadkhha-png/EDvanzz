@@ -29,7 +29,7 @@ public interface IExamService
     /// Exam Home: every exam occurrence split into upcoming (date not yet reached) and past
     /// (date passed), each carrying delivery type, session, date, and assigned/attended/missed counts.
     /// </summary>
-    Task<Result<ExamHomeDto>> GetExamHomeAsync(long teacherId);
+    Task<Result<ExamHomeDto>> GetExamHomeAsync(long teacherId, int upcomingPage, int pastPage, int pageSize);
 
     /// <summary>
     /// The opened-exam view: header + global statistics + per-session groups (each session with its

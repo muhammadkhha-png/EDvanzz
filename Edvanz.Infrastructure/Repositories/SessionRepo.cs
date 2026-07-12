@@ -221,6 +221,26 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<GroupSessionRow>> GetSessionsByGroupIdsAsync(
+        long teacherId, IEnumerable<long> groupIds)
+    {
+        var ids = groupIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<GroupSessionRow>();
+
+        return await _context.Sessions
+            .Where(s => s.TeacherId == teacherId
+                && s.SessionGroupId.HasValue && ids.Contains(s.SessionGroupId.Value))
+            .OrderBy(s => s.SessionName)
+            .Select(s => new GroupSessionRow
+            {
+                GroupId = s.SessionGroupId!.Value,
+                Id = s.Id,
+                SessionName = s.SessionName,
+            })
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task AddGroupAsync(SessionGroup group)
     {
         await _context.SessionGroups.AddAsync(group);

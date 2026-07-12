@@ -6,11 +6,11 @@ namespace Edvanz.Application.Dtos.Exams;
 // EXAM HOME (upcoming / past)
 // ════════════════════════════════════════════════════════════════════════════
 
-/// <summary>Exam Home payload — upcoming and past exam cards (one card per session-date).</summary>
+/// <summary>Exam Home payload — paginated upcoming and past exam cards (one card per session-date).</summary>
 public class ExamHomeDto
 {
-    public List<ExamHomeCardDto> Upcoming { get; set; } = new();
-    public List<ExamHomeCardDto> Past { get; set; } = new();
+    public PaginatedResponse<List<ExamHomeCardDto>> Upcoming { get; set; } = new();
+    public PaginatedResponse<List<ExamHomeCardDto>> Past { get; set; } = new();
 }
 
 /// <summary>
@@ -39,6 +39,30 @@ public class ExamHomeCardDto
     public int PendingCount { get; set; }
 
     public bool IsPast { get; set; }
+
+    /// <summary>How the exam was assigned to its recipients: "Sessions" or "Groups".</summary>
+    public string SelectionMode { get; set; } = "Sessions";
+
+    /// <summary>Sessions the exam was assigned to (populated when assigned by sessions).</summary>
+    public List<SessionRefDto> AssignedSessions { get; set; } = new();
+
+    /// <summary>Groups the exam was assigned to, each expanded to its member sessions (when assigned by groups).</summary>
+    public List<GroupRefDto> AssignedGroups { get; set; } = new();
+}
+
+/// <summary>A session reference (id + name).</summary>
+public class SessionRefDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = null!;
+}
+
+/// <summary>A group reference (id + name) with its member sessions.</summary>
+public class GroupRefDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = null!;
+    public List<SessionRefDto> Sessions { get; set; } = new();
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1017,6 +1017,18 @@
   <data name="ExamDateRequired" xml:space="preserve">
     <value>An exam date is required for a separate-time exam</value>
   </data>
+  <data name="SelectEitherSessionsOrGroups" xml:space="preserve">
+    <value>Select either sessions or groups for the exam, not both</value>
+  </data>
+  <data name="GroupNotFoundOrForeign" xml:space="preserve">
+    <value>The selected group was not found or does not belong to you</value>
+  </data>
+  <data name="SessionOccurrenceNotFoundForDate" xml:space="preserve">
+    <value>One of the selected sessions has no scheduled class on the exam date</value>
+  </data>
+  <data name="AmbiguousStudentInExam" xml:space="preserve">
+    <value>This student has more than one entry in the exam; specify the session</value>
+  </data>
   <data name="StudentNotInSession" xml:space="preserve">
     <value>One or more selected students do not belong to the selected session</value>
   </data>

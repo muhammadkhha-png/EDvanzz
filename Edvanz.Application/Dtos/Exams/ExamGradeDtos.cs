@@ -6,13 +6,17 @@ namespace Edvanz.Application.Dtos.Exams;
 /// </summary>
 public class BatchGradeDto
 {
+    /// <summary>The exam (template) these grades belong to. Each student resolves to their single obligation in it.</summary>
+    public long ExamId { get; set; }
+
     public List<GradeItemDto> Items { get; set; } = new();
 }
 
 /// <summary>One student's grade within a batch save.</summary>
 public class GradeItemDto
 {
-    public long ObligationId { get; set; }
+    /// <summary>The student to grade; resolved to their obligation within <see cref="BatchGradeDto.ExamId"/>.</summary>
+    public long TeacherStudentId { get; set; }
 
     /// <summary>
     /// The grade to record: 0 ≤ grade ≤ the exam's max. Send <c>null</c> to CLEAR a previously entered
@@ -39,7 +43,12 @@ public class BatchGradeResultDto
 
 public class BatchGradeItemResultDto
 {
-    public long ObligationId { get; set; }
+    /// <summary>The student this result is for (echoes the request).</summary>
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>The resolved obligation id (null when the student could not be resolved).</summary>
+    public long? ObligationId { get; set; }
+
     public bool Success { get; set; }
 
     /// <summary>Stable failure code when <see cref="Success"/> is false (e.g. "GradeExceedsMax").</summary>
