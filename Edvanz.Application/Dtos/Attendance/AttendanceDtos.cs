@@ -367,6 +367,109 @@ public class StudentTimelineMonthRequest
 }
 
 /// <summary>
+/// Request for the session month-matrix view: one session's students × occurrences for a
+/// month, with INDEPENDENT pagination of students (rows) and occurrences (columns) so the
+/// client never loads the full roster or the full month at once.
+/// </summary>
+public class SessionMonthAttendanceRequest
+{
+    private int _page = 1;
+    private int _pageSize = 25;
+    private int _occurrencePage = 1;
+    private int _occurrencePageSize = 10;
+
+    /// <summary>Year of the month to load.</summary>
+    [Required]
+    [Range(2000, 2100)]
+    public int Year { get; set; }
+
+    /// <summary>Month number (1-12) to load.</summary>
+    [Required]
+    [Range(1, 12)]
+    public int Month { get; set; }
+
+    /// <summary>Student (row) page number, 1-based.</summary>
+    public int Page
+    {
+        get => _page;
+        set => _page = value < 1 ? 1 : value;
+    }
+
+    /// <summary>Students per page (1–100, default 25).</summary>
+    public int PageSize
+    {
+        get => _pageSize;
+        set => _pageSize = value < 1 ? 25 : value > 100 ? 100 : value;
+    }
+
+    /// <summary>Occurrence (column) page number, 1-based.</summary>
+    public int OccurrencePage
+    {
+        get => _occurrencePage;
+        set => _occurrencePage = value < 1 ? 1 : value;
+    }
+
+    /// <summary>Occurrences per page (1–31, default 10 — a month has at most 31).</summary>
+    public int OccurrencePageSize
+    {
+        get => _occurrencePageSize;
+        set => _occurrencePageSize = value < 1 ? 10 : value > 31 ? 31 : value;
+    }
+
+    /// <summary>Optional student name/code filter for the rows.</summary>
+    public string? Search { get; set; }
+}
+
+/// <summary>One occurrence column of the session month matrix.</summary>
+public class SessionMonthOccurrenceDto
+{
+    public long OccurrenceId { get; set; }
+    public DateTime Date { get; set; }
+}
+
+/// <summary>
+/// One (student × occurrence) cell. <see cref="Status"/> is null when the student is
+/// unmarked for that occurrence (<see cref="IsMarked"/> false).
+/// </summary>
+public class SessionMonthCellDto
+{
+    public long OccurrenceId { get; set; }
+    public bool IsMarked { get; set; }
+    public AttendanceStatus? Status { get; set; }
+}
+
+/// <summary>One student row of the session month matrix.</summary>
+public class SessionMonthStudentRowDto
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+
+    /// <summary>Present (incl. cross-session) count across the WHOLE month, not just the occurrence page.</summary>
+    public int MonthPresentCount { get; set; }
+
+    /// <summary>Absent count across the WHOLE month, not just the occurrence page.</summary>
+    public int MonthAbsentCount { get; set; }
+
+    /// <summary>Cells aligned 1:1 (same order) with the occurrence page in <c>occurrences.data</c>.</summary>
+    public List<SessionMonthCellDto> Cells { get; set; } = new();
+}
+
+/// <summary>
+/// Session month-matrix response: the paged occurrence columns plus the paged student rows,
+/// each row carrying its cells for exactly the returned occurrence page.
+/// </summary>
+public class SessionMonthAttendanceDto
+{
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = null!;
+    public int Year { get; set; }
+    public int Month { get; set; }
+    public PaginatedResponse<List<SessionMonthOccurrenceDto>> Occurrences { get; set; } = null!;
+    public PaginatedResponse<List<SessionMonthStudentRowDto>> Students { get; set; } = null!;
+}
+
+/// <summary>
 /// Request DTO for report generation.
 /// REQ-ATT-040: Multiple report types with date range.
 /// </summary>

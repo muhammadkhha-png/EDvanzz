@@ -1026,6 +1026,131 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     // ══════════════════════════════════════════════
+    // SESSION MONTH MATRIX (month-view screen)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<SessionMonthOccurrenceRow> Items, int TotalCount)>
+        GetPagedSessionMonthOccurrencesAsync(
+            long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+            int page, int pageSize)
+    {
+        var query = _context.SessionOccurrences
+            .Where(o => o.SessionId == sessionId
+                && o.OccurrenceDate >= monthStart
+                && o.OccurrenceDate < monthEndExclusive);
+
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderBy(o => o.OccurrenceDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(o => new SessionMonthOccurrenceRow
+            {
+                OccurrenceId = o.Id,
+                Date = o.OccurrenceDate
+            })
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<SessionMonthRosterRow> Items, int TotalCount)>
+        GetPagedSessionMonthRosterAsync(
+            long teacherId, long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+            string? search, int page, int pageSize)
+    {
+        // Assignment PERIODS that overlap the month (REQ-ATT-019/020): assigned before the
+        // month ends and not unassigned before it starts — historical months keep students
+        // who have since left the session. The live-TeacherStudent join excludes soft-deleted
+        // (global filter nulls the navigation) and purged (FK SET NULL) students, and makes
+        // the TeacherStudentId!.Value projection safe. Distinct collapses re-assignment
+        // periods of the same student into one row.
+        var rosterQuery = _context.StudentSessionAssignments
+            .Where(a => a.TeacherId == teacherId && a.SessionId == sessionId)
+            .Where(a => a.AssignedAt < monthEndExclusive
+                && (a.UnassignedAt == null || a.UnassignedAt >= monthStart))
+            .Where(a => a.TeacherStudent != null)
+            .Select(a => new SessionMonthRosterRow
+            {
+                TeacherStudentId = a.TeacherStudentId!.Value,
+                StudentName = a.TeacherStudent!.StudentName,
+                StudentCode = a.TeacherStudent!.StudentCode
+            })
+            .Distinct();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            // FIX M7 convention: EF.Functions.Like instead of ToLower().Contains()
+            string pattern = $"%{search.Trim()}%";
+            rosterQuery = rosterQuery.Where(r =>
+                EF.Functions.Like(r.StudentName, pattern)
+                || EF.Functions.Like(r.StudentCode, pattern));
+        }
+
+        int totalCount = await rosterQuery.CountAsync();
+
+        var items = await rosterQuery
+            .OrderBy(r => r.StudentName)
+            .ThenBy(r => r.TeacherStudentId)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SessionMonthStatusCell>> GetAttendanceStatusMatrixAsync(
+        IReadOnlyCollection<long> occurrenceIds, IReadOnlyCollection<long> teacherStudentIds)
+    {
+        if (occurrenceIds.Count == 0 || teacherStudentIds.Count == 0)
+            return Array.Empty<SessionMonthStatusCell>();
+
+        return await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrenceId != null
+                && occurrenceIds.Contains(r.SessionOccurrenceId.Value)
+                && r.TeacherStudentId != null
+                && teacherStudentIds.Contains(r.TeacherStudentId.Value))
+            .Select(r => new SessionMonthStatusCell
+            {
+                TeacherStudentId = r.TeacherStudentId!.Value,
+                OccurrenceId = r.SessionOccurrenceId!.Value,
+                Status = r.Status
+            })
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SessionMonthStudentCounts>> GetSessionMonthAttendanceCountsAsync(
+        long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+        IReadOnlyCollection<long> teacherStudentIds)
+    {
+        if (teacherStudentIds.Count == 0)
+            return Array.Empty<SessionMonthStudentCounts>();
+
+        return await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrence != null
+                && r.SessionOccurrence.SessionId == sessionId
+                && r.SessionOccurrence.OccurrenceDate >= monthStart
+                && r.SessionOccurrence.OccurrenceDate < monthEndExclusive
+                && r.TeacherStudentId != null
+                && teacherStudentIds.Contains(r.TeacherStudentId.Value))
+            .GroupBy(r => r.TeacherStudentId!.Value)
+            .Select(g => new SessionMonthStudentCounts
+            {
+                TeacherStudentId = g.Key,
+                PresentCount = g.Count(r =>
+                    r.Status == AttendanceStatus.Present
+                    || r.Status == AttendanceStatus.CrossSessionPresent),
+                AbsentCount = g.Count(r => r.Status == AttendanceStatus.Absent)
+            })
+            .ToListAsync();
+    }
+
+    // ══════════════════════════════════════════════
     // V2 AUDIT FIX — NEW BATCH METHODS
     // ══════════════════════════════════════════════
 

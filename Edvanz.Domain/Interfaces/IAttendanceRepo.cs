@@ -522,6 +522,77 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task<Dictionary<long, IReadOnlyList<StudentSessionAssignment>>> GetAssignmentsByStudentsBatchAsync(
         IEnumerable<long> teacherStudentIds);
+
+    // ══════════════════════════════════════════════
+    // SESSION MONTH MATRIX (month-view screen)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Pages a session's materialized occurrences within [monthStart, monthEndExclusive),
+    /// ordered by date ascending. Feeds the month-matrix screen's occurrence columns.
+    /// </summary>
+    Task<(IReadOnlyList<SessionMonthOccurrenceRow> Items, int TotalCount)>
+        GetPagedSessionMonthOccurrencesAsync(
+            long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+            int page, int pageSize);
+
+    /// <summary>
+    /// Pages the students whose assignment to the session OVERLAPS the month
+    /// (assigned before month end and not unassigned before month start) — so historical
+    /// months still show students who have since left. Excludes soft-deleted and purged
+    /// students (live-TeacherStudent join), distinct per student across re-assignment
+    /// periods, ordered by name. Optional name/code search.
+    /// </summary>
+    Task<(IReadOnlyList<SessionMonthRosterRow> Items, int TotalCount)>
+        GetPagedSessionMonthRosterAsync(
+            long teacherId, long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+            string? search, int page, int pageSize);
+
+    /// <summary>
+    /// Statuses for the (student × occurrence) matrix page: every attendance record whose
+    /// occurrence id AND student id fall in the given sets. Missing pairs mean unmarked.
+    /// </summary>
+    Task<IReadOnlyList<SessionMonthStatusCell>> GetAttendanceStatusMatrixAsync(
+        IReadOnlyCollection<long> occurrenceIds, IReadOnlyCollection<long> teacherStudentIds);
+
+    /// <summary>
+    /// Whole-month present/absent totals per student for the session — across ALL its
+    /// occurrences in the month, independent of the occurrence page the client is viewing.
+    /// </summary>
+    Task<IReadOnlyList<SessionMonthStudentCounts>> GetSessionMonthAttendanceCountsAsync(
+        long sessionId, DateTime monthStart, DateTime monthEndExclusive,
+        IReadOnlyCollection<long> teacherStudentIds);
+}
+
+/// <summary>Occurrence column for the session month matrix (query projection).</summary>
+public class SessionMonthOccurrenceRow
+{
+    public long OccurrenceId { get; set; }
+    public DateTime Date { get; set; }
+}
+
+/// <summary>Student row for the session month matrix (query projection).</summary>
+public class SessionMonthRosterRow
+{
+    public long TeacherStudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string StudentCode { get; set; } = null!;
+}
+
+/// <summary>One recorded (student, occurrence) attendance cell (query projection).</summary>
+public class SessionMonthStatusCell
+{
+    public long TeacherStudentId { get; set; }
+    public long OccurrenceId { get; set; }
+    public AttendanceStatus Status { get; set; }
+}
+
+/// <summary>Whole-month present/absent totals for one student (query projection).</summary>
+public class SessionMonthStudentCounts
+{
+    public long TeacherStudentId { get; set; }
+    public int PresentCount { get; set; }
+    public int AbsentCount { get; set; }
 }
 
 /// <summary>

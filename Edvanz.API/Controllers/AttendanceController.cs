@@ -128,6 +128,43 @@ public class AttendanceController : ModuleSixApiBaseController
         return ToResponse(result);
     }
 
+    /// ══════════════════════════════════════════════════════════════════════════
+    /// ENDPOINT 3B: GET SESSION MONTH MATRIX
+    /// ══════════════════════════════════════════════════════════════════════════
+    ///
+    /// WHAT IT DOES:
+    ///   Month view for one session: students (rows) × the session's occurrences in the
+    ///   month (columns), each with INDEPENDENT pagination (page/pageSize for students,
+    ///   occurrencePage/occurrencePageSize for occurrences) so the client never loads
+    ///   the whole roster or the whole month at once. Every row carries a cell per
+    ///   returned occurrence (status or unmarked) plus whole-month present/absent totals.
+    ///   Replaces the frontend's per-date iteration of ENDPOINT 3 for the month screen.
+    ///   REQ-ATT-046 (chronological tabular view), REQ-ATT-019/020 (rows are the
+    ///   assignment periods overlapping the month, so past months keep departed students).
+    ///
+    /// TABLES READ: Sessions, SessionOccurrences, StudentSessionAssignments,
+    ///              TeacherStudents, AttendanceRecords
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/{sessionId:long}/month")]
+    [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSessionMonthAttendance(
+        [FromRoute] long sessionId,
+        [FromQuery] SessionMonthAttendanceRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _attendanceService.GetSessionMonthAttendanceAsync(
+            teacherId.Value, sessionId, request);
+        return ToResponse(result);
+    }
+
 
     /// ══════════════════════════════════════════════════════════════════════════
     /// ENDPOINT 4: MARK SINGLE STUDENT ATTENDANCE

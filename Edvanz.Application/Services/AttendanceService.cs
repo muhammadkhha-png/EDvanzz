@@ -282,6 +282,92 @@ public class AttendanceService : IAttendanceService
     }
 
     /// <inheritdoc />
+    public async Task<Result<SessionMonthAttendanceDto>> GetSessionMonthAttendanceAsync(
+        long teacherId, long sessionId, SessionMonthAttendanceRequest request)
+    {
+        var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+        if (session is null)
+            return Result<SessionMonthAttendanceDto>.Failure(
+                _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
+
+        var monthStart = new DateTime(request.Year, request.Month, 1);
+        var monthEndExclusive = monthStart.AddMonths(1);
+
+        var (occurrences, occurrenceTotal) = await _unitOfWork.AttendanceRepo
+            .GetPagedSessionMonthOccurrencesAsync(
+                sessionId, monthStart, monthEndExclusive,
+                request.OccurrencePage, request.OccurrencePageSize);
+
+        var (roster, rosterTotal) = await _unitOfWork.AttendanceRepo
+            .GetPagedSessionMonthRosterAsync(
+                teacherId, sessionId, monthStart, monthEndExclusive,
+                request.Search, request.Page, request.PageSize);
+
+        var occurrenceIds = occurrences.Select(o => o.OccurrenceId).ToList();
+        var studentIds = roster.Select(r => r.TeacherStudentId).ToList();
+
+        // Cells for exactly this (student page × occurrence page); missing pair = unmarked.
+        var cells = await _unitOfWork.AttendanceRepo
+            .GetAttendanceStatusMatrixAsync(occurrenceIds, studentIds);
+        var cellMap = cells.ToDictionary(c => (c.TeacherStudentId, c.OccurrenceId), c => c.Status);
+
+        // Whole-month totals per student (independent of the occurrence page).
+        var counts = await _unitOfWork.AttendanceRepo
+            .GetSessionMonthAttendanceCountsAsync(sessionId, monthStart, monthEndExclusive, studentIds);
+        var countMap = counts.ToDictionary(c => c.TeacherStudentId);
+
+        var studentRows = roster.Select(r => new SessionMonthStudentRowDto
+        {
+            TeacherStudentId = r.TeacherStudentId,
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            MonthPresentCount = countMap.TryGetValue(r.TeacherStudentId, out var c) ? c.PresentCount : 0,
+            MonthAbsentCount = countMap.TryGetValue(r.TeacherStudentId, out var c2) ? c2.AbsentCount : 0,
+            Cells = occurrences.Select(o =>
+            {
+                bool marked = cellMap.TryGetValue((r.TeacherStudentId, o.OccurrenceId), out var status);
+                return new SessionMonthCellDto
+                {
+                    OccurrenceId = o.OccurrenceId,
+                    IsMarked = marked,
+                    Status = marked ? status : (AttendanceStatus?)null
+                };
+            }).ToList()
+        }).ToList();
+
+        var response = new SessionMonthAttendanceDto
+        {
+            SessionId = sessionId,
+            SessionName = session.SessionName,
+            Year = request.Year,
+            Month = request.Month,
+            Occurrences = new PaginatedResponse<List<SessionMonthOccurrenceDto>>
+            {
+                totalCount = occurrenceTotal,
+                page = request.OccurrencePage,
+                pageSize = request.OccurrencePageSize,
+                totalPages = (int)Math.Ceiling(occurrenceTotal / (double)request.OccurrencePageSize),
+                data = occurrences.Select(o => new SessionMonthOccurrenceDto
+                {
+                    OccurrenceId = o.OccurrenceId,
+                    Date = o.Date
+                }).ToList()
+            },
+            Students = new PaginatedResponse<List<SessionMonthStudentRowDto>>
+            {
+                totalCount = rosterTotal,
+                page = request.Page,
+                pageSize = request.PageSize,
+                totalPages = (int)Math.Ceiling(rosterTotal / (double)request.PageSize),
+                data = studentRows
+            }
+        };
+
+        return Result<SessionMonthAttendanceDto>.Success(
+            response, _localizer, AttendanceConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<MarkAttendanceResultDto>> MarkAttendanceAsync(MarkAttendanceDto dto)
 
     {

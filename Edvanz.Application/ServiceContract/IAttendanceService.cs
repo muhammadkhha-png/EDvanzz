@@ -60,6 +60,16 @@ public interface IAttendanceService
         AttendanceStudentListRequest request);
 
     /// <summary>
+    /// Month-matrix view for one session: the students (rows) × the session's occurrences
+    /// in the requested month (columns), each independently paginated, with per-cell
+    /// status and whole-month present/absent totals per student. REQ-ATT-046 (tabular
+    /// chronological view), REQ-ATT-019/020 (rows are assignment periods overlapping the
+    /// month, so historical months keep since-departed students).
+    /// </summary>
+    Task<Result<SessionMonthAttendanceDto>> GetSessionMonthAttendanceAsync(
+        long teacherId, long sessionId, SessionMonthAttendanceRequest request);
+
+    /// <summary>
     /// Marks a single student's attendance.
     /// REQ-ATT-006/012/027-031/057-061/069-071.
     /// Step 2.3: Validates status is not Held or CrossSessionPresent.
