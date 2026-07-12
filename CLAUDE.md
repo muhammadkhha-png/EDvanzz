@@ -324,6 +324,60 @@ exponential backoff. Throw on failure so Hangfire records and retries.
   applied to `PaymentRepo.UpdatePaymentCounterAsync` (forcing `EntityState.Modified`
   on a freshly-`Added` entity is a bug).
 
+### 7.2b Student User Module — Request/Approval Linking (redesigned 2026-07-12)
+
+The original AAM-FR-05.5 3-credential instant link (TeacherCode + StudentCode +
+HashedToken) was **replaced** by a request/approval flow. Do not reintroduce the
+credential flow on the student side (the PARENT Method B flow still uses it —
+`ParentUserService.LinkTeacherToChildAsync` — until that module is migrated).
+
+- **Lifecycle** (`LinkStatus`): `Pending`(3) → `Active`(1) accept / `Rejected`(4)
+  reject / `CancelledByStudent`(6); `Active` → `Unlinked`(2) student removes /
+  `RemovedByTeacher`(5). Terminal rows are kept for audit; a **filtered unique
+  index** (`[LinkStatus] IN (1,3)`) allows one live row per (StudentUserId,
+  TeacherId) and unlimited history — keep the filter literals in sync with the enum.
+- **Student side** (`StudentUserController`, `api/studentuser/me/*`): identity is
+  ALWAYS resolved JWT → `GetActiveStudentUserByUserIdAsync` (the old route-id
+  endpoints were IDOR-prone and were removed). `POST me/link-requests`
+  {teacherCode, studentName, studentCode?} creates the Pending row;
+  `GET me/teachers` returns the latest row per teacher with `status` so the
+  student sees accepted/rejected outcomes; `DELETE me/teachers/{teacherId}`
+  cancels a Pending or unlinks an Active row.
+- **Teacher side** (`TeacherStudentLinksController`, `api/teacher/student-links`):
+  `GET my-code` (shareable 8-digit code), `GET requests` (inbox + suggested
+  roster match from the typed student code), `POST requests/{id}/accept`
+  (**must bind a `TeacherStudentId`** — explicit or auto-matched; every module
+  resolves data through that FK, an unbound Active link is useless),
+  `POST requests/{id}/reject`, `GET` (linked students), `POST remove` (bulk).
+  One roster record ↔ one student account, enforced BOTH app-level at accept
+  AND by the filtered unique index `UX_StudentTeacherLinks_TeacherStudentId_Active`
+  (`[LinkStatus]=1 AND [TeacherStudentId] IS NOT NULL`); the redesign migration
+  self-heals legacy duplicate claims (keeps the newest Active row, demotes older
+  ones to Unlinked) before creating it.
+- **End-of-link audit**: `RespondedByUserId` records who accepted/rejected;
+  `RemovedByUserId` records who ENDED the link (student on Unlinked/
+  CancelledByStudent, teacher/assistant on RemovedByTeacher). Plain columns, no FK.
+- **Visibility concept unchanged**: `TeacherConfiguration.StudentVisibility*`
+  flags are still returned per dashboard entry and still gate the per-module
+  student endpoints (attendance/videos today; payments/exams/homework when built).
+- **Notifications**: `IStudentLinkNotifier` (inbox `UserNotification` +
+  FCM push, localized to the RECIPIENT's language) fires post-commit,
+  best-effort, on request-received / accepted / rejected / removed-by-teacher.
+- Login `teacherIds` now come from Active links joined through
+  `StudentUsers.UserId` (`StudentTeacherLinkRepo` — was comparing User.Id to
+  StudentUser.Id and ignoring status).
+
+**OPEN WORK ITEM — Parent Method B migration (deliberately deferred 2026-07-12):**
+`ParentUserService.LinkTeacherToChildAsync` still uses the OLD 3-credential flow
+(TeacherCode + StudentCode + HashedToken via `LinkTeacherToChildDto` and
+`GetTeacherStudentByLinkingCredentialsAsync`). It must eventually move to the
+same request/approval design (parent sends a request for a child → teacher
+accepts binding a roster record → `ParentChildTeacherLink` lifecycle mirrors
+`LinkStatus`). Until then: do NOT remove `TeacherStudent.HashedToken`, the
+credentials repo method, or the `StudentCodeRequired`/`HashedTokenRequired`/
+`InvalidLinkCredentials` resx keys — they are all load-bearing for parents.
+The reference spec for the migration is this section + `docs/student-linking-openapi.json`.
+
 ### 7.3 DbInitializer Refactor
 
 Proposed split into five partial files. **Scope decision pending** — confirm before

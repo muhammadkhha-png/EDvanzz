@@ -14,19 +14,32 @@ namespace Edvanz.Infrastructure.Repositories
         {
         }
 
+        /// <summary>
+        /// Resolves the ACTIVE linked teacher ids for a student account from the
+        /// USER id (JWT identity). Joins Users → StudentUsers because
+        /// StudentTeacherLink.StudentUserId is the StudentUser.Id, not the User.Id —
+        /// the original implementation compared the two id spaces directly and also
+        /// ignored LinkStatus, so login could report wrong/stale teacher ids.
+        /// Pending/Rejected/removed links are excluded by design.
+        /// </summary>
         public async Task<(long studentAccountId, List<long> teacherIds)> GetSudentAccountLinkedTeacherIdsByUserId(long userId)
         {
-            var links = await _context.StudentTeacherLinks
-           .Where(link => link.StudentUserId == userId)
-           .ToListAsync();
+            var studentUser = await _context.StudentUsers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(su => su.UserId == userId && su.DeletedAt == null);
 
-            if (!links.Any())
+            if (studentUser is null)
                 return (0, new List<long>());
 
-            var teacherIds = links.Select(link => link.TeacherId).ToList();
-            var studentAccountId = links.First().StudentUserId;
+            var teacherIds = await _context.StudentTeacherLinks
+                .AsNoTracking()
+                .Where(link => link.StudentUserId == studentUser.Id &&
+                               link.LinkStatus == Domain.Enums.LinkStatus.Active)
+                .Select(link => link.TeacherId)
+                .Distinct()
+                .ToListAsync();
 
-            return (studentAccountId, teacherIds);
+            return (studentUser.Id, teacherIds);
         }
 
        

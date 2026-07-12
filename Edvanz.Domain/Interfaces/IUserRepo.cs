@@ -346,16 +346,93 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task UpdateStudentTeacherLinkAsync(StudentTeacherLink link);
 
+        // ── Request/approval flow (replaces the student-side 3-credential flow) ──
+
+        /// <summary>
+        /// Finds the single live (Pending or Active) link row between a student and
+        /// teacher, or null. Backed by the filtered unique index — at most one row
+        /// can match. Used for duplicate checks on request creation and for the
+        /// student-side cancel/unlink operation.
+        /// </summary>
+        Task<StudentTeacherLink?> GetLiveStudentTeacherLinkAsync(long studentUserId, long teacherId);
+
+        /// <summary>
+        /// Returns ALL link rows for a student across every status, newest first.
+        /// The service reduces this to the latest row per teacher so the dashboard
+        /// can show Pending/Active/Rejected states (request-awareness, no-tracking).
+        /// </summary>
+        Task<IReadOnlyList<StudentTeacherLink>> GetAllStudentTeacherLinksAsync(long studentUserId);
+
+        /// <summary>
+        /// Pages the Pending link requests addressed to a teacher, newest first,
+        /// joined to the requesting account's identity (StudentUser + User).
+        /// </summary>
+        Task<(IReadOnlyList<TeacherLinkRequestRow> Items, int TotalCount)>
+            GetPendingLinkRequestsForTeacherPagedAsync(long teacherId, int page, int pageSize);
+
+        /// <summary>
+        /// Pages the Active links of a teacher (their linked students), newest first,
+        /// joined to account identity and the bound TeacherStudent roster record.
+        /// </summary>
+        Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+            GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize);
+
+        /// <summary>
+        /// Finds a link row by Id scoped to the teacher (tracked, for accept/reject).
+        /// </summary>
+        Task<StudentTeacherLink?> GetStudentTeacherLinkByIdForTeacherAsync(long linkId, long teacherId);
+
+        /// <summary>
+        /// Loads the Active link rows matching the given ids under a teacher
+        /// (tracked, for bulk removal). Ids not owned or not Active are ignored.
+        /// </summary>
+        Task<IReadOnlyList<StudentTeacherLink>> GetActiveLinksByIdsForTeacherAsync(
+            long teacherId, IReadOnlyCollection<long> linkIds);
+
+        /// <summary>
+        /// True if any Active link already claims this TeacherStudent roster record.
+        /// One roster record can be bound to at most one student account (accept-time guard).
+        /// </summary>
+        Task<bool> IsTeacherStudentActivelyLinkedAsync(long teacherStudentId);
+
+        /// <summary>
+        /// Of the given roster record ids, returns the subset already claimed by an
+        /// Active link. Batch variant used to flag suggestions on the requests inbox.
+        /// </summary>
+        Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
+            IReadOnlyCollection<long> teacherStudentIds);
+
         // ══════════════════════════════════════════════
         // TEACHER STUDENT (TEACHER-SCOPED RECORD) QUERIES
         // ══════════════════════════════════════════════
 
         /// <summary>
         /// Finds a teacher's student record by teacher Id, student code, hashed token, and not deleted.
-        /// Used during the 3-credential linking flow (AAM-FR-05.5).
+        /// Still used by the Parent module's Method B linking flow (AAM-FR-06.5);
+        /// the student-side flow no longer uses credentials.
         /// </summary>
         Task<TeacherStudent?> GetTeacherStudentByLinkingCredentialsAsync(
             long teacherId, string studentCode, string hashedToken);
+
+        /// <summary>
+        /// Finds a non-deleted roster record by teacher and student code
+        /// (case-insensitive via the DB collation). Used to auto-match a link
+        /// request to a roster record at accept time.
+        /// </summary>
+        Task<TeacherStudent?> GetActiveTeacherStudentByCodeAsync(long teacherId, string studentCode);
+
+        /// <summary>
+        /// Batch variant: non-deleted roster records for a teacher whose codes are
+        /// in the given set. Used to compute suggested matches for the requests inbox.
+        /// </summary>
+        Task<IReadOnlyList<TeacherStudent>> GetActiveTeacherStudentsByCodesAsync(
+            long teacherId, IReadOnlyCollection<string> studentCodes);
+
+        /// <summary>
+        /// Finds a non-deleted roster record by Id scoped to the teacher.
+        /// Used to validate an explicit accept-time selection.
+        /// </summary>
+        Task<TeacherStudent?> GetActiveTeacherStudentByIdAsync(long teacherId, long teacherStudentId);
 
         // ══════════════════════════════════════════════
         // PARENT USER ENTITY QUERIES

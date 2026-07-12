@@ -219,6 +219,69 @@
   <data name="LinkNotFound" xml:space="preserve">
     <value>No active link found between your account and this teacher</value>
   </data>
+  <data name="StudentNameRequired" xml:space="preserve">
+    <value>Please enter your name so the teacher can recognize your request</value>
+  </data>
+  <data name="LinkRequestCreated" xml:space="preserve">
+    <value>Your request has been sent to the teacher. You'll be notified once it's accepted or rejected</value>
+  </data>
+  <data name="LinkRequestAlreadyPending" xml:space="preserve">
+    <value>You already have a pending request with this teacher</value>
+  </data>
+  <data name="LinkRequestCancelled" xml:space="preserve">
+    <value>Your request has been cancelled</value>
+  </data>
+  <data name="LinkRequestNotFound" xml:space="preserve">
+    <value>Link request not found</value>
+  </data>
+  <data name="LinkRequestAlreadyResolved" xml:space="preserve">
+    <value>This request has already been accepted or rejected</value>
+  </data>
+  <data name="LinkRequestAccepted" xml:space="preserve">
+    <value>Request accepted — the student is now linked to your account</value>
+  </data>
+  <data name="LinkRequestRejected" xml:space="preserve">
+    <value>Request rejected</value>
+  </data>
+  <data name="RosterStudentSelectionRequired" xml:space="preserve">
+    <value>Select which of your students this request belongs to before accepting</value>
+  </data>
+  <data name="RosterStudentNotFound" xml:space="preserve">
+    <value>The selected student record was not found in your account</value>
+  </data>
+  <data name="RosterStudentAlreadyClaimed" xml:space="preserve">
+    <value>This student record is already linked to another student account</value>
+  </data>
+  <data name="LinkedStudentsRemoved" xml:space="preserve">
+    <value>Selected students have been removed from your linked students</value>
+  </data>
+  <data name="NoLinksSelected" xml:space="preserve">
+    <value>Please select at least one student to remove</value>
+  </data>
+  <data name="LinkRequestReceivedNotifTitle" xml:space="preserve">
+    <value>New student link request</value>
+  </data>
+  <data name="LinkRequestReceivedNotifBody" xml:space="preserve">
+    <value>{0} sent a request to join your students list. Open the app to accept or reject it</value>
+  </data>
+  <data name="LinkRequestAcceptedNotifTitle" xml:space="preserve">
+    <value>Request accepted</value>
+  </data>
+  <data name="LinkRequestAcceptedNotifBody" xml:space="preserve">
+    <value>Teacher {0} accepted your request. Their content is now on your dashboard</value>
+  </data>
+  <data name="LinkRequestRejectedNotifTitle" xml:space="preserve">
+    <value>Request rejected</value>
+  </data>
+  <data name="LinkRequestRejectedNotifBody" xml:space="preserve">
+    <value>Teacher {0} rejected your link request</value>
+  </data>
+  <data name="LinkRemovedByTeacherNotifTitle" xml:space="preserve">
+    <value>Removed by teacher</value>
+  </data>
+  <data name="LinkRemovedByTeacherNotifBody" xml:space="preserve">
+    <value>Teacher {0} removed you from their linked students</value>
+  </data>
   <data name="ParentUserInitializedSuccess" xml:space="preserve">
     <value>Your parent account has been created successfully</value>
   </data>

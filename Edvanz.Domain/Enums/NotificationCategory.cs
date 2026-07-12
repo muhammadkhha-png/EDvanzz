@@ -16,5 +16,11 @@ public enum NotificationCategory : byte
     /// </summary>
     SubscriptionReminder = 1,
     RenewalConfirmed=2,
-    PaymentRejected=3
+    PaymentRejected=3,
+
+    /// <summary>
+    /// Student-teacher link request lifecycle: new request received (teacher),
+    /// request accepted/rejected or link removed by the teacher (student).
+    /// </summary>
+    LinkRequest = 4
 }

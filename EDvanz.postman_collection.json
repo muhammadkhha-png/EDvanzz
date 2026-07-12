@@ -7,6 +7,163 @@
   },
   "item": [
     {
+      "name": "Student User (Teacher Linking)",
+      "description": "Request/approval linking flow — student side (redesigned 2026-07-12, replaces the 3-credential flow). All 'me' endpoints resolve the student from the JWT; set a Student-role bearer token in {{studentToken}}.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          { "key": "token", "value": "{{studentToken}}", "type": "string" }
+        ]
+      },
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}studentuser/me", "host": ["{{BaseUrl}}studentuser"], "path": ["me"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Update My Profile (language)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"languagePreference\": \"ar\"\r\n}"
+            },
+            "url": { "raw": "{{BaseUrl}}studentuser/me/profile", "host": ["{{BaseUrl}}studentuser"], "path": ["me", "profile"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}studentuser/me/dashboard", "host": ["{{BaseUrl}}studentuser"], "path": ["me", "dashboard"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Teachers (with request status)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}studentuser/me/teachers", "host": ["{{BaseUrl}}studentuser"], "path": ["me", "teachers"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Send Link Request to Teacher",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"teacherCode\": \"48291057\",\r\n  \"studentName\": \"Mohamed Ahmed\",\r\n  \"studentCode\": \"A5\"\r\n}"
+            },
+            "url": { "raw": "{{BaseUrl}}studentuser/me/link-requests", "host": ["{{BaseUrl}}studentuser"], "path": ["me", "link-requests"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Teacher (cancel pending / unlink active)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}studentuser/me/teachers/:teacherId", "host": ["{{BaseUrl}}studentuser"], "path": ["me", "teachers", ":teacherId"], "variable": [{ "key": "teacherId", "value": "1" }] }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Student By Account Code (parent lookup)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}studentuser/by-code/:accountCode", "host": ["{{BaseUrl}}studentuser"], "path": ["by-code", ":accountCode"], "variable": [{ "key": "accountCode", "value": "STU4X7B2KM" }] }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Teacher Student Links",
+      "description": "Request/approval linking flow — teacher side: shareable code, pending requests inbox, accept (binds a TeacherStudent roster record), reject, linked students list, bulk remove. Set a Teacher/Assistant bearer token in {{teacherToken}}.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          { "key": "token", "value": "{{teacherToken}}", "type": "string" }
+        ]
+      },
+      "item": [
+        {
+          "name": "Get My Teacher Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}teacher/student-links/my-code", "host": ["{{BaseUrl}}teacher"], "path": ["student-links", "my-code"] }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pending Link Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}teacher/student-links/requests?page=1&pageSize=20", "host": ["{{BaseUrl}}teacher"], "path": ["student-links", "requests"], "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" }] }
+          },
+          "response": []
+        },
+        {
+          "name": "Accept Link Request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"teacherStudentId\": null\r\n}"
+            },
+            "url": { "raw": "{{BaseUrl}}teacher/student-links/requests/:linkId/accept", "host": ["{{BaseUrl}}teacher"], "path": ["student-links", "requests", ":linkId", "accept"], "variable": [{ "key": "linkId", "value": "1" }] }
+          },
+          "response": []
+        },
+        {
+          "name": "Reject Link Request",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}teacher/student-links/requests/:linkId/reject", "host": ["{{BaseUrl}}teacher"], "path": ["student-links", "requests", ":linkId", "reject"], "variable": [{ "key": "linkId", "value": "1" }] }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Linked Students",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{BaseUrl}}teacher/student-links?page=1&pageSize=20", "host": ["{{BaseUrl}}teacher"], "path": ["student-links"], "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" }] }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Linked Students (one or many)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"linkIds\": [1, 2]\r\n}"
+            },
+            "url": { "raw": "{{BaseUrl}}teacher/student-links/remove", "host": ["{{BaseUrl}}teacher"], "path": ["student-links", "remove"] }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Assistant",
       "item": [
         {

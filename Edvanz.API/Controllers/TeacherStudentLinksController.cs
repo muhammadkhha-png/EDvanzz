@@ -1,0 +1,184 @@
+using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos.TeacherLinks;
+using Edvanz.Application.IservicesContract;
+using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Edvanz.API.Controllers;
+
+/// <summary>
+/// Teacher-side endpoints of the student-teacher link request/approval flow:
+/// the shareable teacher code, the pending-requests inbox (accept/reject), the
+/// linked-students list, and single/bulk removal.
+///
+/// AUTH &amp; TENANCY: class-level [Authorize] + per-action [ModulePermission]
+/// against the Student module permissions. The acting teacherId is ALWAYS
+/// derived from the JWT via ModuleSixApiBaseController.ResolveTeacherIdAsync —
+/// never from the route or body (Catalog §1.3). Assistants resolve to their
+/// owning tutor automatically.
+///
+/// The student-side half (sending/cancelling requests, viewing state) lives in
+/// StudentUserController under api/studentuser/me/*.
+/// </summary>
+[Authorize]
+[Route("api/teacher/student-links")]
+public class TeacherStudentLinksController : ModuleSixApiBaseController
+{
+    private readonly ITeacherStudentLinkService _linkService;
+
+    public TeacherStudentLinksController(
+        ITeacherStudentLinkService linkService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
+        : base(currentUser, unitOfWork)
+    {
+        _linkService = linkService;
+    }
+
+    /// <summary>
+    /// Returns the authenticated teacher's unique 8-digit code — the code a
+    /// student types to send a link request. Safe to display in the app: a
+    /// request created with it still requires this teacher's explicit approval.
+    /// </summary>
+    /// <response code="200">The teacher code.</response>
+    /// <response code="404">Teacher record not found for the authenticated user.</response>
+    [HttpGet("my-code")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyCode()
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.GetMyTeacherCodeAsync(teacherId.Value);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Pages the PENDING link requests sent to this teacher, newest first. Each
+    /// item shows the name the student typed, their account identity (name,
+    /// phone, account code) and — when the student supplied a student code — the
+    /// matching roster record as a suggested binding for the accept call.
+    /// </summary>
+    /// <response code="200">Paginated pending requests.</response>
+    [HttpGet("requests")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPendingRequests(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.GetPendingLinkRequestsAsync(teacherId.Value, page, pageSize);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Accepts a pending request and binds it to one of this teacher's
+    /// TeacherStudent roster records. Pass <c>teacherStudentId</c> to select the
+    /// record explicitly; omit it to auto-match by the student-typed code. Every
+    /// Active link must be bound to a roster record — attendance, payments,
+    /// homework, exams and videos all resolve through that reference.
+    /// </summary>
+    /// <response code="200">Accepted; returns the new linked-student list item.</response>
+    /// <response code="404">Request not found, or selected roster record not found.</response>
+    /// <response code="409">Request already resolved, or roster record already claimed by another account.</response>
+    /// <response code="422">No roster record could be resolved — selection required.</response>
+    [HttpPost("requests/{linkId:long}/accept")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionAdd)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AcceptRequest(
+        [FromRoute] long linkId, [FromBody] AcceptLinkRequestDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.AcceptLinkRequestAsync(
+            teacherId.Value, linkId, GetActingUserId(), dto);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Rejects a pending request. The row is kept (status Rejected) so the
+    /// student sees the outcome; they may send a new request later.
+    /// </summary>
+    /// <response code="200">Rejected.</response>
+    /// <response code="404">Request not found.</response>
+    /// <response code="409">Request already resolved.</response>
+    [HttpPost("requests/{linkId:long}/reject")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionAdd)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectRequest([FromRoute] long linkId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.RejectLinkRequestAsync(
+            teacherId.Value, linkId, GetActingUserId());
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Pages this teacher's linked students (Active links), newest first —
+    /// account identity plus the bound roster record for each.
+    /// </summary>
+    /// <response code="200">Paginated linked students.</response>
+    [HttpGet]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetLinkedStudents(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.GetLinkedStudentsAsync(teacherId.Value, page, pageSize);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Removes one or many linked students (soft — LinkStatus becomes
+    /// RemovedByTeacher; the student is notified). Ids not owned by this teacher
+    /// or not currently Active are skipped and echoed back in the result.
+    /// </summary>
+    /// <response code="200">Removal outcome: removed count + skipped ids.</response>
+    /// <response code="400">Empty selection.</response>
+    /// <response code="404">None of the ids matched an Active link of this teacher.</response>
+    [HttpPost("remove")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveLinkedStudents([FromBody] RemoveLinkedStudentsDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.RemoveLinkedStudentsAsync(teacherId.Value, GetActingUserId(), dto);
+        return ToResponse(result);
+    }
+}

@@ -43,6 +43,9 @@ public static class ServicesCollectionExtensions
         // FIX I1: Interface moved from Edvanz.Domain.ServiceContract to Edvanz.Application.ServiceContract
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
+        // Student-teacher link request/approval flow: teacher-side ops + shared notifier
+        services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
+        services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();
         services.AddScoped<IParentUserService, ParentUserService>();
         services.AddScoped<ITokenService, TokenService>();
         // Free-tier quota gate (shared by student/session/assistant/group create paths)

@@ -53,35 +53,40 @@ public interface IStudentUserService
     Task<Result<StudentDashboardDto>> GetDashboardAsync(long studentUserId);
 
     /// <summary>
-    /// Links a Teacher to the Student's dashboard by validating all three credentials.
-    /// AAM-FR-05.5: TeacherCode + StudentCode + HashedToken must all match.
-    /// AAM-FR-05.6: On success, the teacher entry appears on the dashboard.
-    /// AAM-BR-02: Student cannot view teacher data until at least one link exists.
+    /// Sends a link REQUEST to a teacher (request/approval flow — supersedes the
+    /// 3-credential instant link). Creates a Pending StudentTeacherLink carrying
+    /// the student-typed name and optional teacher-assigned student code; the
+    /// teacher later accepts (binding a roster record) or rejects it.
+    /// Notifies the teacher (inbox + push) post-commit, best-effort.
     /// </summary>
-    /// <param name="studentUserId">The StudentUser's Id.</param>
-    /// <param name="dto">The three required linking credentials.</param>
-    /// <returns>Result containing the newly linked teacher's dashboard entry.</returns>
-    Task<Result<StudentDashboardTeacherDto>> LinkTeacherAsync(long studentUserId, LinkTeacherDto dto);
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <param name="dto">Teacher code + student-typed name + optional student code.</param>
+    /// <returns>Result containing the new Pending dashboard entry for the teacher.</returns>
+    Task<Result<StudentDashboardTeacherDto>> CreateLinkRequestAsync(long studentUserId, CreateLinkRequestDto dto);
 
     /// <summary>
-    /// Removes a Teacher from the Student's dashboard (soft-unlink).
-    /// Sets LinkStatus to Unlinked and records UnlinkedAt timestamp.
-    /// The link record is preserved for audit purposes.
+    /// Removes a Teacher from the Student's side:
+    ///   - a Pending request is cancelled (LinkStatus = CancelledByStudent);
+    ///   - an Active link is unlinked (LinkStatus = Unlinked).
+    /// Terminal rows are preserved for audit; the student may send a new request later.
     /// </summary>
-    /// <param name="studentUserId">The StudentUser's Id.</param>
-    /// <param name="teacherId">The Teacher's Id to unlink.</param>
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <param name="teacherId">The Teacher's Id to remove.</param>
+    /// <param name="actingUserId">User.Id of the caller — persisted to RemovedByUserId for audit.</param>
     /// <returns>Result indicating success or failure.</returns>
-    Task<Result<bool>> UnlinkTeacherAsync(long studentUserId, long teacherId);
+    Task<Result<bool>> UnlinkTeacherAsync(long studentUserId, long teacherId, long actingUserId);
 
     /// <summary>
-    /// Retrieves all teachers currently linked to the student's dashboard.
+    /// Retrieves the student's teachers INCLUDING request states — one entry per
+    /// teacher (the latest link row), so the student can see Pending requests and
+    /// whether a request was accepted (Active) or rejected (Rejected).
     /// AAM-FR-05.7: Each Teacher displayed distinctly.
-    /// AAM-FR-05.8: Visibility governed by teacher's configuration.
-    /// Only returns active links (LinkStatus = Active).
+    /// AAM-FR-05.8: Visibility flags from the teacher's configuration are included
+    /// so the app knows which module tiles to show once the link is Active.
     /// </summary>
-    /// <param name="studentUserId">The StudentUser's Id.</param>
-    /// <returns>Result containing the list of linked teacher DTOs.</returns>
-    Task<Result<List<StudentDashboardTeacherDto>>> GetLinkedTeachersAsync(long studentUserId);
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <returns>Result containing the list of teacher entries with status.</returns>
+    Task<Result<List<StudentDashboardTeacherDto>>> GetMyTeachersAsync(long studentUserId);
 
     /// <summary>
     /// Retrieves a student user by their unique StudentAccountCode.

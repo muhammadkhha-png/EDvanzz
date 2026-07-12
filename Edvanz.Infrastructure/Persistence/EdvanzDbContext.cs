@@ -797,15 +797,23 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         });
         #endregion
 
-        #region StudentTeacherLink (junction: StudentUser ↔ Teacher, AAM-FR-05.5)
+        #region StudentTeacherLink (junction: StudentUser ↔ Teacher, request/approval flow)
         modelBuilder.Entity<StudentTeacherLink>(entity =>
         {
             entity.ToTable("StudentTeacherLinks");
 
-            // Composite unique: a student can only link to the same teacher once
-            // (prevents duplicate dashboard entries per AAM-FR-05.7)
+            // Request snapshot fields (student-typed, shown to the teacher)
+            entity.Property(stl => stl.RequestedStudentName).HasMaxLength(200);
+            entity.Property(stl => stl.RequestedStudentCode).HasMaxLength(20);
+
+            // Filtered unique: at most ONE live row (1=Active, 3=Pending) per
+            // (student, teacher) pair. Terminal rows (Rejected/Unlinked/
+            // RemovedByTeacher/CancelledByStudent) accumulate freely for audit,
+            // so a student can re-request after a rejection or removal.
+            // Keep the literal values in sync with the LinkStatus enum.
             entity.HasIndex(stl => new { stl.StudentUserId, stl.TeacherId })
                 .IsUnique()
+                .HasFilter("[LinkStatus] IN (1, 3)")
                 .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_TeacherId");
 
             // StudentUser FK: NoAction delete when student user account is removed
@@ -827,13 +835,23 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasForeignKey(stl => stl.TeacherStudentId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Performance index: reverse lookup — which student users are linked to a teacher
-            entity.HasIndex(stl => stl.TeacherId)
-                .HasDatabaseName("IX_StudentTeacherLinks_TeacherId");
+            // Performance index: teacher-side screens (pending requests inbox and
+            // linked-students list both filter by TeacherId + LinkStatus)
+            entity.HasIndex(stl => new { stl.TeacherId, stl.LinkStatus })
+                .HasDatabaseName("IX_StudentTeacherLinks_TeacherId_LinkStatus");
 
             // Performance index: fast join to teacher's student record for data access
             entity.HasIndex(stl => stl.TeacherStudentId)
                 .HasDatabaseName("IX_StudentTeacherLinks_TeacherStudentId");
+
+            // Integrity: ONE student account per roster record — a TeacherStudent
+            // can be claimed by at most one Active link. Enforces at DB level what
+            // the accept flow checks in the service. The migration demotes any
+            // pre-existing duplicate Active claims (keeps the newest) before
+            // creating this index. Keep the literal in sync with LinkStatus.Active.
+            entity.HasIndex(stl => stl.TeacherStudentId, "UX_StudentTeacherLinks_TeacherStudentId_Active")
+                .IsUnique()
+                .HasFilter("[LinkStatus] = 1 AND [TeacherStudentId] IS NOT NULL");
 
             // Performance index: active links filter (most common query path for dashboard)
             entity.HasIndex(stl => new { stl.StudentUserId, stl.LinkStatus })

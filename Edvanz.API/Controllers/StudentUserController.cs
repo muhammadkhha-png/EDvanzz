@@ -1,402 +1,200 @@
-﻿using Edvanz.API.Attributes;
-using Edvanz.Application.Dtos;
+using System.Net;
+using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.StudentUser;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
-using Edvanz.Domain.Enums;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// API endpoints for the Student User module.
-/// 
-/// This controller handles all operations specific to the Student User account type:
-/// profile management, teacher linking, dashboard retrieval, and account code lookup.
-/// 
-/// IMPORTANT: Registration (creating the User record), login, password update, and
-/// account deletion endpoints are NOT here — they live in the User module controller.
-/// The User module creates the User record first, then calls InitializeStudentUser to
-/// set up the Student-specific data (account code, first-login flag).
-/// 
-/// All responses follow a unified JSON shape:
-///   Success: { "success": true,  "message": "...", "data": { ... } }
-///   Failure: { "success": false, "message": "..." }
-/// 
-/// Messages are returned in Arabic or English based on the Accept-Language header.
-/// Set "Accept-Language: ar" for Arabic, "Accept-Language: en" for English.
+/// API endpoints for the Student User module (request/approval linking design).
+///
+/// IDENTITY: every "me" endpoint resolves the calling StudentUser from the JWT
+/// (User.Id → StudentUsers.UserId) — the studentUserId is NEVER read from the
+/// route or body (same IDOR-safe pattern as StudentAttendanceController /
+/// StudentVideosController; the old route-id endpoints of this controller were
+/// the last violators and have been removed).
+///
+/// LINKING: the student sends a link REQUEST (teacher code + own name + optional
+/// student code); the teacher accepts or rejects it from the teacher app
+/// (TeacherStudentLinksController). GET me/teachers surfaces the request state
+/// (Pending/Active/Rejected/...) so the student always knows the outcome, and a
+/// push notification is sent on accept/reject.
+///
+/// NOTE: StudentUser initialization is performed internally by the User module
+/// during registration (UserService → IStudentUserService.InitializeStudentUserAsync);
+/// it is intentionally no longer exposed as an HTTP endpoint.
+///
+/// All responses follow the unified JSON shape; messages localize via the
+/// Accept-Language header ("ar" / "en").
 /// </summary>
+[Authorize]
 public class StudentUserController : ApiBaseController
 {
     private readonly IStudentUserService _studentUserService;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public StudentUserController(IStudentUserService studentUserService)
+    public StudentUserController(
+        IStudentUserService studentUserService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
     {
         _studentUserService = studentUserService;
+        _currentUser = currentUser;
+        _unitOfWork = unitOfWork;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 1: INITIALIZE STUDENT USER
+    // ME: PROFILE
     // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Called AFTER a User record is created with UserType = Student.
-    //   This endpoint creates the StudentUser-specific data that doesn't belong
-    //   on the User table: generates the unique StudentAccountCode and sets
-    //   IsFirstLogin = true so the dashboard shows the "Add Teacher" prompt.
-    //
-    // WHAT IT CREATES IN THE DATABASE:
-    //   1. One row in StudentUsers table (with generated StudentAccountCode)
-    //
-    // WHO CALLS IT:
-    //   The User module, after successfully creating a User with UserType.Student.
-    //
-    // VALIDATIONS:
-    //   - UserId must reference an existing User with UserType = Student (404 if not)
-    //   - Must not already have a StudentUser record for this UserId (409 if duplicate)
-    //
-    // SAMPLE REQUEST:
-    //   POST /api/studentuser
-    //   {
-    //     "userId": 42,
-    //     "languagePreference": "ar"
-    //   }
-    //
-    // SAMPLE RESPONSE (201 Created):
-    //   {
-    //     "success": true,
-    //     "message": "Your student account has been created successfully",
-    //     "data": {
-    //       "id": 1,
-    //       "userId": 42,
-    //       "studentAccountCode": "STU4X7B2KM",
-    //       "fullName": "محمد أحمد",
-    //       "phoneNumber": "01012345678",
-    //       "languagePreference": "ar",
-    //       "accountStatus": "Active",
-    //       "isFirstLogin": true,
-    //       "linkedTeacherCount": 0
-    //     }
-    //   }
-    //
+
+    /// <summary>Returns the authenticated student's own profile.</summary>
+    /// <response code="200">Profile including account code and linked-teacher count.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="404">The authenticated user has no student account.</response>
+    [HttpGet("me")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyProfile()
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.GetStudentUserProfileAsync(studentUserId.Value);
+        return ToResponse(result);
+    }
+
+    /// <summary>Updates the authenticated student's own profile settings (language preference).</summary>
+    /// <response code="200">Updated profile.</response>
+    /// <response code="400">Invalid language preference.</response>
+    [HttpPut("me/profile")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateStudentUserProfileDto dto)
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.UpdateStudentUserProfileAsync(studentUserId.Value, dto);
+        return ToResponse(result);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost]
+    // ME: DASHBOARD + TEACHERS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns the authenticated student's dashboard: first-login flag, account
+    /// code, and one entry per teacher with the CURRENT link state
+    /// (Pending / Active / Rejected / Unlinked / RemovedByTeacher / CancelledByStudent)
+    /// plus the teacher's visibility flags (AAM-FR-05.8).
+    /// </summary>
+    /// <response code="200">Dashboard payload.</response>
+    [HttpGet("me/dashboard")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyDashboard()
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.GetDashboardAsync(studentUserId.Value);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Returns the authenticated student's teachers including request states —
+    /// this is how the student sees whether a request is still Pending, was
+    /// accepted (Active), or was rejected (Rejected).
+    /// </summary>
+    /// <response code="200">One entry per teacher (latest state), live entries first.</response>
+    [HttpGet("me/teachers")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyTeachers()
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.GetMyTeachersAsync(studentUserId.Value);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Sends a link REQUEST to a teacher. The student supplies the teacher's
+    /// 8-digit code and their own name; the student code the teacher assigned
+    /// them is optional and only helps the teacher match the request to a roster
+    /// record. The link becomes usable ONLY after the teacher accepts.
+    /// </summary>
+    /// <response code="201">Request created (entry returned with status Pending).</response>
+    /// <response code="400">Invalid teacher code or missing student name.</response>
+    /// <response code="404">No active teacher with this code.</response>
+    /// <response code="409">Already linked to this teacher, or a request is already pending.</response>
+    [HttpPost("me/link-requests")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> InitializeStudentUser([FromBody] CreateStudentUserDto dto)
+    public async Task<IActionResult> CreateLinkRequest([FromBody] CreateLinkRequestDto dto)
     {
-        var result = await _studentUserService.InitializeStudentUserAsync(dto);
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.CreateLinkRequestAsync(studentUserId.Value, dto);
         return ToResponse(result);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 2: GET STUDENT USER PROFILE
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Returns the full student user profile including account code, status,
-    //   first-login flag, and the count of linked teachers.
-    //
-    // VALIDATIONS:
-    //   - studentUserId must exist and not be soft-deleted (404 if not found)
-    //
-    // SAMPLE REQUEST:
-    //   GET /api/studentuser/1
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Done successfully",
-    //     "data": {
-    //       "id": 1,
-    //       "userId": 42,
-    //       "studentAccountCode": "STU4X7B2KM",
-    //       "fullName": "محمد أحمد",
-    //       "email": "mohamed@gmail.com",
-    //       "phoneNumber": "01012345678",
-    //       "languagePreference": "ar",
-    //       "accountStatus": "Active",
-    //       "isFirstLogin": false,
-    //       "linkedTeacherCount": 2
-    //     }
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{studentUserId:long}")]
+    /// <summary>
+    /// Removes a teacher from the student's side: cancels a Pending request or
+    /// unlinks an Active link (soft transition, preserved for audit). The student
+    /// can send a new request to the same teacher afterwards.
+    /// </summary>
+    /// <response code="200">Cancelled or unlinked.</response>
+    /// <response code="404">No pending request or active link with this teacher.</response>
+    [HttpDelete("me/teachers/{teacherId:long}")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetStudentUserProfile([FromRoute] long studentUserId)
+    public async Task<IActionResult> RemoveMyTeacher([FromRoute] long teacherId)
     {
-        var result = await _studentUserService.GetStudentUserProfileAsync(studentUserId);
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        // Non-null: ResolveStudentUserIdAsync already required a JWT user id
+        long actingUserId = _currentUser.UserId!.Value;
+
+        var result = await _studentUserService.UnlinkTeacherAsync(studentUserId.Value, teacherId, actingUserId);
         return ToResponse(result);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 3: UPDATE STUDENT USER PROFILE
+    // LOOKUP BY ACCOUNT CODE (used by the Parent module, AAM-FR-06.3 Method A)
     // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Updates the student's own profile settings. Currently only supports
-    //   language preference. FullName, PhoneNumber, Email, Password updates
-    //   are handled by the User module (they live on the shared User record).
-    //
-    // WHAT IT UPDATES IN THE DATABASE:
-    //   1. StudentUsers table: LanguagePreference
-    //
-    // VALIDATIONS:
-    //   - studentUserId must exist (404 if not)
-    //   - LanguagePreference must be "en" or "ar" if provided (400 if invalid)
-    //
-    // SAMPLE REQUEST:
-    //   PUT /api/studentuser/1/profile
-    //   {
-    //     "languagePreference": "en"
-    //   }
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Profile updated successfully",
-    //     "data": { ... full profile DTO ... }
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpPut("{studentUserId:long}/profile")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
 
-    public async Task<IActionResult> UpdateStudentUserProfile(
-        [FromRoute] long studentUserId,
-        [FromBody] UpdateStudentUserProfileDto dto)
-    {
-        var result = await _studentUserService.UpdateStudentUserProfileAsync(studentUserId, dto);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 4: GET DASHBOARD
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Returns the student's dashboard state: first-login flag, account code,
-    //   and the list of linked teachers with their names, subjects, and
-    //   visibility settings.
-    //
-    //   AAM-FR-05.4: If IsFirstLogin is true, the UI should show an empty
-    //   dashboard with a prompt to add a Teacher.
-    //
-    // VALIDATIONS:
-    //   - studentUserId must exist (404 if not)
-    //
-    // SAMPLE REQUEST:
-    //   GET /api/studentuser/1/dashboard
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Done successfully",
-    //     "data": {
-    //       "isFirstLogin": false,
-    //       "studentAccountCode": "STU4X7B2KM",
-    //       "linkedTeachers": [
-    //         {
-    //           "linkId": 1,
-    //           "teacherCode": "48291057",
-    //           "teacherFullName": "Ahmed Mohamed",
-    //           "subjectName": "Mathematics",
-    //           "linkedAt": "2026-03-15T10:30:00Z",
-    //           "isEnrollmentActive": true,
-    //           "visibilityAttendance": true,
-    //           "visibilityPayment": true,
-    //           "visibilityHomework": true,
-    //           "visibilityExamDefault": false
-    //         }
-    //       ]
-    //     }
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{studentUserId:long}/dashboard")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetDashboard([FromRoute] long studentUserId)
-    {
-        var result = await _studentUserService.GetDashboardAsync(studentUserId);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 5: LINK TEACHER
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Links a Teacher to the student's dashboard by validating all three
-    //   credentials required by AAM-FR-05.5:
-    //     1. Teacher's unique 8-digit TeacherCode
-    //     2. The student's unique code as assigned by the Teacher
-    //     3. The hash/token generated for that student under that Teacher
-    //
-    //   Upon success, the teacher entry appears on the student's dashboard
-    //   with the teacher's full name and subject name (AAM-FR-05.6).
-    //
-    // WHAT IT CREATES IN THE DATABASE:
-    //   1. One row in StudentTeacherLinks table
-    //   2. Updates StudentUsers.IsFirstLogin to false (if first link)
-    //
-    // VALIDATIONS:
-    //   - studentUserId must exist (404 if not)
-    //   - TeacherCode must be exactly 8 digits (400 if invalid)
-    //   - TeacherCode must match an active teacher (404 if not found)
-    //   - Must not already be linked to this teacher (409 if duplicate)
-    //   - StudentCode + HashedToken must match a record under that teacher (400 if invalid)
-    //
-    // SAMPLE REQUEST:
-    //   POST /api/studentuser/1/teachers
-    //   {
-    //     "teacherCode": "48291057",
-    //     "studentCode": "A1",
-    //     "hashedToken": "abc123xyz"
-    //   }
-    //
-    // SAMPLE RESPONSE (201 Created):
-    //   {
-    //     "success": true,
-    //     "message": "Teacher added successfully",
-    //     "data": {
-    //       "linkId": 1,
-    //       "teacherCode": "48291057",
-    //       "teacherFullName": "Ahmed Mohamed",
-    //       "subjectName": "Mathematics",
-    //       "linkedAt": "2026-03-28T14:00:00Z",
-    //       "isEnrollmentActive": true,
-    //       "visibilityAttendance": true,
-    //       "visibilityPayment": true,
-    //       "visibilityHomework": true,
-    //       "visibilityExamDefault": false
-    //     }
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpPost("{studentUserId:long}/teachers")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> LinkTeacher(
-        [FromRoute] long studentUserId,
-        [FromBody] LinkTeacherDto dto)
-    {
-        var result = await _studentUserService.LinkTeacherAsync(studentUserId, dto);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 6: UNLINK TEACHER
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Removes a Teacher from the student's dashboard. This is a soft-unlink:
-    //   the StudentTeacherLink record is preserved with LinkStatus = Unlinked
-    //   and an UnlinkedAt timestamp for audit purposes.
-    //
-    // WHAT IT UPDATES IN THE DATABASE:
-    //   1. StudentTeacherLinks table: LinkStatus → Unlinked, UnlinkedAt → now
-    //
-    // VALIDATIONS:
-    //   - An active link must exist between this student and teacher (404 if not)
-    //
-    // SAMPLE REQUEST:
-    //   DELETE /api/studentuser/1/teachers/5
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Teacher removed from your dashboard",
-    //     "data": true
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpDelete("{studentUserId:long}/teachers/{teacherId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UnlinkTeacher(
-        [FromRoute] long studentUserId,
-        [FromRoute] long teacherId)
-    {
-        var result = await _studentUserService.UnlinkTeacherAsync(studentUserId, teacherId);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 7: GET LINKED TEACHERS
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Returns all teachers currently linked to this student's dashboard.
-    //   Only active links are returned (LinkStatus = Active).
-    //   Each entry includes the teacher's name, subject, and visibility settings
-    //   as configured by the teacher (AAM-FR-04.8 / AAM-FR-05.8).
-    //
-    // VALIDATIONS:
-    //   - studentUserId must exist (404 if not)
-    //
-    // SAMPLE REQUEST:
-    //   GET /api/studentuser/1/teachers
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Done successfully",
-    //     "data": [ ... array of StudentDashboardTeacherDto ... ]
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
-    [HttpGet("{studentUserId:long}/teachers")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetLinkedTeachers([FromRoute] long studentUserId)
-    {
-        var result = await _studentUserService.GetLinkedTeachersAsync(studentUserId);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 8: GET STUDENT USER BY ACCOUNT CODE
-    // ══════════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Looks up a student user by their unique StudentAccountCode.
-    //   Used by the Parent module when linking to a child's account
-    //   (AAM-FR-06.3 Method A: Parent scans or enters the Student Code).
-    //
-    //   Returns the student's basic profile info (name, account code).
-    //   Does NOT expose internal IDs, email, or sensitive data.
-    //
-    // VALIDATIONS:
-    //   - accountCode must not be empty (400 if blank)
-    //   - Must match an active student user (404 if not found)
-    //
-    // SAMPLE REQUEST:
-    //   GET /api/studentuser/by-code/STU4X7B2KM
-    //
-    // SAMPLE RESPONSE (200 OK):
-    //   {
-    //     "success": true,
-    //     "message": "Done successfully",
-    //     "data": {
-    //       "id": 1,
-    //       "userId": 42,
-    //       "studentAccountCode": "STU4X7B2KM",
-    //       "fullName": "محمد أحمد",
-    //       "accountStatus": "Active",
-    //       "isFirstLogin": false,
-    //       "linkedTeacherCount": 2
-    //     }
-    //   }
-    //
-    // ══════════════════════════════════════════════════════════════════════════
+    /// <summary>
+    /// Looks up a student user by their unique StudentAccountCode. Used by the
+    /// Parent module when linking to a child's account — intentionally NOT
+    /// restricted to the Student role.
+    /// </summary>
+    /// <response code="200">Basic student profile info.</response>
+    /// <response code="400">Blank account code.</response>
+    /// <response code="404">No active student with this code.</response>
     [HttpGet("by-code/{accountCode}")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -406,4 +204,33 @@ public class StudentUserController : ApiBaseController
         var result = await _studentUserService.GetStudentUserByAccountCodeAsync(accountCode);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // PRIVATE HELPERS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Resolves the calling user's StudentUser.Id from the JWT:
+    /// User.Id → StudentUsers.UserId (active, non-deleted). Returns null when the
+    /// JWT is missing a user id or the user has no student account.
+    /// </summary>
+    private async Task<long?> ResolveStudentUserIdAsync()
+    {
+        long? userId = _currentUser.UserId;
+        if (userId is null) return null;
+
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByUserIdAsync(userId.Value);
+        return studentUser?.Id;
+    }
+
+    /// <summary>
+    /// Standardized response when the JWT cannot be resolved to a student account.
+    /// </summary>
+    private IActionResult StudentNotResolved() =>
+        new ObjectResult(new { success = false, message = _resolveMessage })
+        {
+            StatusCode = (int)HttpStatusCode.NotFound
+        };
+
+    private const string _resolveMessage = "Student account not found for the authenticated user";
 }

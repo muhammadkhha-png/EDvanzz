@@ -6,19 +6,26 @@ namespace Edvanz.Domain.Entities;
 
 /// <summary>
 /// Junction table linking a Student User account to a Teacher.
-/// Created when the student successfully provides all three credentials (AAM-FR-05.5):
-///   1. Teacher's unique 8-digit Teacher Code
-///   2. The student's unique code as assigned by the Teacher (TeacherStudent.StudentCode)
-///   3. The hash/token generated for that student under that Teacher (TeacherStudent.HashedToken)
-/// 
-/// AAM-FR-05.6: Upon successful linking, the teacher appears on the student's dashboard.
+///
+/// REQUEST/APPROVAL FLOW (supersedes the original AAM-FR-05.5 credential flow):
+/// the student sends a request carrying the teacher's 8-digit TeacherCode plus a
+/// self-typed name (and optionally the student code the teacher assigned them).
+/// The row is created with LinkStatus.Pending and TeacherStudentId = null.
+/// The teacher then accepts it — binding it to one of their TeacherStudent roster
+/// records and setting LinkStatus.Active — or rejects it (LinkStatus.Rejected).
+///
+/// AAM-FR-05.6: Upon acceptance, the teacher appears on the student's dashboard.
 /// AAM-FR-05.7: A student can link to multiple teachers; each is displayed distinctly.
 /// AAM-BR-06: Each teacher's visibility settings apply independently.
 /// AAM-FR-05.8: Content visibility is governed by TeacherConfiguration (AAM-FR-04.8).
-/// 
+///
 /// This is the primary data-access join path for the student dashboard:
 ///   StudentUser → StudentTeacherLink → Teacher → TeacherConfiguration (visibility)
 ///   StudentUser → StudentTeacherLink → TeacherStudent (attendance, payments, grades)
+///
+/// Terminal rows (Rejected/Unlinked/RemovedByTeacher/CancelledByStudent) are kept
+/// for audit; a filtered unique index allows at most one live (Pending/Active) row
+/// per (StudentUserId, TeacherId).
 /// </summary>
 public class StudentTeacherLink : BaseEntity
 {
@@ -39,11 +46,13 @@ public class StudentTeacherLink : BaseEntity
 
     /// <summary>
     /// Foreign key to the specific TeacherStudent record under that teacher.
-    /// Resolved from StudentCode + HashedToken (AAM-FR-05.5 credentials #2 and #3).
-    /// 
-    /// Nullable: set to null if the teacher deletes the student record.
-    /// The link survives but the UI should show a "removed enrollment" state.
-    /// 
+    /// Bound by the TEACHER at accept time (explicit selection, or auto-matched
+    /// from the student-supplied RequestedStudentCode).
+    ///
+    /// Nullable: null while the request is Pending/Rejected, and set to null if
+    /// the teacher later deletes the student record (the link survives but the
+    /// UI should show a "removed enrollment" state).
+    ///
     /// This FK is the performance-critical join path for all student data access:
     /// attendance, payments, homework, exams all route through this reference.
     /// </summary>
@@ -51,16 +60,55 @@ public class StudentTeacherLink : BaseEntity
     public long? TeacherStudentId { get; set; }
     public TeacherStudent? TeacherStudent { get; set; }
 
-    /// <summary>
-    /// Current status of the link.
-    /// Active: student can see teacher data on their dashboard.
-    /// Unlinked: student removed the teacher (soft-unlink, preserved for audit).
-    /// </summary>
-    public LinkStatus LinkStatus { get; set; } = LinkStatus.Active;
+    // ─── Request snapshot (filled by the student when the request is created) ───
 
     /// <summary>
-    /// Timestamp when the link was successfully established.
+    /// The name the student typed when sending the request, shown to the teacher
+    /// so they can identify who is asking. Null on legacy (pre-redesign) rows.
+    /// </summary>
+    public string? RequestedStudentName { get; set; }
+
+    /// <summary>
+    /// Optional: the student code the teacher's account assigned to this student,
+    /// as typed by the student. Used to auto-suggest the matching TeacherStudent
+    /// roster record at accept time. Never trusted blindly — the teacher confirms.
+    /// </summary>
+    public string? RequestedStudentCode { get; set; }
+
+    /// <summary>UTC timestamp the student submitted the link request.</summary>
+    public DateTime? RequestedAt { get; set; }
+
+    // ─── Teacher decision audit ───
+
+    /// <summary>UTC timestamp the teacher accepted or rejected the request.</summary>
+    public DateTime? RespondedAt { get; set; }
+
+    /// <summary>
+    /// User.Id of the account that accepted or rejected the request on the
+    /// teacher side (the teacher, or an assistant acting for them).
+    /// Plain audit column — no FK.
+    /// </summary>
+    public long? RespondedByUserId { get; set; }
+
+    /// <summary>
+    /// User.Id of the account that ENDED the link: the student themself
+    /// (cancel/unlink) or the teacher/assistant who removed the student.
+    /// Interpret together with LinkStatus (Unlinked/CancelledByStudent = the
+    /// student, RemovedByTeacher = teacher side). Plain audit column — no FK.
+    /// </summary>
+    public long? RemovedByUserId { get; set; }
+
+    /// <summary>
+    /// Current status of the link. See <see cref="Enums.LinkStatus"/> for the
+    /// full request/approval lifecycle. Defaults to Pending — a row only becomes
+    /// Active through an explicit teacher accept.
+    /// </summary>
+    public LinkStatus LinkStatus { get; set; } = LinkStatus.Pending;
+
+    /// <summary>
+    /// Timestamp when the link became Active (teacher accepted the request).
     /// AAM-FR-05.6: The moment the teacher entry appears on the student's dashboard.
+    /// Equals RequestedAt on legacy rows created by the old credential flow.
     /// </summary>
     public DateTime LinkedAt { get; set; }
 

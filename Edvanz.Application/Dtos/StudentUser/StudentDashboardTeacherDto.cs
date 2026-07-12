@@ -2,6 +2,8 @@
 
 /// <summary>
 /// Output DTO representing a single Teacher entry on the Student's dashboard.
+/// One entry per teacher — the LATEST link row for that teacher, so the student
+/// sees the current state of their request (Pending / Active / Rejected / ...).
 /// AAM-FR-05.6: Displays the Teacher's full name and subject name.
 /// AAM-FR-05.7: Each Teacher is displayed distinctly.
 /// </summary>
@@ -11,6 +13,19 @@ public class StudentDashboardTeacherDto
     /// The StudentTeacherLink Id — used for unlink operations.
     /// </summary>
     public long LinkId { get; set; }
+
+    /// <summary>
+    /// Link lifecycle state as a string (Pending, Active, Rejected, Unlinked,
+    /// RemovedByTeacher, CancelledByStudent). This is how the student KNOWS
+    /// whether their request was accepted or rejected.
+    /// </summary>
+    public string Status { get; set; } = null!;
+
+    /// <summary>UTC timestamp the student submitted the link request.</summary>
+    public DateTime? RequestedAt { get; set; }
+
+    /// <summary>UTC timestamp the teacher accepted or rejected the request.</summary>
+    public DateTime? RespondedAt { get; set; }
 
     /// <summary>
     /// Teacher's unique 8-digit code. Displayed on the dashboard for reference.
@@ -31,7 +46,8 @@ public class StudentDashboardTeacherDto
     public string SubjectName { get; set; } = null!;
 
     /// <summary>
-    /// When the student linked this teacher to their dashboard.
+    /// When the link became Active (the teacher accepted the request).
+    /// Meaningful only for Active/Unlinked/RemovedByTeacher entries.
     /// </summary>
     public DateTime LinkedAt { get; set; }
 

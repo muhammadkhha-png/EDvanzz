@@ -558,6 +558,140 @@ namespace Edvanz.Infrastructure.Repositories
             await Task.CompletedTask;
         }
 
+        // ── Request/approval flow (replaces the student-side 3-credential flow) ──
+
+        /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetLiveStudentTeacherLinkAsync(long studentUserId, long teacherId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .FirstOrDefaultAsync(l =>
+                    l.StudentUserId == studentUserId &&
+                    l.TeacherId == teacherId &&
+                    (l.LinkStatus == LinkStatus.Active || l.LinkStatus == LinkStatus.Pending));
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentTeacherLink>> GetAllStudentTeacherLinksAsync(long studentUserId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.StudentUserId == studentUserId)
+                .OrderByDescending(l => l.Id)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<TeacherLinkRequestRow> Items, int TotalCount)>
+            GetPendingLinkRequestsForTeacherPagedAsync(long teacherId, int page, int pageSize)
+        {
+            var query = _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.TeacherId == teacherId && l.LinkStatus == LinkStatus.Pending);
+
+            int total = await query.CountAsync();
+
+            var items = await query
+                .OrderByDescending(l => l.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Join(_context.Set<StudentUser>(),
+                    l => l.StudentUserId, su => su.Id,
+                    (l, su) => new { l, su })
+                .Join(_context.Set<User>(),
+                    x => x.su.UserId, u => u.Id,
+                    (x, u) => new TeacherLinkRequestRow
+                    {
+                        LinkId = x.l.Id,
+                        RequestedStudentName = x.l.RequestedStudentName,
+                        RequestedStudentCode = x.l.RequestedStudentCode,
+                        RequestedAt = x.l.RequestedAt,
+                        StudentAccountCode = x.su.StudentAccountCode,
+                        StudentFullName = u.FullName,
+                        StudentPhoneNumber = u.PhoneNumber
+                    })
+                .ToListAsync();
+
+            return (items, total);
+        }
+
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+            GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize)
+        {
+            var query = _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.TeacherId == teacherId && l.LinkStatus == LinkStatus.Active);
+
+            int total = await query.CountAsync();
+
+            // Left-join the roster record: it is null when the teacher deleted the
+            // TeacherStudent after linking (SetNull FK — degraded enrollment state).
+            var items = await query
+                .OrderByDescending(l => l.LinkedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Join(_context.Set<StudentUser>(),
+                    l => l.StudentUserId, su => su.Id,
+                    (l, su) => new { l, su })
+                .Join(_context.Set<User>(),
+                    x => x.su.UserId, u => u.Id,
+                    (x, u) => new { x.l, x.su, u })
+                .Select(x => new TeacherLinkedStudentRow
+                {
+                    LinkId = x.l.Id,
+                    LinkedAt = x.l.LinkedAt,
+                    StudentAccountCode = x.su.StudentAccountCode,
+                    StudentFullName = x.u.FullName,
+                    StudentPhoneNumber = x.u.PhoneNumber,
+                    TeacherStudentId = x.l.TeacherStudentId,
+                    RosterStudentName = x.l.TeacherStudent != null ? x.l.TeacherStudent.StudentName : null,
+                    RosterStudentCode = x.l.TeacherStudent != null ? x.l.TeacherStudent.StudentCode : null
+                })
+                .ToListAsync();
+
+            return (items, total);
+        }
+
+        /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetStudentTeacherLinkByIdForTeacherAsync(long linkId, long teacherId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .FirstOrDefaultAsync(l => l.Id == linkId && l.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentTeacherLink>> GetActiveLinksByIdsForTeacherAsync(
+            long teacherId, IReadOnlyCollection<long> linkIds)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .Where(l => l.TeacherId == teacherId &&
+                            l.LinkStatus == LinkStatus.Active &&
+                            linkIds.Contains(l.Id))
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> IsTeacherStudentActivelyLinkedAsync(long teacherStudentId)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .AnyAsync(l => l.TeacherStudentId == teacherStudentId &&
+                               l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
+            IReadOnlyCollection<long> teacherStudentIds)
+        {
+            return await _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.TeacherStudentId != null &&
+                            teacherStudentIds.Contains(l.TeacherStudentId.Value) &&
+                            l.LinkStatus == LinkStatus.Active)
+                .Select(l => l.TeacherStudentId!.Value)
+                .Distinct()
+                .ToListAsync();
+        }
+
         // ══════════════════════════════════════════════
         // TEACHER STUDENT (TEACHER-SCOPED RECORD) QUERIES
         // ══════════════════════════════════════════════
@@ -571,6 +705,39 @@ namespace Edvanz.Infrastructure.Repositories
                     ts.TeacherId == teacherId &&
                     ts.StudentCode == studentCode &&
                     ts.HashedToken == hashedToken &&
+                    !ts.IsDeleted);
+        }
+
+        /// <inheritdoc />
+        public async Task<TeacherStudent?> GetActiveTeacherStudentByCodeAsync(long teacherId, string studentCode)
+        {
+            // StudentCode is stored uppercase; the DB CI collation makes == case-insensitive.
+            return await _context.Set<TeacherStudent>()
+                .FirstOrDefaultAsync(ts =>
+                    ts.TeacherId == teacherId &&
+                    ts.StudentCode == studentCode &&
+                    !ts.IsDeleted);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherStudent>> GetActiveTeacherStudentsByCodesAsync(
+            long teacherId, IReadOnlyCollection<string> studentCodes)
+        {
+            return await _context.Set<TeacherStudent>()
+                .AsNoTracking()
+                .Where(ts => ts.TeacherId == teacherId &&
+                             studentCodes.Contains(ts.StudentCode) &&
+                             !ts.IsDeleted)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<TeacherStudent?> GetActiveTeacherStudentByIdAsync(long teacherId, long teacherStudentId)
+        {
+            return await _context.Set<TeacherStudent>()
+                .FirstOrDefaultAsync(ts =>
+                    ts.Id == teacherStudentId &&
+                    ts.TeacherId == teacherId &&
                     !ts.IsDeleted);
         }
 

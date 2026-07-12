@@ -219,6 +219,69 @@
   <data name="LinkNotFound" xml:space="preserve">
     <value>مفيش ربط نشط بين حسابك والمعلم ده</value>
   </data>
+  <data name="StudentNameRequired" xml:space="preserve">
+    <value>من فضلك اكتب اسمك عشان المعلم يقدر يتعرف على طلبك</value>
+  </data>
+  <data name="LinkRequestCreated" xml:space="preserve">
+    <value>تم إرسال طلبك للمعلم. هيوصلك إشعار أول ما يقبله أو يرفضه</value>
+  </data>
+  <data name="LinkRequestAlreadyPending" xml:space="preserve">
+    <value>عندك طلب مستني الرد مع المعلم ده بالفعل</value>
+  </data>
+  <data name="LinkRequestCancelled" xml:space="preserve">
+    <value>تم إلغاء طلبك</value>
+  </data>
+  <data name="LinkRequestNotFound" xml:space="preserve">
+    <value>طلب الربط مش موجود</value>
+  </data>
+  <data name="LinkRequestAlreadyResolved" xml:space="preserve">
+    <value>الطلب ده اتقبل أو اترفض قبل كده</value>
+  </data>
+  <data name="LinkRequestAccepted" xml:space="preserve">
+    <value>تم قبول الطلب — الطالب اتربط بحسابك دلوقتي</value>
+  </data>
+  <data name="LinkRequestRejected" xml:space="preserve">
+    <value>تم رفض الطلب</value>
+  </data>
+  <data name="RosterStudentSelectionRequired" xml:space="preserve">
+    <value>اختار الطلب ده بتاع أنهي طالب من طلابك قبل ما تقبله</value>
+  </data>
+  <data name="RosterStudentNotFound" xml:space="preserve">
+    <value>سجل الطالب اللي اخترته مش موجود في حسابك</value>
+  </data>
+  <data name="RosterStudentAlreadyClaimed" xml:space="preserve">
+    <value>سجل الطالب ده مربوط بحساب طالب تاني بالفعل</value>
+  </data>
+  <data name="LinkedStudentsRemoved" xml:space="preserve">
+    <value>تم إزالة الطلاب المحددين من قائمة طلابك المرتبطين</value>
+  </data>
+  <data name="NoLinksSelected" xml:space="preserve">
+    <value>من فضلك اختار طالب واحد على الأقل للإزالة</value>
+  </data>
+  <data name="LinkRequestReceivedNotifTitle" xml:space="preserve">
+    <value>طلب ربط جديد من طالب</value>
+  </data>
+  <data name="LinkRequestReceivedNotifBody" xml:space="preserve">
+    <value>{0} بعت طلب انضمام لقائمة طلابك. افتح التطبيق عشان تقبله أو ترفضه</value>
+  </data>
+  <data name="LinkRequestAcceptedNotifTitle" xml:space="preserve">
+    <value>تم قبول طلبك</value>
+  </data>
+  <data name="LinkRequestAcceptedNotifBody" xml:space="preserve">
+    <value>الأستاذ {0} قبل طلبك. محتواه بقى ظاهر على لوحة التحكم بتاعتك</value>
+  </data>
+  <data name="LinkRequestRejectedNotifTitle" xml:space="preserve">
+    <value>تم رفض طلبك</value>
+  </data>
+  <data name="LinkRequestRejectedNotifBody" xml:space="preserve">
+    <value>الأستاذ {0} رفض طلب الربط بتاعك</value>
+  </data>
+  <data name="LinkRemovedByTeacherNotifTitle" xml:space="preserve">
+    <value>تم إزالتك من عند المعلم</value>
+  </data>
+  <data name="LinkRemovedByTeacherNotifBody" xml:space="preserve">
+    <value>الأستاذ {0} شالك من قائمة طلابه المرتبطين</value>
+  </data>
   <data name="ParentUserInitializedSuccess" xml:space="preserve">
     <value>تم إنشاء حساب ولي الأمر بنجاح</value>
   </data>
