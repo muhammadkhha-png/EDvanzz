@@ -368,7 +368,8 @@ public class ExamHomeworkService : IExamHomeworkService
             //    the JSON snapshot above, then delete in bulk here.
             await _unitOfWork.ExamHomeworkRepo.DeleteAuditLogsForTemplateAsync(templateId);
 
-            // 3. NoAction hard delete — scopes, occurrences, obligations all go.
+            // 3. Leaf-first set-based hard delete: obligations → occurrences → scopes →
+            //    template (all FKs are NoAction, so nothing cascades on its own).
             await _unitOfWork.ExamHomeworkRepo.DeleteTemplateAsync(template);
 
             await _unitOfWork.SaveChangesAsync();

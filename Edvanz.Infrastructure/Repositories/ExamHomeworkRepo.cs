@@ -59,11 +59,38 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     /// <inheritdoc />
     public async Task DeleteTemplateAsync(AssignmentTemplate template)
     {
-        // Hard delete per REQ-EXH-037. NoAction configured in fluent API removes
-        // scopes, occurrences, and obligations. Audit logs survive (Restrict FK)
-        // and must be archived by the service layer before this call.
-        _context.AssignmentTemplates.Remove(template);
-        await Task.CompletedTask;
+        // Hard delete per REQ-EXH-037. Every child FK is NoAction, so the database
+        // cascades NOTHING — and client-side cascade can't run either: Remove(template)
+        // throws "association ... has been severed" for the required Scopes that
+        // GetTemplateWithScopesAsync loads into the tracker (this 500'd every template
+        // delete). Delete leaf-first with set-based statements instead; they run inside
+        // the caller's ambient transaction. Obligation audit logs (Restrict FK) are
+        // archived and deleted by the service BEFORE this call. IgnoreQueryFilters keeps
+        // this a true purge even if soft-delete filters are added to these entities later.
+        long templateId = template.Id;
+
+        await _context.StudentAssignmentObligations
+            .IgnoreQueryFilters()
+            .Where(o => o.Occurrence.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+
+        await _context.AssignmentOccurrences
+            .IgnoreQueryFilters()
+            .Where(o => o.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+
+        await _context.AssignmentScopes
+            .IgnoreQueryFilters()
+            .Where(s => s.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+
+        await _context.AssignmentTemplates
+            .IgnoreQueryFilters()
+            .Where(t => t.Id == templateId)
+            .ExecuteDeleteAsync();
+
+        // The template (and any included scopes) may still sit in the change tracker as
+        // Unchanged; the caller's SaveChangesAsync then persists only the deletion log.
     }
 
     /// <inheritdoc />
