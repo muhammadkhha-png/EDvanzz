@@ -57,6 +57,7 @@ jobs:
           RG=$(az webapp list --query "[?name=='app-edvanz-api-prod'].resourceGroup | [0]" -o tsv)
           if [ -z "$RG" ]; then echo "Could not resolve resource group for app-edvanz-api-prod"; exit 1; fi
           echo "Resource group: $RG"
+          echo "RG=$RG" >> "$GITHUB_ENV"
           CURRENT=$(az webapp config appsettings list \
             --name app-edvanz-api-prod --resource-group "$RG" \
             --query "[?name=='ConnectionStrings__con'].value | [0]" -o tsv)
@@ -80,7 +81,35 @@ jobs:
           connection-string: ${{ secrets.PROD_SQL_CONNECTION }}
           path: ./migrate.sql
 
-      - uses: azure/webapps-deploy@v3
-        with:
-          app-name: app-edvanz-api-prod
-          package: ./publish
+      # Run-From-Package: the app runs directly from an immutable zip mounted at wwwroot
+      # instead of thousands of loose files copied there. The old copy-then-restart dance is
+      # the window where App Service's settings sync lost the race and first containers booted
+      # env-less (SQL 18456 crash, container retry — the historical slow swaps). Written only
+      # when missing, so routine deploys trigger no extra restart.
+      - name: Ensure Run-From-Package mode
+        run: |
+          RFP=$(az webapp config appsettings list \
+            --name app-edvanz-api-prod --resource-group "$RG" \
+            --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value | [0]" -o tsv)
+          if [ "$RFP" = "1" ]; then
+            echo "WEBSITE_RUN_FROM_PACKAGE already 1 — skipping write."
+          else
+            az webapp config appsettings set \
+              --name app-edvanz-api-prod --resource-group "$RG" \
+              --settings "WEBSITE_RUN_FROM_PACKAGE=1" \
+              --output none
+            echo "WEBSITE_RUN_FROM_PACKAGE set to 1 (one-time; the deploy below mounts the package)."
+          fi
+
+      # Explicit zip deploy: with WEBSITE_RUN_FROM_PACKAGE=1, Kudu stores the zip in
+      # /home/data/SitePackages and mounts it read-only at wwwroot — an atomic switch.
+      # Rollback: delete the WEBSITE_RUN_FROM_PACKAGE app setting and redeploy a commit
+      # using the previous azure/webapps-deploy step.
+      - name: Package publish output
+        run: cd publish && zip -qr ../package.zip .
+
+      - name: Deploy zip to App Service
+        run: |
+          az webapp deploy \
+            --resource-group "$RG" --name app-edvanz-api-prod \
+            --src-path package.zip --type zip
