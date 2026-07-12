@@ -56,6 +56,39 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // VIDEO ↔ UNIT LINKS (M:N join VideoAssetUnits)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<List<long>> GetLinkedUnitIdsAsync(long videoAssetId)
+    {
+        return await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .Select(x => x.UnitId)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task ReplaceUnitLinksAsync(long videoAssetId, IEnumerable<long> unitIds)
+    {
+        var desired = unitIds.Distinct().ToList();
+        var existing = await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .ToListAsync();
+        var existingIds = existing.Select(x => x.UnitId).ToHashSet();
+
+        var toRemove = existing.Where(x => !desired.Contains(x.UnitId)).ToList();
+        if (toRemove.Count > 0)
+            _context.VideoAssetUnits.RemoveRange(toRemove);
+
+        var toAdd = desired
+            .Where(id => !existingIds.Contains(id))
+            .Select(id => new VideoAssetUnit { VideoAssetId = videoAssetId, UnitId = id });
+        await _context.VideoAssetUnits.AddRangeAsync(toAdd);
+        // Caller owns the commit boundary (SaveChanges / UnitOfWork), per the module's write-path convention.
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // VIDEO ASSET — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════
 
