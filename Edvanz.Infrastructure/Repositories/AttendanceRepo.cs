@@ -941,10 +941,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             .Where(a => a.IsActive && a.TeacherId == teacherId)
             .Where(a => a.SessionId == sessionId
                 || (a.SessionId.HasValue && linkedIds.Contains(a.SessionId.Value)))
-            .Include(a => a.TeacherStudent)
-            // Exclude assignments whose student was soft-deleted (recycle bin): the global query
-            // filter nulls the navigation, which previously surfaced them as "Unknown" rows.
-            .Where(a => a.TeacherStudent != null);
+            // Exclude soft-deleted students (they previously surfaced as "Unknown"): EXISTS against
+            // TeacherStudents (whose global filter already drops deleted rows). Plain subquery — NOT a
+            // nav-null filter over an Include'd projection, which failed to translate (→ 500).
+            .Where(a => _context.TeacherStudents.Any(ts => ts.Id == a.TeacherStudentId))
+            .Include(a => a.TeacherStudent);
 
         var occurrenceId = await _context.SessionOccurrences
             .Where(o => o.SessionId == sessionId && o.OccurrenceDate == occurrenceDate.Date)
@@ -988,28 +989,30 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             rowQuery = rowQuery.Where(r => r.AttendanceRecord == null);
         }
 
-        // Counts run on a slim entity-level query, NOT the projected rowQuery: a predicate COUNT over
-        // that projection (which carries correlated FirstOrDefault subqueries) is not translatable by
-        // EF Core and 500s. Mirror rowQuery's search / unmarked filters so the totals stay in sync.
-        IQueryable<StudentSessionAssignment> countQuery = assignmentQuery;
+        int totalCount = await rowQuery.CountAsync();
+
+        // assigned_count / not_assigned_count split, computed on a projection-free query with the SAME
+        // filters (a predicate COUNT over rowQuery's correlated-subquery projection does not translate).
+        // assigned + not_assigned == totalCount.
+        var countBase = _context.StudentSessionAssignments
+            .Where(a => a.IsActive && a.TeacherId == teacherId)
+            .Where(a => a.SessionId == sessionId
+                || (a.SessionId.HasValue && linkedIds.Contains(a.SessionId.Value)))
+            .Where(a => _context.TeacherStudents.Any(ts => ts.Id == a.TeacherStudentId));
         if (!string.IsNullOrWhiteSpace(search))
         {
             string countPattern = $"%{search.Trim()}%";
-            countQuery = countQuery.Where(a =>
-                EF.Functions.Like(a.TeacherStudent!.StudentName, countPattern)
-                || EF.Functions.Like(a.TeacherStudent!.StudentCode, countPattern));
+            countBase = countBase.Where(a => _context.TeacherStudents.Any(ts =>
+                ts.Id == a.TeacherStudentId
+                && (EF.Functions.Like(ts.StudentName, countPattern) || EF.Functions.Like(ts.StudentCode, countPattern))));
         }
         if (unmarkedOnly && occurrenceId.HasValue)
         {
             long markedOccId = occurrenceId.Value;
-            countQuery = countQuery.Where(a => !_context.AttendanceRecords
+            countBase = countBase.Where(a => !_context.AttendanceRecords
                 .Any(r => r.TeacherStudentId == a.TeacherStudentId && r.SessionOccurrenceId == markedOccId));
         }
-
-        int totalCount = await countQuery.CountAsync();
-        // assigned_count = students in THIS session; not_assigned_count = students shown from linked
-        // sessions. They split the (filtered) result set and sum to totalCount.
-        int assignedCount = await countQuery.CountAsync(a => a.SessionId == sessionId);
+        int assignedCount = await countBase.CountAsync(a => a.SessionId == sessionId);
         int notAssignedCount = totalCount - assignedCount;
 
         var pagedResults = await rowQuery
