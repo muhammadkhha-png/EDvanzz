@@ -81,30 +81,29 @@ jobs:
           connection-string: ${{ secrets.PROD_SQL_CONNECTION }}
           path: ./migrate.sql
 
-      # Run-From-Package: the app runs directly from an immutable zip mounted at wwwroot
-      # instead of thousands of loose files copied there. The old copy-then-restart dance is
-      # the window where App Service's settings sync lost the race and first containers booted
-      # env-less (SQL 18456 crash, container retry — the historical slow swaps). Written only
-      # when missing, so routine deploys trigger no extra restart.
-      - name: Ensure Run-From-Package mode
+      # WEBSITE_RUN_FROM_PACKAGE=1 was tried on 2026-07-12 and is INERT on this Linux web
+      # app (no package stored in /home/data/SitePackages; the site kept serving loose
+      # wwwroot files) — the "=1" mode is effectively Windows/Functions-only. An ignored
+      # setting is a landmine (a platform update could suddenly enforce it and break boot),
+      # so remove it if present. No-op (and no restart) on every run after the first.
+      - name: Remove inert WEBSITE_RUN_FROM_PACKAGE setting
         run: |
           RFP=$(az webapp config appsettings list \
             --name app-edvanz-api-prod --resource-group "$RG" \
             --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value | [0]" -o tsv)
-          if [ "$RFP" = "1" ]; then
-            echo "WEBSITE_RUN_FROM_PACKAGE already 1 — skipping write."
-          else
-            az webapp config appsettings set \
+          if [ -n "$RFP" ]; then
+            az webapp config appsettings delete \
               --name app-edvanz-api-prod --resource-group "$RG" \
-              --settings "WEBSITE_RUN_FROM_PACKAGE=1" \
+              --setting-names WEBSITE_RUN_FROM_PACKAGE \
               --output none
-            echo "WEBSITE_RUN_FROM_PACKAGE set to 1 (one-time; the deploy below mounts the package)."
+            echo "Removed inert WEBSITE_RUN_FROM_PACKAGE (was '$RFP')."
+          else
+            echo "WEBSITE_RUN_FROM_PACKAGE not set — nothing to do."
           fi
 
-      # Explicit zip deploy: with WEBSITE_RUN_FROM_PACKAGE=1, Kudu stores the zip in
-      # /home/data/SitePackages and mounts it read-only at wwwroot — an atomic switch.
-      # Rollback: delete the WEBSITE_RUN_FROM_PACKAGE app setting and redeploy a commit
-      # using the previous azure/webapps-deploy step.
+      # Explicit zip deploy via OneDeploy: one artifact upload, server-side extraction,
+      # single restart — measured a clean 63s swap with no throwaway container. Kept over
+      # azure/webapps-deploy for determinism.
       - name: Package publish output
         run: cd publish && zip -qr ../package.zip .
 
