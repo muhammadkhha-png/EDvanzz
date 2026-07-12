@@ -156,6 +156,8 @@ public static class VideoConstants
         public const string WatchStarted   = "WatchStarted";
         public const string WatchStopped   = "WatchStopped";
         public const string VideoStatusUpdated = "VideoStatusUpdated";
+        public const string ExamCreated = "ExamCreated";
+        public const string AttachmentUpdateFailedVideoSaved = "AttachmentUpdateFailedVideoSaved";
 
         // ── Errors ───────────────────────────────────────────────────────────
         public const string VideoNotFound                = "VideoNotFound";
@@ -200,6 +202,15 @@ public static class VideoConstants
 
         // ── Phase 4 — full update (optimistic concurrency) ─────────────────────
         public const string ConcurrencyConflict = "ConcurrencyConflict";
+        // ── Merged create: scope + exam ─────────────────────────────────────────
+        public const string ExamTitleRequired = "ExamTitleRequired";
+        public const string ExamMustHaveQuestions = "ExamMustHaveQuestions";
+        public const string ExamQuestionTextRequired = "ExamQuestionTextRequired";
+        public const string ExamQuestionNeedsOptions = "ExamQuestionNeedsOptions";
+        public const string SingleChoiceNeedsExactlyOneCorrect = "SingleChoiceNeedsExactlyOneCorrect";
+        public const string MultipleChoiceNeedsAtLeastOneCorrect = "MultipleChoiceNeedsAtLeastOneCorrect";
+
+        public const string VideoUnitsAssigned = "VideoUnitsAssigned";
 
         /// <summary>
         /// Maximum retry attempts for the StartWatch flow when a concurrent first-time

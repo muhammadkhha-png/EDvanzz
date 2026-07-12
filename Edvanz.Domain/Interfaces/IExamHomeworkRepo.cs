@@ -116,6 +116,13 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<IReadOnlyList<AssignmentScope>> GetScopesByTemplateAsync(long templateId);
 
     /// <summary>
+    /// Batch variant of <see cref="GetScopesByTemplateAsync"/> — returns scopes (with Session and
+    /// SessionGroup eager-loaded) for a set of templates in one query. Used by the exam home screen to
+    /// report each exam's selection mode + assigned sessions/groups without N+1.
+    /// </summary>
+    Task<IReadOnlyList<AssignmentScope>> GetScopesByTemplateIdsAsync(IEnumerable<long> templateIds);
+
+    /// <summary>
     /// Removes scope rows. Used during template edit when the tutor changes targeting
     /// (e.g., removes a session from the scope set per REQ-EXH-034).
     /// </summary>
@@ -531,6 +538,13 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByIdsAsync(
         long teacherId, long occurrenceId, IEnumerable<long> obligationIds);
 
+    /// <summary>
+    /// Tracked obligations for the given students within one occurrence, for the exam-attendance path
+    /// keyed by student id. Resolved via the unique (OccurrenceId, TeacherStudentId) index.
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByOccurrenceAndStudentsAsync(
+        long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds);
+
     // ══════════════════════════════════════════════════════════════════════
     // PICKERS — typeahead and eligible-students
     // ══════════════════════════════════════════════════════════════════════
@@ -627,6 +641,13 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForHomeAsync(long teacherId);
 
     /// <summary>
+    /// Paged exam-home occurrences for one bucket: upcoming (DueDate &gt;= today, ascending) or past
+    /// (DueDate &lt; today, descending). Returns the page rows + total count for that bucket.
+    /// </summary>
+    Task<(IReadOnlyList<ExamHomeOccurrenceRow> Items, int TotalCount)> GetExamOccurrencesForHomePagedAsync(
+        long teacherId, bool isPast, DateTime today, int page, int pageSize);
+
+    /// <summary>
     /// The occurrences (session + date + snapshotted grading config) of a single exam, ordered by
     /// date. Powers the per-session grouping of the opened-exam view.
     /// </summary>
@@ -644,6 +665,14 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// </summary>
     Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsForGradingByIdsAsync(
         long teacherId, IEnumerable<long> obligationIds);
+
+    /// <summary>
+    /// Resolves each student's obligation within a single exam (template), tracked, with Occurrence +
+    /// Template included, for the batch grade path keyed by student id. A student with one primary
+    /// session has exactly one obligation per exam; more than one signals a data anomaly (caller rejects).
+    /// </summary>
+    Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsForGradingByTemplateAndStudentsAsync(
+        long teacherId, long templateId, IEnumerable<long> teacherStudentIds);
 
     /// <summary>Returns the ids of exam occurrences linked to a given session occurrence (during-session exams).</summary>
     Task<IReadOnlyList<long>> GetExamOccurrenceIdsBySessionOccurrenceAsync(long teacherId, long sessionOccurrenceId);

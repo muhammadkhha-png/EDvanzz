@@ -25,6 +25,8 @@ public sealed class TeacherVideoListRow
 {
     public long Id { get; set; }
     public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public string SourceUrl { get; set; } = null!;
     public Enums.VideoSourceType SourceType { get; set; }
     public int DurationSeconds { get; set; }
     public int StudentsInScope { get; set; }

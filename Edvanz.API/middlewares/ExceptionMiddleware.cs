@@ -10,11 +10,14 @@ public class ExceptionMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly IStringLocalizer<Edvanz.Domain.Resources.Messages> _localizer;
+    private readonly ILogger<ExceptionMiddleware> _logger;
 
-    public ExceptionMiddleware(RequestDelegate next, IStringLocalizer<Edvanz.Domain.Resources.Messages> localizer)
+    public ExceptionMiddleware(RequestDelegate next, IStringLocalizer<Edvanz.Domain.Resources.Messages> localizer,
+        ILogger<ExceptionMiddleware> logger)
     {
         _next = next;
         _localizer = localizer;
+        _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -25,6 +28,8 @@ public class ExceptionMiddleware
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Unhandled exception for {Method} {Path}{QueryString}",
+                context.Request.Method, context.Request.Path, context.Request.QueryString);
             await HandleExceptionAsync(context, ex);
         }
     }

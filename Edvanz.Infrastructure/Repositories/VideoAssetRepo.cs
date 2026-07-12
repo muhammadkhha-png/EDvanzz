@@ -56,6 +56,39 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // VIDEO ↔ UNIT LINKS (M:N join VideoAssetUnits)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<List<long>> GetLinkedUnitIdsAsync(long videoAssetId)
+    {
+        return await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .Select(x => x.UnitId)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task ReplaceUnitLinksAsync(long videoAssetId, IEnumerable<long> unitIds)
+    {
+        var desired = unitIds.Distinct().ToList();
+        var existing = await _context.VideoAssetUnits
+            .Where(x => x.VideoAssetId == videoAssetId)
+            .ToListAsync();
+        var existingIds = existing.Select(x => x.UnitId).ToHashSet();
+
+        var toRemove = existing.Where(x => !desired.Contains(x.UnitId)).ToList();
+        if (toRemove.Count > 0)
+            _context.VideoAssetUnits.RemoveRange(toRemove);
+
+        var toAdd = desired
+            .Where(id => !existingIds.Contains(id))
+            .Select(id => new VideoAssetUnit { VideoAssetId = videoAssetId, UnitId = id });
+        await _context.VideoAssetUnits.AddRangeAsync(toAdd);
+        // Caller owns the commit boundary (SaveChanges / UnitOfWork), per the module's write-path convention.
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // VIDEO ASSET — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════
 
@@ -66,15 +99,49 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
     public async Task DeleteVideoAsync(VideoAsset video)
     {
-        // Hard delete per REQ-VCM-BR-03. Composite-FK NoAction removes scopes,
-        // analytics, and watch events. Audit row is INSERTed by the service
-        // layer in the same transaction BEFORE this call — the NoAction does
-        // not touch VideoAssetAudits (no FK back to VideoAssets, by design).
+        // Hard delete per REQ-VCM-BR-03. FIX: NoAction on SQL Server does NOT
+        // cascade — it BLOCKS the delete while child rows exist (the previous
+        // version of this method relied on a doc comment claiming the
+        // opposite, which was simply wrong, and threw
+        // FK_VideoScopes_VideoAssets_VideoAssetId_TeacherId on any scoped
+        // video). Every NoAction-FK child table is cleared explicitly here,
+        // one ExecuteDeleteAsync round trip each, before the VideoAsset
+        // removal is staged. VideoExam is the one exception — its FK is
+        // CASCADE, so SQL Server removes it (and its cascaded Questions/
+        // Options) automatically; no explicit delete needed for it.
+        //
+        // Audit row is INSERTed by the service layer in the same transaction
+        // BEFORE this call — VideoAssetAudits has no FK back to VideoAssets
+        // (by design), so it's untouched by any of this.
+        long videoAssetId = video.Id;
+
+        await _context.VideoScopes
+            .Where(s => s.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoAttachments
+            .Where(a => a.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoAnalytics
+            .Where(a => a.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoWatchEvents
+            .Where(e => e.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
+        await _context.VideoAssetUnits
+            .Where(u => u.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+
         _context.VideoAssets.Remove(video);
         await Task.CompletedTask;
     }
+
 
     /// <inheritdoc />
     public async Task<bool> TryUpdateDurationWithinToleranceAsync(
@@ -206,23 +273,25 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .OrderByDescending(v => v.CreateAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(v => new TeacherVideoListRow
-            {
-                Id = v.Id,
-                Title = v.Title,
-                SourceType = v.SourceType,
-                DurationSeconds = v.DurationSeconds,
-                StudentsInScope = _context.VideoScopes.Count(s => s.VideoAssetId == v.Id),
-                TotalOpens = _context.VideoAnalytics
+           .Select(v => new TeacherVideoListRow
+           {
+               Id = v.Id,
+               Title = v.Title,
+               Description = v.Description,
+               SourceUrl = v.SourceUrl,
+               SourceType = v.SourceType,
+               DurationSeconds = v.DurationSeconds,
+               StudentsInScope = _context.VideoScopes.Count(s => s.VideoAssetId == v.Id),
+               TotalOpens = _context.VideoAnalytics
                     .Where(a => a.VideoAssetId == v.Id)
                     .Sum(a => (int?)a.OpenCount) ?? 0,
-                // G-ANL-3: distinct students who opened at least once — NOT
-                // TotalOpens, which counts re-opens. Any VideoAnalytics row
-                // implies the student has opened the video once.
-                SeenStudentCount = _context.VideoAnalytics
+               // G-ANL-3: distinct students who opened at least once — NOT
+               // TotalOpens, which counts re-opens. Any VideoAnalytics row
+               // implies the student has opened the video once.
+               SeenStudentCount = _context.VideoAnalytics
                     .Count(a => a.VideoAssetId == v.Id),
-                CreatedAt = v.CreateAt,
-            })
+               CreatedAt = v.CreateAt,
+           })
             .AsNoTracking()
             .ToListAsync();
 
@@ -560,41 +629,23 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     // ══════════════════════════════════════════════════════════════════════
     // ANALYTICS — READ PATH
     // ══════════════════════════════════════════════════════════════════════
-
-    /// <inheritdoc />
-    public async Task<(IReadOnlyList<VideoAnalyticsReportRow> Items, int TotalCount)>
-        GetAnalyticsRowsForTeacherAsync(
-            long teacherId, long videoAssetId, string? search,
-            VideoAnalyticsSortBy sortBy, SortDirection sortDirection,
-            VideoAnalyticsStatusFilter statusFilter,
-            int page, int pageSize)
+    /// <summary>
+    /// Full resolved-students set for a video: union of the video's own
+    /// VideoScope (three branches: individual/session/group — individual is
+    /// dead code today, VideoScopeType has no IndividualStudent value, kept
+    /// harmless/no-op for any legacy data) PLUS, when the video belongs to
+    /// one or more units, each linked unit's VideoUnitScope (same three
+    /// branches). This is the union rule documented on VideoUnitScope.cs:
+    /// "A student is authorized for a video the moment EITHER scope resolves
+    /// them — the video's own scope, OR (when the video belongs to a unit)
+    /// that unit's scope." Shared by GetAnalyticsRowsForTeacherAsync and
+    /// GetAnalyticsAggregatesAsync so the two can never disagree on who's
+    /// "in scope" for the same video.
+    /// </summary>
+    private IQueryable<long> GetResolvedStudentIdsForVideoQuery(long teacherId, long videoAssetId)
     {
-        // Story F report. Build the resolved-students set in SQL via the
-        // three-way scope UNION, then LEFT JOIN VideoAnalytics so students
-        // who have never opened the video still appear with HasOpened=false.
-        //
-        // We need the video's duration for the completion-percentage math,
-        // and also to bound the report ("you can't have analytics for a
-        // video the teacher doesn't own"). One small lookup.
-        var video = await _context.VideoAssets
-            .Where(v => v.Id == videoAssetId && v.TeacherId == teacherId)
-            .Select(v => new { v.DurationSeconds })
-            .AsNoTracking()
-            .FirstOrDefaultAsync();
-
-        if (video is null)
-        {
-            return (Array.Empty<VideoAnalyticsReportRow>(), 0);
-        }
-
-        int durationSeconds = video.DurationSeconds;
-
-        // Resolved-students set: union of three scope branches, distinct.
-        // EF Core 10 supports Concat + Distinct on IQueryable<long>.
         var individualScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
-                    
-                     && s.TeacherStudentId.HasValue)
+            .Where(s => s.VideoAssetId == videoAssetId && s.TeacherStudentId.HasValue)
             .Select(s => s.TeacherStudentId!.Value);
 
         var sessionScope = _context.VideoScopes
@@ -623,10 +674,84 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .Where(x => x.TeacherId == teacherId)
             .Select(x => x.Id);
 
-        var resolvedStudentIds = individualScope
+        // NEW — the video's linked unit(s)' own scope, resolved the same
+        // three-branch way, joined through VideoAssetUnits (M:N) instead of
+        // reading VideoScopes directly. A video with no unit links
+        // contributes an empty set here, so this is a strict superset of the
+        // old behavior — never removes access a video previously granted.
+        var unitIndividualScope = _context.VideoAssetUnits
+            .Where(au => au.VideoAssetId == videoAssetId)
+            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
+            .Where(us => us.TeacherStudentId.HasValue)
+            .Select(us => us.TeacherStudentId!.Value);
+
+        var unitSessionScope = _context.VideoAssetUnits
+            .Where(au => au.VideoAssetId == videoAssetId)
+            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
+            .Where(us => us.ScopeType == VideoScopeType.Session && us.SessionId.HasValue)
+            .Join(_context.TeacherStudents,
+                  us => us.SessionId,
+                  ts => ts.SessionId,
+                  (us, ts) => new { ts.Id, ts.TeacherId })
+            .Where(x => x.TeacherId == teacherId)
+            .Select(x => x.Id);
+
+        var unitGroupScope = _context.VideoAssetUnits
+            .Where(au => au.VideoAssetId == videoAssetId)
+            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
+            .Where(us => us.ScopeType == VideoScopeType.SessionGroup && us.SessionGroupId.HasValue)
+            .Join(_context.Sessions,
+                  us => us.SessionGroupId,
+                  se => se.SessionGroupId,
+                  (us, se) => se.Id)
+            .Join(_context.TeacherStudents,
+                  sessionId => sessionId,
+                  ts => ts.SessionId,
+                  (sessionId, ts) => new { ts.Id, ts.TeacherId })
+            .Where(x => x.TeacherId == teacherId)
+            .Select(x => x.Id);
+
+        return individualScope
             .Union(sessionScope)
             .Union(groupScope)
+            .Union(unitIndividualScope)
+            .Union(unitSessionScope)
+            .Union(unitGroupScope)
             .Distinct();
+    }
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<VideoAnalyticsReportRow> Items, int TotalCount)>
+        GetAnalyticsRowsForTeacherAsync(
+            long teacherId, long videoAssetId, string? search,
+            VideoAnalyticsSortBy sortBy, SortDirection sortDirection,
+            VideoAnalyticsStatusFilter statusFilter,
+            int page, int pageSize)
+    {
+        // Story F report. Build the resolved-students set in SQL via the
+        // three-way scope UNION, then LEFT JOIN VideoAnalytics so students
+        // who have never opened the video still appear with HasOpened=false.
+        //
+        // We need the video's duration for the completion-percentage math,
+        // and also to bound the report ("you can't have analytics for a
+        // video the teacher doesn't own"). One small lookup.
+        var video = await _context.VideoAssets
+            .Where(v => v.Id == videoAssetId && v.TeacherId == teacherId)
+            .Select(v => new { v.DurationSeconds })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+
+        if (video is null)
+        {
+            return (Array.Empty<VideoAnalyticsReportRow>(), 0);
+        }
+
+        int durationSeconds = video.DurationSeconds;
+
+        // Resolved-students set: video's own scope UNION its unit's scope
+        // (if any) — see GetResolvedStudentIdsForVideoQuery.
+        var resolvedStudentIds = GetResolvedStudentIdsForVideoQuery(teacherId, videoAssetId);
+
+        // Project each resolved student joined with their analytics row
 
         // Project each resolved student joined with their analytics row
         // (LEFT JOIN). Compute estimatedCompletionPct and rawWatchPct in
@@ -714,48 +839,12 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     public async Task<VideoAnalyticsAggregates> GetAnalyticsAggregatesAsync(
         long teacherId, long videoAssetId)
     {
-        // Two scalar queries, run as one round trip via Task.WhenAll.
-        // - TotalStudentsInScope: union of three scope branches, distinct
-        //   count. Reuses the same logic as GetAnalyticsRowsForTeacherAsync
-        //   so numbers stay consistent.
-        // - TotalStudentsWatched: count of analytics rows for this video
-        //   (any analytics row implies HasOpened=true).
-        var individualScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
-                    
-                     && s.TeacherStudentId.HasValue)
-            .Select(s => s.TeacherStudentId!.Value);
-
-        var sessionScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
-                     && s.ScopeType == VideoScopeType.Session
-                     && s.SessionId.HasValue)
-            .Join(_context.TeacherStudents,
-                  s => s.SessionId,
-                  ts => ts.SessionId,
-                  (s, ts) => new { ts.Id, ts.TeacherId })
-            .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
-
-        var groupScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
-                     && s.ScopeType == VideoScopeType.SessionGroup
-                     && s.SessionGroupId.HasValue)
-            .Join(_context.Sessions,
-                  s => s.SessionGroupId,
-                  se => se.SessionGroupId,
-                  (s, se) => se.Id)
-            .Join(_context.TeacherStudents,
-                  sessionId => sessionId,
-                  ts => ts.SessionId,
-                  (sessionId, ts) => new { ts.Id, ts.TeacherId })
-            .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
-
-        var resolvedStudentIds = individualScope
-            .Union(sessionScope)
-            .Union(groupScope)
-            .Distinct();
+        // TotalStudentsInScope: video's own scope UNION its unit's scope —
+        // same shared helper GetAnalyticsRowsForTeacherAsync uses, so the
+        // two can never disagree.
+        // TotalStudentsWatched: count of analytics rows for this video (any
+        // analytics row implies HasOpened=true).
+        var resolvedStudentIds = GetResolvedStudentIdsForVideoQuery(teacherId, videoAssetId);
 
         int totalInScope = await resolvedStudentIds.CountAsync();
 
@@ -923,33 +1012,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     // UNIT LINKS — WRITE/READ PATH (M:N, Phase 1 VideoAssetUnit join table)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// <inheritdoc />
-    public async Task ReplaceUnitLinksAsync(long videoAssetId, IEnumerable<long> unitIds)
-    {
-        // Same single-round-trip convention as DeleteAllScopesForVideoAsync:
-        // ExecuteDeleteAsync, no in-memory load-then-remove. No SaveChangesAsync
-        // here — caller (service, inside its own transaction) owns the commit.
-        await _context.VideoAssetUnits
-            .Where(x => x.VideoAssetId == videoAssetId)
-            .ExecuteDeleteAsync();
-
-        var rows = unitIds.Distinct().Select(unitId => new VideoAssetUnit
-        {
-            VideoAssetId = videoAssetId,
-            UnitId = unitId,
-        });
-
-        await _context.VideoAssetUnits.AddRangeAsync(rows);
-    }
-
-    /// <inheritdoc />
-    public async Task<List<long>> GetLinkedUnitIdsAsync(long videoAssetId)
-    {
-        return await _context.VideoAssetUnits
-            .Where(x => x.VideoAssetId == videoAssetId)
-            .Select(x => x.UnitId)
-            .ToListAsync();
-    }
+  
 
     // ══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
@@ -996,5 +1059,37 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         await _context.VideoAssets
             .Where(v => v.Id == videoAssetId)
             .ExecuteUpdateAsync(s => s.SetProperty(v => v.ThumbnailBlobPath, blobPath));
+    }
+    /// <inheritdoc />
+    public async Task AddExamAsync(VideoExam exam)
+    {
+        await _context.VideoExams.AddAsync(exam);
+    }
+    /// <inheritdoc />
+    public async Task DeleteExamForVideoAsync(long videoAssetId)
+    {
+        await _context.VideoExams
+            .Where(e => e.VideoAssetId == videoAssetId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<List<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId)
+    {
+        return await _context.VideoAttachments
+            .Where(a => a.VideoAssetId == videoAssetId)
+            .OrderByDescending(a => a.CreateAt)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+    /// <inheritdoc />
+    public async Task<VideoExam?> GetExamWithQuestionsAsync(long videoAssetId, long teacherId)
+    {
+        return await _context.VideoExams
+            .Where(e => e.VideoAssetId == videoAssetId && e.TeacherId == teacherId)
+            .Include(e => e.Questions.OrderBy(q => q.SortOrder))
+                .ThenInclude(q => q.Options.OrderBy(o => o.SortOrder))
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
     }
 }

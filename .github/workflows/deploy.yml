@@ -45,17 +45,30 @@ jobs:
       # Inject the DB connection string into Azure App Service configuration from the secret, so it
       # is NEVER committed to the repo (appsettings.Production.json intentionally has no "con").
       # Runs BEFORE deploy and fail-fast: if it errors, the job stops and the running app is left
-      # untouched. Idempotent — sets the same app setting every deploy.
+      # untouched. Only writes when the value actually changed: an unconditional write restarts the
+      # site on EVERY deploy, and that extra restart raced the OneDeploy restart — first containers
+      # sometimes booted without the app setting, fell back to the committed (rotated) connection
+      # string, crashed with SQL login error 18456, and Azure retried the container (the "slow
+      # deploys" of 2026-07-10..12; see /home/LogFiles/StartupLogs/*_failure.log).
       - name: Set DB connection string in App Service config
+        env:
+          PROD_SQL_CONNECTION: ${{ secrets.PROD_SQL_CONNECTION }}
         run: |
           RG=$(az webapp list --query "[?name=='app-edvanz-api-prod'].resourceGroup | [0]" -o tsv)
           if [ -z "$RG" ]; then echo "Could not resolve resource group for app-edvanz-api-prod"; exit 1; fi
           echo "Resource group: $RG"
-          az webapp config appsettings set \
+          CURRENT=$(az webapp config appsettings list \
             --name app-edvanz-api-prod --resource-group "$RG" \
-            --settings "ConnectionStrings__con=${{ secrets.PROD_SQL_CONNECTION }}" \
-            --output none
-          echo "App setting ConnectionStrings__con configured."
+            --query "[?name=='ConnectionStrings__con'].value | [0]" -o tsv)
+          if [ "$CURRENT" = "$PROD_SQL_CONNECTION" ]; then
+            echo "App setting ConnectionStrings__con already up to date — skipping write (avoids a site restart)."
+          else
+            az webapp config appsettings set \
+              --name app-edvanz-api-prod --resource-group "$RG" \
+              --settings "ConnectionStrings__con=$PROD_SQL_CONNECTION" \
+              --output none
+            echo "App setting ConnectionStrings__con updated."
+          fi
 
       # Apply the migration script to Azure SQL. azure/sql-action opens a temporary firewall rule
       # for the runner using the azure/login session above and removes it afterwards.

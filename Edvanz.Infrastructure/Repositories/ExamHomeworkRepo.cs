@@ -150,6 +150,21 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<AssignmentScope>> GetScopesByTemplateIdsAsync(
+        IEnumerable<long> templateIds)
+    {
+        var ids = templateIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<AssignmentScope>();
+
+        return await _context.AssignmentScopes
+            .Where(s => ids.Contains(s.TemplateId))
+            .Include(s => s.Session)
+            .Include(s => s.SessionGroup)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task DeleteScopesRangeAsync(IEnumerable<AssignmentScope> scopes)
     {
         _context.AssignmentScopes.RemoveRange(scopes);
@@ -1008,6 +1023,41 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<(IReadOnlyList<ExamHomeOccurrenceRow> Items, int TotalCount)>
+        GetExamOccurrencesForHomePagedAsync(long teacherId, bool isPast, DateTime today, int page, int pageSize)
+    {
+        var day = today.Date;
+        var baseQuery = _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId && o.Template.AssignmentType == AssignmentType.Exam)
+            .Where(o => isPast ? o.DueDate < day : o.DueDate >= day);
+
+        int totalCount = await baseQuery.CountAsync();
+
+        var ordered = isPast
+            ? baseQuery.OrderByDescending(o => o.DueDate)
+            : baseQuery.OrderBy(o => o.DueDate);
+
+        var items = await ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(o => new ExamHomeOccurrenceRow
+            {
+                OccurrenceId = o.Id,
+                TemplateId = o.TemplateId,
+                ExamName = o.Template.Name,
+                DeliveryType = o.Template.ExamDeliveryType,
+                SessionId = o.SessionId,
+                SessionName = o.Session != null ? o.Session.SessionName : null,
+                SessionOccurrenceId = o.SessionOccurrenceId,
+                DueDate = o.DueDate,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<ExamHomeOccurrenceRow>> GetExamOccurrencesForDateAsync(
         long teacherId, DateTime date)
     {
@@ -1085,6 +1135,24 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         // Tracked (no AsNoTracking) so the batch grade path can apply RowVersion concurrency.
         return await _context.StudentAssignmentObligations
             .Where(o => o.TeacherId == teacherId && ids.Contains(o.Id))
+            .Include(o => o.Occurrence)
+                .ThenInclude(occ => occ.Template)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsForGradingByTemplateAndStudentsAsync(
+        long teacherId, long templateId, IEnumerable<long> teacherStudentIds)
+    {
+        var ids = teacherStudentIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<StudentAssignmentObligation>();
+
+        // Tracked so the batch grade path can apply RowVersion concurrency. Resolves each student's
+        // obligation within this exam (one primary session → one row; >1 signals a data anomaly).
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.Occurrence.TemplateId == templateId
+                     && ids.Contains(o.TeacherStudentId))
             .Include(o => o.Occurrence)
                 .ThenInclude(occ => occ.Template)
             .ToListAsync();
@@ -1303,6 +1371,21 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             .Where(o => o.TeacherId == teacherId
                      && o.OccurrenceId == occurrenceId
                      && idList.Contains(o.Id))
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentAssignmentObligation>> GetObligationsByOccurrenceAndStudentsAsync(
+        long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds)
+    {
+        var ids = teacherStudentIds.Distinct().ToList();
+        if (ids.Count == 0) return Array.Empty<StudentAssignmentObligation>();
+
+        // Tracked: the exam-attendance path mutates Status/Grade in place.
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.OccurrenceId == occurrenceId
+                     && ids.Contains(o.TeacherStudentId))
             .ToListAsync();
     }
 

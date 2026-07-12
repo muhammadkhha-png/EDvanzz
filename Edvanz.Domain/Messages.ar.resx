@@ -1017,6 +1017,18 @@
   <data name="ExamDateRequired" xml:space="preserve">
     <value>لازم تحدد تاريخ الامتحان للامتحان اللي في وقت منفصل</value>
   </data>
+  <data name="SelectEitherSessionsOrGroups" xml:space="preserve">
+    <value>اختار سيشنز أو جروبات للامتحان، مش الاتنين مع بعض</value>
+  </data>
+  <data name="GroupNotFoundOrForeign" xml:space="preserve">
+    <value>الجروب المختار مش موجود أو مش بتاعك</value>
+  </data>
+  <data name="SessionOccurrenceNotFoundForDate" xml:space="preserve">
+    <value>واحدة من السيشنز المختارة مفيش عندها حصة في تاريخ الامتحان</value>
+  </data>
+  <data name="AmbiguousStudentInExam" xml:space="preserve">
+    <value>الطالب ده ليه أكتر من إدخال في الامتحان؛ حدد السيشن</value>
+  </data>
   <data name="StudentNotInSession" xml:space="preserve">
     <value>فيه طالب أو أكتر مش موجود في السيشن المختارة</value>
   </data>
@@ -1354,5 +1366,15 @@
   <data name="ThumbnailTooLarge" xml:space="preserve">
     <value>الصورة المصغرة دي كبيرة أوي.</value>
 </data>
+<data name="ExamTitleRequired" xml:space="preserve"><value>الامتحان محتاج عنوان</value></data>
+  <data name="ExamMustHaveQuestions" xml:space="preserve"><value>الامتحان لازم يكون فيه سؤال واحد على الأقل</value></data>
+  <data name="ExamQuestionTextRequired" xml:space="preserve"><value>كل سؤال لازم يكون ليه نص</value></data>
+  <data name="ExamQuestionNeedsOptions" xml:space="preserve"><value>كل سؤال لازم يكون ليه اختيارين على الأقل</value></data>
+  <data name="SingleChoiceNeedsExactlyOneCorrect" xml:space="preserve"><value>سؤال الاختيار الواحد لازم تكون له إجابة صح واحدة بالظبط</value></data>
+  <data name="MultipleChoiceNeedsAtLeastOneCorrect" xml:space="preserve"><value>سؤال الاختيار المتعدد لازم تكون له إجابة صح واحدة على الأقل</value></data>
+<data name="AttachmentUpdateFailedVideoSaved" xml:space="preserve">
+    <value>التعديلات اتحفظت، بس الملف المرفق ماتحدثش. جرّب ترفعه تاني</value>
+  </data>
+  <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
 
 </root>

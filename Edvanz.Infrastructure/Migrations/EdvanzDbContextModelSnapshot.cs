@@ -3799,6 +3799,114 @@ namespace Edvanz.Infrastructure.Migrations
                     b.ToTable("VideoAttachments", (string)null);
                 });
 
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExam", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2(0)");
+
+                    b.Property<long?>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<long>("TeacherId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<long>("VideoAssetId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("VideoAssetId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_VideoExams_VideoAssetId");
+
+                    b.HasIndex("VideoAssetId", "TeacherId");
+
+                    b.ToTable("VideoExams", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExamQuestion", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2(0)");
+
+                    b.Property<long>("ExamId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("QuestionType")
+                        .HasColumnType("tinyint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExamId")
+                        .HasDatabaseName("IX_VideoExamQuestions_ExamId");
+
+                    b.ToTable("VideoExamQuestions", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExamQuestionOption", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2(0)");
+
+                    b.Property<bool>("IsCorrect")
+                        .HasColumnType("bit");
+
+                    b.Property<long>("QuestionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuestionId")
+                        .HasDatabaseName("IX_VideoExamQuestionOptions_QuestionId");
+
+                    b.ToTable("VideoExamQuestionOptions", (string)null);
+                });
+
             modelBuilder.Entity("Edvanz.Domain.Entities.VideoScope", b =>
                 {
                     b.Property<long>("Id")
@@ -5346,6 +5454,47 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Navigation("VideoAsset");
                 });
 
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExam", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Edvanz.Domain.Entities.VideoAsset", "VideoAsset")
+                        .WithMany()
+                        .HasForeignKey("VideoAssetId", "TeacherId")
+                        .HasPrincipalKey("Id", "TeacherId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("VideoAsset");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExamQuestion", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.VideoExam", "Exam")
+                        .WithMany("Questions")
+                        .HasForeignKey("ExamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Exam");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExamQuestionOption", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.VideoExamQuestion", "Question")
+                        .WithMany("Options")
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Question");
+                });
+
             modelBuilder.Entity("Edvanz.Domain.Entities.VideoScope", b =>
                 {
                     b.HasOne("Edvanz.Domain.Entities.User", "AssignedByUser")
@@ -5692,6 +5841,16 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Navigation("Scopes");
 
                     b.Navigation("WatchEvents");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExam", b =>
+                {
+                    b.Navigation("Questions");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.VideoExamQuestion", b =>
+                {
+                    b.Navigation("Options");
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.VideoUnit", b =>

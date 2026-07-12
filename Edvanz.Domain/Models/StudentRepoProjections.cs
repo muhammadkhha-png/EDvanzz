@@ -33,6 +33,14 @@ public sealed class SessionNameRow
     public long Id { get; set; }
     public string SessionName { get; set; } = null!;
 }
+
+/// <summary>Session identity plus its owning group id — for expanding a group into its member sessions.</summary>
+public sealed class GroupSessionRow
+{
+    public long GroupId { get; set; }
+    public long Id { get; set; }
+    public string SessionName { get; set; } = null!;
+}
 /// <summary>
 /// Compact session summary (Id + name + occurrence + payment + amount) projected
 /// without loading the full Session entity. Feeds the assigned-session card on the

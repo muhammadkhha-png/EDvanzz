@@ -1222,11 +1222,36 @@
 <data name="PhoneAlreadyExists" xml:space="preserve">
   <value>This phone number is already registered.</value>
 </data>
-<data name="RequestValidationFailed" xml:space="preserve">
+ <data name="RequestValidationFailed" xml:space="preserve">
     <value>We couldn't process this request. Please check the required fields and try again</value>
+  </data>
+  <data name="ConcurrencyConflict" xml:space="preserve">
+    <value>This video was changed by someone else while you were editing. Please refresh and try again</value>
   </data>
   <data name="ThumbnailTooLarge" xml:space="preserve">
     <value>This thumbnail is too large.</value>
 </data>
+ <data name="ExamTitleRequired" xml:space="preserve">
+    <value>The exam needs a title</value>
+  </data>
+  <data name="ExamMustHaveQuestions" xml:space="preserve">
+    <value>The exam needs at least one question</value>
+  </data>
+  <data name="ExamQuestionTextRequired" xml:space="preserve">
+    <value>Every question needs text</value>
+  </data>
+  <data name="ExamQuestionNeedsOptions" xml:space="preserve">
+    <value>Every question needs at least two answer options</value>
+  </data>
+  <data name="SingleChoiceNeedsExactlyOneCorrect" xml:space="preserve">
+    <value>A single-choice question must have exactly one correct answer</value>
+  </data>
+  <data name="MultipleChoiceNeedsAtLeastOneCorrect" xml:space="preserve">
+    <value>A multiple-choice question must have at least one correct answer</value>
+  </data>
+  <data name="AttachmentUpdateFailedVideoSaved" xml:space="preserve">
+    <value>Your changes were saved, but the attachment couldn't be updated. Please try uploading it again</value>
+  </data>
+  <data name="VideoUnitsAssigned" xml:space="preserve"><value>Video units updated</value></data>
 
 </root>

@@ -362,55 +362,88 @@ else
 }
 // ?? Subscription Module — Phase 08 recurring registrations ??
 
-// Daily reminder dispatcher (§7.1). 09:00 in Africa/Cairo by default.
+// These registrations are the boot's FIRST SQL round-trip (Hangfire storage connects
+// lazily here). A transient SQL failure at container-swap time used to abort the whole
+// process (exit 134), forcing Azure to retry the container and adding minutes to every
+// affected deploy (observed 2026-07-10..12 in /home/LogFiles/StartupLogs). Retry with
+// backoff so a swap-time blip cannot kill the boot; rethrow after the last attempt so a
+// genuinely broken configuration still fails loudly.
+for (int attempt = 1; ; attempt++)
 {
-    var reminderOpts = app.Services
-        .GetRequiredService<IOptions<ReminderSchedulerOptions>>().Value;
-
-    TimeZoneInfo timeZone;
     try
     {
-        timeZone = TimeZoneInfo.FindSystemTimeZoneById(reminderOpts.TimeZoneId);
-    }
-    catch (TimeZoneNotFoundException)
-    {
-        timeZone = TimeZoneInfo.Utc;
-    }
+        // Daily reminder dispatcher (§7.1). 09:00 in Africa/Cairo by default.
+        var reminderOpts = app.Services
+            .GetRequiredService<IOptions<ReminderSchedulerOptions>>().Value;
 
-    RecurringJob.AddOrUpdate<SubscriptionReminderDispatcherJob>(
-        SubscriptionConstants.ReminderDispatcherJobId,
-        job => job.RunAsync(),
-        reminderOpts.CronExpression,
-        new RecurringJobOptions { TimeZone = timeZone });
-}   
+        TimeZoneInfo timeZone;
+        try
+        {
+            timeZone = TimeZoneInfo.FindSystemTimeZoneById(reminderOpts.TimeZoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            timeZone = TimeZoneInfo.Utc;
+        }
 
-// Hourly pending-payment expiry sweep (EC-18). Runs at minute 0 of every hour.
-RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
-    SubscriptionConstants.PendingPaymentExpiryJobId,
-    job => job.RunAsync(),
-    Cron.Hourly);
-// assistant-cleanup runs at 01:00 Africa/Cairo — off-peak, avoids DTU
-// contention with the 06:00 materializer and 09:00 reminder dispatcher.
-RecurringJob.AddOrUpdate<AssistantCleanupJob>(
-    "assistant-cleanup-job",
-    job => job.ExecuteAsync(),
-    "0 1 * * *",
-    new RecurringJobOptions
-    {
-        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo")
-    });
-// ?? Recurring Assignment Materializer (Module 6) ??
-// Runs once daily at 06:00 Africa/Cairo. Earlier than the reminder dispatcher
-// (09:00) so tomorrow's occurrences are visible by morning.
-RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
-    recurringJobId: "recurring-assignment-materializer",
-    methodCall: job => job.RunAsync(),
-    cronExpression: "0 6 * * *",
-    options: new RecurringJobOptions
-    {
-        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+        RecurringJob.AddOrUpdate<SubscriptionReminderDispatcherJob>(
+            SubscriptionConstants.ReminderDispatcherJobId,
+            job => job.RunAsync(),
+            reminderOpts.CronExpression,
+            new RecurringJobOptions { TimeZone = timeZone });
+
+        // Hourly pending-payment expiry sweep (EC-18). Runs at minute 0 of every hour.
+        RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
+            SubscriptionConstants.PendingPaymentExpiryJobId,
+            job => job.RunAsync(),
+            Cron.Hourly);
+
+        // assistant-cleanup runs at 01:00 Africa/Cairo — off-peak, avoids DTU
+        // contention with the 06:00 materializer and 09:00 reminder dispatcher.
+        RecurringJob.AddOrUpdate<AssistantCleanupJob>(
+            "assistant-cleanup-job",
+            job => job.ExecuteAsync(),
+            "0 1 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo")
+            });
+
+        // ?? Recurring Assignment Materializer (Module 6) ??
+        // Runs once daily at 06:00 Africa/Cairo. Earlier than the reminder dispatcher
+        // (09:00) so tomorrow's occurrences are visible by morning.
+        RecurringJob.AddOrUpdate<RecurringAssignmentDispatcherJob>(
+            recurringJobId: "recurring-assignment-materializer",
+            methodCall: job => job.RunAsync(),
+            cronExpression: "0 6 * * *",
+            options: new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+            }
+          );
+
+        break;
     }
-  );
+    catch (Exception ex) when (attempt < 4 && !ContainsSqlLoginFailure(ex))
+    {
+        app.Logger.LogWarning(ex,
+            "Hangfire recurring-job registration attempt {Attempt}/4 failed; retrying in {DelaySeconds}s",
+            attempt, 5 * attempt);
+        Thread.Sleep(TimeSpan.FromSeconds(5 * attempt));
+    }
+}
+
+// SQL error 18456 (login failed) is a credentials/config problem, never a transient blip:
+// the first container after a deploy can boot without the ConnectionStrings__con app
+// setting (App Service worker sync quirk) and fall back to the committed, rotated
+// connection string. Retrying inside the process only delays Azure's container
+// replacement — which is what actually heals that case — so fail immediately.
+static bool ContainsSqlLoginFailure(Exception? ex)
+{
+    for (; ex is not null; ex = ex.InnerException)
+        if (ex is Microsoft.Data.SqlClient.SqlException { Number: 18456 }) return true;
+    return false;
+}
 
 app.UseHttpsRedirection();
 

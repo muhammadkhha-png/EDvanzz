@@ -100,6 +100,7 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
     public async Task<(IReadOnlyList<TeacherVideoListRow> Items, int TotalCount)>
         GetVideosInUnitPagedAsync(long unitId, long teacherId, int page, int pageSize)
     {
@@ -117,12 +118,14 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
             {
                 Id = v.Id,
                 Title = v.Title,
+                Description = v.Description,
+                SourceUrl = v.SourceUrl,
                 SourceType = v.SourceType,
                 DurationSeconds = v.DurationSeconds,
                 StudentsInScope = _context.VideoScopes.Count(s => s.VideoAssetId == v.Id),
                 TotalOpens = _context.VideoAnalytics
                     .Where(a => a.VideoAssetId == v.Id)
-                    .Sum(a => (int?)a.OpenCount) ?? 0,
+                    .Sum(a => (int?)a.OpenCount) ??0,
                 SeenStudentCount = _context.VideoAnalytics.Count(a => a.VideoAssetId == v.Id),
                 CreatedAt = v.CreateAt,
             })

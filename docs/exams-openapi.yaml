@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Edvanz — Exams Module API
-  version: '1.1'
+  version: '1.2'
   description: 'Offline **Exams** endpoints (`/api/exams/*`) plus the exam-related extension of the attendance
     dashboard.
 
@@ -29,6 +29,14 @@ info:
     (drive the *Take* vs *Edit* labels) and the exam carries **`distinctStudentCount`**; each home card
     carries **`totalStudents`** and **`pendingCount`**.
 
+
+    **v1.2 additions:** create takes `sessionIds` **or** `groupIds` (id-lists, the other null/empty) plus
+    a single `examDate` — groups expand to their member sessions server-side. `GET /api/exams/home` is
+    **paginated** (`upcomingPage`/`pastPage`/`pageSize`) and each card carries `selectionMode` + `assignedSessions[]`
+    + `assignedGroups[]` (groups expanded to inner sessions). Grade/attendance write endpoints are keyed
+    by **`teacherStudentId`** (grades also take a top-level `examId`) instead of `obligationId`; responses
+    still include `obligationId`.
+
     '
 servers:
 - url: https://app-edvanz-api-prod.azurewebsites.net
@@ -45,11 +53,13 @@ paths:
       tags:
       - Exams
       summary: Create an offline exam
-      description: 'Creates an exam anchored to one or more sessions. **One occurrence is materialized
-        per session.** For `DuringSession`, each session entry must carry `sessionOccurrenceId` (pick
-        it from `GET /api/exams/session-dates`); for `SeparateTime`, each entry carries `examDate` (today
-        or future). `studentIds` optionally narrows to a subset of that session''s students (they must
-        belong to it). Groups/individual-students in the UI resolve to per-session entries.
+      description: 'Creates an exam for **sessions OR groups** — send `sessionIds` or `groupIds` (the
+        other null/empty); groups expand to their member sessions server-side. One occurrence is materialized
+        per resolved session. A single `examDate` applies to the whole exam: `SeparateTime` uses it as
+        the exam date (today or future); `DuringSession` resolves each session''s scheduled class on that
+        date (every targeted session must have a class that day). `studentIds` optionally narrows to a
+        global subset. The selection mode (sessions vs groups) is remembered and surfaced on the home
+        screen.
 
         '
       requestBody:
@@ -59,42 +69,51 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateExamRequest'
             examples:
-              separateTime:
-                summary: Separate-time exam (own date)
+              bySessions:
+                summary: Separate-time, by sessions
                 value:
                   name: Midterm — Algebra
                   notes: Chapters 1–4
                   deliveryType: SeparateTime
                   maxGrade: 80
                   successScore: 40
-                  sessions:
-                  - sessionId: 36
-                    examDate: '2026-07-20'
-              duringSession:
-                summary: During-session exam (linked occurrence)
-                value:
-                  name: Weekly Quiz
-                  deliveryType: DuringSession
-                  maxGrade: 50
-                  successScore: 25
-                  sessions:
-                  - sessionId: 36
-                    sessionOccurrenceId: 1140
-              multiSession:
-                summary: Multi-session + student subset
+                  examDate: '2026-07-20'
+                  sessionIds:
+                  - 36
+                  - 37
+              byGroups:
+                summary: Separate-time, by groups (expand server-side)
                 value:
                   name: Unit Exam
                   deliveryType: SeparateTime
                   maxGrade: 100
                   successScore: 50
-                  sessions:
-                  - sessionId: 36
-                    examDate: '2026-07-21'
-                    studentIds:
-                    - 761
-                    - 762
-                  - sessionId: 37
-                    examDate: '2026-07-21'
+                  examDate: '2026-07-21'
+                  groupIds:
+                  - 2
+              duringSession:
+                summary: During-session (one date; each session's class on it)
+                value:
+                  name: Weekly Quiz
+                  deliveryType: DuringSession
+                  maxGrade: 50
+                  successScore: 25
+                  examDate: '2026-07-12'
+                  sessionIds:
+                  - 36
+              studentSubset:
+                summary: By sessions + global student subset
+                value:
+                  name: Makeup
+                  deliveryType: SeparateTime
+                  maxGrade: 20
+                  successScore: 10
+                  examDate: '2026-07-22'
+                  sessionIds:
+                  - 36
+                  studentIds:
+                  - 761
+                  - 762
               arabicName:
                 summary: Arabic name (single name, AR or EN)
                 value:
@@ -102,9 +121,9 @@ paths:
                   deliveryType: SeparateTime
                   maxGrade: 30
                   successScore: 15
-                  sessions:
-                  - sessionId: 37
-                    examDate: '2026-07-22'
+                  examDate: '2026-07-22'
+                  sessionIds:
+                  - 37
       responses:
         '201':
           description: Created
@@ -136,11 +155,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
               examples:
-                ExamRequiresSession:
+                SelectEitherSessionsOrGroups:
                   value:
                     success: false
-                    code: ExamRequiresSession
-                    message: An exam must be assigned to at least one session
+                    code: SelectEitherSessionsOrGroups
+                    message: Select either sessions or groups for the exam, not both
+                ExamDateRequired:
+                  value:
+                    success: false
+                    code: ExamDateRequired
+                    message: An exam date is required
                 SuccessScoreExceedsMax:
                   value:
                     success: false
@@ -151,21 +175,6 @@ paths:
                     success: false
                     code: ExamRequiresMaxGrade
                     message: Exam assignments require a maximum grade greater than zero
-                DuplicateSessionInExam:
-                  value:
-                    success: false
-                    code: DuplicateSessionInExam
-                    message: The same session was selected more than once for this exam
-                SessionOccurrenceRequired:
-                  value:
-                    success: false
-                    code: SessionOccurrenceRequired
-                    message: A session date must be selected for a during-session exam
-                ExamDateRequired:
-                  value:
-                    success: false
-                    code: ExamDateRequired
-                    message: An exam date is required for a separate-time exam
                 AssignmentDateInPast:
                   value:
                     success: false
@@ -176,21 +185,33 @@ paths:
                     success: false
                     code: StudentNotInSession
                     message: One or more selected students do not belong to the selected session
+                SessionHasNoStudents:
+                  value:
+                    success: false
+                    code: SessionHasNoStudents
+                    message: The selected sessions have no students to assign
+        '404':
+          description: A referenced session, group, or class date was not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              examples:
                 SessionNotFoundOrForeign:
                   value:
                     success: false
                     code: SessionNotFoundOrForeign
                     message: The selected session was not found or does not belong to you
-        '404':
-          description: Referenced session occurrence not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
-              example:
-                success: false
-                code: SessionOccurrenceNotFound
-                message: The selected session date was not found or does not belong to the session
+                GroupNotFoundOrForeign:
+                  value:
+                    success: false
+                    code: GroupNotFoundOrForeign
+                    message: The selected group was not found or does not belong to you
+                SessionOccurrenceNotFoundForDate:
+                  value:
+                    success: false
+                    code: SessionOccurrenceNotFoundForDate
+                    message: One of the selected sessions has no scheduled class on the exam date
   /api/exams/session-dates:
     get:
       tags:
@@ -255,7 +276,10 @@ paths:
       tags:
       - Home / dashboard
       summary: Exam home — upcoming & past
-      description: One card per exam session-date. Split on the teacher's local (Africa/Cairo) today.
+      description: One card per exam session-date, split on the teacher's local (Africa/Cairo) today into
+        paginated `upcoming` (ascending) and `past` (descending). Each card also carries the parent exam's
+        `selectionMode` and its `assignedSessions` / `assignedGroups` (each group expanded to its member
+        sessions).
       responses:
         '200':
           description: OK
@@ -267,46 +291,96 @@ paths:
                 message: Done successfully
                 data:
                   upcoming:
-                  - examId: 6
-                    occurrenceId: 9
-                    name: Today Exam
-                    deliveryType: DuringSession
-                    sessionId: 36
-                    sessionName: Exam Session A
-                    date: '2026-07-11T00:00:00'
-                    assignedCount: 3
-                    totalStudents: 3
-                    attendedCount: 0
-                    missedCount: 0
-                    pendingCount: 3
-                    isPast: false
-                  - examId: 5
-                    occurrenceId: 6
-                    name: Unit Multi
-                    deliveryType: DuringSession
-                    sessionId: 37
-                    sessionName: Exam Session B
-                    date: '2026-07-12T00:00:00'
-                    assignedCount: 1
-                    totalStudents: 1
-                    attendedCount: 0
-                    missedCount: 0
-                    pendingCount: 1
-                    isPast: false
+                    data:
+                    - examId: 6
+                      occurrenceId: 9
+                      name: Today Exam
+                      deliveryType: DuringSession
+                      sessionId: 36
+                      sessionName: Exam Session A
+                      date: '2026-07-11T00:00:00'
+                      assignedCount: 3
+                      totalStudents: 3
+                      attendedCount: 0
+                      missedCount: 0
+                      pendingCount: 3
+                      isPast: false
+                      selectionMode: Sessions
+                      assignedSessions:
+                      - id: 36
+                        name: Exam Session A
+                      assignedGroups: []
+                    - examId: 5
+                      occurrenceId: 6
+                      name: Unit Multi
+                      deliveryType: SeparateTime
+                      sessionId: 37
+                      sessionName: Exam Session B
+                      date: '2026-07-12T00:00:00'
+                      assignedCount: 1
+                      totalStudents: 1
+                      attendedCount: 0
+                      missedCount: 0
+                      pendingCount: 1
+                      isPast: false
+                      selectionMode: Groups
+                      assignedSessions: []
+                      assignedGroups:
+                      - id: 2
+                        name: Prep Year 1
+                        sessions:
+                        - id: 37
+                          name: Exam Session B
+                        - id: 38
+                          name: Exam Session C
+                    page: 1
+                    pageSize: 20
+                    totalCount: 2
+                    totalPages: 1
                   past:
-                  - examId: 2
-                    occurrenceId: 2
-                    name: Last Week Test
-                    deliveryType: SeparateTime
-                    sessionId: 36
-                    sessionName: Exam Session A
-                    date: '2026-07-04T00:00:00'
-                    assignedCount: 3
-                    totalStudents: 3
-                    attendedCount: 2
-                    missedCount: 1
-                    pendingCount: 0
-                    isPast: true
+                    data:
+                    - examId: 2
+                      occurrenceId: 2
+                      name: Last Week Test
+                      deliveryType: SeparateTime
+                      sessionId: 36
+                      sessionName: Exam Session A
+                      date: '2026-07-04T00:00:00'
+                      assignedCount: 3
+                      totalStudents: 3
+                      attendedCount: 2
+                      missedCount: 1
+                      pendingCount: 0
+                      isPast: true
+                      selectionMode: Sessions
+                      assignedSessions:
+                      - id: 36
+                        name: Exam Session A
+                      assignedGroups: []
+                    page: 1
+                    pageSize: 20
+                    totalCount: 1
+                    totalPages: 1
+      parameters:
+      - name: upcomingPage
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: pastPage
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      - name: pageSize
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+          maximum: 100
   /api/exams/{examId}:
     get:
       tags:
@@ -496,13 +570,14 @@ paths:
       tags:
       - Exam grades & attendance
       summary: Save a batch of distinct per-student grades
-      description: 'Each item carries its own `grade` and `rowVersion` (echo the `rowVersion` you last
-        read for that student). Valid rows are applied and returned with a **fresh** `rowVersion`; invalid
-        rows come back with a `code`. `0 ≤ grade ≤ maxGrade`. Entering a grade marks the student `AttendedWithGrade`;
-        send `grade: null` to **clear** an entered grade — the student reverts to `Attended` (attendance
-        kept), and a clear skips the range/absent/during-session guards. A during-session student who
-        is not yet `Attended` cannot be graded (`AttendanceNotRecordedForExam`). Any stale `rowVersion`
-        fails the whole batch with 409.
+      description: 'Each item targets a student by `teacherStudentId`, resolved to their single obligation
+        within the exam given by the top-level `examId`. Each carries its own `grade` and `rowVersion`
+        (echo the `rowVersion` you last read for that student). Valid rows are applied and returned with
+        a **fresh** `rowVersion`; invalid rows come back with a `code`. `0 ≤ grade ≤ maxGrade`. Entering
+        a grade marks the student `AttendedWithGrade`; send `grade: null` to **clear** an entered grade
+        (reverts to `Attended`, attendance kept; a clear skips the range/absent/during-session guards).
+        A during-session student not yet `Attended` cannot be graded (`AttendanceNotRecordedForExam`).
+        Any stale `rowVersion` fails the whole batch with 409.
 
         '
       requestBody:
@@ -515,28 +590,28 @@ paths:
               setGrades:
                 summary: Enter / update grades
                 value:
+                  examId: 12
                   items:
-                  - obligationId: 3
+                  - teacherStudentId: 761
                     grade: 70
                     rowVersion: AAAAAAAAB9E=
-                  - obligationId: 4
+                  - teacherStudentId: 762
                     grade: 45
                     rowVersion: AAAAAAAAB9I=
-                  - obligationId: 5
-                    grade: 30
-                    rowVersion: AAAAAAAAB9M=
               clearGrade:
                 summary: Clear a grade (null) - student stays Attended
                 value:
+                  examId: 12
                   items:
-                  - obligationId: 3
+                  - teacherStudentId: 761
                     grade: null
                     rowVersion: AAAAAAAAB+E=
       responses:
         '200':
           description: 'Processed. Check `allSucceeded` and each item. Failing item codes: `GradeExceedsMax`,
-            `GradeOutOfRange`, `CannotGradeAbsentStudent`, `AttendanceNotRecordedForExam`, `ObligationNotFound`,
-            `NotAnExam`. A `null` grade clears the row (status → `Attended`, `grade: null`).
+            `GradeOutOfRange`, `CannotGradeAbsentStudent`, `AttendanceNotRecordedForExam`, `ObligationNotFound`
+            (student not in the exam), `AmbiguousStudentInExam`. A `null` grade clears the row (status
+            → `Attended`, `grade: null`).
 
             '
           content:
@@ -548,27 +623,23 @@ paths:
                     code: GradesSaved
                     message: Grades saved
                     data:
-                      updatedCount: 3
+                      updatedCount: 2
                       allSucceeded: true
                       items:
-                      - obligationId: 3
+                      - teacherStudentId: 761
+                        obligationId: 13
                         success: true
                         code: null
                         status: AttendedWithGrade
                         grade: 70.0
                         rowVersion: AAAAAAAAB+E=
-                      - obligationId: 4
+                      - teacherStudentId: 762
+                        obligationId: 14
                         success: true
                         code: null
                         status: AttendedWithGrade
                         grade: 45.0
                         rowVersion: AAAAAAAAB+I=
-                      - obligationId: 5
-                        success: true
-                        code: null
-                        status: AttendedWithGrade
-                        grade: 30.0
-                        rowVersion: AAAAAAAAB+M=
                 clearedGrade:
                   summary: A cleared grade - status reverts to Attended, grade null
                   value:
@@ -579,14 +650,15 @@ paths:
                       updatedCount: 1
                       allSucceeded: true
                       items:
-                      - obligationId: 3
+                      - teacherStudentId: 761
+                        obligationId: 13
                         success: true
                         code: null
                         status: Attended
                         grade: null
                         rowVersion: AAAAAAAAB+Q=
                 partialFailure:
-                  summary: One row over the max, and a during-session guard hit
+                  summary: One over the max, one student not in the exam
                   value:
                     success: true
                     code: GradesSaved
@@ -595,15 +667,17 @@ paths:
                       updatedCount: 0
                       allSucceeded: false
                       items:
-                      - obligationId: 3
+                      - teacherStudentId: 761
+                        obligationId: null
                         success: false
                         code: GradeExceedsMax
                         status: null
                         grade: null
                         rowVersion: null
-                      - obligationId: 6
+                      - teacherStudentId: 999
+                        obligationId: null
                         success: false
-                        code: AttendanceNotRecordedForExam
+                        code: ObligationNotFound
                         status: null
                         grade: null
                         rowVersion: null
@@ -623,14 +697,25 @@ paths:
                 success: false
                 code: ObligationConcurrencyConflict
                 message: This student record was updated by someone else. Please reload and try again
+        '404':
+          description: The exam was not found or is not yours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                success: false
+                code: ExamNotFound
+                message: Exam not found
   /api/exams/attendance:
     put:
       tags:
       - Exam grades & attendance
       summary: Take attendance for a separate-time exam (batch present/absent)
-      description: '`present: true` → `Attended` (keeps an entered grade → `AttendedWithGrade`); `present:
-        false` → `DidNotAttend` (clears any grade). **Rejected for during-session exams** (their attendance
-        comes from the session) with 409 `AttendanceReadOnlyForDuringSession`.
+      description: 'Batch present/absent for a SEPARATE-time exam occurrence. Each item targets a student
+        by `teacherStudentId` (resolved within `occurrenceId`). `present: true` → `Attended` (keeps an
+        entered grade → `AttendedWithGrade`); `present: false` → `DidNotAttend` (clears any grade). **Rejected
+        for during-session exams** with 409 `AttendanceReadOnlyForDuringSession`.
 
         '
       requestBody:
@@ -642,9 +727,9 @@ paths:
             example:
               occurrenceId: 3
               items:
-              - obligationId: 3
+              - teacherStudentId: 761
                 present: false
-              - obligationId: 4
+              - teacherStudentId: 762
                 present: true
       responses:
         '200':
@@ -659,12 +744,14 @@ paths:
                   updatedCount: 2
                   allSucceeded: true
                   items:
-                  - obligationId: 3
+                  - teacherStudentId: 761
+                    obligationId: 3
                     success: true
                     code: null
                     status: DidNotAttend
                     rowVersion: AAAAAAAAB+Q=
-                  - obligationId: 4
+                  - teacherStudentId: 762
+                    obligationId: 4
                     success: true
                     code: null
                     status: AttendedWithGrade
@@ -833,7 +920,7 @@ components:
       - deliveryType
       - maxGrade
       - successScore
-      - sessions
+      - examDate
       properties:
         name:
           type: string
@@ -850,36 +937,33 @@ components:
         successScore:
           type: number
           description: 0 ≤ successScore ≤ maxGrade
-        sessions:
-          type: array
-          minItems: 1
-          items:
-            $ref: '#/components/schemas/ExamSessionInput'
-    ExamSessionInput:
-      type: object
-      required:
-      - sessionId
-      properties:
-        sessionId:
-          type: integer
-          format: int64
-        sessionOccurrenceId:
-          type: integer
-          format: int64
-          nullable: true
-          description: Required when deliveryType = DuringSession
         examDate:
           type: string
           format: date
+          description: 'Single exam date for the whole exam. SeparateTime: today or future. DuringSession:
+            each session must have a class that day.'
+        sessionIds:
+          type: array
           nullable: true
-          description: Required when deliveryType = SeparateTime (today or future)
+          items:
+            type: integer
+            format: int64
+          description: Recipient by sessions. Provide EITHER sessionIds OR groupIds.
+        groupIds:
+          type: array
+          nullable: true
+          items:
+            type: integer
+            format: int64
+          description: Recipient by groups; each expands to its member sessions. Provide EITHER groupIds
+            OR sessionIds.
         studentIds:
           type: array
           nullable: true
           items:
             type: integer
             format: int64
-          description: Optional subset of that session's students; omit = all
+          description: Optional global student subset across the resolved sessions; omit = all
     ExamStats:
       type: object
       properties:
@@ -934,24 +1018,29 @@ components:
     BatchGradeRequest:
       type: object
       required:
+      - examId
       - items
       properties:
+        examId:
+          type: integer
+          format: int64
+          description: The exam (template) these grades belong to
         items:
           type: array
           items:
             type: object
             required:
-            - obligationId
+            - teacherStudentId
             - rowVersion
             properties:
-              obligationId:
+              teacherStudentId:
                 type: integer
                 format: int64
               grade:
                 type: number
                 nullable: true
-                description: 0 ≤ grade ≤ maxGrade. Send null to CLEAR the entered grade — the student
-                  reverts to Attended (attendance kept).
+                description: 0 ≤ grade ≤ maxGrade. Send null to CLEAR the entered grade (student reverts
+                  to Attended).
               rowVersion:
                 type: string
                 description: base64 token from the last read of this row
@@ -964,16 +1053,16 @@ components:
         occurrenceId:
           type: integer
           format: int64
-          description: The exam occurrence id (from the exam view)
+          description: The exam occurrence id (from the exam view / home card)
         items:
           type: array
           items:
             type: object
             required:
-            - obligationId
+            - teacherStudentId
             - present
             properties:
-              obligationId:
+              teacherStudentId:
                 type: integer
                 format: int64
               present:

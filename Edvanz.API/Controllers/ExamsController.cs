@@ -72,12 +72,15 @@ public class ExamsController : ModuleSixApiBaseController
     [HttpGet("home")]
     [ModulePermission("Exams And Homework", "View")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetHome()
+    public async Task<IActionResult> GetHome(
+        [FromQuery] int upcomingPage = 1,
+        [FromQuery] int pastPage = 1,
+        [FromQuery] int pageSize = 20)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        return ToResponse(await _exams.GetExamHomeAsync(teacherId.Value));
+        return ToResponse(await _exams.GetExamHomeAsync(teacherId.Value, upcomingPage, pastPage, pageSize));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

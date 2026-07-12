@@ -1,5 +1,6 @@
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
+using Edvanz.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 
 namespace Edvanz.Application.ServiceContract;
@@ -159,13 +160,10 @@ public interface IVideoService
     /// <param name="videoAssetId">Target video.</param>
     /// <param name="request">Update payload, including the concurrency token.</param>
     Task<Result<VideoDetailDto>> UpdateVideoAsync(
-        long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request);
+         long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request,
+         IFormFile? attachment);
 
-    /// <summary>
-    /// Supporting read for G-EDIT — pre-fill payload for the Edit screen and
-    /// the Overview description field.
-    /// </summary>
-    Task<Result<VideoDetailDto>> GetVideoDetailAsync(long teacherId, long videoAssetId);
+  
 
     // ══════════════════════════════════════════════════════════════════════
     // TEACHER READ FLOWS
@@ -293,6 +291,16 @@ public interface IVideoService
     Task<Result<List<VideoAttachmentDto>>> GetAttachmentsAsync(long teacherId, long videoAssetId);
 
     /// <summary>
+    /// Generates a fresh, force-download SAS URL (Content-Disposition:
+    /// attachment) for one attachment, owner-scoped. The controller 302s to
+    /// this URL rather than returning it as JSON — the browser/HTTP client
+    /// follows the redirect straight to Blob Storage, so the API server
+    /// never streams the file bytes itself.
+    /// </summary>
+    Task<Result<string>> GetAttachmentDownloadUrlAsync(
+        long teacherId, long videoAssetId, long attachmentId);
+
+    /// <summary>
     /// Deletes an attachment. Blob is deleted first, then the DB row — a
     /// failed DB delete leaves an orphan blob rather than a DB row pointing
     /// at a missing blob (cheaper failure mode to clean up).
@@ -313,5 +321,39 @@ public interface IVideoService
     Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
         long teacherId, long videoAssetId, string fileName, string contentType,
         long fileSizeBytes, Stream content);
+    /// <summary>
+    /// Pre-fill payload for the Edit screen — base fields + current Exam +
+    /// current Scopes, everything needed to reconstruct the edit form in one
+    /// call. For the read-only overview/details page (base fields +
+    /// SeenStudentCount/UnseenStudentCount/CompletedStudentCount, no
+    /// Exam/Scopes), use <see cref="GetVideoOverviewAsync"/> instead.
+    /// </summary>
+    Task<Result<VideoDetailDto>> GetVideoDetailAsync(long teacherId, long videoAssetId);
+
+    /// <summary>
+    /// Read-only overview/details payload — base fields plus the analytics
+    /// summary (seen/unseen/completed student counts), no Exam/Scopes.
+    /// Distinct from <see cref="GetVideoDetailAsync"/>, which is the Edit
+    /// pre-fill and carries Exam/Scopes instead of analytics counts.
+    /// </summary>
+    Task<Result<VideoOverviewDto>> GetVideoOverviewAsync(long teacherId, long videoAssetId);
+
+    /// <summary>
+    /// Flips Draft↔Published with no request body — reads the current
+    /// status and sets the opposite. Resets PublishDate to null (an
+    /// auto-flip carries no "scheduled for" semantics). Distinct from
+    /// <see cref="SetVideoStatusAsync"/>, which sets an explicit target.
+    /// </summary>
+    Task<Result<VideoStatus>> ToggleVideoStatusAsync(long teacherId, long videoAssetId);
+    /// <summary>
+    /// Replaces a video's unit links entirely (M:N) — the dedicated
+    /// assign-to-unit endpoint, deliberately separate from
+    /// <see cref="CreateVideoAsync"/> (unit assignment was intentionally
+    /// removed from create). Shares its unit-ownership validation and
+    /// <c>ReplaceUnitLinksAsync</c> call with <see cref="UpdateVideoAsync"/>'s
+    /// own <c>UnitIds</c> handling — one code path for both.
+    /// </summary>
+    Task<Result<AssignVideoUnitsResponse>> AssignVideoToUnitsAsync(
+        long teacherId, long videoAssetId, AssignVideoUnitsRequest request);
 
 }

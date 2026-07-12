@@ -942,8 +942,9 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             .Where(a => a.SessionId == sessionId
                 || (a.SessionId.HasValue && linkedIds.Contains(a.SessionId.Value)))
             .Include(a => a.TeacherStudent)
-            // Exclude assignments whose student was soft-deleted (recycle bin): the global query
-            // filter nulls the navigation, which previously surfaced them as "Unknown" rows.
+            // Excludes soft-deleted students (the TeacherStudent global filter nulls the join)
+            // AND permanently purged ones (purge SET-NULLs TeacherStudentId, and such a ghost
+            // row would throw on the TeacherStudentId!.Value mapping below).
             .Where(a => a.TeacherStudent != null);
 
         var occurrenceId = await _context.SessionOccurrences
@@ -960,13 +961,17 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 AssignedSessionId = a.SessionId,
                 AssignedSessionName = a.SessionName,
                 IsFromLinkedSession = a.SessionId != sessionId,
-                AttendanceRecord = occurrenceId.HasValue
-                    ? _context.AttendanceRecords
-                        .Where(r => r.TeacherStudentId == a.TeacherStudentId
-                            && r.SessionOccurrenceId == occurrenceId.Value)
-                        .Select(r => new { r.Status })
-                        .FirstOrDefault()
-                    : null,
+                // The occurrence guard lives INSIDE the subquery WHERE so the projection member is
+                // always a typed subquery. A C#-side `occurrenceId.HasValue ? subquery : null` puts
+                // an untyped NULL constant in the SQL tree, and EF throws "Expression 'NULL' in the
+                // SQL tree does not have a type mapping assigned" at query-compile time for any
+                // date with no SessionOccurrence row (the root cause of the endpoint's 500s).
+                AttendanceRecord = _context.AttendanceRecords
+                    .Where(r => occurrenceId.HasValue
+                        && r.TeacherStudentId == a.TeacherStudentId
+                        && r.SessionOccurrenceId == occurrenceId.Value)
+                    .Select(r => new { r.Status })
+                    .FirstOrDefault(),
                 Counter = _context.StudentAbsenceCounters
                     .Where(c => c.TeacherId == teacherId
                         && c.TeacherStudentId == a.TeacherStudentId)
@@ -989,6 +994,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         }
 
         int totalCount = await rowQuery.CountAsync();
+
         // assigned_count = students belonging to THIS session; not_assigned_count = students shown
         // from linked sessions. They split the (filtered) result set and sum to totalCount.
         int assignedCount = await rowQuery.CountAsync(r => !r.IsFromLinkedSession);

@@ -191,18 +191,30 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// </summary>
     public DbSet<VideoUnitScope> VideoUnitScopes => Set<VideoUnitScope>();
 
-    /// <summary>
-    /// Video Content Management Module (Module 14) — uploaded files attached
-    /// to a video (Track F). Hard-delete-only; blob lifecycle managed by
-    /// <c>IFileStorageService</c>.
-    /// </summary>
     public DbSet<VideoAttachment> VideoAttachments => Set<VideoAttachment>();
+
+    /// <summary>
+    /// Video Content Management Module (Module 14) — an exam attached to a
+    /// video at creation time. One video has at most one exam.
+    /// </summary>
+    public DbSet<VideoExam> VideoExams => Set<VideoExam>();
+
+    /// <summary>
+    /// Video Content Management Module (Module 14) — questions within a
+    /// VideoExam.
+    /// </summary>
+    public DbSet<VideoExamQuestion> VideoExamQuestions => Set<VideoExamQuestion>();
+
+    /// <summary>
+    /// Video Content Management Module (Module 14) — answer options for a
+    /// VideoExamQuestion, with the IsCorrect answer key.
+    /// </summary>
+    public DbSet<VideoExamQuestionOption> VideoExamQuestionOptions => Set<VideoExamQuestionOption>();
 
     /// <summary>
     /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
     /// </summary>
     public DbSet<ModuleQuota> ModuleQuotas => Set<ModuleQuota>();
-
     // ════════════════════════════════════════════════════════════════════════════
     // DIRECT CHAT (1:1 two-way messaging — supersedes AAM-FR-07 one-way)
     // ════════════════════════════════════════════════════════════════════════════
@@ -2745,9 +2757,93 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasIndex(a => a.VideoAssetId)
-                .HasDatabaseName("IX_VideoAttachments_VideoAssetId");
+           .HasDatabaseName("IX_VideoAttachments_VideoAssetId");
         });
         #endregion
+
+        #region VideoExam / VideoExamQuestion / VideoExamQuestionOption (merged-creation refactor)
+        modelBuilder.Entity<VideoExam>(entity =>
+        {
+            entity.ToTable("VideoExams");
+
+            entity.Property(e => e.Title)
+                .HasMaxLength(300)
+                .IsRequired();
+
+            entity.Property(e => e.Description)
+                .HasMaxLength(2000);
+
+            entity.Property(e => e.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            // Composite-FK tenant integrity, same pattern as VideoAttachment —
+            // CASCADE (not NoAction): exams have no forensic-snapshot
+            // requirement, so a video hard-delete removes the exam tree with
+            // zero service-layer cleanup.
+            entity.HasOne(e => e.VideoAsset)
+                .WithMany()
+                .HasForeignKey(e => new { e.VideoAssetId, e.TeacherId })
+                .HasPrincipalKey(v => new { v.Id, v.TeacherId })
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.VideoAssetId)
+                .IsUnique()
+                .HasDatabaseName("UX_VideoExams_VideoAssetId"); // one exam per video
+        });
+
+        modelBuilder.Entity<VideoExamQuestion>(entity =>
+        {
+            entity.ToTable("VideoExamQuestions");
+
+            entity.Property(q => q.Text)
+                .HasMaxLength(1000)
+                .IsRequired();
+
+            entity.Property(q => q.QuestionType)
+                .HasConversion<byte>()
+                .IsRequired();
+
+            entity.Property(q => q.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            entity.HasOne(q => q.Exam)
+                .WithMany(e => e.Questions)
+                .HasForeignKey(q => q.ExamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(q => q.ExamId)
+                .HasDatabaseName("IX_VideoExamQuestions_ExamId");
+        });
+
+        modelBuilder.Entity<VideoExamQuestionOption>(entity =>
+        {
+            entity.ToTable("VideoExamQuestionOptions");
+
+            entity.Property(o => o.Text)
+                .HasMaxLength(500)
+                .IsRequired();
+
+            entity.Property(o => o.CreateAt)
+                .HasColumnType("datetime2(0)")
+                .IsRequired();
+
+            entity.HasOne(o => o.Question)
+                .WithMany(q => q.Options)
+                .HasForeignKey(o => o.QuestionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(o => o.QuestionId)
+                .HasDatabaseName("IX_VideoExamQuestionOptions_QuestionId");
+        });
+        #endregion
+
 
         #region VideoScope (REQ-VCM-FR-02 / Module 14)
         modelBuilder.Entity<VideoScope>(entity =>

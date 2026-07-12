@@ -44,7 +44,7 @@ public sealed class AzureBlobFileStorageService : IFileStorageService
     }
 
     /// <inheritdoc />
-    public Task<string> GetReadUrlAsync(string blobPath)
+    public Task<string> GetReadUrlAsync(string blobPath, string? downloadFileName = null)
     {
         var blobClient = _containerClient.GetBlobClient(blobPath);
 
@@ -60,6 +60,14 @@ public sealed class AzureBlobFileStorageService : IFileStorageService
             ExpiresOn = DateTimeOffset.UtcNow.AddMinutes(15),
         };
         sasBuilder.SetPermissions(BlobSasPermissions.Read);
+
+        if (downloadFileName is not null)
+        {
+            // Quotes escaped defensively — a filename containing a literal
+            // `"` would otherwise break the header value.
+            string safeName = downloadFileName.Replace("\"", "'");
+            sasBuilder.ContentDisposition = $"attachment; filename=\"{safeName}\"";
+        }
 
         return Task.FromResult(blobClient.GenerateSasUri(sasBuilder).ToString());
     }
