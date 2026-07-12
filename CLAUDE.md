@@ -327,7 +327,7 @@ exponential backoff. Throw on failure so Hangfire records and retries.
   applied to `PaymentRepo.UpdatePaymentCounterAsync` (forcing `EntityState.Modified`
   on a freshly-`Added` entity is a bug).
 
-### 7.2b Student User Module — Request/Approval Linking (redesigned 2026-07-12)
+### 7.2b Student User Module — Request/Approval Linking (redesigned 2026-07-12; Connection↔Link split 2026-07-13)
 
 The original AAM-FR-05.5 3-credential instant link (TeacherCode + StudentCode +
 HashedToken) was **replaced** by a request/approval flow. Do not reintroduce the
@@ -348,15 +348,31 @@ credential flow on the student side (the PARENT Method B flow still uses it —
   cancels a Pending or unlinks an Active row.
 - **Teacher side** (`TeacherStudentLinksController`, `api/teacher/student-links`):
   `GET my-code` (shareable 8-digit code), `GET requests` (inbox + suggested
-  roster match from the typed student code), `POST requests/{id}/accept`
-  (**must bind a `TeacherStudentId`** — explicit or auto-matched; every module
-  resolves data through that FK, an unbound Active link is useless),
-  `POST requests/{id}/reject`, `GET` (linked students), `POST remove` (bulk).
-  One roster record ↔ one student account, enforced BOTH app-level at accept
-  AND by the filtered unique index `UX_StudentTeacherLinks_TeacherStudentId_Active`
+  roster match from the typed student code), `POST requests/{id}/accept`,
+  `POST requests/{id}/reject`, `GET` (linked students), `POST remove` (bulk),
+  `POST {linkId}/bind` + `POST {linkId}/unbind` (link management — see next bullet).
+  One roster record ↔ one student account, enforced BOTH app-level (accept + bind
+  re-run `IsTeacherStudentActivelyLinkedAsync`) AND by the filtered unique index
+  `UX_StudentTeacherLinks_TeacherStudentId_Active`
   (`[LinkStatus]=1 AND [TeacherStudentId] IS NOT NULL`); the redesign migration
   self-heals legacy duplicate claims (keeps the newest Active row, demotes older
   ones to Unlinked) before creating it.
+- **Connection vs Link — SEPARATE axes (shipped 2026-07-13, commit `5d00efd`).**
+  Accepting only CONNECTS the account (`LinkStatus.Active`); binding it to a
+  `TeacherStudent` (roster) record is a distinct, re-pointable step. `accept` with a
+  `teacherStudentId` links atomically ("Accept & link"); WITHOUT one it accepts
+  UNBOUND (`TeacherStudentId = null` — Active but **Not linked**: connected, sees
+  NOTHING, since every module joins through that FK). `POST {linkId}/bind`
+  {`teacherStudentId?` | `studentCode?`} links or re-points ("Change linked student");
+  `POST {linkId}/unbind` clears the binding yet stays Active. Both are `Student/Edit`,
+  return the updated `LinkedStudentListItemDto`, and re-run the one-account-per-record
+  guard. `IsLinked` (= `Active && TeacherStudentId != null`) is exposed on the teacher
+  `LinkedStudentListItemDto` AND the student `StudentDashboardTeacherDto` — distinct
+  from `Status`; do NOT add a `LinkStatus` member for it (the filtered-index literals
+  `[LinkStatus] IN (1,3)` are hand-synced). No migration (`TeacherStudentId` already
+  nullable). `IStudentLinkNotifier.NotifyLinkBindingChangedAsync(linked)` fires on
+  bind/unbind. Accept no longer auto-matches by the typed code — the client passes
+  `suggestedMatch.teacherStudentId` for one-tap "Accept & link".
 - **End-of-link audit**: `RespondedByUserId` records who accepted/rejected;
   `RemovedByUserId` records who ENDED the link (student on Unlinked/
   CancelledByStudent, teacher/assistant on RemovedByTeacher). Plain columns, no FK.
@@ -370,16 +386,19 @@ credential flow on the student side (the PARENT Method B flow still uses it —
   `StudentUsers.UserId` (`StudentTeacherLinkRepo` — was comparing User.Id to
   StudentUser.Id and ignoring status).
 
-**OPEN WORK ITEM — Parent Method B migration (deliberately deferred 2026-07-12):**
-`ParentUserService.LinkTeacherToChildAsync` still uses the OLD 3-credential flow
-(TeacherCode + StudentCode + HashedToken via `LinkTeacherToChildDto` and
-`GetTeacherStudentByLinkingCredentialsAsync`). It must eventually move to the
-same request/approval design (parent sends a request for a child → teacher
-accepts binding a roster record → `ParentChildTeacherLink` lifecycle mirrors
-`LinkStatus`). Until then: do NOT remove `TeacherStudent.HashedToken`, the
-credentials repo method, or the `StudentCodeRequired`/`HashedTokenRequired`/
-`InvalidLinkCredentials` resx keys — they are all load-bearing for parents.
-The reference spec for the migration is this section + `docs/student-linking-openapi.json`.
+**OPEN WORK ITEM — Parent Method B migration (deferred; still POSTPONED as of
+2026-07-13):** `ParentUserService.LinkTeacherToChildAsync` still uses the OLD
+3-credential flow (TeacherCode + StudentCode + HashedToken via `LinkTeacherToChildDto`
+and `GetTeacherStudentByLinkingCredentialsAsync`). The PARENT side must EVENTUALLY get
+the **same treatment as the student side above — request/approval AND the
+Connection-vs-Link split**: parent sends a request for a child → teacher accepts,
+CONNECTING it → teacher separately binds/unbinds a roster record; a
+`ParentChildTeacherLink` lifecycle mirrors `LinkStatus` plus an `IsLinked` flag and
+`bind`/`unbind` endpoints. **Deliberately postponed — not scheduled.** Until then: do
+NOT remove `TeacherStudent.HashedToken`, the credentials repo method, or the
+`StudentCodeRequired`/`HashedTokenRequired`/`InvalidLinkCredentials` resx keys — they
+are all load-bearing for parents. Reference spec: this section +
+`docs/student-linking-openapi.json`.
 
 ### 7.3 DbInitializer Refactor
 
