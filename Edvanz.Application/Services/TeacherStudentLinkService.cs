@@ -164,7 +164,9 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         catch { /* notification failure must not fail the accept */ }
 
         var item = await BuildLinkedStudentItemAsync(link, rosterStudent);
-        return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkRequestAccepted");
+        // Accurate copy per path: bound ("Accept & link") vs unbound (accepted, Not linked yet).
+        string acceptMsg = rosterStudent is not null ? "LinkRequestAccepted" : "LinkRequestAcceptedUnlinked";
+        return Result<LinkedStudentListItemDto>.Success(item, _localizer, acceptMsg);
     }
 
     /// <inheritdoc />

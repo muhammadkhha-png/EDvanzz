@@ -240,6 +240,9 @@
   <data name="LinkRequestAccepted" xml:space="preserve">
     <value>Request accepted — the student is now linked to your account</value>
   </data>
+  <data name="LinkRequestAcceptedUnlinked" xml:space="preserve">
+    <value>Request accepted — link them to one of your students to give access</value>
+  </data>
   <data name="LinkRequestRejected" xml:space="preserve">
     <value>Request rejected</value>
   </data>
