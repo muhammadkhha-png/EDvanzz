@@ -125,9 +125,15 @@ jobs:
       # red run once again means a REAL failure.
       - name: Deploy zip to App Service (async + verify)
         run: |
+          # --track-status false is CRITICAL: without it the CLI polls the CONTAINER
+          # startup and hard-fails ("site failed to start within 10 mins", exit 1) on the
+          # known slow first-boot swap — pre-empting the explicit verification below and
+          # marking the whole run RED even though the deploy shipped (run 29226258552,
+          # 2026-07-13). --async true alone did NOT stop that tracking. We upload here, then
+          # verify the deployment record + /health/live ourselves in the steps below.
           az webapp deploy \
             --resource-group "$RG" --name app-edvanz-api-prod \
-            --src-path package.zip --type zip --async true
+            --src-path package.zip --type zip --async true --track-status false
 
           SUB=$(az account show --query id -o tsv)
           DEP_URL="https://management.azure.com/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Web/sites/app-edvanz-api-prod/deployments?api-version=2023-12-01"
