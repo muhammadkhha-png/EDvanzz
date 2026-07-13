@@ -327,6 +327,38 @@ exponential backoff. Throw on failure so Hangfire records and retries.
   applied to `PaymentRepo.UpdatePaymentCounterAsync` (forcing `EntityState.Modified`
   on a freshly-`Added` entity is a bug).
 
+**Student/parent-facing month view — occurrence-overlay contract (shipped 2026-07-13,
+commit `5bae703`).** `GET /api/attendance/student/teachers/{teacherId}/month?year=&month=`
+(mirror: `ParentAttendanceController`; the teacher `AttendanceController` month route shares
+the same service method `GetStudentTimelineMonthAsync`). The calendar is driven by the
+session's **scheduled `SessionOccurrence`s**, NOT merely by `AttendanceRecord` rows — so the
+student sees every class day, including upcoming and not-yet-marked ones. Rules:
+
+- **Two gates, unchanged**: JWT → `StudentUser` → **Active** `StudentTeacherLink` → bound
+  `TeacherStudentId` (403 if unlinked/unbound; `ResolveStudentForTeacherAsync`, replicated in
+  `StudentAttendanceController`/`StudentVideosController`), THEN
+  `IsAttendanceVisibleTo(config, viewer)` on `StudentVisibilityAttendance` /
+  `ParentVisibilityAttendance` (fail-closed on null config).
+- **`year`/`month` optional** on `StudentTimelineMonthRequest` (now `int?`) → default to the
+  teacher's local (Africa/Cairo) current month via `ITimeZoneService`, matching the payment
+  module's month scoping.
+- **Occurrences clipped to the enrollment window**: for each `StudentSessionAssignment`
+  overlapping the month, pull `GetOccurrencesBySessionAndDateRangeAsync` bounded by
+  `AssignedAt`/`UnassignedAt` (BR-ATT-001 — no obligation before/after enrollment). Records are
+  overlaid by `SessionOccurrenceId`; a record with no matching cell (cross-session present, or
+  outside the window) is surfaced as its own date-driven cell so nothing marked is lost.
+- **`MonthlyAttendanceSummaryDto`** carries top-level `SessionId`/`SessionName` (screen header,
+  from the active/most-recent assignment, else latest record), `TotalOccurrences` (= scheduled
+  days = `Days.Count`), `MarkedOccurrences`, `TotalPresent` (Present + CrossSessionPresent),
+  `TotalAbsences`, `AttendancePercentage`, a `Days[]` calendar (`StudentAttendanceDayDto`:
+  `Date`, `SessionOccurrenceId`, `SessionId`, `SessionName`, **nullable `Status`** where
+  `null` = scheduled/unmarked, `IsPast`), and the original `Records[]` (kept for back-compat;
+  the export path builds this DTO inline and is untouched).
+- **Percentage denominator = Present + Absent only** — `Held` and unmarked/upcoming days are
+  excluded. `Status` serializes as a **string** (global `JsonStringEnumConverter`).
+- Additive, **no migration**. Apply this same occurrence-overlay shape to the not-yet-built
+  student payment/exam/homework calendar views (see §7.2b).
+
 ### 7.2b Student User Module — Request/Approval Linking (redesigned 2026-07-12; Connection↔Link split 2026-07-13)
 
 The original AAM-FR-05.5 3-credential instant link (TeacherCode + StudentCode +
