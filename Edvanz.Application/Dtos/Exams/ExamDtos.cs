@@ -50,6 +50,32 @@ public class CreateExamDto
     public List<long>? StudentIds { get; set; }
 }
 
+/// <summary>
+/// Edit-exam request (clean surface, PUT /api/exams/{examId}). Updates editable metadata only —
+/// name, notes, grade bounds, and (for a non-recurring exam) the date. Recipients (sessions/
+/// students) are managed via the assignment-template scope/student endpoints, not here. Same grade
+/// rules as create: MaxGrade &gt; 0 and 0 ≤ SuccessScore ≤ MaxGrade. Concurrency is handled
+/// server-side, so no RowVersion is required from the client.
+/// </summary>
+public class UpdateExamDto
+{
+    /// <summary>Exam name — Arabic or English, single field. Required, max 200 chars.</summary>
+    [Required]
+    public string Name { get; set; } = null!;
+
+    /// <summary>Optional description / notes (max 2000 chars).</summary>
+    public string? Notes { get; set; }
+
+    /// <summary>Maximum exam score (must be &gt; 0).</summary>
+    public decimal MaxGrade { get; set; }
+
+    /// <summary>Passing / success score (0 ≤ value ≤ MaxGrade).</summary>
+    public decimal SuccessScore { get; set; }
+
+    /// <summary>The exam date; for a non-recurring exam this updates its single occurrence's due date.</summary>
+    public DateTime? ExamDate { get; set; }
+}
+
 /// <summary>Result of creating an exam — the exam id plus the per-session occurrences that were materialized.</summary>
 public class ExamCreatedDto
 {

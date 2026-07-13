@@ -1,6 +1,7 @@
 using System.Net;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Exams;
+using Edvanz.Application.Dtos.ExamHomework;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
@@ -304,6 +305,51 @@ public class ExamService : IExamService
         };
 
         return Result<ExamCreatedDto>.Success(response, _localizer, "ExamCreated", HttpStatusCode.Created);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ExamViewDto>> UpdateExamAsync(
+        long teacherId, long actingUserId, long examId, UpdateExamDto dto)
+    {
+        // ── Guard: an EXISTING Exam-type template owned by this teacher (homework 404s here) ──
+        var template = await _unitOfWork.ExamHomeworkRepo.GetTemplateByIdAndTeacherAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<ExamViewDto>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        // ── Scalar validation — the same grade rules as create ──
+        if (string.IsNullOrWhiteSpace(dto.Name) || dto.Name.Trim().Length > 200)
+            return Result<ExamViewDto>.Failure(_localizer, "ExamNameRequired", HttpStatusCode.BadRequest);
+        if (dto.Notes is not null && dto.Notes.Length > 2000)
+            return Result<ExamViewDto>.Failure(_localizer, "AssignmentNotesTooLong", HttpStatusCode.BadRequest);
+        if (dto.MaxGrade <= 0m)
+            return Result<ExamViewDto>.Failure(_localizer, "ExamRequiresMaxGrade", HttpStatusCode.BadRequest);
+        if (dto.SuccessScore < 0m)
+            return Result<ExamViewDto>.Failure(_localizer, "PassingThresholdOutOfRange", HttpStatusCode.BadRequest);
+        if (dto.SuccessScore > dto.MaxGrade)
+            return Result<ExamViewDto>.Failure(_localizer, "SuccessScoreExceedsMax", HttpStatusCode.BadRequest);
+
+        // ── Delegate persistence to the shared template edit. An exam is a non-recurring template,
+        // so the exam-shaped fields map straight onto the template DTO; the freshly-loaded RowVersion
+        // is threaded through so the client need not carry the concurrency token. ──
+        var templateEdit = new UpdateAssignmentTemplateDto
+        {
+            Name = dto.Name.Trim(),
+            Notes = dto.Notes,
+            AssignmentDate = dto.ExamDate,
+            MaxGrade = dto.MaxGrade,
+            PassingThreshold = dto.SuccessScore,
+            RowVersion = template.RowVersion
+        };
+
+        var update = await _examHomework.UpdateTemplateAsync(teacherId, actingUserId, examId, templateEdit);
+        if (!update.IsSuccess)
+            return Result<ExamViewDto>.Failure(_localizer, update.Code ?? "ExamNotFound", update.StatusCode);
+
+        // ── Return the refreshed opened-exam view under an explicit "updated" code ──
+        var view = await GetExamViewAsync(teacherId, examId);
+        return view.IsSuccess
+            ? Result<ExamViewDto>.Success(view.Data!, _localizer, "AssignmentUpdated")
+            : view;
     }
 
     /// <inheritdoc />

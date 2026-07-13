@@ -48,6 +48,28 @@ public class ExamsController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // UPDATE EXAM — edit metadata (name, notes, grade bounds, date)
+    // PUT /api/exams/{examId}
+    // Recipients (sessions/students) are managed via the assignment-template
+    // scope/student endpoints; this edits the exam's own fields only. Homework
+    // templates 404 here (this surface owns exams only).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("{examId:long}")]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateExam(
+        [FromRoute] long examId, [FromBody] UpdateExamDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.UpdateExamAsync(teacherId.Value, GetActingUserId(), examId, dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // SESSION EXAM-DATE PICKER (during-session)
     // GET /api/exams/session-dates?sessionId=&year=&month=
     // Returns the session's scheduled occurrences in the month, to pick the exam date from.

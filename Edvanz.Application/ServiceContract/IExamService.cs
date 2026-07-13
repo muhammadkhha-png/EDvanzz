@@ -19,6 +19,14 @@ public interface IExamService
     Task<Result<ExamCreatedDto>> CreateExamAsync(long teacherId, long actingUserId, CreateExamDto dto);
 
     /// <summary>
+    /// Edits an existing exam's metadata — name, notes, max/success score, and (for a non-recurring
+    /// exam) its date — delegating persistence to the shared assignment-template update flow. Scoped
+    /// to exam templates (<c>AssignmentType.Exam</c>); homework returns <c>ExamNotFound</c>. Recipients
+    /// (sessions/students) are NOT edited here. Returns the refreshed opened-exam view.
+    /// </summary>
+    Task<Result<ExamViewDto>> UpdateExamAsync(long teacherId, long actingUserId, long examId, UpdateExamDto dto);
+
+    /// <summary>
     /// Lists a session's scheduled occurrences within the given month, for the "during session"
     /// exam-date picker.
     /// </summary>
