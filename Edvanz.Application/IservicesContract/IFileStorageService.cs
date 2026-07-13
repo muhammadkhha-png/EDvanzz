@@ -17,6 +17,13 @@ public interface IFileStorageService
     /// <summary>Deletes a blob. No-ops if it doesn't exist (idempotent for cleanup flows).</summary>
     Task DeleteAsync(string blobPath);
 
-    /// <summary>Generates a time-limited SAS read URL for a blob.</summary>
-    Task<string> GetReadUrlAsync(string blobPath);
+    /// <summary>
+    /// Generates a time-limited SAS read URL for a blob. When
+    /// <paramref name="downloadFileName"/> is provided, the SAS token sets
+    /// Content-Disposition to force a browser/HTTP-client download with that
+    /// filename instead of rendering the file inline (relevant for PDFs,
+    /// which browsers otherwise open in a viewer tab). Null (default) keeps
+    /// existing behavior — no disposition override.
+    /// </summary>
+    Task<string> GetReadUrlAsync(string blobPath, string? downloadFileName = null);
 }

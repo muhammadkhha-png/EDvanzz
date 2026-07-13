@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260712141711_add-exxam")]
+    partial class addexxam
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2567,26 +2570,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<DateTime>("LinkedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<long?>("RemovedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime?>("RequestedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("RequestedStudentCode")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("RequestedStudentName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<DateTime?>("RespondedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("RespondedByUserId")
-                        .HasColumnType("bigint");
-
                     b.Property<long>("StudentUserId")
                         .HasColumnType("bigint");
 
@@ -2601,6 +2584,9 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TeacherId")
+                        .HasDatabaseName("IX_StudentTeacherLinks_TeacherId");
+
                     b.HasIndex("TeacherStudentId")
                         .HasDatabaseName("IX_StudentTeacherLinks_TeacherStudentId");
 
@@ -2609,15 +2595,7 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.HasIndex("StudentUserId", "TeacherId")
                         .IsUnique()
-                        .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_TeacherId")
-                        .HasFilter("[LinkStatus] IN (1, 3)");
-
-                    b.HasIndex("TeacherId", "LinkStatus")
-                        .HasDatabaseName("IX_StudentTeacherLinks_TeacherId_LinkStatus");
-
-                    b.HasIndex(new[] { "TeacherStudentId" }, "UX_StudentTeacherLinks_TeacherStudentId_Active")
-                        .IsUnique()
-                        .HasFilter("[LinkStatus] = 1 AND [TeacherStudentId] IS NOT NULL");
+                        .HasDatabaseName("IX_StudentTeacherLinks_StudentUserId_TeacherId");
 
                     b.ToTable("StudentTeacherLinks", (string)null);
                 });

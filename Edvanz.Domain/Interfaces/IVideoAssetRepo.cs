@@ -51,11 +51,13 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// single Unit of Work transaction (Story A).
     /// </summary>
     Task AddVideoAsync(VideoAsset video);
-
     /// <summary>
-    /// Hard-deletes a video. NoActions through the composite FK to remove
-    /// scopes, analytics, and watch events. The service layer must persist
-    /// the JSON snapshot to <see cref="VideoAssetAudit"/> in the SAME
+    /// Hard-deletes a video. Explicitly clears every NoAction-FK child table
+    /// (scopes, attachments, analytics, watch events, unit links) before
+    /// removing the VideoAsset row — NoAction blocks a delete with
+    /// referencing rows still present, it does not cascade. VideoExam is
+    /// exempt (CASCADE FK, removed automatically). The service layer must
+    /// persist the JSON snapshot to <see cref="VideoAssetAudit"/> in the SAME
     /// transaction before invoking this (REQ-VCM-BR-03).
     /// </summary>
     Task DeleteVideoAsync(VideoAsset video);
@@ -467,4 +469,42 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
 
     Task<List<long>> GetLinkedUnitIdsAsync(
         long videoAssetId);
+    // ══════════════════════════════════════════════════════════════════════
+    // EXAM (merged-creation refactor) — write path only, no read/update/delete
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Queues an INSERT of a new exam (with its questions and options already
+    /// attached via navigation properties). Caller calls SaveChanges. No
+    /// separate AddQuestionAsync/AddOptionAsync — EF Core's change tracker
+    /// cascades the insert through the object graph in one call.
+    /// </summary>
+    Task AddExamAsync(VideoExam exam);
+    /// <summary>
+    /// Sets <c>ThumbnailBlobPath</c> on a video after a successful blob upload
+    /// (Phase 3 create saga). Single <c>ExecuteUpdateAsync</c> round trip — same
+    /// pattern as <see cref="SetVideoStatusAsync"/>; no transaction needed for a
+    /// one-column update once the row already exists.
+    /// </summary>
+    Task SetThumbnailBlobPathAsync(long videoAssetId, string blobPath);
+    /// <summary>
+    /// Hard-deletes a video's entire exam tree (single ExecuteDeleteAsync on
+    /// VideoExams — questions/options cascade at the DB level via their
+    /// Cascade FKs). Used by the replace-all exam edit in UpdateVideoAsync.
+    /// No-op if the video has no exam.
+    /// </summary>
+    Task DeleteExamForVideoAsync(long videoAssetId);
+
+    /// <summary>
+    /// Returns all attachment rows for a video, newest first. Product model
+    /// is one attachment per video, but the schema doesn't enforce that —
+    /// caller takes the first row.
+    /// </summary>
+    Task<List<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId);
+    /// <summary>
+    /// Fetches a video's exam with questions and options eagerly loaded, in
+    /// SortOrder. Returns null if the video has no exam. AsNoTracking — used
+    /// by GetVideoDetailAsync's read-only pre-fill mapping.
+    /// </summary>
+    Task<VideoExam?> GetExamWithQuestionsAsync(long videoAssetId, long teacherId);
 }

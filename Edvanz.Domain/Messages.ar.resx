@@ -1453,4 +1453,24 @@
 <data name="PhoneAlreadyExists" xml:space="preserve">
   <value>رقم التليفون ده متسجّل قبل كده.</value>
 </data>
+<data name="RequestValidationFailed" xml:space="preserve">
+    <value>مقدرناش نعالج الطلب ده. من فضلك راجع الحقول المطلوبة وحاول تاني</value>
+  </data>
+  <data name="ConcurrencyConflict" xml:space="preserve">
+    <value>حد تاني عدّل الفيديو ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
+  </data>
+  <data name="ThumbnailTooLarge" xml:space="preserve">
+    <value>الصورة المصغرة دي كبيرة أوي.</value>
+</data>
+<data name="ExamTitleRequired" xml:space="preserve"><value>الامتحان محتاج عنوان</value></data>
+  <data name="ExamMustHaveQuestions" xml:space="preserve"><value>الامتحان لازم يكون فيه سؤال واحد على الأقل</value></data>
+  <data name="ExamQuestionTextRequired" xml:space="preserve"><value>كل سؤال لازم يكون ليه نص</value></data>
+  <data name="ExamQuestionNeedsOptions" xml:space="preserve"><value>كل سؤال لازم يكون ليه اختيارين على الأقل</value></data>
+  <data name="SingleChoiceNeedsExactlyOneCorrect" xml:space="preserve"><value>سؤال الاختيار الواحد لازم تكون له إجابة صح واحدة بالظبط</value></data>
+  <data name="MultipleChoiceNeedsAtLeastOneCorrect" xml:space="preserve"><value>سؤال الاختيار المتعدد لازم تكون له إجابة صح واحدة على الأقل</value></data>
+<data name="AttachmentUpdateFailedVideoSaved" xml:space="preserve">
+    <value>التعديلات اتحفظت، بس الملف المرفق ماتحدثش. جرّب ترفعه تاني</value>
+  </data>
+  <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
+
 </root>

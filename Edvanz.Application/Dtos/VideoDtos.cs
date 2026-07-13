@@ -1,6 +1,7 @@
+using Edvanz.Application.Dtos.Exams;
+using Edvanz.Domain.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
-using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.Dtos.VideoContentManagement;
 
@@ -13,7 +14,7 @@ namespace Edvanz.Application.Dtos.VideoContentManagement;
 // (service). They never leak Domain entities and are never used inside the
 // Domain or Infrastructure layers.
 //
-// CONVENTIONS observed from the existing codebase:
+// CONVENTIONS observed from the existing codebaseTeacherVideoListItemD
 //   - DTO classes use PascalCase property names (.NET default).
 //   - PaginatedResponse fields use camelCase (existing convention — see
 //     PaginatedResponse.cs).
@@ -60,11 +61,20 @@ public sealed class CreateVideoRequest
     public string SourceUrl { get; set; } = null!;
 
     /// <summary>
-    /// Optional parent unit (G-UNIT). Null means the video is created loose —
-    /// no unit assigned. Must belong to the calling teacher; service returns
-    /// <c>VideoUnitNotFound</c> otherwise.
+    /// Optional scope assignment, folded into creation (merged-creation
+    /// refactor — replaces the removed <c>POST /videos/{id}/scopes</c>
+    /// endpoint). Null or empty = video is created scope-less; scope it
+    /// later via <c>PUT /videos/{id}/scopes</c>. Multiple entries allowed
+    /// (e.g. one Sessions entry + one Groups entry in the same request).
     /// </summary>
-    public long? UnitId { get; set; }
+    public List<CreateVideoScopeDto>? Scopes { get; set; }
+
+    /// <summary>
+    /// Optional exam, created atomically with the video. Null = no exam.
+    /// </summary>
+    public CreateExamDto? Exam { get; set; }
+
+
 }
 
 /// <summary>
@@ -75,21 +85,38 @@ public sealed class CreateVideoRequest
 public sealed class CreateVideoResponse
 {
     public long VideoAssetId { get; set; }
+
+    /// <summary>Fresh SAS read URL for the uploaded thumbnail, or null if none was provided.</summary>
+    public string? ThumbnailReadUrl { get; set; }
+
+    /// <summary>The uploaded attachment's DTO, or null if none was provided.</summary>
+    public VideoAttachmentDto? Attachment { get; set; }
+
+    /// <summary>Count of scope rows created. 0 if the video was created scope-less.</summary>
+    public int ScopesAdded { get; set; }
+
+    /// <summary>Resolved student count across all scopes created, same computation ReplaceScopesAsync uses.</summary>
+    public int StudentsInScope { get; set; }
+
+    /// <summary>Id of the created exam, or null if none was provided.</summary>
+    public long? ExamId { get; set; }
 }
-
-// ══════════════════════════════════════════════════════════════════════════
-// UPDATE VIDEO (G-EDIT) — PUT /api/videos/{id} + supporting GET
-// ══════════════════════════════════════════════════════════════════════════
-
 /// <summary>
-/// Request body for <c>PUT /api/videos/{id}</c>. Recipients/scopes are NOT
-/// edited here — that stays on <c>PUT /videos/{id}/scopes</c>.
+/// Request body for <c>PUT /api/videos/{id}</c>.
 ///
 /// Confirmed rule: if <see cref="SourceUrl"/> differs from the stored value,
 /// the service treats it as a different video — <c>VideoAnalytics</c> and
 /// <c>VideoWatchEvent</c> rows for this asset are cleared and
 /// <c>DurationSeconds</c> resets to 0 to be re-learned. Every other
 /// field-only edit preserves analytics.
+///
+/// Scope replacement is optional here (Phase 4): if <see cref="Scopes"/> is
+/// provided, it replaces all scope rows via the same logic backing
+/// <c>PUT /videos/{id}/scopes</c>; if omitted, existing scopes are left
+/// untouched. <c>PUT /videos/{id}/scopes</c> remains available as a
+/// standalone endpoint for scope-only updates (e.g. a "Manage Access" screen
+/// that doesn't want to resend the whole video form) — both routes share one
+/// code path.
 /// </summary>
 public sealed class UpdateVideoRequest
 {
@@ -105,14 +132,60 @@ public sealed class UpdateVideoRequest
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoStatus? Status { get; set; }
 
-    public long? UnitId { get; set; }
+    /// <summary>
+    /// Replaces the video's unit links (M:N). <c>null</c> = leave unit links
+    /// unchanged; empty list = unlink from all units. This distinction is
+    /// load-bearing — the service treats null and empty-list differently.
+    /// </summary>
+    public List<long>? UnitIds { get; set; }
+
+    /// <summary>
+    /// Optional explicit duration override. When set, <c>DurationSeconds</c>
+    /// is updated directly and <c>IsDurationManuallySet</c> is set true.
+    /// Null = leave duration as-is (student-reported value, or whatever was
+    /// previously set).
+    /// </summary>
+    public int? DurationSeconds { get; set; }
+
+    /// <summary>
+    /// Optional scope replacement, folded into this endpoint. Null = leave
+    /// existing scopes untouched. Non-null (including empty list) delegates
+    /// to the same <c>ReplaceScopesInternalAsync</c> path as
+    /// <c>PUT /videos/{id}/scopes</c> — an empty list correctly fails with
+    /// <c>ScopeCannotBeEmpty</c> via that shared logic.
+    /// </summary>
+    public List<VideoScopeInputDto>? Scopes { get; set; }
+
+    /// <summary>
+    /// Optimistic concurrency token, echoed back from the last GET/PUT
+    /// response. Required to prevent silent lost updates between concurrent
+    /// editors.
+    /// </summary>
+    [Required]
+    public byte[] RowVersion { get; set; } = null!;
+     /// <summary>
+    /// Optional exam replace-all. Null = leave the existing exam (if any)
+    /// untouched. Non-null = delete the old exam tree and insert this one —
+    /// same replace-all semantics as <see cref="Scopes"/>. If the video has
+    /// no exam yet, this creates one.
+    /// </summary>
+    public CreateExamDto? Exam { get; set; }
+
+    /// <summary>
+    /// True to remove the video's attachment without uploading a
+    /// replacement. Ignored if the multipart request also includes a new
+    /// attachment file part — the new file wins.
+    /// </summary>
+    public bool RemoveAttachment { get; set; }
 }
 
 /// <summary>
-/// Response for <c>PUT /api/videos/{id}</c> and <c>GET /api/videos/{id}</c>.
-/// Powers the Edit-screen pre-fill and the Overview description field.
+/// Fields common to both the edit pre-fill response (<see cref="VideoDetailDto"/>)
+/// and the overview/analytics-summary response (<see cref="VideoOverviewDto"/>).
+/// Built once by <c>VideoService.MapVideoBaseAsync</c> — each endpoint layers
+/// its own additional data on top, so nothing here is mapped twice.
 /// </summary>
-public sealed class VideoDetailDto
+public abstract class VideoBaseDto
 {
     public long Id { get; set; }
     public string Title { get; set; } = null!;
@@ -128,7 +201,58 @@ public sealed class VideoDetailDto
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoStatus Status { get; set; }
 
-    public long? UnitId { get; set; }
+    /// <summary>Concurrency token to echo back on the next PUT.</summary>
+    public byte[] RowVersion { get; set; } = null!;
+
+    /// <summary>Current attachment, or null if none.</summary>
+    public VideoAttachmentDto? Attachment { get; set; }
+}
+
+/// <summary>
+/// Response for <c>PUT /api/videos/{id}</c> and <c>GET /api/videos/{id}</c>.
+/// Pre-fill payload for the Edit screen — includes everything needed to
+/// reconstruct the create/update form: base fields, current Exam (replace-all
+/// shape, same DTO used to submit an edit), and current Scopes (grouped by
+/// type, same shape used to submit an edit). Deliberately does NOT include
+/// analytics summary counts — see <see cref="VideoOverviewDto"/> for that.
+/// </summary>
+public sealed class VideoDetailDto : VideoBaseDto
+{
+    /// <summary>
+    /// Non-null only when the video's other fields updated successfully but a
+    /// requested attachment change failed (blob I/O can't share the SQL
+    /// transaction the rest of the update runs in). Status stays 200 — the
+    /// video data in this response IS current; only the file change failed.
+    /// Always null on a plain GET.
+    /// </summary>
+    public string? Warning { get; set; }
+
+    /// <summary>Current exam, or null if the video has none. Same shape used to
+    /// create/replace one — resend this verbatim (edited) to update it.</summary>
+    public CreateExamDto? Exam { get; set; }
+
+    /// <summary>Current scopes, grouped by type. Same shape used to
+    /// create/replace scopes — resend this verbatim (edited) to update them.</summary>
+    public List<CreateVideoScopeDto>? Scopes { get; set; }
+}
+
+/// <summary>
+/// Response for the overview/details endpoint. Same base fields as
+/// <see cref="VideoDetailDto"/>, but no Exam/Scopes (not needed for a
+/// read-only overview page) — instead carries the analytics summary counts.
+/// Backed entirely by the existing <c>GetAnalyticsAggregatesAsync</c> — no
+/// new aggregate query was needed.
+/// </summary>
+public sealed class VideoOverviewDto : VideoBaseDto
+{
+    /// <summary>Distinct students who have opened the video at least once.</summary>
+    public int SeenStudentCount { get; set; }
+
+    /// <summary>Students in scope who have never opened the video.</summary>
+    public int UnseenStudentCount { get; set; }
+
+    /// <summary>Students whose completion meets <c>VideoConstants.CompletionThresholdPercent</c>.</summary>
+    public int CompletedStudentCount { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -229,11 +353,6 @@ public sealed class TeacherVideoUnitListItemDto
 // ATTACHMENTS (Track F / §5) — Azure Blob Storage
 // ══════════════════════════════════════════════════════════════════════════
 
-/// <summary>
-/// One uploaded file. <see cref="ReadUrl"/> is a time-limited SAS URL
-/// generated per request — never stored, so it can't go stale in a cached
-/// response.
-/// </summary>
 public sealed class VideoAttachmentDto
 {
     public long Id { get; set; }
@@ -242,6 +361,15 @@ public sealed class VideoAttachmentDto
     public long FileSizeBytes { get; set; }
     public string ReadUrl { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// Response for <c>PUT /api/videos/{id}/thumbnail</c>. A video has at most one
+/// thumbnail, so no <c>Id</c> is needed — just a fresh SAS read URL.
+/// </summary>
+public sealed class ThumbnailDto
+{
+    public string ReadUrl { get; set; } = null!;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -359,6 +487,8 @@ public sealed class TeacherVideoListItemDto
 {
     public long Id { get; set; }
     public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public string SourceUrl { get; set; } = null!;
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoSourceType SourceType { get; set; }
@@ -642,4 +772,76 @@ public sealed class VideoUnitResponse
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
     public List<VideoScopeInputDto> Scopes { get; set; } = new();
+}
+// <summary>
+/// One scope-type group for the merged create-video request. <c>Ids</c> are
+/// session ids when <c>ScopeType = Session</c>, or session-group ids when
+/// <c>ScopeType = SessionGroup</c>. Flattened server-side into one
+/// <see cref="VideoScopeInputDto"/> per id and validated/persisted through
+/// the exact same pipeline <c>PUT /videos/{id}/scopes</c> uses.
+/// </summary>
+public sealed class CreateVideoScopeDto
+{
+    [Required]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoScopeType ScopeType { get; set; }
+
+    [Required]
+    public List<long> Ids { get; set; } = new();
+}
+
+/// <summary>One answer option for a create-time exam question.</summary>
+public sealed class CreateExamQuestionOptionDto
+{
+    [Required]
+    public string Text { get; set; } = null!;
+
+    /// <summary>Answer key. SingleChoice: exactly one option across the
+    /// question must be true. MultipleChoice: one or more.</summary>
+    public bool IsCorrect { get; set; }
+}
+
+/// <summary>One question for a create-time exam.</summary>
+public sealed class CreateExamQuestionDto
+{
+    [Required]
+    public string Text { get; set; } = null!;
+
+    [Required]
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoExamQuestionType QuestionType { get; set; }
+
+    [Required]
+    public List<CreateExamQuestionOptionDto> Options { get; set; } = new();
+}
+
+/// <summary>
+/// Optional exam definition, embedded in <see cref="CreateVideoRequest"/>.
+/// Persisted atomically with the video and its scopes — no separate exam
+/// endpoint exists yet.
+/// </summary>
+public sealed class CreateExamDto
+{
+    [Required]
+    public string Title { get; set; } = null!;
+
+    public string? Description { get; set; }
+
+    [Required]
+    public List<CreateExamQuestionDto> Questions { get; set; } = new();
+}
+/// <summary>
+/// Request body for <c>PUT /api/videos/{id}/units</c> — the dedicated
+/// assign-to-unit endpoint. Replace-all: null or empty <c>UnitIds</c>
+/// unlinks the video from every unit.
+/// </summary>
+public sealed class AssignVideoUnitsRequest
+{
+    public List<long>? UnitIds { get; set; }
+}
+
+/// <summary>Response for <c>PUT /api/videos/{id}/units</c> — the resulting unit links.</summary>
+public sealed class AssignVideoUnitsResponse
+{
+    public List<long> UnitIds { get; set; } = new();
 }
