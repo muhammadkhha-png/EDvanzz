@@ -356,14 +356,20 @@ public class AttendanceTimelineRequest
 /// </summary>
 public class StudentTimelineMonthRequest
 {
-    /// <summary>Year of the month to load.</summary>
-    [Required]
-    public int Year { get; set; }
+    /// <summary>
+    /// Year of the month to load. Optional: when omitted (together with
+    /// <see cref="Month"/>) the server defaults to the teacher's current local
+    /// (Africa/Cairo) month, mirroring the payment-module month-scoping convention.
+    /// </summary>
+    public int? Year { get; set; }
 
-    /// <summary>Month number (1-12) to load.</summary>
-    [Required]
+    /// <summary>
+    /// Month number (1-12) to load. Optional: see <see cref="Year"/> for the
+    /// defaulting behavior. Ignored (falls back to current month) unless
+    /// <see cref="Year"/> is also supplied.
+    /// </summary>
     [Range(1, 12)]
-    public int Month { get; set; }
+    public int? Month { get; set; }
 }
 
 /// <summary>
@@ -815,15 +821,86 @@ public class MonthlyAttendanceSummaryDto
 {
     public int Year { get; set; }
     public int Month { get; set; }
+
+    /// <summary>
+    /// Session shown in the screen header. Resolved from the student's assignment
+    /// overlapping the month (active/most-recent), independent of whether any
+    /// attendance was recorded. Null only when the student had no session assignment
+    /// that month and no records to fall back on.
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>Display name of <see cref="SessionId"/>. REQ-ATT-044 / BR-ATT-005.</summary>
+    public string? SessionName { get; set; }
+
+    /// <summary>
+    /// Total scheduled class days this month within the student's enrollment window —
+    /// the count of <see cref="Days"/>. Includes upcoming and not-yet-marked
+    /// occurrences, so it is NOT the denominator of <see cref="AttendancePercentage"/>.
+    /// </summary>
     public int TotalOccurrences { get; set; }
+
+    /// <summary>
+    /// How many of <see cref="TotalOccurrences"/> actually carry an attendance record
+    /// (Present / Absent / CrossSessionPresent / Held). REQ-ATT-077.
+    /// </summary>
+    public int MarkedOccurrences { get; set; }
+
+    /// <summary>Present + CrossSessionPresent for the month (the "blue" days).</summary>
     public int TotalPresent { get; set; }
+
+    /// <summary>Absent for the month (the "red" days).</summary>
     public int TotalAbsences { get; set; }
 
-    /// <summary>Attendance percentage for this month. REQ-ATT-077: "7 / 9 — 77%".</summary>
+    /// <summary>
+    /// Attendance percentage for the month: present / (present + absent), rounded to
+    /// one decimal. Held and unmarked/upcoming occurrences are excluded from the
+    /// denominator. REQ-ATT-077: "7 / 9 — 77%".
+    /// </summary>
     public decimal AttendancePercentage { get; set; }
+
+    /// <summary>
+    /// Per-class-day calendar cells for the month — the scheduled occurrences overlaid
+    /// with the student's status where a record exists. Drives the attendance calendar;
+    /// ordered by date. REQ-ATT-065.
+    /// </summary>
+    public List<StudentAttendanceDayDto> Days { get; set; } = new();
 
     /// <summary>Individual attendance records for this month. REQ-ATT-075.</summary>
     public List<AttendanceRecordDto> Records { get; set; } = new();
+}
+
+/// <summary>
+/// One calendar cell in the student attendance month view: a single scheduled class
+/// day, overlaid with the student's attendance status where a record exists.
+/// REQ-ATT-065 / REQ-ATT-075: color-coded occurrence dates.
+/// </summary>
+public class StudentAttendanceDayDto
+{
+    /// <summary>The class occurrence date (date-only).</summary>
+    public DateTime Date { get; set; }
+
+    /// <summary>The SessionOccurrence this cell maps to, when known.</summary>
+    public long? SessionOccurrenceId { get; set; }
+
+    /// <summary>The session this occurrence belongs to.</summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>Display name of the session for this occurrence. BR-ATT-005.</summary>
+    public string SessionName { get; set; } = null!;
+
+    /// <summary>
+    /// The student's attendance status for this day. Null means the class is
+    /// scheduled but has no record yet (upcoming, or the teacher hasn't taken
+    /// attendance) — render as a neutral cell, NOT as absent.
+    /// </summary>
+    public AttendanceStatus? Status { get; set; }
+
+    /// <summary>
+    /// True when the occurrence date is on or before the teacher's local today —
+    /// i.e. the class has already happened. Future occurrences are false.
+    /// </summary>
+    public bool IsPast { get; set; }
 }
 
 /// <summary>

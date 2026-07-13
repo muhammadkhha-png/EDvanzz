@@ -1662,33 +1662,154 @@ public class AttendanceService : IAttendanceService
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Occurrence-overlay model (2026-07-13): the calendar is driven by the session's
+    /// SCHEDULED occurrences for the month, not merely by rows in AttendanceRecord.
+    /// This lets the student see every class day — including upcoming classes and days
+    /// the teacher hasn't marked yet — with the recorded status overlaid where present.
+    ///
+    ///   1. Resolve the month window; default to the teacher's local current month when
+    ///      the client omits year/month (ITimeZoneService, matches the payment module).
+    ///   2. Take the student's assignment period(s) overlapping the month; for each, pull
+    ///      that session's occurrences clipped to the enrollment window (BR-ATT-001: no
+    ///      obligation before AssignedAt or after UnassignedAt).
+    ///   3. Overlay AttendanceRecords onto the scheduled cells by SessionOccurrenceId; any
+    ///      record with no matching cell (cross-session present against a linked session's
+    ///      occurrence, or a record outside the window) is surfaced as its own date-driven
+    ///      cell so nothing the student was marked for is dropped.
+    ///   4. Stats count MARKED occurrences only; Held and unmarked/upcoming days are
+    ///      excluded from the percentage denominator (present / (present + absent)).
+    /// </remarks>
     public async Task<Result<MonthlyAttendanceSummaryDto>> GetStudentTimelineMonthAsync(
         long teacherId, long teacherStudentId, StudentTimelineMonthRequest request)
     {
-        var startDate = new DateTime(request.Year, request.Month, 1);
+        // ── 1. Month window — default to the teacher's local current month ──
+        DateTime localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
+        int year, month;
+        if (request.Year.HasValue && request.Month.HasValue
+            && request.Year.Value is >= 1 and <= 9999)
+        {
+            year = request.Year.Value;
+            month = request.Month.Value;
+        }
+        else
+        {
+            year = localToday.Year;
+            month = localToday.Month;
+        }
+        var startDate = new DateTime(year, month, 1);
         var endDate = startDate.AddMonths(1).AddDays(-1);
 
+        // ── 2. Assignment period(s) overlapping the month → the session(s) the student
+        //       belonged to, and each session's scheduled occurrences within its window ──
+        var assignments = await _unitOfWork.AttendanceRepo
+            .GetAssignmentsByStudentAsync(teacherStudentId);
+        var overlapping = assignments
+            .Where(a => a.SessionId.HasValue
+                && a.AssignedAt.Date <= endDate
+                && (a.UnassignedAt == null || a.UnassignedAt.Value.Date >= startDate))
+            .ToList();
+
+        var dayCells = new List<StudentAttendanceDayDto>();
+        var scheduledOccurrenceIds = new HashSet<long>();
+        foreach (var a in overlapping)
+        {
+            var winStart = a.AssignedAt.Date > startDate ? a.AssignedAt.Date : startDate;
+            var winEnd = (a.UnassignedAt.HasValue && a.UnassignedAt.Value.Date < endDate)
+                ? a.UnassignedAt.Value.Date : endDate;
+
+            var occurrences = await _unitOfWork.AttendanceRepo
+                .GetOccurrencesBySessionAndDateRangeAsync(a.SessionId!.Value, winStart, winEnd);
+            foreach (var o in occurrences)
+            {
+                if (!scheduledOccurrenceIds.Add(o.Id)) continue; // dedupe overlapping windows
+                dayCells.Add(new StudentAttendanceDayDto
+                {
+                    Date = o.OccurrenceDate,
+                    SessionOccurrenceId = o.Id,
+                    SessionId = a.SessionId,
+                    SessionName = a.SessionName,
+                    Status = null, // scheduled but not yet marked
+                    IsPast = o.OccurrenceDate.Date <= localToday.Date
+                });
+            }
+        }
+
+        // ── 3. Overlay the student's records onto the scheduled cells ──
         var records = await _unitOfWork.AttendanceRepo
             .GetRecordsByStudentAndDateRangeAsync(teacherStudentId, startDate, endDate);
-
         var recordDtos = records.Select(r => MapToRecordDto(r,
             r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
             r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "")).ToList();
 
-        int totalOccurrences = recordDtos.Count;
-        int totalPresent = recordDtos.Count(r =>
-            r.Status == AttendanceStatus.Present || r.Status == AttendanceStatus.CrossSessionPresent);
-        int totalAbsences = recordDtos.Count(r => r.Status == AttendanceStatus.Absent);
+        var recordByOccurrence = records
+            .Where(r => r.SessionOccurrenceId.HasValue)
+            .GroupBy(r => r.SessionOccurrenceId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        foreach (var cell in dayCells)
+        {
+            if (cell.SessionOccurrenceId.HasValue
+                && recordByOccurrence.TryGetValue(cell.SessionOccurrenceId.Value, out var matched))
+                cell.Status = matched.Status;
+        }
+
+        // Records with no matching scheduled cell → surface as their own date-driven cells.
+        foreach (var r in records)
+        {
+            if (r.SessionOccurrenceId.HasValue
+                && scheduledOccurrenceIds.Contains(r.SessionOccurrenceId.Value))
+                continue;
+            dayCells.Add(new StudentAttendanceDayDto
+            {
+                Date = r.OccurrenceDate,
+                SessionOccurrenceId = r.SessionOccurrenceId,
+                SessionId = r.SessionId,
+                SessionName = r.SessionName,
+                Status = r.Status,
+                IsPast = r.OccurrenceDate.Date <= localToday.Date
+            });
+        }
+
+        dayCells = dayCells.OrderBy(c => c.Date).ToList();
+
+        // ── 4. Month stats — marked occurrences only; Held excluded from the % ──
+        int totalPresent = dayCells.Count(c =>
+            c.Status == AttendanceStatus.Present || c.Status == AttendanceStatus.CrossSessionPresent);
+        int totalAbsences = dayCells.Count(c => c.Status == AttendanceStatus.Absent);
+        int markedOccurrences = dayCells.Count(c => c.Status.HasValue);
+        int denominator = totalPresent + totalAbsences;
+
+        // ── 5. Header session: the active/most-recent assignment overlapping the month,
+        //       falling back to the latest record when no assignment overlaps ──
+        long? headerSessionId = null;
+        string? headerSessionName = null;
+        var headerAssignment = overlapping.OrderByDescending(a => a.AssignedAt).FirstOrDefault();
+        if (headerAssignment is not null)
+        {
+            headerSessionId = headerAssignment.SessionId;
+            headerSessionName = headerAssignment.SessionName;
+        }
+        else if (records.Count > 0)
+        {
+            var latest = records.OrderByDescending(r => r.OccurrenceDate).First();
+            headerSessionId = latest.SessionId;
+            headerSessionName = latest.SessionName;
+        }
 
         var monthSummary = new MonthlyAttendanceSummaryDto
         {
-            Year = request.Year,
-            Month = request.Month,
-            TotalOccurrences = totalOccurrences,
+            Year = year,
+            Month = month,
+            SessionId = headerSessionId,
+            SessionName = headerSessionName,
+            TotalOccurrences = dayCells.Count,
+            MarkedOccurrences = markedOccurrences,
             TotalPresent = totalPresent,
             TotalAbsences = totalAbsences,
-            AttendancePercentage = totalOccurrences > 0
-                ? Math.Round((decimal)totalPresent / totalOccurrences * 100, 1) : 0,
+            AttendancePercentage = denominator > 0
+                ? Math.Round((decimal)totalPresent / denominator * 100, 1) : 0,
+            Days = dayCells,
             Records = recordDtos
         };
 
