@@ -94,6 +94,27 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task PurgeExamGraphAsync(long templateId)
+    {
+        // Leaf-first set-based deletes (children have NoAction FKs) — same pattern as
+        // DeleteTemplateAsync, but the template row itself is preserved for the rebuild.
+        await _context.StudentAssignmentObligations
+            .IgnoreQueryFilters()
+            .Where(o => o.Occurrence.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+
+        await _context.AssignmentOccurrences
+            .IgnoreQueryFilters()
+            .Where(o => o.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+
+        await _context.AssignmentScopes
+            .IgnoreQueryFilters()
+            .Where(s => s.TemplateId == templateId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<AssignmentTemplate?> GetTemplateByIdAndTeacherAsync(long templateId, long teacherId)
     {
         return await _context.AssignmentTemplates

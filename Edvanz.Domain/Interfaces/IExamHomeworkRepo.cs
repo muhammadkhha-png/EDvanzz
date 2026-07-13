@@ -145,6 +145,13 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task AddOccurrencesRangeAsync(IEnumerable<AssignmentOccurrence> occurrences);
 
     /// <summary>
+    /// Purges an exam template's materialized graph — obligations, occurrences, and scopes —
+    /// leaf-first with set-based deletes, KEEPING the template. Used when a result-free exam is
+    /// structurally re-edited (delivery type / sessions / date) and its graph must be rebuilt.
+    /// </summary>
+    Task PurgeExamGraphAsync(long templateId);
+
+    /// <summary>
     /// Marks an occurrence as modified. Used by the scheduler to flip Status from
     /// Pending to Active or Completed.
     /// </summary>

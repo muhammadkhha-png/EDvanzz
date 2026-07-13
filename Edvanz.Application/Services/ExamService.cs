@@ -317,33 +317,204 @@ public class ExamService : IExamService
             return Result<ExamViewDto>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
 
         // ── Scalar validation — the same grade rules as create ──
-        if (string.IsNullOrWhiteSpace(dto.Name) || dto.Name.Trim().Length > 200)
-            return Result<ExamViewDto>.Failure(_localizer, "ExamNameRequired", HttpStatusCode.BadRequest);
-        if (dto.Notes is not null && dto.Notes.Length > 2000)
-            return Result<ExamViewDto>.Failure(_localizer, "AssignmentNotesTooLong", HttpStatusCode.BadRequest);
-        if (dto.MaxGrade <= 0m)
-            return Result<ExamViewDto>.Failure(_localizer, "ExamRequiresMaxGrade", HttpStatusCode.BadRequest);
-        if (dto.SuccessScore < 0m)
-            return Result<ExamViewDto>.Failure(_localizer, "PassingThresholdOutOfRange", HttpStatusCode.BadRequest);
-        if (dto.SuccessScore > dto.MaxGrade)
-            return Result<ExamViewDto>.Failure(_localizer, "SuccessScoreExceedsMax", HttpStatusCode.BadRequest);
+        if (string.IsNullOrWhiteSpace(dto.Name) || dto.Name.Trim().Length > 200) return FailView("ExamNameRequired");
+        if (dto.Notes is not null && dto.Notes.Length > 2000) return FailView("AssignmentNotesTooLong");
+        if (dto.MaxGrade <= 0m) return FailView("ExamRequiresMaxGrade");
+        if (dto.SuccessScore < 0m) return FailView("PassingThresholdOutOfRange");
+        if (dto.SuccessScore > dto.MaxGrade) return FailView("SuccessScoreExceedsMax");
+        if (dto.ExamDate is null) return FailView("ExamDateRequired");
 
-        // ── Delegate persistence to the shared template edit. An exam is a non-recurring template,
-        // so the exam-shaped fields map straight onto the template DTO; the freshly-loaded RowVersion
-        // is threaded through so the client need not carry the concurrency token. ──
-        var templateEdit = new UpdateAssignmentTemplateDto
+        bool hasSessions = dto.SessionIds is { Count: > 0 };
+        bool hasGroups = dto.GroupIds is { Count: > 0 };
+        if (hasSessions == hasGroups) return FailView("SelectEitherSessionsOrGroups");
+
+        DateTime utcNow = DateTime.UtcNow;
+        DateTime today = utcNow.Date;
+        DateTime examDate = dto.ExamDate.Value.Date;
+        if (dto.DeliveryType == ExamDeliveryType.SeparateTime && examDate < today)
+            return FailView("AssignmentDateInPast");
+
+        // ── Resolve the recipient into the set of target sessions (validate ownership) ──
+        var groupIds = new List<long>();
+        List<long> targetSessionIds;
+        if (hasGroups)
         {
-            Name = dto.Name.Trim(),
-            Notes = dto.Notes,
-            AssignmentDate = dto.ExamDate,
-            MaxGrade = dto.MaxGrade,
-            PassingThreshold = dto.SuccessScore,
-            RowVersion = template.RowVersion
-        };
+            groupIds = dto.GroupIds!.Distinct().ToList();
+            foreach (var gid in groupIds)
+            {
+                var group = await _unitOfWork.SessionsRepo.GetGroupByIdAndTeacherAsync(gid, teacherId);
+                if (group is null) return FailView("GroupNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+            var groupSessions = await _unitOfWork.SessionsRepo.GetSessionsByGroupIdsAsync(teacherId, groupIds);
+            targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
+        }
+        else
+        {
+            targetSessionIds = dto.SessionIds!.Distinct().ToList();
+            foreach (var sid in targetSessionIds)
+            {
+                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
+                if (session is null) return FailView("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+        }
+        if (targetSessionIds.Count == 0) return FailView("ExamRequiresSession");
 
-        var update = await _examHomework.UpdateTemplateAsync(teacherId, actingUserId, examId, templateEdit);
-        if (!update.IsSuccess)
-            return Result<ExamViewDto>.Failure(_localizer, update.Code ?? "ExamNotFound", update.StatusCode);
+        HashSet<long>? studentFilter = dto.StudentIds is { Count: > 0 }
+            ? dto.StudentIds.Distinct().ToHashSet() : null;
+        var matchedFilterStudents = new HashSet<long>();
+
+        // ── Build the per-session materialization plan for the NEW selection ──
+        var plans = new List<SessionPlan>();
+        foreach (var sessionId in targetSessionIds)
+        {
+            DateTime dueDate;
+            long? sessionOccurrenceId = null;
+            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
+            {
+                var occ = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndDateAsync(sessionId, examDate);
+                if (occ is null) return FailView("SessionOccurrenceNotFoundForDate", HttpStatusCode.NotFound);
+                dueDate = occ.OccurrenceDate.Date;
+                sessionOccurrenceId = occ.Id;
+            }
+            else dueDate = examDate;
+
+            var sessionStudentSet = (await _unitOfWork.PaymentsRepo.GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
+            List<long> studentIds;
+            if (studentFilter is not null)
+            {
+                studentIds = sessionStudentSet.Where(studentFilter.Contains).ToList();
+                foreach (var id in studentIds) matchedFilterStudents.Add(id);
+            }
+            else studentIds = sessionStudentSet.ToList();
+
+            if (studentIds.Count == 0) continue;
+            plans.Add(new SessionPlan { SessionId = sessionId, DueDate = dueDate, SessionOccurrenceId = sessionOccurrenceId, StudentIds = studentIds });
+        }
+        if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
+            return FailView("StudentNotInSession");
+        if (plans.Count == 0) return FailView("SessionHasNoStudents");
+
+        var newSessionIds = plans.Select(p => p.SessionId).ToHashSet();
+        var newStudentIds = plans.SelectMany(p => p.StudentIds).ToHashSet();
+
+        // ── Load the CURRENT structure + whether any attendance/grade has been recorded ──
+        var (currentOccurrences, _) = await _unitOfWork.ExamHomeworkRepo
+            .GetOccurrencesByTemplatePagedAsync(teacherId, examId, 1, 1000);
+        var currentSessionIds = currentOccurrences.Where(o => o.SessionId.HasValue).Select(o => o.SessionId!.Value).ToHashSet();
+        DateTime? currentDate = currentOccurrences.Count > 0 ? currentOccurrences.Min(o => o.DueDate).Date : (DateTime?)null;
+        var currentStudentIds = new HashSet<long>();
+        bool hasResults = false;
+        foreach (var occ in currentOccurrences)
+        {
+            var obs = await _unitOfWork.ExamHomeworkRepo.GetObligationsByOccurrenceAsync(teacherId, occ.Id);
+            foreach (var ob in obs)
+            {
+                currentStudentIds.Add(ob.TeacherStudentId);
+                if (ob.Status != ObligationStatus.Pending || ob.IsGradeEntered) hasResults = true;
+            }
+        }
+
+        bool structuralChange =
+            dto.DeliveryType != template.ExamDeliveryType ||
+            currentDate is null || currentDate.Value != examDate ||
+            !newSessionIds.SetEquals(currentSessionIds) ||
+            !newStudentIds.SetEquals(currentStudentIds);
+
+        // ── Policy: never restructure an exam that already has attendance or grades ──
+        if (structuralChange && hasResults)
+            return FailView("ExamHasResultsCannotRestructure", HttpStatusCode.Conflict);
+
+        if (structuralChange)
+        {
+            // Rebuild the graph IN PLACE (exam is result-free): update template scalars, purge the
+            // old occurrences/obligations/scopes, and re-materialize from the new plan.
+            template.Name = dto.Name.Trim();
+            template.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+            template.MaxGrade = dto.MaxGrade;
+            template.PassingThreshold = dto.SuccessScore;
+            template.ExamDeliveryType = dto.DeliveryType;
+            template.UpdatedAt = utcNow;
+
+            var scopes = hasGroups
+                ? groupIds.Select(gid => new AssignmentScope { TeacherId = teacherId, TemplateId = examId, ScopeType = AssignmentScopeType.SessionGroup, SessionGroupId = gid, CreateAt = utcNow }).ToList()
+                : plans.Select(p => new AssignmentScope { TeacherId = teacherId, TemplateId = examId, ScopeType = AssignmentScopeType.Session, SessionId = p.SessionId, CreateAt = utcNow }).ToList();
+
+            var occurrences = new List<AssignmentOccurrence>();
+            var obligations = new List<StudentAssignmentObligation>();
+            int occurrenceNumber = 1;
+            foreach (var p in plans)
+            {
+                var occurrence = new AssignmentOccurrence
+                {
+                    TemplateId = examId,
+                    TeacherId = teacherId,
+                    OccurrenceNumber = occurrenceNumber++,
+                    DueDate = p.DueDate,
+                    Status = AssignmentOccurrenceStatus.Pending,
+                    SessionId = p.SessionId,
+                    SessionOccurrenceId = p.SessionOccurrenceId,
+                    MaxGradeSnapshot = dto.MaxGrade,
+                    PassingThresholdSnapshot = dto.SuccessScore,
+                    TrackingModeSnapshot = null,
+                    TotalStudentCount = p.StudentIds.Count,
+                    CreateAt = utcNow,
+                };
+                p.Occurrence = occurrence;
+                occurrences.Add(occurrence);
+                foreach (var studentId in p.StudentIds)
+                    obligations.Add(new StudentAssignmentObligation
+                    {
+                        Occurrence = occurrence,
+                        TeacherId = teacherId,
+                        TeacherStudentId = studentId,
+                        Status = ObligationStatus.Pending,
+                        IsGradeEntered = false,
+                        MarkedByScan = false,
+                        UpdatedAt = utcNow,
+                        CreateAt = utcNow,
+                    });
+            }
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await _unitOfWork.ExamHomeworkRepo.UpdateTemplateAsync(template);
+                await _unitOfWork.ExamHomeworkRepo.PurgeExamGraphAsync(examId);
+                await _unitOfWork.ExamHomeworkRepo.AddScopesRangeAsync(scopes);
+                await _unitOfWork.ExamHomeworkRepo.AddOccurrencesRangeAsync(occurrences);
+                await _unitOfWork.ExamHomeworkRepo.AddObligationsRangeAsync(obligations);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitAsync();
+            }
+            catch (DbUpdateException)
+            {
+                await _unitOfWork.RollbackAsync();
+                return FailView("DatabaseConflict", HttpStatusCode.Conflict);
+            }
+
+            // DuringSession: back-fill each new occurrence's obligations from attendance already
+            // recorded on its linked SessionOccurrence (best-effort — same as create).
+            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
+                foreach (var p in plans)
+                    if (p.SessionOccurrenceId.HasValue)
+                        await _examAttendanceSync.BackfillExamOccurrenceAsync(teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
+        }
+        else
+        {
+            // Metadata-only (no structural/date change): reuse the shared, tested template edit.
+            var templateEdit = new UpdateAssignmentTemplateDto
+            {
+                Name = dto.Name.Trim(),
+                Notes = dto.Notes,
+                AssignmentDate = examDate,
+                MaxGrade = dto.MaxGrade,
+                PassingThreshold = dto.SuccessScore,
+                RowVersion = template.RowVersion
+            };
+            var update = await _examHomework.UpdateTemplateAsync(teacherId, actingUserId, examId, templateEdit);
+            if (!update.IsSuccess)
+                return FailView(update.Code ?? "ExamNotFound", update.StatusCode);
+        }
 
         // ── Return the refreshed opened-exam view under an explicit "updated" code ──
         var view = await GetExamViewAsync(teacherId, examId);
@@ -904,6 +1075,9 @@ public class ExamService : IExamService
 
     private Result<ExamCreatedDto> Fail(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
         Result<ExamCreatedDto>.Failure(_localizer, key, status);
+
+    private Result<ExamViewDto> FailView(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
+        Result<ExamViewDto>.Failure(_localizer, key, status);
 
     private static BatchGradeItemResultDto FailItem(long teacherStudentId, string code) =>
         new() { TeacherStudentId = teacherStudentId, Success = false, Code = code };

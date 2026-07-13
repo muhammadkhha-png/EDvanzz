@@ -1089,6 +1089,9 @@
   <data name="SuccessScoreExceedsMax" xml:space="preserve">
     <value>درجة النجاح ما ينفعش تكون أكبر من الدرجة العظمى للامتحان</value>
   </data>
+  <data name="ExamHasResultsCannotRestructure" xml:space="preserve">
+    <value>الامتحان ده اتسجّل فيه حضور أو درجات — مش هتقدر تغيّر تاريخه أو المجموعات أو نوعه. عدّل الاسم والدرجات بس، أو امسحه واعمله من جديد.</value>
+  </data>
   <data name="ExamRequiresSession" xml:space="preserve">
     <value>لازم تحدد على الأقل سيشن واحدة للامتحان</value>
   </data>

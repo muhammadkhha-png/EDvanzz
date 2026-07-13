@@ -1089,6 +1089,9 @@
   <data name="SuccessScoreExceedsMax" xml:space="preserve">
     <value>Success score cannot be greater than the exam's maximum grade</value>
   </data>
+  <data name="ExamHasResultsCannotRestructure" xml:space="preserve">
+    <value>This exam already has attendance or grades — you can't change its date, sessions, or type. Edit the name and scores only, or delete and recreate it.</value>
+  </data>
   <data name="ExamRequiresSession" xml:space="preserve">
     <value>An exam must be assigned to at least one session</value>
   </data>

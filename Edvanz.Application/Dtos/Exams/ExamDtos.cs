@@ -51,11 +51,12 @@ public class CreateExamDto
 }
 
 /// <summary>
-/// Edit-exam request (clean surface, PUT /api/exams/{examId}). Updates editable metadata only —
-/// name, notes, grade bounds, and (for a non-recurring exam) the date. Recipients (sessions/
-/// students) are managed via the assignment-template scope/student endpoints, not here. Same grade
-/// rules as create: MaxGrade &gt; 0 and 0 ≤ SuccessScore ≤ MaxGrade. Concurrency is handled
-/// server-side, so no RowVersion is required from the client.
+/// Edit-exam request (clean surface, PUT /api/exams/{examId}). Mirrors <see cref="CreateExamDto"/> —
+/// the edit screen submits the same fields. Metadata (name, notes, grade bounds) is always editable;
+/// STRUCTURAL fields (delivery type, exam date, and the assigned sessions/groups/students) rebuild the
+/// exam's per-session occurrences and obligations and are therefore <b>rejected once the exam has any
+/// recorded attendance or grade</b> (code <c>ExamHasResultsCannotRestructure</c>). Same grade rules as
+/// create (MaxGrade &gt; 0, 0 ≤ SuccessScore ≤ MaxGrade). Concurrency is handled server-side.
 /// </summary>
 public class UpdateExamDto
 {
@@ -66,14 +67,26 @@ public class UpdateExamDto
     /// <summary>Optional description / notes (max 2000 chars).</summary>
     public string? Notes { get; set; }
 
+    /// <summary>DuringSession (taken inside a scheduled class) or SeparateTime (own date). Structural.</summary>
+    public ExamDeliveryType DeliveryType { get; set; }
+
     /// <summary>Maximum exam score (must be &gt; 0).</summary>
     public decimal MaxGrade { get; set; }
 
     /// <summary>Passing / success score (0 ≤ value ≤ MaxGrade).</summary>
     public decimal SuccessScore { get; set; }
 
-    /// <summary>The exam date; for a non-recurring exam this updates its single occurrence's due date.</summary>
+    /// <summary>The single exam date, applied to every resolved session. Required. Structural.</summary>
     public DateTime? ExamDate { get; set; }
+
+    /// <summary>Recipient by sessions — provide EITHER this OR <see cref="GroupIds"/>. Structural.</summary>
+    public List<long>? SessionIds { get; set; }
+
+    /// <summary>Recipient by groups (expand to member sessions server-side) — EITHER this OR <see cref="SessionIds"/>. Structural.</summary>
+    public List<long>? GroupIds { get; set; }
+
+    /// <summary>Optional global student subset across the resolved sessions; null/empty = every student. Structural.</summary>
+    public List<long>? StudentIds { get; set; }
 }
 
 /// <summary>Result of creating an exam — the exam id plus the per-session occurrences that were materialized.</summary>
