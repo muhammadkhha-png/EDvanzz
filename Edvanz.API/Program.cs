@@ -143,6 +143,8 @@ builder.Services.AddSingleton<IEndpointExampleProvider, SubscriptionExampleProvi
 builder.Services.AddSingleton<IEndpointExampleProvider, AuthExampleProvider>();
 builder.Services.AddSingleton<IEndpointExampleProvider, TeacherStudentExampleProvider>();
 builder.Services.AddSingleton<IEndpointExampleProvider, PaymentScreenExampleProvider>();
+builder.Services.AddSingleton<IEndpointExampleProvider, VideoExampleProvider>();
+builder.Services.AddSingleton<IEndpointExampleProvider, VideoUnitExampleProvider>();
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 // ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────
 // QueuePollInterval at 15s: the default is already 15s in Hangfire 1.8;
