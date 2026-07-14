@@ -228,6 +228,14 @@ namespace Edvanz.Infrastructure
 
         public IModuleQuotaRepo ModuleQuotaRepo
             => _moduleQuotaRepo ??= new Repositories.ModuleQuotaRepo(_Context);
+        private IOnlineExamRepo? _onlineExamsRepo;
+        private IStudentOnlineExamReportRepo? _studentOnlineExamReportsRepo;
+
+        public IOnlineExamRepo OnlineExamsRepo
+            => _onlineExamsRepo ??= new Repositories.OnlineExamRepo(_Context);
+
+        public IStudentOnlineExamReportRepo StudentOnlineExamReportsRepo
+            => _studentOnlineExamReportsRepo ??= new Repositories.StudentOnlineExamReportRepo(_Context);
     }
 
 

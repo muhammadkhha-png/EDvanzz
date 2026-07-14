@@ -160,5 +160,10 @@ namespace Edvanz.Domain.Interfaces
         /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
         /// </summary>
         IModuleQuotaRepo ModuleQuotaRepo { get; }
+        /// <summary>Online Exam Module — teacher-side aggregate (exam, questions, options, scopes).</summary>
+        IOnlineExamRepo OnlineExamsRepo { get; }
+
+        /// <summary>Online Exam Module — student-report aggregate (own aggregate root, §1).</summary>
+        IStudentOnlineExamReportRepo StudentOnlineExamReportsRepo { get; }
     }
 }

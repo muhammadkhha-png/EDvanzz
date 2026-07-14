@@ -228,6 +228,17 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// Messages within a 1:1 conversation.
     /// </summary>
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+    // ════════════════════════════════════════════════════════════════════════════
+    // ONLINE EXAM MODULE — DbSet<> ADDITIONS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    public DbSet<OnlineExam> OnlineExams => Set<OnlineExam>();
+    public DbSet<OnlineExamQuestion> OnlineExamQuestions => Set<OnlineExamQuestion>();
+    public DbSet<OnlineExamQuestionOption> OnlineExamQuestionOptions => Set<OnlineExamQuestionOption>();
+    public DbSet<OnlineExamScope> OnlineExamScopes => Set<OnlineExamScope>();
+    public DbSet<StudentOnlineExamReport> StudentOnlineExamReports => Set<StudentOnlineExamReport>();
+    public DbSet<StudentQuestionAnswer> StudentQuestionAnswers => Set<StudentQuestionAnswer>();
+    public DbSet<StudentQuestionAnswerOption> StudentQuestionAnswerOptions => Set<StudentQuestionAnswerOption>();
 
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -3335,6 +3346,279 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 new ModuleQuota { Id = 8, ModuleKey = ModuleQuotaKeys.MessageTemplates, FreeTierLimit = 1, CreateAt = seededAt },
                 new ModuleQuota { Id = 9, ModuleKey = ModuleQuotaKeys.Triggers, FreeTierLimit = 0, CreateAt = seededAt }
             );
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // ONLINE EXAM MODULE CONFIGURATION
+        // ════════════════════════════════════════════════
+        //
+        // NoAction CHAIN DECISION (mirrors VideoAnalytics "Option 2" — see that region's
+        // design-decision comment): Teacher reaches StudentOnlineExamReport via three edges
+        // — Teacher→Report (direct, denorm TeacherId), Teacher→TeacherStudent→Report, and
+        // Teacher→OnlineExam (a sibling edge, not itself feeding Report). Every FK in this
+        // module is explicitly NoAction — none are left to EF Core's Cascade/ClientSetNull
+        // convention defaults, which is what actually causes SQL Server's multi-path
+        // migration failures. Teacher→OnlineExam is the one edge called out explicitly
+        // (do-not-reintroduce #2) because it is the edge the app-layer purge
+        // (IOnlineExamRepo.PurgeExamGraphAsync) is responsible for tearing down before a
+        // teacher hard-purge can proceed — the DB will never cascade it for you.
+
+        #region OnlineExam
+        modelBuilder.Entity<OnlineExam>(entity =>
+        {
+            entity.ToTable("OnlineExams", t =>
+            {
+                t.HasCheckConstraint("CK_OnlineExams_PassPercentageRange",
+                    "[PassPercentage] >= 0 AND [PassPercentage] <= 100");
+
+                t.HasCheckConstraint("CK_OnlineExams_DateOrder",
+                    "[StartDateTime] < [EndDateTime]");
+            });
+
+            entity.Property(e => e.Title).HasMaxLength(250).IsRequired();
+
+            entity.Property(e => e.PassPercentage).HasColumnType("decimal(5,2)").IsRequired();
+
+            entity.Property(e => e.StartDateTime).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(e => e.EndDateTime).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.Property(e => e.Status).HasConversion<byte>().IsRequired();
+
+            entity.Property(e => e.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnType("datetime2(0)");
+
+            entity.Property(e => e.RowVersion).IsRowVersion();
+
+            // ── RELATIONSHIPS ─────────────────────────────────────────────────
+            entity.HasOne(e => e.Teacher)
+                .WithMany()
+                .HasForeignKey(e => e.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.TeacherSubject)
+                .WithMany()
+                .HasForeignKey(e => e.TeacherSubjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.UpdatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+            // CRITICAL — composite-FK target for OnlineExamScope. Required BEFORE the
+            // OnlineExamScope region below (principal-key unique index).
+            entity.HasIndex(e => new { e.Id, e.TeacherId })
+                .IsUnique()
+                .HasDatabaseName("UX_OnlineExams_Id_TeacherId");
+
+            entity.HasIndex(e => new { e.TeacherId, e.Status })
+                .HasDatabaseName("IX_OnlineExams_TeacherId_Status");
+
+            entity.HasIndex(e => new { e.TeacherId, e.Title })
+                .HasDatabaseName("IX_OnlineExams_TeacherId_Title");
+          
+        });
+        #endregion
+
+        #region OnlineExamQuestion
+        modelBuilder.Entity<OnlineExamQuestion>(entity =>
+        {
+            entity.ToTable("OnlineExamQuestions", t =>
+                t.HasCheckConstraint("CK_OnlineExamQuestions_DegreePositive", "[Degree] > 0"));
+
+            entity.Property(q => q.QuestionText).IsRequired();
+            entity.Property(q => q.QuestionType).HasConversion<byte>().IsRequired();
+            entity.Property(q => q.Degree).HasColumnType("decimal(6,2)").IsRequired();
+            entity.Property(q => q.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(q => q.OnlineExam)
+                .WithMany(e => e.Questions)
+                .HasForeignKey(q => q.OnlineExamId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasIndex(q => new { q.OnlineExamId, q.SortOrder })
+                .HasDatabaseName("IX_OnlineExamQuestions_OnlineExamId_SortOrder");
+        });
+        #endregion
+
+        #region OnlineExamQuestionOption
+        modelBuilder.Entity<OnlineExamQuestionOption>(entity =>
+        {
+            entity.ToTable("OnlineExamQuestionOptions");
+
+            entity.Property(o => o.OptionText).IsRequired();
+            entity.Property(o => o.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(o => o.Question)
+                .WithMany(q => q.Options)
+                .HasForeignKey(o => o.QuestionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasIndex(o => new { o.QuestionId, o.SortOrder })
+                .HasDatabaseName("IX_OnlineExamQuestionOptions_QuestionId_SortOrder");
+        });
+        #endregion
+
+        #region OnlineExamScope
+        modelBuilder.Entity<OnlineExamScope>(entity =>
+        {
+            entity.ToTable("OnlineExamScopes", t =>
+            {
+                t.HasCheckConstraint("CK_OnlineExamScopes_ExactlyOneTarget",
+                    "(CASE WHEN [SessionId] IS NOT NULL THEN 1 ELSE 0 END" +
+                    " + CASE WHEN [SessionGroupId] IS NOT NULL THEN 1 ELSE 0 END) = 1");
+
+                t.HasCheckConstraint("CK_OnlineExamScopes_ScopeTypeMatchesFK",
+                    "([ScopeType] = 1 AND [SessionId] IS NOT NULL)" +
+                    " OR ([ScopeType] = 2 AND [SessionGroupId] IS NOT NULL)");
+            });
+
+            entity.Property(s => s.ScopeType).HasConversion<byte>().IsRequired();
+            entity.Property(s => s.AssignedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(s => s.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            // ── COMPOSITE-FK TENANT INTEGRITY ─────────────────────────────────
+            // Single declaration covers both the structural link to OnlineExam AND the
+            // tenant-integrity guarantee. Do NOT add a second HasOne(s => s.Teacher) —
+            // EF Core 10 merges it into this one and drops the OnDelete clause (VideoScope gotcha).
+            entity.HasOne(s => s.OnlineExam)
+                .WithMany(e => e.Scopes)
+                .HasForeignKey(s => new { s.OnlineExamId, s.TeacherId })
+                .HasPrincipalKey(e => new { e.Id, e.TeacherId })
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.Session)
+                .WithMany()
+                .HasForeignKey(s => s.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.SessionGroup)
+                .WithMany()
+                .HasForeignKey(s => s.SessionGroupId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(s => s.AssignedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(s => s.Teacher)
+        .WithMany()
+        .HasForeignKey(s => s.TeacherId)
+        .OnDelete(DeleteBehavior.NoAction);
+            // ── INDEXES ───────────────────────────────────────────────────────
+            entity.HasIndex(s => s.OnlineExamId)
+                .IncludeProperties(s => new { s.ScopeType, s.SessionId, s.SessionGroupId, s.AssignedAt })
+                .HasDatabaseName("IX_OnlineExamScopes_OnlineExamId");
+
+            // .HasFilter((string?)null) overrides EF Core 10's automatic all-nullable-key
+            // filter — logically impossible here given CK_OnlineExamScopes_ExactlyOneTarget.
+            // Without the override the index is silently disabled (VideoScopes gotcha).
+            entity.HasIndex(s => new { s.OnlineExamId, s.ScopeType, s.SessionId, s.SessionGroupId })
+                .IsUnique()
+                .HasFilter((string?)null)
+                .HasDatabaseName("UX_OnlineExamScopes_Exam_Type_Target");
+        });
+        #endregion
+
+        #region StudentOnlineExamReport
+        modelBuilder.Entity<StudentOnlineExamReport>(entity =>
+        {
+            entity.ToTable("StudentOnlineExamReports");
+
+            entity.Property(r => r.Score).HasColumnType("decimal(6,2)").IsRequired();
+            entity.Property(r => r.Percentage).HasColumnType("decimal(5,2)").IsRequired();
+            entity.Property(r => r.Status).HasConversion<byte>().IsRequired();
+            entity.Property(r => r.SubmittedAt).HasColumnType("datetime2(0)");
+            entity.Property(r => r.UpdatedAt).HasColumnType("datetime2(0)");
+            entity.Property(r => r.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(r => r.RowVersion).IsRowVersion();
+
+            // Standalone FKs — NOT composite (this is its own aggregate root, §1). Both kept
+            // as live NoAction chains per the module-level design-decision comment above.
+            entity.HasOne(r => r.OnlineExam)
+                .WithMany()
+                .HasForeignKey(r => r.OnlineExamId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(r => r.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherStudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(r => r.Teacher)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+            entity.HasIndex(r => new { r.OnlineExamId, r.TeacherStudentId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentOnlineExamReports_Exam_Student");
+
+            entity.HasIndex(r => new { r.OnlineExamId, r.Status })
+                .IncludeProperties(r => r.Percentage)
+                .HasDatabaseName("IX_StudentOnlineExamReports_OnlineExamId_Status");
+
+            entity.HasIndex(r => new { r.OnlineExamId, r.SubmittedAt })
+                .HasDatabaseName("IX_StudentOnlineExamReports_OnlineExamId_SubmittedAt");
+        });
+        #endregion
+
+        #region StudentQuestionAnswer
+        modelBuilder.Entity<StudentQuestionAnswer>(entity =>
+        {
+            entity.ToTable("StudentQuestionAnswers");
+
+            entity.Property(a => a.AwardedDegree).HasColumnType("decimal(6,2)").IsRequired();
+            entity.Property(a => a.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(a => a.StudentReport)
+                .WithMany(r => r.Answers)
+                .HasForeignKey(a => a.StudentReportId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Cross-aggregate reference — no back-collection on OnlineExamQuestion.
+            entity.HasOne(a => a.Question)
+                .WithMany()
+                .HasForeignKey(a => a.QuestionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasIndex(a => new { a.StudentReportId, a.QuestionId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentQuestionAnswers_Report_Question");
+        });
+        #endregion
+
+        #region StudentQuestionAnswerOption
+        modelBuilder.Entity<StudentQuestionAnswerOption>(entity =>
+        {
+            entity.ToTable("StudentQuestionAnswerOptions");
+
+            entity.Property(o => o.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(o => o.StudentQuestionAnswer)
+                .WithMany(a => a.SelectedOptions)
+                .HasForeignKey(o => o.StudentQuestionAnswerId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // NoAction here specifically prevents a converging delete path on
+            // OnlineExamQuestionOption (do-not-reintroduce #1) — cross-aggregate reference,
+            // no back-collection on OnlineExamQuestionOption.
+            entity.HasOne(o => o.QuestionOption)
+                .WithMany()
+                .HasForeignKey(o => o.QuestionOptionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasIndex(o => new { o.StudentQuestionAnswerId, o.QuestionOptionId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentQuestionAnswerOptions_Answer_Option");
         });
         #endregion
     }

@@ -1,0 +1,385 @@
+﻿using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
+using Edvanz.Domain.Interfaces;
+using Edvanz.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace Edvanz.Infrastructure.Repositories;
+
+/// <summary>
+/// Extended repository for the Online Exam Module — teacher-side aggregate.
+/// Inherits <see cref="GenericRepo{OnlineExam, long}"/> for basic CRUD; all other
+/// entities (Questions, Options, Scopes) accessed via <c>_context</c> through named
+/// methods — same pattern as <c>ExamHomeworkRepo</c>/<c>VideoAssetRepo</c>.
+/// </summary>
+public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
+{
+    public OnlineExamRepo(EdvanzDbContext context) : base(context)
+    {
+    }
+
+    /// <inheritdoc />
+    public async Task<OnlineExam?> GetByIdAndTeacherAsync(long onlineExamId, long teacherId)
+    {
+        return await _context.OnlineExams
+            .FirstOrDefaultAsync(e => e.Id == onlineExamId && e.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
+    public async Task AddQuestionsRangeAsync(IEnumerable<OnlineExamQuestion> questions)
+    {
+        await _context.OnlineExamQuestions.AddRangeAsync(questions);
+    }
+
+    /// <inheritdoc />
+    public async Task AddScopesRangeAsync(IEnumerable<OnlineExamScope> scopes)
+    {
+        await _context.OnlineExamScopes.AddRangeAsync(scopes);
+    }
+
+    /// <inheritdoc />
+    public async Task PurgeExamGraphAsync(long onlineExamId)
+    {
+        // Leaf-first set-based deletes (every child FK is NoAction — nothing cascades
+        // on its own). Order per §3.7. Report-graph rows purged first via
+        // IStudentOnlineExamReportRepo.PurgeReportsForExamAsync — called by the
+        // service BEFORE this method, same two-repo split as ExamHomeworkRepo's
+        // obligation-then-template teardown.
+        await _context.OnlineExamQuestionOptions
+            .IgnoreQueryFilters()
+            .Where(o => o.Question.OnlineExamId == onlineExamId)
+            .ExecuteDeleteAsync();
+
+        await _context.OnlineExamQuestions
+            .IgnoreQueryFilters()
+            .Where(q => q.OnlineExamId == onlineExamId)
+            .ExecuteDeleteAsync();
+
+        await _context.OnlineExamScopes
+            .IgnoreQueryFilters()
+            .Where(s => s.OnlineExamId == onlineExamId)
+            .ExecuteDeleteAsync();
+
+        await _context.OnlineExams
+            .IgnoreQueryFilters()
+            .Where(e => e.Id == onlineExamId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
+    public IQueryable<long> BuildAssignedStudentIdsQuery(long onlineExamId, long teacherId)
+    {
+        var sessionBranch = _context.OnlineExamScopes
+            .Where(s => s.OnlineExamId == onlineExamId
+                     && s.TeacherId == teacherId
+                     && s.SessionId != null)
+            .Join(_context.TeacherStudents,
+                s => s.SessionId,
+                ts => ts.SessionId,
+                (s, ts) => ts.Id)
+            .Where(id => id != 0); // placeholder no-op to keep both branches same shape for Union
+
+        var groupBranch = _context.OnlineExamScopes
+            .Where(s => s.OnlineExamId == onlineExamId
+                     && s.TeacherId == teacherId
+                     && s.SessionGroupId != null)
+            .Join(_context.Sessions,
+                s => s.SessionGroupId,
+                sess => sess.SessionGroupId,
+                (s, sess) => sess.Id)
+            .Join(_context.TeacherStudents,
+                sessionId => sessionId,
+                ts => ts.SessionId,
+                (sessionId, ts) => ts.Id);
+
+        // Composable — caller applies Distinct()/Count()/Contains()/Except() on top.
+        // Not materialized here (BR-VCM-01 — re-resolved live on every access).
+        return sessionBranch.Union(groupBranch).Distinct();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OnlineExamScope>> GetScopesByExamIdsAsync(IEnumerable<long> onlineExamIds)
+    {
+        return await _context.OnlineExamScopes
+            .Where(s => onlineExamIds.Contains(s.OnlineExamId))
+            .Include(s => s.Session)
+            .Include(s => s.SessionGroup)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OnlineExamQuestionRow>> GetQuestionsForTeacherAsync(long onlineExamId)
+    {
+        return await _context.OnlineExamQuestions
+            .Where(q => q.OnlineExamId == onlineExamId)
+            .OrderBy(q => q.SortOrder)
+            .Select(q => new OnlineExamQuestionRow
+            {
+                Id = q.Id,
+                QuestionText = q.QuestionText,
+                QuestionType = q.QuestionType,
+                Degree = q.Degree,
+                SortOrder = q.SortOrder,
+                Options = q.Options
+                    .OrderBy(o => o.SortOrder)
+                    .Select(o => new OnlineExamQuestionOptionRow
+                    {
+                        Id = o.Id,
+                        OptionText = o.OptionText,
+                        IsCorrect = o.IsCorrect,
+                        SortOrder = o.SortOrder
+                    })
+                    .ToList()
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentOnlineExamQuestionRow>> GetQuestionsForStudentAsync(long onlineExamId)
+    {
+        // IsCorrect never touches this query — the projected type has no such field.
+        return await _context.OnlineExamQuestions
+            .Where(q => q.OnlineExamId == onlineExamId)
+            .OrderBy(q => q.SortOrder)
+            .Select(q => new StudentOnlineExamQuestionRow
+            {
+                Id = q.Id,
+                QuestionText = q.QuestionText,
+                QuestionType = q.QuestionType,
+                Degree = q.Degree,
+                SortOrder = q.SortOrder,
+                Options = q.Options
+                    .OrderBy(o => o.SortOrder)
+                    .Select(o => new StudentOnlineExamQuestionOptionRow
+                    {
+                        Id = o.Id,
+                        OptionText = o.OptionText,
+                        SortOrder = o.SortOrder
+                    })
+                    .ToList()
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<decimal> GetTotalDegreeAsync(long onlineExamId)
+    {
+        return await _context.OnlineExamQuestions
+            .Where(q => q.OnlineExamId == onlineExamId)
+            .SumAsync(q => (decimal?)q.Degree) ?? 0m;
+    }
+    /// <inheritdoc />
+    public async Task<bool> IsTeacherSubjectOwnedByTeacherAsync(long teacherSubjectId, long teacherId)
+    {
+        return await _context.TeacherSubjects
+            .AnyAsync(ts => ts.Id == teacherSubjectId && ts.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsScopeTargetOwnedByTeacherAsync(long teacherId, OnlineExamScopeType scopeType, long targetId)
+    {
+        return scopeType switch
+        {
+            OnlineExamScopeType.Session => await _context.Sessions
+                .AnyAsync(s => s.Id == targetId && s.TeacherId == teacherId),
+            OnlineExamScopeType.SessionGroup => await _context.SessionGroups
+                .AnyAsync(g => g.Id == targetId && g.TeacherId == teacherId),
+            _ => false,
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<OnlineExam> Items, int TotalCount)> GetPagedForTeacherAsync(
+        long teacherId, OnlineExamStatus? status, string? search, int page, int pageSize)
+    {
+        var query = _context.OnlineExams.Where(e => e.TeacherId == teacherId);
+
+        if (status.HasValue)
+            query = query.Where(e => e.Status == status.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(e => EF.Functions.Like(e.Title, $"%{search}%"));
+
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(e => e.CreateAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Include(e => e.TeacherSubject).ThenInclude(ts => ts.Subject)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetAssignedCountsByExamIdsAsync(
+        IEnumerable<long> onlineExamIds, long teacherId)
+    {
+        var examIds = onlineExamIds.ToList();
+
+        var sessionBranch = _context.OnlineExamScopes
+            .Where(s => examIds.Contains(s.OnlineExamId) && s.TeacherId == teacherId && s.SessionId != null)
+            .Join(_context.TeacherStudents, s => s.SessionId, ts => ts.SessionId,
+                (s, ts) => new { s.OnlineExamId, StudentId = ts.Id });
+
+        var groupBranch = _context.OnlineExamScopes
+            .Where(s => examIds.Contains(s.OnlineExamId) && s.TeacherId == teacherId && s.SessionGroupId != null)
+            .Join(_context.Sessions, s => s.SessionGroupId, sess => sess.SessionGroupId,
+                (s, sess) => new { s.OnlineExamId, sess.Id })
+            .Join(_context.TeacherStudents, x => x.Id, ts => ts.SessionId,
+                (x, ts) => new { x.OnlineExamId, StudentId = ts.Id });
+
+        var grouped = await sessionBranch.Union(groupBranch)
+            .GroupBy(x => x.OnlineExamId)
+            .Select(g => new { OnlineExamId = g.Key, Count = g.Select(x => x.StudentId).Distinct().Count() })
+            .ToListAsync();
+
+        return grouped.ToDictionary(x => x.OnlineExamId, x => x.Count);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AssignedStudentRow>> GetAssignedStudentsAsync(long onlineExamId, long teacherId)
+    {
+        var sessionBranch = _context.OnlineExamScopes
+            .Where(s => s.OnlineExamId == onlineExamId && s.TeacherId == teacherId && s.SessionId != null)
+            .Join(_context.TeacherStudents, s => s.SessionId, ts => ts.SessionId,
+                (s, ts) => new AssignedStudentRow
+                {
+                    TeacherStudentId = ts.Id,
+                    StudentName = ts.StudentName ?? string.Empty,
+                    StudentCode = ts.StudentCode
+                });
+
+        var groupBranch = _context.OnlineExamScopes
+            .Where(s => s.OnlineExamId == onlineExamId && s.TeacherId == teacherId && s.SessionGroupId != null)
+            .Join(_context.Sessions, s => s.SessionGroupId, sess => sess.SessionGroupId, (s, sess) => sess.Id)
+            .Join(_context.TeacherStudents, sessionId => sessionId, ts => ts.SessionId,
+                (sessionId, ts) => new AssignedStudentRow
+                {
+                    TeacherStudentId = ts.Id,
+                    StudentName = ts.StudentName ?? string.Empty,
+                    StudentCode = ts.StudentCode
+                });
+
+        var rows = await sessionBranch.Union(groupBranch).AsNoTracking().ToListAsync();
+        return rows.GroupBy(r => r.TeacherStudentId).Select(g => g.First()).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task ReplaceQuestionsAsync(long onlineExamId, IEnumerable<OnlineExamQuestion> newQuestions)
+    {
+        // Leaf-first: options before questions (NoAction FKs, nothing cascades).
+        await _context.OnlineExamQuestionOptions
+            .IgnoreQueryFilters()
+            .Where(o => o.Question.OnlineExamId == onlineExamId)
+            .ExecuteDeleteAsync();
+
+        await _context.OnlineExamQuestions
+            .IgnoreQueryFilters()
+            .Where(q => q.OnlineExamId == onlineExamId)
+            .ExecuteDeleteAsync();
+
+        await _context.OnlineExamQuestions.AddRangeAsync(newQuestions);
+    }
+    /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetAssignedCountsPerScopeAsync(long onlineExamId, long teacherId)
+    {
+        var scopes = await _context.OnlineExamScopes
+            .Where(s => s.OnlineExamId == onlineExamId && s.TeacherId == teacherId)
+            .Select(s => new { s.Id, s.ScopeType, s.SessionId, s.SessionGroupId })
+            .AsNoTracking()
+            .ToListAsync();
+
+        var result = new Dictionary<long, int>();
+
+        // ── Session-scoped rows: one grouped query for all of them ──
+        var sessionScopes = scopes.Where(s => s.ScopeType == OnlineExamScopeType.Session && s.SessionId.HasValue).ToList();
+        if (sessionScopes.Count > 0)
+        {
+            var sessionIds = sessionScopes.Select(s => s.SessionId!.Value).Distinct().ToList();
+
+            var countsBySession = await _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && !ts.IsDeleted
+                          && ts.SessionId.HasValue && sessionIds.Contains(ts.SessionId.Value))
+                .GroupBy(ts => ts.SessionId!.Value)
+                .Select(g => new { SessionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.SessionId, g => g.Count);
+
+            foreach (var s in sessionScopes)
+                result[s.Id] = countsBySession.TryGetValue(s.SessionId!.Value, out var c) ? c : 0;
+        }
+
+        // ── Group-scoped rows: one grouped query for all of them ──
+        var groupScopes = scopes.Where(s => s.ScopeType == OnlineExamScopeType.SessionGroup && s.SessionGroupId.HasValue).ToList();
+        if (groupScopes.Count > 0)
+        {
+            var groupIds = groupScopes.Select(s => s.SessionGroupId!.Value).Distinct().ToList();
+
+            var countsByGroup = await _context.Sessions
+                .Where(sess => sess.TeacherId == teacherId && sess.SessionGroupId.HasValue && groupIds.Contains(sess.SessionGroupId.Value))
+                .Join(_context.TeacherStudents.Where(ts => ts.TeacherId == teacherId && !ts.IsDeleted),
+                    sess => sess.Id, ts => ts.SessionId,
+                    (sess, ts) => new { sess.SessionGroupId, ts.Id })
+                .GroupBy(x => x.SessionGroupId!.Value)
+                .Select(g => new { SessionGroupId = g.Key, Count = g.Select(x => x.Id).Distinct().Count() })
+                .ToDictionaryAsync(g => g.SessionGroupId, g => g.Count);
+
+            foreach (var s in groupScopes)
+                result[s.Id] = countsByGroup.TryGetValue(s.SessionGroupId!.Value, out var c) ? c : 0;
+        }
+
+        return result;
+    }
+    /// <inheritdoc />
+    public async Task<(long? SessionId, long? SessionGroupId)> GetStudentSessionContextAsync(long teacherStudentId)
+    {
+        var sessionId = await _context.TeacherStudents
+            .Where(ts => ts.Id == teacherStudentId)
+            .Select(ts => ts.SessionId)
+            .FirstOrDefaultAsync();
+
+        if (sessionId is null) return (null, null);
+
+        var groupId = await _context.Sessions
+            .Where(s => s.Id == sessionId.Value)
+            .Select(s => (long?)s.SessionGroupId)
+            .FirstOrDefaultAsync();
+
+        return (sessionId, groupId);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OnlineExam>> GetExamsAssignedToStudentAsync(
+        long teacherId, long? studentSessionId, long? studentSessionGroupId)
+    {
+        var examIds = await _context.OnlineExamScopes
+            .Where(s => s.TeacherId == teacherId &&
+                ((s.ScopeType == OnlineExamScopeType.Session && s.SessionId == studentSessionId)
+              || (s.ScopeType == OnlineExamScopeType.SessionGroup && studentSessionGroupId != null && s.SessionGroupId == studentSessionGroupId)))
+            .Select(s => s.OnlineExamId)
+            .Distinct()
+            .ToListAsync();
+
+        if (examIds.Count == 0) return Array.Empty<OnlineExam>();
+
+        // Draft exams are never assignment-visible to students, even if scoped — the
+        // scope row can predate publish.
+        return await _context.OnlineExams
+            .Where(e => examIds.Contains(e.Id) && e.Status != OnlineExamStatus.Draft)
+            .Include(e => e.TeacherSubject).ThenInclude(ts => ts.Subject)
+            .Include(e => e.Questions)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+    /// <inheritdoc />
+    public async Task<bool> IsTeacherStudentOwnedByTeacherAsync(long teacherStudentId, long teacherId)
+    {
+        return await _context.TeacherStudents
+            .AnyAsync(ts => ts.Id == teacherStudentId && ts.TeacherId == teacherId && !ts.IsDeleted);
+    }
+}

@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260714110559_online-exam")]
+    partial class onlineexam
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -5062,7 +5065,7 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasOne("Edvanz.Domain.Entities.Teacher", "Teacher")
                         .WithMany()
                         .HasForeignKey("TeacherId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("Edvanz.Domain.Entities.OnlineExam", "OnlineExam")

@@ -247,6 +247,11 @@ builder.Services.AddSingleton<IVideoUrlParser, VideoUrlParser>();
 builder.Services.AddScoped<IVideoScopeResolver, VideoScopeResolver>();
 builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddScoped<IVideoUnitService, VideoUnitService>();
+builder.Services.AddScoped<IOnlineExamScopeResolver, OnlineExamScopeResolver>();
+builder.Services.AddScoped<IOnlineExamService, OnlineExamService>();
+builder.Services.AddScoped<IOnlineExamGradingService, OnlineExamGradingService>();
+builder.Services.AddSingleton<IEndpointExampleProvider, OnlineExamExampleProvider>();
+builder.Services.AddSingleton<IEndpointExampleProvider, StudentOnlineExamExampleProvider>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 
