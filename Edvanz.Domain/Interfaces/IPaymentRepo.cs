@@ -143,6 +143,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId);
 
     /// <summary>
+    /// Gets ALL of a student's payment periods (across sessions) with their non-deleted
+    /// <c>PaymentTransactions</c> eager-loaded, ordered by period start. Backs the
+    /// student/parent payment tracking screen, where each paid period needs its settlement
+    /// date (the latest transaction's local collection date).
+    /// </summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetStudentPeriodsWithTransactionsAsync(
+        long teacherId, long teacherStudentId);
+
+    /// <summary>
     /// Gets a student's payment periods filtered to an optional date window (by period start),
     /// ordered by session then sequence. Backs the payment-history startDate/endDate filter.
     /// </summary>

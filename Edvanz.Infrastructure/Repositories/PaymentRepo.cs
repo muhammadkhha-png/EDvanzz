@@ -303,6 +303,22 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<PaymentPeriod>> GetStudentPeriodsWithTransactionsAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // Eager-load only non-deleted transactions (filtered Include) so the tracking screen
+        // can surface each paid period's settlement date without an N+1 per period. Ordered
+        // by period start; the service classifies/re-orders into the Upcoming/Paid/Overdue
+        // sections.
+        return await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
+            .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
+            .OrderBy(p => p.PeriodStart)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<PaymentPeriod>> GetPaymentPeriodsByStudentInRangeAsync(
         long teacherId, long teacherStudentId, DateTime? startDate, DateTime? endDate)
     {
