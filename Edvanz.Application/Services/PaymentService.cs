@@ -1698,6 +1698,141 @@ public class PaymentService : IPaymentService
         }, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<StudentPaymentTrackingDto>> GetStudentPaymentTrackingAsync(
+        long teacherId, long teacherStudentId, PaymentViewerType viewer)
+    {
+        // Visibility gate — caller-specific, fail-closed when the config row is missing.
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (!IsPaymentVisibleTo(config, viewer))
+            return Result<StudentPaymentTrackingDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentVisibilityDisabled, HttpStatusCode.Forbidden);
+
+        // Pivot every section on the teacher's LOCAL current month (Africa/Cairo), matching the
+        // rest of the payment module's month scoping (§7.4). Future pre-generated months fall
+        // into Upcoming, so they're excluded from Overdue by construction.
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var monthStart = new DateTime(today.Year, today.Month, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+        var periods = await _unitOfWork.PaymentsRepo
+            .GetStudentPeriodsWithTransactionsAsync(teacherId, teacherStudentId);
+
+        var paidRows = new List<StudentPaymentPeriodDto>();
+        var overdueRows = new List<StudentPaymentPeriodDto>();
+        StudentPaymentPeriodDto? upcoming = null;
+
+        foreach (var p in periods)
+        {
+            decimal outstanding = p.AmountDue - p.AmountPaid;
+
+            if (outstanding <= 0m)
+            {
+                // Fully settled (or overpaid) — Paid section, regardless of month.
+                paidRows.Add(BuildTrackingRow(p, outstanding, LatestPaidOn(p), monthsOverdue: null));
+            }
+            else if (p.PeriodStart <= monthEnd)
+            {
+                // Still owed and due on/before the current month — Overdue section.
+                overdueRows.Add(BuildTrackingRow(
+                    p, outstanding, paidOn: null, monthsOverdue: MonthsBetween(p.PeriodStart, monthStart)));
+            }
+            else if (upcoming is null || p.PeriodStart < upcoming.PeriodStartDate)
+            {
+                // Not fully paid and scheduled in the future — keep the NEAREST one as Upcoming.
+                upcoming = BuildTrackingRow(p, outstanding, paidOn: null, monthsOverdue: null);
+            }
+        }
+
+        // Paid newest-first (screen lists recent months on top); overdue oldest-first.
+        paidRows = paidRows.OrderByDescending(r => r.PeriodStartDate).ToList();
+        overdueRows = overdueRows.OrderBy(r => r.PeriodStartDate).ToList();
+
+        decimal totalPaid = paidRows.Sum(r => r.AmountPaid);
+        decimal totalOverdue = overdueRows.Sum(r => r.OutstandingAmount);
+        decimal denominator = totalPaid + totalOverdue;
+        decimal paidRatio = denominator > 0m ? Math.Round(totalPaid / denominator, 4) : 1m;
+
+        // Header session = the student's most-recent session-linked period.
+        var headerPeriod = periods
+            .Where(p => p.SessionId.HasValue)
+            .OrderByDescending(p => p.PeriodStart)
+            .FirstOrDefault();
+
+        var dto = new StudentPaymentTrackingDto
+        {
+            TeacherId = teacherId,
+            CurrentSessionId = headerPeriod?.SessionId,
+            CurrentSessionName = headerPeriod?.SessionName,
+            PaidProgressRatio = paidRatio,
+            UpcomingPayment = upcoming,
+            PaidSection = new PaymentSectionDto
+            {
+                TotalAmount = totalPaid,
+                PeriodCount = paidRows.Count,
+                Periods = paidRows
+            },
+            OverdueSection = new PaymentSectionDto
+            {
+                TotalAmount = totalOverdue,
+                PeriodCount = overdueRows.Count,
+                Periods = overdueRows
+            }
+        };
+
+        return Result<StudentPaymentTrackingDto>.Success(
+            dto, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// Caller-specific payment visibility, fail-closed on missing config.
+    /// Mirrors <c>AttendanceService.IsAttendanceVisibleTo</c>.
+    /// </summary>
+    private static bool IsPaymentVisibleTo(TeacherConfiguration? config, PaymentViewerType viewer)
+    {
+        if (config is null) return false;
+        return viewer switch
+        {
+            PaymentViewerType.Student => config.StudentVisibilityPayment,
+            PaymentViewerType.Parent => config.ParentVisibilityPayment,
+            _ => false
+        };
+    }
+
+    /// <summary>Maps a period to a tracking-screen row with explicitly-named amounts.</summary>
+    private static StudentPaymentPeriodDto BuildTrackingRow(
+        PaymentPeriod p, decimal outstanding, DateTime? paidOn, int? monthsOverdue) => new()
+    {
+        PeriodId = p.Id,
+        PeriodStartDate = p.PeriodStart,
+        SessionName = p.SessionName,
+        PeriodType = p.PeriodType,
+        Status = p.PaymentStatus,
+        AmountDue = p.AmountDue,
+        AmountPaid = p.AmountPaid,
+        OutstandingAmount = outstanding,
+        PaidOnDate = paidOn,
+        MonthsOverdue = monthsOverdue,
+        IsProRated = p.IsProRated,
+        IsCarriedForward = p.IsCarriedForward
+    };
+
+    /// <summary>Latest non-deleted transaction's local collection date for a period, or null.</summary>
+    private static DateTime? LatestPaidOn(PaymentPeriod p) =>
+        p.PaymentTransactions
+            .Where(t => !t.IsDeleted)
+            .OrderByDescending(t => t.LocalCollectedAt)
+            .Select(t => (DateTime?)t.LocalCollectedAt)
+            .FirstOrDefault();
+
+    /// <summary>Whole months from a period's start month to the current month (never negative).</summary>
+    private static int MonthsBetween(DateTime periodStart, DateTime currentMonthStart)
+    {
+        int months = ((currentMonthStart.Year - periodStart.Year) * 12)
+            + (currentMonthStart.Month - periodStart.Month);
+        return months < 0 ? 0 : months;
+    }
+
     // ══════════════════════════════════════════════
     // INTEGRATION HOOKS
     // ══════════════════════════════════════════════

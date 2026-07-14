@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.ServiceContract;
 
@@ -247,6 +248,16 @@ public interface IPaymentService
     /// </summary>
     Task<Result<StudentPaymentViewDto>> GetStudentPaymentViewAsync(
         long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// Builds the full student/parent "Payment" tracking screen in one call: header, the
+    /// single Upcoming month, the Paid section, and the Overdue section — pivoted on the
+    /// teacher's local current month. Gated by the caller-specific visibility flag
+    /// (<see cref="Domain.Enums.PaymentViewerType"/> → StudentVisibilityPayment /
+    /// ParentVisibilityPayment); returns 403 when disabled (fail-closed on missing config).
+    /// </summary>
+    Task<Result<StudentPaymentTrackingDto>> GetStudentPaymentTrackingAsync(
+        long teacherId, long teacherStudentId, PaymentViewerType viewer);
 
     // ══════════════════════════════════════════════
     // INTEGRATION HOOKS (called by other modules)
