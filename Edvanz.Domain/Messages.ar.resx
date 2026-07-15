@@ -1583,4 +1583,7 @@
   <data name="StudentEnrollmentRemoved" xml:space="preserve">
     <value>سجل تسجيلك عند المدرس ده اتشال. كلم المدرس بتاعك</value>
   </data>
+  <data name="ModuleNotAssigned" xml:space="preserve">
+    <value>معندكش صلاحية توصل للجزء ده. تواصل مع مسؤول الحساب عشان يفعّل لك الصلاحية دي</value>
+</data>
 </root>

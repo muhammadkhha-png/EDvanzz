@@ -53,6 +53,13 @@ namespace Edvanz.Application.Security
         private const string TeacherRole = "Teacher";
         private const string AssistantRole = "Assistant";
         private const string CompleteProfilePermission = "CompleteProfile";
+        /// <summary>
+        /// Marker written to <see cref="AuthorizationFailureReason"/> when the caller's tutor
+        /// scope does not have the required module enabled. Read by
+        /// <see cref="Edvanz.API.Authorization.SubscriptionAuthorizationResultHandler"/> to return
+        /// a clear "module not assigned" envelope instead of a bare 403.
+        /// </summary>
+        public const string ModuleNotAssignedReason = "module_not_assigned";
 
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -146,7 +153,7 @@ namespace Edvanz.Application.Security
             {
                 if (!snapshot.Modules.Contains(requirement.Module))
                 {
-                    context.Fail();
+                    context.Fail(new AuthorizationFailureReason(this, ModuleNotAssignedReason));
                     return Task.CompletedTask;
                 }
             }

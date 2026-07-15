@@ -1538,4 +1538,7 @@
   <data name="StudentEnrollmentRemoved" xml:space="preserve">
     <value>Your enrollment record with this teacher was removed. Please contact your teacher</value>
   </data>
+  <data name="ModuleNotAssigned" xml:space="preserve">
+    <value>You don't have access to this module. Please contact your account administrator.</value>
+</data>
 </root>
