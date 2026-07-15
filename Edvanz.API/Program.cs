@@ -332,7 +332,7 @@ builder.Services.AddHealthChecks()
         {
             return HealthCheckResult.Unhealthy("SQL Server unreachable", ex);
         }
-    }, tags: new[] { "ready" })
+    }, tags: new[] { "ready", "db" })
     .AddCheck("hangfire", () =>
         JobStorage.Current?.GetMonitoringApi().Servers().Count > 0
             ? HealthCheckResult.Healthy()
@@ -406,12 +406,40 @@ else
 }
 // ?? Subscription Module — Phase 08 recurring registrations ??
 
-// These registrations are the boot's FIRST SQL round-trip (Hangfire storage connects
-// lazily here). A transient SQL failure at container-swap time used to abort the whole
-// process (exit 134), forcing Azure to retry the container and adding minutes to every
-// affected deploy (observed 2026-07-10..12 in /home/LogFiles/StartupLogs). Retry with
-// backoff so a swap-time blip cannot kill the boot; rethrow after the last attempt so a
-// genuinely broken configuration still fails loudly.
+// Boot-time DB config diagnostics. ConnectionStrings:con can be defined TWICE — as an App
+// Service *connection string* ('con', injected as SQLAZURECONNSTR_con) AND as an app setting
+// ('ConnectionStrings__con'). Both collapse onto the same config key with a NON-deterministic
+// winner; a stale duplicate holding an old password shadowed the good one and caused the
+// 2026-07-15 SQL 18456 crash-loop outage. Surface the collision and the effective target
+// loudly so the next occurrence is a 5-second log read, not a multi-hour hunt. No password is
+// logged. Fix = keep ONLY the deploy-managed app setting; delete the connection-string entry.
+{
+    bool hasConnStringEntry = Environment.GetEnvironmentVariable("SQLAZURECONNSTR_con") is not null
+                           || Environment.GetEnvironmentVariable("SQLCONNSTR_con") is not null;
+    bool hasAppSetting = Environment.GetEnvironmentVariable("ConnectionStrings__con") is not null;
+    if (hasConnStringEntry && hasAppSetting)
+        app.Logger.LogWarning(
+            "ConnectionStrings:con is defined BOTH as an App Service connection string ('con') AND as an app " +
+            "setting ('ConnectionStrings__con'). They collide on one config key with a non-deterministic winner — " +
+            "remove one (keep the deploy-managed app setting). This caused the 2026-07-15 SQL 18456 outage.");
+    try
+    {
+        var csb = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(app.Configuration.GetConnectionString("con"));
+        app.Logger.LogInformation("Effective SQL target at boot: server={Server}; database={Database}; user={User}.",
+            csb.DataSource, csb.InitialCatalog, csb.UserID);
+    }
+    catch { /* diagnostics only — never block boot */ }
+}
+
+// These registrations are the boot's FIRST SQL round-trip (Hangfire storage connects lazily
+// here). Retry transient faults with backoff so a container-swap blip cannot kill the boot.
+// On a PERSISTENT failure (SQL 18456 = login failed, or retries exhausted) we no longer abort
+// the process: a crash here produced an endless container crash-loop and an opaque Azure "503
+// Application Error" for EVERY request — even anonymous /api/auth/login — that never self-heals
+// when the cause is a standing misconfiguration (the 2026-07-15 outage). Instead, log CRITICAL
+// and boot in a degraded mode (jobs unscheduled) so the app stays reachable and diagnosable via
+// its own error envelopes and /health/ready. NOTE: with this change the deploy's /health/live
+// poll goes green even on a bad DB credential — the CI pipeline gates DB health on /health/db.
 for (int attempt = 1; ; attempt++)
 {
     try
@@ -475,13 +503,25 @@ for (int attempt = 1; ; attempt++)
             attempt, 5 * attempt);
         Thread.Sleep(TimeSpan.FromSeconds(5 * attempt));
     }
+    catch (Exception ex)
+    {
+        // Persistent failure: a SQL login error (18456) is routed here immediately (retrying a
+        // bad credential is pointless), and transient faults land here once retries are spent.
+        // Do NOT rethrow — booting degraded beats an endless crash-loop + opaque platform 503.
+        // Background jobs stay unscheduled until the next healthy boot; fix ConnectionStrings:con
+        // (see the collision warning above) and restart.
+        app.Logger.LogCritical(ex,
+            "Hangfire recurring-job registration FAILED after {Attempt} attempt(s) — BOOTING IN DEGRADED MODE " +
+            "(background jobs NOT scheduled). SQL 18456 = login failed → check ConnectionStrings:con for a " +
+            "wrong or duplicated password, then see /health/ready.", attempt);
+        break;
+    }
 }
 
-// SQL error 18456 (login failed) is a credentials/config problem, never a transient blip:
-// the first container after a deploy can boot without the ConnectionStrings__con app
-// setting (App Service worker sync quirk) and fall back to the committed, rotated
-// connection string. Retrying inside the process only delays Azure's container
-// replacement — which is what actually heals that case — so fail immediately.
+// SQL error 18456 (login failed) is a credentials/config problem, never a transient blip, so
+// it skips the retry/backoff and goes straight to the degraded-boot path above — retrying a
+// bad password only burns the container-start budget. Typical causes: a wrong password in
+// ConnectionStrings:con, or two colliding definitions of it (see the boot warning above).
 static bool ContainsSqlLoginFailure(Exception? ex)
 {
     for (; ex is not null; ex = ex.InnerException)
@@ -546,6 +586,18 @@ app.MapControllers();
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
     Predicate = _ => false   // process-up only — no dependency checks
+}).AllowAnonymous();
+
+// /health/db — anonymous, DB-aware gate for the CI deploy verification. Runs ONLY the SQL
+// check (tag "db") and uses the DEFAULT response writer, so the body is a terse
+// "Healthy"/"Unhealthy" with a 200/503 status — no exception details leaked (unlike the authed
+// /health/ready). Since a persistent SQL-login failure now boots the app DEGRADED (see the
+// Hangfire registration block), /health/live alone cannot catch a bad-DB deploy; the pipeline
+// polls THIS to fail a release that can't reach SQL. Hangfire is intentionally excluded so a
+// background-worker blip doesn't fail deploys.
+app.MapHealthChecks("/health/db", new HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("db")   // SQL connectivity only
 }).AllowAnonymous();
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions

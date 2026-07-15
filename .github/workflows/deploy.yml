@@ -117,12 +117,13 @@ jobs:
       # actually matters, with bounded budgets:
       #   1) the deployment record reaches status 4 (deployed) + active=true — Kudu
       #      finished extracting and registered the deployment (seconds, cap 2 min);
-      #   2) /health/live (anonymous since this commit) returns 200 — the NEW process
-      #      is serving (healthy path ~1-2 min, cap 5 min).
-      # If (2) misses its budget while (1) holds, App Service is still cycling the
-      # container through the known boot quirk: warn and exit 0 — the same trust level
-      # the old fallback applied, but the job never sits blind for 10 minutes and a
-      # red run once again means a REAL failure.
+      #   2) /health/live (anonymous) returns 200 — the NEW process is serving; then
+      #   3) /health/db (anonymous, SQL-only) returns 200 — the process can actually reach SQL.
+      #      A persistent DB-login failure now boots the app DEGRADED instead of crash-looping,
+      #      so (2) can be green on a bad/duplicate credential; (3) is what gates DB health.
+      # If (2) misses its budget, App Service is still cycling the container through the known
+      # boot quirk: warn and exit 0 — the job never sits blind for 10 minutes. If (2) holds but
+      # (3) fails, the build is up but cannot reach SQL — a REAL failure, exit 1.
       - name: Deploy zip to App Service (async + verify)
         run: |
           # --track-status false is CRITICAL: without it the CLI polls the CONTAINER
@@ -158,15 +159,37 @@ jobs:
             exit 1
           fi
 
-          echo "Polling /health/live for the new process (max 5 min)..."
+          echo "Phase 1 — polling /health/live for the new process (max 5 min)..."
+          LIVE_UP=""
           for i in $(seq 1 30); do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
               https://app-edvanz-api-prod.azurewebsites.net/health/live || true)
             if [ "$CODE" = "200" ]; then
-              echo "Site is serving the new build (healthy after ~$((i*10))s)."
+              echo "Process is up (live 200 after ~$((i*10))s)."
+              LIVE_UP=1
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$LIVE_UP" ]; then
+            echo "::warning::Deployment is active but /health/live has not reported healthy within 5 min — App Service is still retrying the container (known stale-settings boot quirk). The swap completes on Azure's side; check /health/live in a few minutes."
+            exit 0
+          fi
+
+          # Phase 2 — the process is up; confirm it can actually reach SQL. A persistent SQL-login
+          # failure no longer crash-loops (the app boots DEGRADED), so /health/live can be 200 while
+          # the DB is unreachable. /health/db (anonymous, SQL-only) returns 503 in that case — a REAL,
+          # non-self-healing failure (wrong/duplicate ConnectionStrings:con) — so fail the release
+          # instead of shipping a build that 500s on every DB call.
+          echo "Phase 2 — polling /health/db for SQL connectivity (max 2 min)..."
+          for i in $(seq 1 12); do
+            DB=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+              https://app-edvanz-api-prod.azurewebsites.net/health/db || true)
+            if [ "$DB" = "200" ]; then
+              echo "Database reachable (health/db 200 after ~$((i*10))s). Deploy verified."
               exit 0
             fi
             sleep 10
           done
-          echo "::warning::Deployment is active but the site has not reported healthy within 5 min — App Service is still retrying the container (known stale-settings boot quirk). The swap completes on Azure's side; check /health/live in a few minutes."
-          exit 0
+          echo "::error::Process is up but /health/db is not healthy after 2 min — the new build cannot reach SQL (check ConnectionStrings:con for a wrong/duplicate password). Failing the deploy."
+          exit 1
