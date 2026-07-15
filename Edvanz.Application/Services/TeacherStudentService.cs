@@ -654,12 +654,12 @@ public class TeacherStudentService : ITeacherStudentService
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
         var validStudents = new List<TeacherStudent>();
         var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // Phone numbers claimed by earlier rows in THIS batch. The DB enforces uniqueness of
-        // (TeacherId, StudentPhoneNumber) and (TeacherId, ParentPhoneNumber); catching duplicates
-        // here as per-row failures stops a single collision from aborting the whole transaction
-        // with one opaque 409. Mirrors the within-batch student-code dedupe.
+        // Student phone numbers claimed by earlier rows in THIS batch. The DB enforces
+        // uniqueness of (TeacherId, StudentPhoneNumber); catching duplicates here as per-row
+        // failures stops a single collision from aborting the whole transaction with one
+        // opaque 409. Mirrors the within-batch student-code dedupe. ParentPhoneNumber is
+        // deliberately NOT deduped — siblings on one roster legitimately share it.
         var usedStudentPhones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var usedParentPhones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // Resolved session per finalized student, consumed by the assignment hooks after insert.
         var studentSessions = new Dictionary<TeacherStudent, Session>();
         // Original 1-based sheet row number per finalized student, for the success report.
@@ -703,17 +703,6 @@ public class TeacherStudentService : ITeacherStudentService
                 continue;
             }
             string? rowParentPhone = NormalizePhone(row.ParentPhoneNumber);
-            if (rowParentPhone is not null && !usedParentPhones.Add(rowParentPhone))
-            {
-                result.Failures.Add(new BulkImportFailureDto
-                {
-                    RowNumber = rowNumber,
-                    StudentName = row.StudentName,
-                    StudentCode = row.StudentCode,
-                    Reason = _localizer["ParentPhoneAlreadyExists"]
-                });
-                continue;
-            }
 
             // Row-level session id wins; the envelope id is the default for rows that omit it.
             var rowSession = await ResolveOwnedSessionAsync(row.SessionId ?? dto.SessionId);
@@ -1145,8 +1134,6 @@ public class TeacherStudentService : ITeacherStudentService
 
         if (message.Contains("StudentPhoneNumber", StringComparison.OrdinalIgnoreCase))
             return "StudentPhoneAlreadyExists";
-        if (message.Contains("ParentPhoneNumber", StringComparison.OrdinalIgnoreCase))
-            return "ParentPhoneAlreadyExists";
         if (message.Contains("StudentCode", StringComparison.OrdinalIgnoreCase))
             return "StudentCodeDuplicate";
 

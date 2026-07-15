@@ -33,6 +33,51 @@ jobs:
             -o migrate.sql
           echo "---- migrate.sql (head) ----"; head -n 40 migrate.sql
 
+      # ── Migration gates (run BEFORE anything touches Azure) ─────────────────
+      # Gate 1: the committed migrations must fully cover the EF model. A commit that
+      # changes an entity/OnModelCreating without adding a migration would otherwise ship
+      # code whose queries assume schema prod doesn't have — reject it here.
+      - name: 'Gate: model has no unmigrated changes'
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          if ! dotnet ef migrations has-pending-model-changes \
+               --project Edvanz.Infrastructure --startup-project Edvanz.API; then
+            echo "::error::EF model has changes not covered by any migration. Run 'dotnet ef migrations add <Name>' and commit it."
+            exit 1
+          fi
+
+      # Gate 2: rehearse the EXACT migrate.sql on a throwaway SQL Server before prod.
+      # Applied twice with -b (abort on first error): the first run catches migrations
+      # that cannot build a database from scratch (BUG-9 duplicate lineages) and batches
+      # that fail compile-time binding (BUG-10 same-batch column backfill); the second
+      # run proves the idempotent history-guards hold. Data-dependent prod failures are
+      # covered by -b on the prod apply step below. '-I' (QUOTED_IDENTIFIER ON) is required:
+      # the image's ODBC sqlcmd defaults it OFF and every filtered index in the script
+      # fails with Msg 1934 without it (go-sqlcmd on the prod step defaults it ON).
+      - name: 'Gate: migrations apply cleanly to a fresh database'
+        run: |
+          GATE_PW="Aa1!$(openssl rand -hex 12)"
+          docker run -d --name sqlgate \
+            -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$GATE_PW" \
+            mcr.microsoft.com/mssql/server:2022-latest
+          TOOLS=/opt/mssql-tools18/bin
+          echo "Waiting for SQL Server to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec sqlgate $TOOLS/sqlcmd -C -S localhost -U sa -P "$GATE_PW" -Q "SELECT 1" >/dev/null 2>&1; then
+              READY=1; break
+            fi
+            sleep 2
+          done
+          if [ -z "$READY" ]; then echo "::error::Gate SQL Server never became ready"; docker logs sqlgate | tail -20; exit 1; fi
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -Q "CREATE DATABASE EdvanzGate"
+          docker cp migrate.sql sqlgate:/tmp/migrate.sql
+          echo "Rehearsal 1/2 — fresh database..."
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -d EdvanzGate -i /tmp/migrate.sql
+          echo "Rehearsal 2/2 — idempotent re-run..."
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -d EdvanzGate -i /tmp/migrate.sql
+          docker rm -f sqlgate >/dev/null
+          echo "migrate.sql verified: builds a fresh DB and re-runs idempotently."
+
       # SELF-CONTAINED publish (bundles .NET 10 runtime — immune to platform rollout)
       - run: dotnet publish Edvanz.API -c Release -r linux-x64 --self-contained true -o ./publish
 
@@ -75,11 +120,19 @@ jobs:
       # for the runner using the azure/login session above and removes it afterwards.
       # Requires repo secret PROD_SQL_CONNECTION (an ADO.NET connection string to the prod DB).
       # The azure/login identity must be allowed to manage the SQL server's firewall rules.
+      # '-b' is LOAD-BEARING: without it go-sqlcmd rolls back only the failing migration's
+      # transaction, keeps executing, and exits 0 — a broken migration is silently skipped
+      # while the code that needs it still deploys (root cause of the 2026-07-15/16
+      # attendance outage, BUG-10). With -b any SQL error aborts here with a non-zero exit,
+      # so the job stops BEFORE 'az webapp deploy' and prod code/schema never diverge.
+      # Enabled 2026-07-16 after the parent-phone index backlog was cleared by
+      # 20260715231605_RepairTeacherStudentPhoneIndexes.
       - name: Apply EF migrations to Azure SQL
         uses: azure/sql-action@v2
         with:
           connection-string: ${{ secrets.PROD_SQL_CONNECTION }}
           path: ./migrate.sql
+          arguments: '-b'
 
       # WEBSITE_RUN_FROM_PACKAGE=1 was tried on 2026-07-12 and is INERT on this Linux web
       # app (no package stored in /home/data/SitePackages; the site kept serving loose

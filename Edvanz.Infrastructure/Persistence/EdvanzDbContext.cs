@@ -709,9 +709,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(x => new { x.TeacherId, x.StudentPhoneNumber })
                 .IsUnique()
                 .HasFilter("[StudentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0");
-            entity.HasIndex(x => new { x.TeacherId, x.ParentPhoneNumber })
-                .IsUnique()
-                .HasFilter("[ParentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0");
+            // ParentPhoneNumber is deliberately NOT unique: one parent legitimately has
+            // several children on the same teacher's roster, all sharing the parent's phone.
+            // Non-unique index kept for messaging/lookup performance only.
+            entity.HasIndex(x => new { x.TeacherId, x.ParentPhoneNumber });
 
             // Composite unique: StudentCode is unique within each teacher's account
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode })

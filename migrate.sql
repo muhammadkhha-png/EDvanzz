@@ -3105,7 +3105,7 @@ IF NOT EXISTS (
 )
 BEGIN
     INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-    VALUES (N'20260618103029_init', N'10.0.5');
+    VALUES (N'20260618103029_init', N'10.0.9');
 END;
 
 COMMIT;
@@ -3593,7 +3593,1370 @@ IF NOT EXISTS (
 )
 BEGIN
     INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-    VALUES (N'20260627141459_add Chat_AddConversationAndMessage', N'10.0.5');
+    VALUES (N'20260627141459_add Chat_AddConversationAndMessage', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260709230144_Baseline_ExistingSchema_Checkpoint'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260709230144_Baseline_ExistingSchema_Checkpoint', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260709233231_Add_Users_Phone_Optional_FilteredUnique'
+)
+BEGIN
+    DROP INDEX [UX_Users_PhoneNumber] ON [Users];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260709233231_Add_Users_Phone_Optional_FilteredUnique'
+)
+BEGIN
+    DECLARE @var nvarchar(max);
+    SELECT @var = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[Users]') AND [c].[name] = N'PhoneNumber');
+    IF @var IS NOT NULL EXEC(N'ALTER TABLE [Users] DROP CONSTRAINT ' + @var + ';');
+    ALTER TABLE [Users] ALTER COLUMN [PhoneNumber] nvarchar(20) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260709233231_Add_Users_Phone_Optional_FilteredUnique'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [UX_Users_PhoneNumber] ON [Users] ([PhoneNumber]) WHERE [PhoneNumber] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260709233231_Add_Users_Phone_Optional_FilteredUnique'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260709233231_Add_Users_Phone_Optional_FilteredUnique', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260710115736_updatedatabase'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260710115736_updatedatabase', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260710131750_Add_ModuleQuotas'
+)
+BEGIN
+    CREATE TABLE [ModuleQuotas] (
+        [Id] bigint NOT NULL IDENTITY,
+        [ModuleKey] nvarchar(64) NOT NULL,
+        [FreeTierLimit] int NOT NULL,
+        [Description] nvarchar(256) NULL,
+        [CreateAt] datetime2 NOT NULL,
+        CONSTRAINT [PK_ModuleQuotas] PRIMARY KEY ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260710131750_Add_ModuleQuotas'
+)
+BEGIN
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'Description', N'FreeTierLimit', N'ModuleKey') AND [object_id] = OBJECT_ID(N'[ModuleQuotas]'))
+        SET IDENTITY_INSERT [ModuleQuotas] ON;
+    EXEC(N'INSERT INTO [ModuleQuotas] ([Id], [CreateAt], [Description], [FreeTierLimit], [ModuleKey])
+    VALUES (CAST(1 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''Students''),
+    (CAST(2 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''Sessions''),
+    (CAST(3 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 0, N''Assistants''),
+    (CAST(4 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 0, N''Groups''),
+    (CAST(5 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''Videos''),
+    (CAST(6 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''AssignmentTemplates''),
+    (CAST(7 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''Events''),
+    (CAST(8 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 1, N''MessageTemplates''),
+    (CAST(9 AS bigint), ''2026-07-10T00:00:00.0000000Z'', NULL, 0, N''Triggers'')');
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'Description', N'FreeTierLimit', N'ModuleKey') AND [object_id] = OBJECT_ID(N'[ModuleQuotas]'))
+        SET IDENTITY_INSERT [ModuleQuotas] OFF;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260710131750_Add_ModuleQuotas'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_ModuleQuotas_ModuleKey] ON [ModuleQuotas] ([ModuleKey]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260710131750_Add_ModuleQuotas'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260710131750_Add_ModuleQuotas', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    DECLARE @var1 nvarchar(max);
+    SELECT @var1 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[AssignmentTemplates]') AND [c].[name] = N'NameAr');
+    IF @var1 IS NOT NULL EXEC(N'ALTER TABLE [AssignmentTemplates] DROP CONSTRAINT ' + @var1 + ';');
+    ALTER TABLE [AssignmentTemplates] ALTER COLUMN [NameAr] nvarchar(200) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    ALTER TABLE [AssignmentTemplates] ADD [ExamDeliveryType] tinyint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    ALTER TABLE [AssignmentOccurrences] ADD [SessionId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    ALTER TABLE [AssignmentOccurrences] ADD [SessionOccurrenceId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    CREATE INDEX [IX_AssignmentOccurrences_SessionId] ON [AssignmentOccurrences] ([SessionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    CREATE INDEX [IX_AssignmentOccurrences_SessionOccurrenceId] ON [AssignmentOccurrences] ([SessionOccurrenceId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    CREATE INDEX [IX_AssignmentOccurrences_TeacherId_SessionId] ON [AssignmentOccurrences] ([TeacherId], [SessionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    ALTER TABLE [AssignmentOccurrences] ADD CONSTRAINT [FK_AssignmentOccurrences_SessionOccurrences_SessionOccurrenceId] FOREIGN KEY ([SessionOccurrenceId]) REFERENCES [SessionOccurrences] ([Id]) ON DELETE SET NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    ALTER TABLE [AssignmentOccurrences] ADD CONSTRAINT [FK_AssignmentOccurrences_Sessions_SessionId] FOREIGN KEY ([SessionId]) REFERENCES [Sessions] ([Id]) ON DELETE SET NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260711125426_AddExamDeliveryAndSessionAnchor'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260711125426_AddExamDeliveryAndSessionAnchor', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [IsDurationManuallySet] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [PublishDate] datetime2(0) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [RowVersion] rowversion NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [Status] tinyint NOT NULL DEFAULT CAST(1 AS tinyint);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [ThumbnailBlobPath] nvarchar(500) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [UpdatedAt] datetime2(0) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE TABLE [VideoAttachments] (
+        [Id] bigint NOT NULL IDENTITY,
+        [VideoAssetId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [FileName] nvarchar(260) NOT NULL,
+        [ContentType] nvarchar(100) NOT NULL,
+        [FileSizeBytes] bigint NOT NULL,
+        [BlobPath] nvarchar(500) NOT NULL,
+        [UploadedByUserId] bigint NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoAttachments] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_VideoAttachments_Users_UploadedByUserId] FOREIGN KEY ([UploadedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL,
+        CONSTRAINT [FK_VideoAttachments_VideoAssets_VideoAssetId_TeacherId] FOREIGN KEY ([VideoAssetId], [TeacherId]) REFERENCES [VideoAssets] ([Id], [TeacherId])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE TABLE [VideoUnits] (
+        [Id] bigint NOT NULL IDENTITY,
+        [TeacherId] bigint NOT NULL,
+        [Title] nvarchar(200) NOT NULL,
+        [Description] nvarchar(2000) NULL,
+        [CreatedByUserId] bigint NULL,
+        [DeletedAt] datetime2 NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoUnits] PRIMARY KEY ([Id]),
+        CONSTRAINT [AK_VideoUnits_Id_TeacherId] UNIQUE ([Id], [TeacherId]),
+        CONSTRAINT [FK_VideoUnits_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]),
+        CONSTRAINT [FK_VideoUnits_Users_CreatedByUserId] FOREIGN KEY ([CreatedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE TABLE [VideoAssetUnits] (
+        [VideoAssetId] bigint NOT NULL,
+        [UnitId] bigint NOT NULL,
+        CONSTRAINT [PK_VideoAssetUnits] PRIMARY KEY ([VideoAssetId], [UnitId]),
+        CONSTRAINT [FK_VideoAssetUnits_VideoAssets_VideoAssetId] FOREIGN KEY ([VideoAssetId]) REFERENCES [VideoAssets] ([Id]),
+        CONSTRAINT [FK_VideoAssetUnits_VideoUnits_UnitId] FOREIGN KEY ([UnitId]) REFERENCES [VideoUnits] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE TABLE [VideoUnitScopes] (
+        [Id] bigint NOT NULL IDENTITY,
+        [VideoUnitId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [ScopeType] tinyint NOT NULL,
+        [TeacherStudentId] bigint NULL,
+        [SessionId] bigint NULL,
+        [SessionGroupId] bigint NULL,
+        [AssignedByUserId] bigint NOT NULL,
+        [AssignedAt] datetime2(0) NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoUnitScopes] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_VideoUnitScopes_ExactlyOneTarget] CHECK ((CASE WHEN [TeacherStudentId] IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN [SessionId]        IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN [SessionGroupId]   IS NOT NULL THEN 1 ELSE 0 END) = 1),
+        CONSTRAINT [CK_VideoUnitScopes_ScopeTypeMatchesFK] CHECK (([ScopeType] = 0 AND [TeacherStudentId] IS NOT NULL) OR ([ScopeType] = 1 AND [SessionId] IS NOT NULL) OR ([ScopeType] = 2 AND [SessionGroupId] IS NOT NULL)),
+        CONSTRAINT [FK_VideoUnitScopes_SessionGroups_SessionGroupId] FOREIGN KEY ([SessionGroupId]) REFERENCES [SessionGroups] ([Id]),
+        CONSTRAINT [FK_VideoUnitScopes_Sessions_SessionId] FOREIGN KEY ([SessionId]) REFERENCES [Sessions] ([Id]),
+        CONSTRAINT [FK_VideoUnitScopes_TeacherStudents_TeacherStudentId] FOREIGN KEY ([TeacherStudentId]) REFERENCES [TeacherStudents] ([Id]),
+        CONSTRAINT [FK_VideoUnitScopes_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_VideoUnitScopes_Users_AssignedByUserId] FOREIGN KEY ([AssignedByUserId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_VideoUnitScopes_VideoUnits_VideoUnitId_TeacherId] FOREIGN KEY ([VideoUnitId], [TeacherId]) REFERENCES [VideoUnits] ([Id], [TeacherId])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoAssetUnits_UnitId] ON [VideoAssetUnits] ([UnitId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoAttachments_UploadedByUserId] ON [VideoAttachments] ([UploadedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoAttachments_VideoAssetId] ON [VideoAttachments] ([VideoAssetId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoAttachments_VideoAssetId_TeacherId] ON [VideoAttachments] ([VideoAssetId], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnits_CreatedByUserId] ON [VideoUnits] ([CreatedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnits_TeacherId_CreatedAt] ON [VideoUnits] ([TeacherId], [CreateAt] DESC);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_VideoUnits_Id_TeacherId] ON [VideoUnits] ([Id], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnitScopes_AssignedByUserId] ON [VideoUnitScopes] ([AssignedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    EXEC(N'CREATE INDEX [IX_VideoUnitScopes_SessionGroupId] ON [VideoUnitScopes] ([SessionGroupId]) INCLUDE ([VideoUnitId], [AssignedAt]) WHERE [SessionGroupId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    EXEC(N'CREATE INDEX [IX_VideoUnitScopes_SessionId] ON [VideoUnitScopes] ([SessionId]) INCLUDE ([VideoUnitId], [AssignedAt]) WHERE [SessionId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnitScopes_TeacherId] ON [VideoUnitScopes] ([TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    EXEC(N'CREATE INDEX [IX_VideoUnitScopes_TeacherStudentId] ON [VideoUnitScopes] ([TeacherStudentId]) INCLUDE ([VideoUnitId], [AssignedAt]) WHERE [TeacherStudentId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnitScopes_VideoUnitId] ON [VideoUnitScopes] ([VideoUnitId]) INCLUDE ([ScopeType], [TeacherStudentId], [SessionId], [SessionGroupId], [AssignedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE INDEX [IX_VideoUnitScopes_VideoUnitId_TeacherId] ON [VideoUnitScopes] ([VideoUnitId], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_VideoUnitScopes_Unit_Type_Target] ON [VideoUnitScopes] ([VideoUnitId], [ScopeType], [TeacherStudentId], [SessionId], [SessionGroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712023514_VCM Phase 1 schema changes'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260712023514_VCM Phase 1 schema changes', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712130319_TestMerge'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260712130319_TestMerge', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE TABLE [VideoExams] (
+        [Id] bigint NOT NULL IDENTITY,
+        [VideoAssetId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [Title] nvarchar(300) NOT NULL,
+        [Description] nvarchar(2000) NULL,
+        [CreatedByUserId] bigint NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoExams] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_VideoExams_Users_CreatedByUserId] FOREIGN KEY ([CreatedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL,
+        CONSTRAINT [FK_VideoExams_VideoAssets_VideoAssetId_TeacherId] FOREIGN KEY ([VideoAssetId], [TeacherId]) REFERENCES [VideoAssets] ([Id], [TeacherId]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE TABLE [VideoExamQuestions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [ExamId] bigint NOT NULL,
+        [Text] nvarchar(1000) NOT NULL,
+        [QuestionType] tinyint NOT NULL,
+        [SortOrder] int NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoExamQuestions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_VideoExamQuestions_VideoExams_ExamId] FOREIGN KEY ([ExamId]) REFERENCES [VideoExams] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE TABLE [VideoExamQuestionOptions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [QuestionId] bigint NOT NULL,
+        [Text] nvarchar(500) NOT NULL,
+        [IsCorrect] bit NOT NULL,
+        [SortOrder] int NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_VideoExamQuestionOptions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_VideoExamQuestionOptions_VideoExamQuestions_QuestionId] FOREIGN KEY ([QuestionId]) REFERENCES [VideoExamQuestions] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE INDEX [IX_VideoExamQuestionOptions_QuestionId] ON [VideoExamQuestionOptions] ([QuestionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE INDEX [IX_VideoExamQuestions_ExamId] ON [VideoExamQuestions] ([ExamId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE INDEX [IX_VideoExams_CreatedByUserId] ON [VideoExams] ([CreatedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE INDEX [IX_VideoExams_VideoAssetId_TeacherId] ON [VideoExams] ([VideoAssetId], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_VideoExams_VideoAssetId] ON [VideoExams] ([VideoAssetId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712141711_add-exxam'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260712141711_add-exxam', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    DROP INDEX [IX_StudentTeacherLinks_StudentUserId_TeacherId] ON [StudentTeacherLinks];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    DROP INDEX [IX_StudentTeacherLinks_TeacherId] ON [StudentTeacherLinks];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RemovedByUserId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RequestedAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RequestedStudentCode] nvarchar(20) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RequestedStudentName] nvarchar(200) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RespondedAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [RespondedByUserId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_StudentTeacherLinks_StudentUserId_TeacherId] ON [StudentTeacherLinks] ([StudentUserId], [TeacherId]) WHERE [LinkStatus] IN (1, 3)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    CREATE INDEX [IX_StudentTeacherLinks_TeacherId_LinkStatus] ON [StudentTeacherLinks] ([TeacherId], [LinkStatus]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+
+    UPDATE l
+    SET    l.LinkStatus = 2,
+           l.UnlinkedAt = SYSUTCDATETIME()
+    FROM   StudentTeacherLinks l
+    WHERE  l.LinkStatus = 1
+      AND  l.TeacherStudentId IS NOT NULL
+      AND  EXISTS (SELECT 1
+                   FROM StudentTeacherLinks n
+                   WHERE n.TeacherStudentId = l.TeacherStudentId
+                     AND n.LinkStatus = 1
+                     AND n.Id > l.Id);
+
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [UX_StudentTeacherLinks_TeacherStudentId_Active] ON [StudentTeacherLinks] ([TeacherStudentId]) WHERE [LinkStatus] = 1 AND [TeacherStudentId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260712182657_StudentTeacherLink_RequestApprovalFlow'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260712182657_StudentTeacherLink_RequestApprovalFlow', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [OnlineExams] (
+        [Id] bigint NOT NULL IDENTITY,
+        [TeacherId] bigint NOT NULL,
+        [TeacherSubjectId] bigint NOT NULL,
+        [Title] nvarchar(250) NOT NULL,
+        [Description] nvarchar(max) NULL,
+        [Instructions] nvarchar(max) NULL,
+        [StartDateTime] datetime2(0) NOT NULL,
+        [EndDateTime] datetime2(0) NOT NULL,
+        [PassPercentage] decimal(5,2) NOT NULL,
+        [Status] tinyint NOT NULL,
+        [Visibility] bit NOT NULL,
+        [CreatedByUserId] bigint NOT NULL,
+        [UpdatedByUserId] bigint NULL,
+        [UpdatedAt] datetime2(0) NULL,
+        [RowVersion] rowversion NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_OnlineExams] PRIMARY KEY ([Id]),
+        CONSTRAINT [AK_OnlineExams_Id_TeacherId] UNIQUE ([Id], [TeacherId]),
+        CONSTRAINT [CK_OnlineExams_DateOrder] CHECK ([StartDateTime] < [EndDateTime]),
+        CONSTRAINT [CK_OnlineExams_PassPercentageRange] CHECK ([PassPercentage] >= 0 AND [PassPercentage] <= 100),
+        CONSTRAINT [FK_OnlineExams_TeacherSubjects_TeacherSubjectId] FOREIGN KEY ([TeacherSubjectId]) REFERENCES [TeacherSubjects] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_OnlineExams_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]),
+        CONSTRAINT [FK_OnlineExams_Users_CreatedByUserId] FOREIGN KEY ([CreatedByUserId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_OnlineExams_Users_UpdatedByUserId] FOREIGN KEY ([UpdatedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [OnlineExamQuestions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [OnlineExamId] bigint NOT NULL,
+        [QuestionText] nvarchar(max) NOT NULL,
+        [QuestionType] tinyint NOT NULL,
+        [Degree] decimal(6,2) NOT NULL,
+        [SortOrder] int NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_OnlineExamQuestions] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_OnlineExamQuestions_DegreePositive] CHECK ([Degree] > 0),
+        CONSTRAINT [FK_OnlineExamQuestions_OnlineExams_OnlineExamId] FOREIGN KEY ([OnlineExamId]) REFERENCES [OnlineExams] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [OnlineExamScopes] (
+        [Id] bigint NOT NULL IDENTITY,
+        [OnlineExamId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [ScopeType] tinyint NOT NULL,
+        [SessionId] bigint NULL,
+        [SessionGroupId] bigint NULL,
+        [AssignedByUserId] bigint NOT NULL,
+        [AssignedAt] datetime2(0) NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_OnlineExamScopes] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_OnlineExamScopes_ExactlyOneTarget] CHECK ((CASE WHEN [SessionId] IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN [SessionGroupId] IS NOT NULL THEN 1 ELSE 0 END) = 1),
+        CONSTRAINT [CK_OnlineExamScopes_ScopeTypeMatchesFK] CHECK (([ScopeType] = 1 AND [SessionId] IS NOT NULL) OR ([ScopeType] = 2 AND [SessionGroupId] IS NOT NULL)),
+        CONSTRAINT [FK_OnlineExamScopes_OnlineExams_OnlineExamId_TeacherId] FOREIGN KEY ([OnlineExamId], [TeacherId]) REFERENCES [OnlineExams] ([Id], [TeacherId]),
+        CONSTRAINT [FK_OnlineExamScopes_SessionGroups_SessionGroupId] FOREIGN KEY ([SessionGroupId]) REFERENCES [SessionGroups] ([Id]),
+        CONSTRAINT [FK_OnlineExamScopes_Sessions_SessionId] FOREIGN KEY ([SessionId]) REFERENCES [Sessions] ([Id]),
+        CONSTRAINT [FK_OnlineExamScopes_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_OnlineExamScopes_Users_AssignedByUserId] FOREIGN KEY ([AssignedByUserId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [StudentOnlineExamReports] (
+        [Id] bigint NOT NULL IDENTITY,
+        [OnlineExamId] bigint NOT NULL,
+        [TeacherStudentId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [Score] decimal(6,2) NOT NULL,
+        [Percentage] decimal(5,2) NOT NULL,
+        [Status] tinyint NOT NULL,
+        [SubmittedAt] datetime2(0) NULL,
+        [UpdatedAt] datetime2(0) NULL,
+        [RowVersion] rowversion NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentOnlineExamReports] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentOnlineExamReports_OnlineExams_OnlineExamId] FOREIGN KEY ([OnlineExamId]) REFERENCES [OnlineExams] ([Id]),
+        CONSTRAINT [FK_StudentOnlineExamReports_TeacherStudents_TeacherStudentId] FOREIGN KEY ([TeacherStudentId]) REFERENCES [TeacherStudents] ([Id]),
+        CONSTRAINT [FK_StudentOnlineExamReports_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [OnlineExamQuestionOptions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [QuestionId] bigint NOT NULL,
+        [OptionText] nvarchar(max) NOT NULL,
+        [IsCorrect] bit NOT NULL,
+        [SortOrder] int NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_OnlineExamQuestionOptions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_OnlineExamQuestionOptions_OnlineExamQuestions_QuestionId] FOREIGN KEY ([QuestionId]) REFERENCES [OnlineExamQuestions] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [StudentQuestionAnswers] (
+        [Id] bigint NOT NULL IDENTITY,
+        [StudentReportId] bigint NOT NULL,
+        [QuestionId] bigint NOT NULL,
+        [AwardedDegree] decimal(6,2) NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentQuestionAnswers] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentQuestionAnswers_OnlineExamQuestions_QuestionId] FOREIGN KEY ([QuestionId]) REFERENCES [OnlineExamQuestions] ([Id]),
+        CONSTRAINT [FK_StudentQuestionAnswers_StudentOnlineExamReports_StudentReportId] FOREIGN KEY ([StudentReportId]) REFERENCES [StudentOnlineExamReports] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE TABLE [StudentQuestionAnswerOptions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [StudentQuestionAnswerId] bigint NOT NULL,
+        [QuestionOptionId] bigint NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentQuestionAnswerOptions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentQuestionAnswerOptions_OnlineExamQuestionOptions_QuestionOptionId] FOREIGN KEY ([QuestionOptionId]) REFERENCES [OnlineExamQuestionOptions] ([Id]),
+        CONSTRAINT [FK_StudentQuestionAnswerOptions_StudentQuestionAnswers_StudentQuestionAnswerId] FOREIGN KEY ([StudentQuestionAnswerId]) REFERENCES [StudentQuestionAnswers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamQuestionOptions_QuestionId_SortOrder] ON [OnlineExamQuestionOptions] ([QuestionId], [SortOrder]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamQuestions_OnlineExamId_SortOrder] ON [OnlineExamQuestions] ([OnlineExamId], [SortOrder]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExams_CreatedByUserId] ON [OnlineExams] ([CreatedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExams_TeacherId_Status] ON [OnlineExams] ([TeacherId], [Status]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExams_TeacherId_Title] ON [OnlineExams] ([TeacherId], [Title]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExams_TeacherSubjectId] ON [OnlineExams] ([TeacherSubjectId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExams_UpdatedByUserId] ON [OnlineExams] ([UpdatedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_OnlineExams_Id_TeacherId] ON [OnlineExams] ([Id], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_AssignedByUserId] ON [OnlineExamScopes] ([AssignedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_OnlineExamId] ON [OnlineExamScopes] ([OnlineExamId]) INCLUDE ([ScopeType], [SessionId], [SessionGroupId], [AssignedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_OnlineExamId_TeacherId] ON [OnlineExamScopes] ([OnlineExamId], [TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_SessionGroupId] ON [OnlineExamScopes] ([SessionGroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_SessionId] ON [OnlineExamScopes] ([SessionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamScopes_TeacherId] ON [OnlineExamScopes] ([TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_OnlineExamScopes_Exam_Type_Target] ON [OnlineExamScopes] ([OnlineExamId], [ScopeType], [SessionId], [SessionGroupId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentOnlineExamReports_OnlineExamId_Status] ON [StudentOnlineExamReports] ([OnlineExamId], [Status]) INCLUDE ([Percentage]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentOnlineExamReports_OnlineExamId_SubmittedAt] ON [StudentOnlineExamReports] ([OnlineExamId], [SubmittedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentOnlineExamReports_TeacherId] ON [StudentOnlineExamReports] ([TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentOnlineExamReports_TeacherStudentId] ON [StudentOnlineExamReports] ([TeacherStudentId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentOnlineExamReports_Exam_Student] ON [StudentOnlineExamReports] ([OnlineExamId], [TeacherStudentId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentQuestionAnswerOptions_QuestionOptionId] ON [StudentQuestionAnswerOptions] ([QuestionOptionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentQuestionAnswerOptions_Answer_Option] ON [StudentQuestionAnswerOptions] ([StudentQuestionAnswerId], [QuestionOptionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE INDEX [IX_StudentQuestionAnswers_QuestionId] ON [StudentQuestionAnswers] ([QuestionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentQuestionAnswers_Report_Question] ON [StudentQuestionAnswers] ([StudentReportId], [QuestionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714110559_online-exam'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260714110559_online-exam', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714111137_OnlineExamModule_Phase1_FixScopeTeacherFk'
+)
+BEGIN
+    ALTER TABLE [OnlineExamScopes] DROP CONSTRAINT [FK_OnlineExamScopes_Teachers_TeacherId];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714111137_OnlineExamModule_Phase1_FixScopeTeacherFk'
+)
+BEGIN
+    ALTER TABLE [OnlineExamScopes] ADD CONSTRAINT [FK_OnlineExamScopes_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260714111137_OnlineExamModule_Phase1_FixScopeTeacherFk'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260714111137_OnlineExamModule_Phase1_FixScopeTeacherFk', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715165552_SeedOnlineExamModuleAndPermissions'
+)
+BEGIN
+
+    IF NOT EXISTS (SELECT 1 FROM [Models] WHERE [Name] = N'OnlineExam')
+    BEGIN
+        DECLARE @OnlineExamModuleId BIGINT;
+
+        INSERT INTO [Models] ([Name], [CreateAt])
+        VALUES (N'OnlineExam', SYSUTCDATETIME());
+
+        SET @OnlineExamModuleId = SCOPE_IDENTITY();
+
+        INSERT INTO [Permissions] ([Name], [ModuleId], [IsRestricted], [CreateAt])
+        VALUES
+            (N'ManageExams', @OnlineExamModuleId, CAST(0 AS BIT), SYSUTCDATETIME()),
+            (N'View',        @OnlineExamModuleId, CAST(0 AS BIT), SYSUTCDATETIME());
+    END;
+
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715165552_SeedOnlineExamModuleAndPermissions'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260715165552_SeedOnlineExamModuleAndPermissions', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715170629_AddOnlineExamModuleAndPermissionsConfigForTeacher'
+)
+BEGIN
+    ALTER TABLE [TeacherConfigurations] ADD [StudentVisibilityOnlineExamDefault] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715170629_AddOnlineExamModuleAndPermissionsConfigForTeacher'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260715170629_AddOnlineExamModuleAndPermissionsConfigForTeacher', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715202558_AddSessionOccurrenceSlotKeys'
+)
+BEGIN
+    ALTER TABLE [SessionOccurrences] ADD [DayPositionIndex] int NOT NULL DEFAULT 1;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715202558_AddSessionOccurrenceSlotKeys'
+)
+BEGIN
+    ALTER TABLE [SessionOccurrences] ADD [WeekStartDate] date NOT NULL DEFAULT '2000-01-01';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715202558_AddSessionOccurrenceSlotKeys'
+)
+BEGIN
+
+    EXEC(N'
+    UPDATE o
+    SET
+        WeekStartDate = CASE
+            WHEN s.OccurrenceType = 3
+                THEN DATEFROMPARTS(YEAR(o.OccurrenceDate), MONTH(o.OccurrenceDate), 1)
+            ELSE DATEADD(DAY,
+                -(((DATEDIFF(DAY, ''2000-01-01'', o.OccurrenceDate) % 7) + 7) % 7),
+                o.OccurrenceDate)
+        END,
+        DayPositionIndex = CASE
+            WHEN s.OccurrenceType = 3 THEN 1
+            ELSE (
+                SELECT COUNT(*)
+                FROM STRING_SPLIT(s.SelectedDays, '','') sd
+                WHERE TRY_CAST(sd.value AS int)
+                      <= (((DATEDIFF(DAY, ''2000-01-01'', o.OccurrenceDate) % 7) + 7) % 7)
+            )
+        END
+    FROM SessionOccurrences o
+    INNER JOIN Sessions s ON s.Id = o.SessionId;');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715202558_AddSessionOccurrenceSlotKeys'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_SessionOccurrences_SessionId_WeekStartDate_DayPositionIndex] ON [SessionOccurrences] ([SessionId], [WeekStartDate], [DayPositionIndex]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715202558_AddSessionOccurrenceSlotKeys'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260715202558_AddSessionOccurrenceSlotKeys', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715221003_RemoveSubjectFromOnlineExams'
+)
+BEGIN
+    ALTER TABLE [OnlineExams] DROP CONSTRAINT [FK_OnlineExams_TeacherSubjects_TeacherSubjectId];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715221003_RemoveSubjectFromOnlineExams'
+)
+BEGIN
+    DROP INDEX [IX_OnlineExams_TeacherSubjectId] ON [OnlineExams];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715221003_RemoveSubjectFromOnlineExams'
+)
+BEGIN
+    DECLARE @var2 nvarchar(max);
+    SELECT @var2 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[OnlineExams]') AND [c].[name] = N'TeacherSubjectId');
+    IF @var2 IS NOT NULL EXEC(N'ALTER TABLE [OnlineExams] DROP CONSTRAINT ' + @var2 + ';');
+    ALTER TABLE [OnlineExams] DROP COLUMN [TeacherSubjectId];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715221003_RemoveSubjectFromOnlineExams'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260715221003_RemoveSubjectFromOnlineExams', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+    DROP INDEX IF EXISTS [IX_TeacherStudents_ParentPhoneNumber] ON [dbo].[TeacherStudents];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+    DROP INDEX IF EXISTS [IX_TeacherStudents_StudentPhoneNumber] ON [dbo].[TeacherStudents];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+    DROP INDEX IF EXISTS [IX_TeacherStudents_TeacherId_ParentPhoneNumber] ON [dbo].[TeacherStudents];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+
+    CREATE INDEX [IX_TeacherStudents_TeacherId_ParentPhoneNumber]
+        ON [dbo].[TeacherStudents] ([TeacherId], [ParentPhoneNumber]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                   WHERE name = 'IX_TeacherStudents_TeacherId_StudentPhoneNumber'
+                     AND object_id = OBJECT_ID(N'[dbo].[TeacherStudents]'))
+    BEGIN
+        ;WITH Dups AS (
+            SELECT Id,
+                   ROW_NUMBER() OVER (PARTITION BY TeacherId, StudentPhoneNumber ORDER BY Id) AS rn
+            FROM [dbo].[TeacherStudents]
+            WHERE StudentPhoneNumber IS NOT NULL AND IsDeleted = 0
+        )
+        UPDATE ts SET ts.StudentPhoneNumber = NULL
+        FROM [dbo].[TeacherStudents] ts
+        INNER JOIN Dups d ON d.Id = ts.Id
+        WHERE d.rn > 1;
+        PRINT CONCAT('RepairTeacherStudentPhoneIndexes: nulled ', @@ROWCOUNT, ' duplicate active StudentPhoneNumber value(s).');
+
+        CREATE UNIQUE INDEX [IX_TeacherStudents_TeacherId_StudentPhoneNumber]
+            ON [dbo].[TeacherStudents] ([TeacherId], [StudentPhoneNumber])
+            WHERE [StudentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0;
+    END;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes
+                   WHERE name = 'IX_PP_TeacherId_Status_PeriodStart'
+                     AND object_id = OBJECT_ID(N'[dbo].[PaymentPeriods]'))
+    BEGIN
+        CREATE INDEX [IX_PP_TeacherId_Status_PeriodStart]
+            ON [dbo].[PaymentPeriods] ([TeacherId], [PaymentStatus], [PeriodStart]);
+    END;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260715231605_RepairTeacherStudentPhoneIndexes'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260715231605_RepairTeacherStudentPhoneIndexes', N'10.0.9');
 END;
 
 COMMIT;

@@ -3511,9 +3511,7 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasIndex("TeacherId", "IsDeleted")
                         .HasDatabaseName("IX_TeacherStudents_TeacherId_IsDeleted");
 
-                    b.HasIndex("TeacherId", "ParentPhoneNumber")
-                        .IsUnique()
-                        .HasFilter("[ParentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0");
+                    b.HasIndex("TeacherId", "ParentPhoneNumber");
 
                     b.HasIndex("TeacherId", "SessionId")
                         .HasDatabaseName("IX_TeacherStudents_TeacherId_SessionId");
