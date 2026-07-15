@@ -16,6 +16,12 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
         return null;
     }
 
+    private static readonly JsonObject Unauthorized401 = FailureEnvelope("Unauthorized.");
+    private static readonly JsonObject NoActiveLink403 = FailureEnvelope("No active link found between your account and this teacher");
+    private static readonly JsonObject NotAssignedToExam403 = FailureEnvelope("You're not assigned to this exam");
+    private static readonly JsonObject StudentUserNotFound404 = FailureEnvelope("We couldn't find this student account. Please check and try again");
+    private static readonly JsonObject ExamNotFound404 = FailureEnvelope("Exam not found");
+
     private static JsonObject StatsPayload(decimal pct, int stars, int notAnswered, int correct, int wrong) => new()
     {
         ["percentage"] = pct,
@@ -63,7 +69,10 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
                         ["studentStatus"] = "Passed"
                     }
                 }
-            })
+            }),
+            ["401"] = Unauthorized401,
+            ["403"] = NoActiveLink403,
+            ["404"] = StudentUserNotFound404
         }
     };
 
@@ -95,7 +104,9 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
                     }
                 }
             }),
-            ["403"] = FailureEnvelope("You're not assigned to this exam")
+            ["401"] = Unauthorized401,
+            ["403"] = NotAssignedToExam403,
+            ["404"] = ExamNotFound404
         }
     };
 
@@ -105,6 +116,10 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Success", StatsPayload(50, 1, 9, 1, 0)),
+            ["400"] = FailureEnvelope("A single-choice question must have exactly one correct option"),
+            ["401"] = Unauthorized401,
+            ["403"] = NotAssignedToExam403,
+            ["404"] = ExamNotFound404,
             ["409"] = FailureEnvelope("You've already submitted this exam")
         }
     };
@@ -121,6 +136,10 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Success", StatsPayload(80, 4, 0, 8, 2)),
+            ["400"] = FailureEnvelope("One or more selected options are invalid for this question"),
+            ["401"] = Unauthorized401,
+            ["403"] = NotAssignedToExam403,
+            ["404"] = ExamNotFound404,
             ["409"] = FailureEnvelope("You've already submitted this exam")
         }
     };
@@ -130,6 +149,8 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Success", StatsPayload(80, 4, 0, 8, 2)),
+            ["401"] = Unauthorized401,
+            ["403"] = NoActiveLink403,
             ["404"] = FailureEnvelope("No attempt found for this exam")
         }
     };
@@ -162,7 +183,10 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
                         }
                     }
                 }
-            })
+            }),
+            ["401"] = Unauthorized401,
+            ["403"] = NoActiveLink403,
+            ["404"] = ExamNotFound404
         }
     };
 }

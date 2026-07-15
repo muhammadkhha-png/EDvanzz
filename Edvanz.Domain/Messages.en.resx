@@ -1427,5 +1427,115 @@
     <value>Your changes were saved, but the attachment couldn't be updated. Please try uploading it again</value>
   </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>Video units updated</value></data>
-
+<!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ONLINE EXAM MODULE                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="OnlineExam.Created" xml:space="preserve">
+    <value>Exam created successfully</value>
+  </data>
+  <data name="OnlineExam.Updated" xml:space="preserve">
+    <value>Exam updated successfully</value>
+  </data>
+  <data name="OnlineExam.Deleted" xml:space="preserve">
+    <value>Exam deleted successfully</value>
+  </data>
+  <data name="OnlineExam.NotFound" xml:space="preserve">
+    <value>Exam not found</value>
+  </data>
+  <data name="OnlineExam.Published" xml:space="preserve">
+    <value>Exam published successfully</value>
+  </data>
+  <data name="OnlineExam.Closed" xml:space="preserve">
+    <value>Exam closed successfully</value>
+  </data>
+  <data name="OnlineExam.InvalidStatusTransition" xml:space="preserve">
+    <value>This status change isn't allowed for the exam's current status</value>
+  </data>
+  <data name="OnlineExam.StartAfterEnd" xml:space="preserve">
+    <value>The exam's start time must be before its end time</value>
+  </data>
+  <data name="OnlineExam.PassPercentageOutOfRange" xml:space="preserve">
+    <value>Pass percentage must be between 0 and 100</value>
+  </data>
+  <data name="OnlineExam.DegreeSumInvalid" xml:space="preserve">
+    <value>The exam's total question degree must be greater than zero</value>
+  </data>
+  <data name="OnlineExam.SingleChoiceNeedsExactlyOneCorrect" xml:space="preserve">
+    <value>A single-choice question must have exactly one correct option</value>
+  </data>
+  <data name="OnlineExam.MultipleChoiceNeedsAtLeastOneCorrect" xml:space="preserve">
+    <value>A multiple-choice question must have at least one correct option</value>
+  </data>
+  <data name="OnlineExam.QuestionsEditableOnlyInDraft" xml:space="preserve">
+    <value>Questions can only be edited while the exam is a draft</value>
+  </data>
+  <data name="OnlineExam.PublishRequiresQuestionAndScope" xml:space="preserve">
+    <value>The exam needs at least one question and one scope before publishing</value>
+  </data>
+  <data name="OnlineExam.ScopeTargetNotOwned" xml:space="preserve">
+    <value>One of the selected sessions or groups does not belong to your account</value>
+  </data>
+  <data name="OnlineExam.ConcurrencyConflict" xml:space="preserve">
+    <value>This exam was changed by someone else — please refresh and try again</value>
+  </data>
+  <data name="OnlineExam.TeacherSubjectNotOwned" xml:space="preserve">
+    <value>The selected subject does not belong to your account</value>
+  </data>
+  <data name="OnlineExam.ScopeCannotBeEmpty" xml:space="preserve">
+    <value>At least one session or group must be selected for the exam</value>
+  </data>
+  <data name="OnlineExam.MixedScopeTypesNotAllowed" xml:space="preserve">
+    <value>All scope targets must be the same type — sessions or groups, not both</value>
+  </data>
+  <data name="OnlineExam.TitleRequired" xml:space="preserve">
+    <value>The exam title is required</value>
+  </data>
+  <data name="OnlineExam.DegreeMustBePositive" xml:space="preserve">
+    <value>Each question's degree must be greater than zero</value>
+  </data>
+  <data name="OnlineExam.QuestionNeedsAtLeastTwoOptions" xml:space="preserve">
+    <value>Each question must have at least two options</value>
+  </data>
+  <data name="OnlineExam.NoQuestionsProvided" xml:space="preserve">
+    <value>At least one question is required</value>
+  </data>
+  <data name="OnlineExam.ExamNotDraft" xml:space="preserve">
+    <value>This action is only allowed while the exam is a draft</value>
+  </data>
+  <data name="OnlineExam.UnpublishBlockedBySubmissions" xml:space="preserve">
+    <value>Can't unpublish — students have already submitted this exam</value>
+  </data>
+  <data name="OnlineExam.WindowClosed" xml:space="preserve">
+    <value>The exam window is not currently open</value>
+  </data>
+  <data name="OnlineExam.NotInScope" xml:space="preserve">
+    <value>You're not assigned to this exam</value>
+  </data>
+  <data name="OnlineExam.AlreadySubmitted" xml:space="preserve">
+    <value>You've already submitted this exam</value>
+  </data>
+  <data name="OnlineExam.StudentBlocked" xml:space="preserve">
+    <value>You have been blocked from this exam</value>
+  </data>
+  <data name="OnlineExam.ReportNotFound" xml:space="preserve">
+    <value>No attempt found for this exam</value>
+  </data>
+  <data name="OnlineExam.InvalidOptionSelection" xml:space="preserve">
+    <value>One or more selected options are invalid for this question</value>
+  </data>
+  <data name="OnlineExam.ManualStatusNotAllowed" xml:space="preserve">
+    <value>This status cannot be set manually</value>
+  </data>
+  <data name="OnlineExam.CannotBlockFinalizedReport" xml:space="preserve">
+    <value>Can't block a student whose exam has already been finalized</value>
+  </data>
+  <data name="OnlineExam.StudentNotOwned" xml:space="preserve">
+    <value>The selected student does not belong to your account</value>
+  </data>
+  <data name="TeacherLinkNotFound" xml:space="preserve">
+    <value>No active link found between your account and this teacher</value>
+  </data>
+  <data name="StudentEnrollmentRemoved" xml:space="preserve">
+    <value>Your enrollment record with this teacher was removed. Please contact your teacher</value>
+  </data>
 </root>

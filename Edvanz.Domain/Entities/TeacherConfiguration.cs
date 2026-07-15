@@ -110,6 +110,8 @@ public class TeacherConfiguration : BaseEntity
     /// Default: false (hidden per AAM-BR-10).
     /// </summary>
     public bool StudentVisibilityExamDefault { get; set; } = false;
+    public bool StudentVisibilityOnlineExamDefault { get; set; } = true;
+
 
     // ─── AAM-FR-04.9: Parent Account Visibility ───
 

@@ -31,6 +31,11 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
 
     // ─────────────────────────── shared builders ───────────────────────────
 
+    private static readonly JsonObject Unauthorized401 = FailureEnvelope("Unauthorized.");
+    private static readonly JsonObject ViewForbidden403 = FailureEnvelope("You do not have permission to view exams.");
+    private static readonly JsonObject ManageForbidden403 = FailureEnvelope("You do not have permission to manage exams.");
+    private static readonly JsonObject ExamNotFound404 = FailureEnvelope("Exam not found");
+
     private static JsonObject SeededScope() => new()
     {
         ["scopeType"] = "Session",
@@ -87,7 +92,9 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["201"] = SuccessEnvelope("Exam created successfully", ExamDetailPayload()),
-            ["400"] = FailureEnvelope("Pass percentage must be between 0 and 100")
+            ["400"] = FailureEnvelope("Pass percentage must be between 0 and 100"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -106,7 +113,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Exam updated successfully", ExamDetailPayload()),
-            ["409"] = FailureEnvelope("This exam was changed by someone else — please refresh and try again")
+            ["404"] = ExamNotFound404,
+            ["409"] = FailureEnvelope("This exam was changed by someone else — please refresh and try again"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -115,7 +125,9 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Success", ExamDetailPayload()),
-            ["404"] = FailureEnvelope("Exam not found")
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -144,7 +156,9 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                         ["inProgressCount"] = 2
                     }
                 }
-            })
+            }),
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -175,7 +189,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                         ["assignedCount"] = 25
                     }
                 }
-            })
+            }),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -205,7 +222,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                     ["score"] = 8,
                     ["isOutOfScope"] = true
                 }
-            })
+            }),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -213,7 +233,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
     {
         Responses = new Dictionary<string, JsonNode>
         {
-            ["200"] = SuccessEnvelope("Success", new JsonArray { SeededQuestion() })
+            ["200"] = SuccessEnvelope("Success", new JsonArray { SeededQuestion() }),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -226,7 +249,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                 ["singleChoiceCount"] = 8,
                 ["multipleChoiceCount"] = 2,
                 ["status"] = "Draft"
-            })
+            }),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ViewForbidden403
         }
     };
 
@@ -236,7 +262,11 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         Responses = new Dictionary<string, JsonNode>
         {
             ["200"] = SuccessEnvelope("Exam updated successfully", true),
-            ["409"] = FailureEnvelope("Questions can only be edited while the exam is a draft")
+            ["400"] = FailureEnvelope("A single-choice question must have exactly one correct option"),
+            ["404"] = ExamNotFound404,
+            ["409"] = FailureEnvelope("Questions can only be edited while the exam is a draft"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -245,7 +275,12 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         RequestBody = new JsonArray { SeededQuestion() },
         Responses = new Dictionary<string, JsonNode>
         {
-            ["200"] = SuccessEnvelope("Exam updated successfully", true)
+            ["200"] = SuccessEnvelope("Exam updated successfully", true),
+            ["400"] = FailureEnvelope("Each question must have at least two options"),
+            ["404"] = ExamNotFound404,
+            ["409"] = FailureEnvelope("Questions can only be edited while the exam is a draft"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -254,7 +289,12 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         RequestBody = new JsonObject { ["questions"] = new JsonArray { SeededQuestion() } },
         Responses = new Dictionary<string, JsonNode>
         {
-            ["200"] = SuccessEnvelope("Exam updated successfully", true)
+            ["200"] = SuccessEnvelope("Exam updated successfully", true),
+            ["400"] = FailureEnvelope("At least one question is required"),
+            ["404"] = ExamNotFound404,
+            ["409"] = FailureEnvelope("Questions can only be edited while the exam is a draft"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -265,7 +305,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
         {
             ["200"] = SuccessEnvelope("Exam published successfully", true),
             ["400"] = FailureEnvelope("The exam needs at least one question and one scope before publishing"),
-            ["409"] = FailureEnvelope("Can't unpublish — students have already submitted this exam")
+            ["404"] = ExamNotFound404,
+            ["409"] = FailureEnvelope("Can't unpublish — students have already submitted this exam"),
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -281,7 +324,11 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                 ["notAnswered"] = 10,
                 ["correct"] = 0,
                 ["wrong"] = 0
-            })
+            }),
+            ["400"] = FailureEnvelope("This status cannot be set manually"),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 
@@ -289,7 +336,10 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
     {
         Responses = new Dictionary<string, JsonNode>
         {
-            ["204"] = SuccessEnvelope("Exam deleted successfully", null!)
+            ["204"] = SuccessEnvelope("Exam deleted successfully", null!),
+            ["404"] = ExamNotFound404,
+            ["401"] = Unauthorized401,
+            ["403"] = ManageForbidden403
         }
     };
 }

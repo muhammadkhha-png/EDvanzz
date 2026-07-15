@@ -1472,5 +1472,115 @@
     <value>التعديلات اتحفظت، بس الملف المرفق ماتحدثش. جرّب ترفعه تاني</value>
   </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
-
+<!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ONLINE EXAM MODULE                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="OnlineExam.Created" xml:space="preserve">
+    <value>تم إنشاء الامتحان بنجاح</value>
+  </data>
+  <data name="OnlineExam.Updated" xml:space="preserve">
+    <value>تم تحديث الامتحان بنجاح</value>
+  </data>
+  <data name="OnlineExam.Deleted" xml:space="preserve">
+    <value>تم حذف الامتحان بنجاح</value>
+  </data>
+  <data name="OnlineExam.NotFound" xml:space="preserve">
+    <value>الامتحان ده مش موجود</value>
+  </data>
+  <data name="OnlineExam.Published" xml:space="preserve">
+    <value>تم نشر الامتحان بنجاح</value>
+  </data>
+  <data name="OnlineExam.Closed" xml:space="preserve">
+    <value>تم إغلاق الامتحان بنجاح</value>
+  </data>
+  <data name="OnlineExam.InvalidStatusTransition" xml:space="preserve">
+    <value>مينفعش تغيّر حالة الامتحان بالشكل ده دلوقتي</value>
+  </data>
+  <data name="OnlineExam.StartAfterEnd" xml:space="preserve">
+    <value>وقت بداية الامتحان لازم يكون قبل وقت النهاية</value>
+  </data>
+  <data name="OnlineExam.PassPercentageOutOfRange" xml:space="preserve">
+    <value>نسبة النجاح لازم تكون بين 0 و 100</value>
+  </data>
+  <data name="OnlineExam.DegreeSumInvalid" xml:space="preserve">
+    <value>مجموع درجات الأسئلة لازم يكون أكبر من صفر</value>
+  </data>
+  <data name="OnlineExam.SingleChoiceNeedsExactlyOneCorrect" xml:space="preserve">
+    <value>سؤال الاختيار الواحد لازم تكون له إجابة صح واحدة بالظبط</value>
+  </data>
+  <data name="OnlineExam.MultipleChoiceNeedsAtLeastOneCorrect" xml:space="preserve">
+    <value>سؤال الاختيار المتعدد لازم تكون له إجابة صح واحدة على الأقل</value>
+  </data>
+  <data name="OnlineExam.QuestionsEditableOnlyInDraft" xml:space="preserve">
+    <value>الأسئلة تتعدل بس والامتحان لسه مسودة</value>
+  </data>
+  <data name="OnlineExam.PublishRequiresQuestionAndScope" xml:space="preserve">
+    <value>لازم يكون في سؤال واحد على الأقل وهدف واحد على الأقل قبل نشر الامتحان</value>
+  </data>
+  <data name="OnlineExam.ScopeTargetNotOwned" xml:space="preserve">
+    <value>واحدة من الحصص أو المجموعات المختارة مش تابعة لحسابك</value>
+  </data>
+  <data name="OnlineExam.ConcurrencyConflict" xml:space="preserve">
+    <value>حد تاني عدّل الامتحان ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
+  </data>
+  <data name="OnlineExam.TeacherSubjectNotOwned" xml:space="preserve">
+    <value>المادة المختارة مش تابعة لحسابك</value>
+  </data>
+  <data name="OnlineExam.ScopeCannotBeEmpty" xml:space="preserve">
+    <value>لازم تختار حصة أو مجموعة واحدة على الأقل للامتحان</value>
+  </data>
+  <data name="OnlineExam.MixedScopeTypesNotAllowed" xml:space="preserve">
+    <value>كل الأهداف لازم تكون من نفس النوع — حصص أو مجموعات، مش الاتنين مع بعض</value>
+  </data>
+  <data name="OnlineExam.TitleRequired" xml:space="preserve">
+    <value>عنوان الامتحان مطلوب</value>
+  </data>
+  <data name="OnlineExam.DegreeMustBePositive" xml:space="preserve">
+    <value>درجة كل سؤال لازم تكون أكبر من صفر</value>
+  </data>
+  <data name="OnlineExam.QuestionNeedsAtLeastTwoOptions" xml:space="preserve">
+    <value>كل سؤال لازم يكون ليه اختيارين على الأقل</value>
+  </data>
+  <data name="OnlineExam.NoQuestionsProvided" xml:space="preserve">
+    <value>لازم يكون فيه سؤال واحد على الأقل</value>
+  </data>
+  <data name="OnlineExam.ExamNotDraft" xml:space="preserve">
+    <value>الإجراء ده متاح بس والامتحان لسه مسودة</value>
+  </data>
+  <data name="OnlineExam.UnpublishBlockedBySubmissions" xml:space="preserve">
+    <value>مينفعش تلغي النشر — في طلاب سلّموا الامتحان ده بالفعل</value>
+  </data>
+  <data name="OnlineExam.WindowClosed" xml:space="preserve">
+    <value>وقت الامتحان مش مفتوح دلوقتي</value>
+  </data>
+  <data name="OnlineExam.NotInScope" xml:space="preserve">
+    <value>إنت مش من ضمن الطلاب المخصص لهم الامتحان ده</value>
+  </data>
+  <data name="OnlineExam.AlreadySubmitted" xml:space="preserve">
+    <value>إنت سلّمت الامتحان ده بالفعل</value>
+  </data>
+  <data name="OnlineExam.StudentBlocked" xml:space="preserve">
+    <value>اتحظرت من الامتحان ده</value>
+  </data>
+  <data name="OnlineExam.ReportNotFound" xml:space="preserve">
+    <value>مفيش محاولة مسجلة للامتحان ده</value>
+  </data>
+  <data name="OnlineExam.InvalidOptionSelection" xml:space="preserve">
+    <value>واحد أو أكتر من الاختيارات المحددة مش صالح للسؤال ده</value>
+  </data>
+  <data name="OnlineExam.ManualStatusNotAllowed" xml:space="preserve">
+    <value>الحالة دي مينفعش تتحدد يدوي</value>
+  </data>
+  <data name="OnlineExam.CannotBlockFinalizedReport" xml:space="preserve">
+    <value>مينفعش تحظر طالب خلّص الامتحان بالفعل</value>
+  </data>
+  <data name="OnlineExam.StudentNotOwned" xml:space="preserve">
+    <value>الطالب المحدد مش تابع لحسابك</value>
+  </data>
+  <data name="TeacherLinkNotFound" xml:space="preserve">
+    <value>مفيش ارتباط نشط بين حسابك والمدرس ده</value>
+  </data>
+  <data name="StudentEnrollmentRemoved" xml:space="preserve">
+    <value>سجل تسجيلك عند المدرس ده اتشال. كلم المدرس بتاعك</value>
+  </data>
 </root>

@@ -130,6 +130,7 @@ public class TeacherService : ITeacherService
                 StudentVisibilityExamDefault = false, // AAM-BR-10: default hidden
                 ParentVisibilityAttendance = true,
                 ParentVisibilityPayment = true,
+                StudentVisibilityOnlineExamDefault = true,
                 ParentVisibilityHomework = true,
                 ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
                 CreateAt = DateTime.UtcNow
