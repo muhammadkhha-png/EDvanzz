@@ -37,7 +37,6 @@ public static class OnlineExamConstants
         public const string PublishRequiresQuestionAndScope = "OnlineExam.PublishRequiresQuestionAndScope";
         public const string ScopeTargetNotOwned = "OnlineExam.ScopeTargetNotOwned";
         public const string ConcurrencyConflict = "OnlineExam.ConcurrencyConflict";
-        public const string TeacherSubjectNotOwned = "OnlineExam.TeacherSubjectNotOwned";
         public const string ScopeCannotBeEmpty = "OnlineExam.ScopeCannotBeEmpty";
         public const string MixedScopeTypesNotAllowed = "OnlineExam.MixedScopeTypesNotAllowed";
         public const string TitleRequired = "OnlineExam.TitleRequired";

@@ -35,7 +35,7 @@ public class OnlineExamService : IOnlineExamService
         long teacherId, long actingUserId, CreateOnlineExamRequest request)
     {
         var validation = await ValidateCreateOrUpdateAsync(
-            teacherId, request.TeacherSubjectId, request.Title, request.StartDateTime,
+            teacherId, request.Title, request.StartDateTime,
             request.EndDateTime, request.PassPercentage, request.Scopes);
         if (validation is not null)
             return Result<OnlineExamDetailDto>.Failure(_localizer, validation, HttpStatusCode.BadRequest);
@@ -59,7 +59,6 @@ public class OnlineExamService : IOnlineExamService
             var exam = new OnlineExam
             {
                 TeacherId = teacherId,
-                TeacherSubjectId = request.TeacherSubjectId,
                 Title = request.Title.Trim(),
                 Description = request.Description,
                 Instructions = request.Instructions,
@@ -123,7 +122,7 @@ public class OnlineExamService : IOnlineExamService
             return Result<OnlineExamDetailDto>.Failure(_localizer, OnlineExamConstants.Messages.ExamNotDraft, HttpStatusCode.Conflict);
 
         var validation = await ValidateCreateOrUpdateAsync(
-            teacherId, request.TeacherSubjectId, request.Title, request.StartDateTime,
+            teacherId, request.Title, request.StartDateTime,
             request.EndDateTime, request.PassPercentage, scopes: null);
         if (validation is not null)
             return Result<OnlineExamDetailDto>.Failure(_localizer, validation, HttpStatusCode.BadRequest);
@@ -131,7 +130,6 @@ public class OnlineExamService : IOnlineExamService
         if (!exam.RowVersion.SequenceEqual(request.RowVersion))
             return Result<OnlineExamDetailDto>.Failure(_localizer, OnlineExamConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
 
-        exam.TeacherSubjectId = request.TeacherSubjectId;
         exam.Title = request.Title.Trim();
         exam.Description = request.Description;
         exam.Instructions = request.Instructions;
@@ -197,7 +195,6 @@ public class OnlineExamService : IOnlineExamService
             {
                 Id = e.Id,
                 Title = e.Title,
-                SubjectName = e.TeacherSubject?.Subject?.NameEn ?? e.TeacherSubject?.Subject.NameAr,
                 Status = e.Status,
                 StartDateTime = e.StartDateTime,
                 EndDateTime = e.EndDateTime,
@@ -510,7 +507,7 @@ public class OnlineExamService : IOnlineExamService
     }
 
     private async Task<string?> ValidateCreateOrUpdateAsync(
-        long teacherId, long teacherSubjectId, string title, DateTime start, DateTime end,
+        long teacherId, string title, DateTime start, DateTime end,
         decimal passPercentage, List<OnlineExamScopeInputDto>? scopes)
     {
         if (string.IsNullOrWhiteSpace(title) || title.Length > 250)
@@ -521,9 +518,6 @@ public class OnlineExamService : IOnlineExamService
 
         if (passPercentage is < 0 or > 100)
             return OnlineExamConstants.Messages.PassPercentageOutOfRange;
-
-        if (!await _unitOfWork.OnlineExamsRepo.IsTeacherSubjectOwnedByTeacherAsync(teacherSubjectId, teacherId))
-            return OnlineExamConstants.Messages.TeacherSubjectNotOwned;
 
         if (scopes is not null)
         {
@@ -588,16 +582,11 @@ public class OnlineExamService : IOnlineExamService
     private async Task<OnlineExamDetailDto> MapToDetailDtoAsync(OnlineExam exam)
     {
         var scopes = await _unitOfWork.OnlineExamsRepo.GetScopesByExamIdsAsync(new[] { exam.Id });
-        string subjectName = exam.TeacherSubject?.Subject?.NameAr ?? exam.TeacherSubject?.Subject?.NameEn
-            ?? (await _unitOfWork.GetRepository<TeacherSubject, long>().GetByIdAsync(exam.TeacherSubjectId))?.Subject?.NameAr
-            ?? (await _unitOfWork.GetRepository<TeacherSubject, long>().GetByIdAsync(exam.TeacherSubjectId))?.Subject?.NameEn;
 
         return new OnlineExamDetailDto
         {
             Id = exam.Id,
-            TeacherSubjectId = exam.TeacherSubjectId,
-            SubjectName = subjectName,
-            Title = exam.Title, 
+            Title = exam.Title,
             Description = exam.Description,
             Instructions = exam.Instructions,
             StartDateTime = exam.StartDateTime,

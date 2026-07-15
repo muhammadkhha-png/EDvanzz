@@ -43,7 +43,6 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
                     {
                         ["examId"] = 7,
                         ["examName"] = "Midterm — Algebra Basics",
-                        ["subjectName"] = "Mathematics",
                         ["examDate"] = "2026-08-01",
                         ["examTime"] = "09:00:00",
                         ["duration"] = "02:00:00",
@@ -59,7 +58,6 @@ public sealed class StudentOnlineExamExampleProvider : EndpointExampleProvider
                     {
                         ["examId"] = 4,
                         ["examName"] = "Quiz — Fractions",
-                        ["subjectName"] = "Mathematics",
                         ["examDate"] = "2026-06-15",
                         ["examTime"] = "10:00:00",
                         ["duration"] = "00:30:00",

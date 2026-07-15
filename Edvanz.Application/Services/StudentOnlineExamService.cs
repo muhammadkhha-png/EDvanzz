@@ -54,7 +54,6 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             {
                 ExamId = exam.Id,
                 ExamName = exam.Title,
-                SubjectName = exam.TeacherSubject?.Subject?.NameAr ?? exam.TeacherSubject?.Subject?.NameEn,
                 ExamDate = DateOnly.FromDateTime(exam.StartDateTime),
                 ExamTime = TimeOnly.FromDateTime(exam.StartDateTime),
                 Duration = exam.EndDateTime - exam.StartDateTime,

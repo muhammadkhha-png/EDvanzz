@@ -1478,9 +1478,6 @@
   <data name="OnlineExam.ConcurrencyConflict" xml:space="preserve">
     <value>This exam was changed by someone else — please refresh and try again</value>
   </data>
-  <data name="OnlineExam.TeacherSubjectNotOwned" xml:space="preserve">
-    <value>The selected subject does not belong to your account</value>
-  </data>
   <data name="OnlineExam.ScopeCannotBeEmpty" xml:space="preserve">
     <value>At least one session or group must be selected for the exam</value>
   </data>

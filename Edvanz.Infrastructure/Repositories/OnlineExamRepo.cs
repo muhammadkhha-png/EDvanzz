@@ -172,13 +172,6 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
             .SumAsync(q => (decimal?)q.Degree) ?? 0m;
     }
     /// <inheritdoc />
-    public async Task<bool> IsTeacherSubjectOwnedByTeacherAsync(long teacherSubjectId, long teacherId)
-    {
-        return await _context.TeacherSubjects
-            .AnyAsync(ts => ts.Id == teacherSubjectId && ts.TeacherId == teacherId);
-    }
-
-    /// <inheritdoc />
     public async Task<bool> IsScopeTargetOwnedByTeacherAsync(long teacherId, OnlineExamScopeType scopeType, long targetId)
     {
         return scopeType switch
@@ -209,7 +202,6 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
             .OrderByDescending(e => e.CreateAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Include(e => e.TeacherSubject).ThenInclude(ts => ts.Subject)
             .AsNoTracking()
             .ToListAsync();
 
@@ -371,7 +363,6 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
         // scope row can predate publish.
         return await _context.OnlineExams
             .Where(e => examIds.Contains(e.Id) && e.Status != OnlineExamStatus.Draft)
-            .Include(e => e.TeacherSubject).ThenInclude(ts => ts.Subject)
             .Include(e => e.Questions)
             .AsNoTracking()
             .ToListAsync();

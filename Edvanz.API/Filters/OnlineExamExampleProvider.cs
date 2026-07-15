@@ -60,8 +60,6 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
     private static JsonObject ExamDetailPayload() => new()
     {
         ["id"] = 7,
-        ["teacherSubjectId"] = 12,
-        ["subjectName"] = "Mathematics",
         ["title"] = "Midterm — Algebra Basics",
         ["status"] = "Draft",
         ["startDateTime"] = "2026-08-01T09:00:00Z",
@@ -78,7 +76,6 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
     {
         RequestBody = new JsonObject
         {
-            ["teacherSubjectId"] = 12,
             ["title"] = "Midterm — Algebra Basics",
             ["description"] = "Covers chapters 1-4",
             ["instructions"] = "You have until the window closes. No going back once submitted.",
@@ -102,7 +99,6 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
     {
         RequestBody = new JsonObject
         {
-            ["teacherSubjectId"] = 12,
             ["title"] = "Midterm — Algebra Basics (updated)",
             ["startDateTime"] = "2026-08-01T09:00:00Z",
             ["endDateTime"] = "2026-08-01T12:00:00Z",
@@ -147,7 +143,6 @@ public sealed class OnlineExamExampleProvider : EndpointExampleProvider
                     {
                         ["id"] = 7,
                         ["title"] = "Midterm — Algebra Basics",
-                        ["subjectName"] = "Mathematics",
                         ["status"] = "Published",
                         ["assignedCount"] = 25,
                         ["passedCount"] = 10,

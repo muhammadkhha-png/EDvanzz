@@ -8,7 +8,6 @@ public sealed class OnlineExamStudentListItemDto
 {
     public long ExamId { get; set; }
     public string ExamName { get; set; } = string.Empty;
-    public string SubjectName { get; set; } = string.Empty;
     public DateOnly ExamDate { get; set; }
     public TimeOnly ExamTime { get; set; }
     public TimeSpan Duration { get; set; }

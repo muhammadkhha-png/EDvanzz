@@ -3412,11 +3412,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(e => e.TeacherId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne(e => e.TeacherSubject)
-                .WithMany()
-                .HasForeignKey(e => e.TeacherSubjectId)
-                .OnDelete(DeleteBehavior.Restrict);
-
             entity.HasOne(e => e.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(e => e.CreatedByUserId)
