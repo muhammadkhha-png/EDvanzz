@@ -16,9 +16,9 @@ namespace Edvanz.Domain.Entities;
 ///
 /// FOREIGN-KEY MODELING: fluent-API only, no <c>[ForeignKey]</c> annotations — see
 /// <c>EdvanzDbContext.OnModelCreating</c> for the full delete-behavior matrix (§2 of
-/// the implementation plan). <see cref="TeacherId"/> and <see cref="TeacherSubjectId"/>
-/// intentionally carry no attributes for the same EF Core 10 silent-OnDelete-drop
-/// reason documented on <c>VideoAsset</c>.
+/// the implementation plan). <see cref="TeacherId"/> intentionally carries no
+/// attributes for the same EF Core 10 silent-OnDelete-drop reason documented on
+/// <c>VideoAsset</c>.
 /// </summary>
 public class OnlineExam : BaseEntity
 {
@@ -29,13 +29,6 @@ public class OnlineExam : BaseEntity
     /// <summary>Foreign key to the owning Teacher. Every read/write is tenant-scoped on this column.</summary>
     public long TeacherId { get; set; }
     public Teacher Teacher { get; set; } = null!;
-
-    /// <summary>
-    /// Foreign key to the teacher's subject. Required — drives the subject name shown
-    /// on the exam list/detail (§1: "required for subject name").
-    /// </summary>
-    public long TeacherSubjectId { get; set; }
-    public TeacherSubject TeacherSubject { get; set; } = null!;
 
     // ══════════════════════════════════════════════
     // CORE METADATA

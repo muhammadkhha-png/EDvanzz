@@ -709,9 +709,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(x => new { x.TeacherId, x.StudentPhoneNumber })
                 .IsUnique()
                 .HasFilter("[StudentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0");
-            entity.HasIndex(x => new { x.TeacherId, x.ParentPhoneNumber })
-                .IsUnique()
-                .HasFilter("[ParentPhoneNumber] IS NOT NULL AND [IsDeleted] = 0");
+            // ParentPhoneNumber is deliberately NOT unique: one parent legitimately has
+            // several children on the same teacher's roster, all sharing the parent's phone.
+            // Non-unique index kept for messaging/lookup performance only.
+            entity.HasIndex(x => new { x.TeacherId, x.ParentPhoneNumber });
 
             // Composite unique: StudentCode is unique within each teacher's account
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode })
@@ -1141,10 +1142,26 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .IsRequired()
                 .HasDefaultValue(OccurrenceStatus.Pending);
 
+            // Cross-session equivalence slot key ("weekly-slot position").
+            entity.Property(o => o.WeekStartDate)
+                .HasColumnType("date")
+                .IsRequired()
+                .HasDefaultValue(new DateTime(2000, 1, 1));
+
+            entity.Property(o => o.DayPositionIndex)
+                .IsRequired()
+                .HasDefaultValue(1);
+
             // Unique: one occurrence per session per date
             entity.HasIndex(o => new { o.SessionId, o.OccurrenceDate })
                 .IsUnique()
                 .HasDatabaseName("IX_SessionOccurrences_SessionId_OccurrenceDate");
+
+            // Equivalence lookup: resolve a session's occurrence for a slot, and gather all linked
+            // sessions' occurrences sharing a slot. Unique — one occurrence per session per slot.
+            entity.HasIndex(o => new { o.SessionId, o.WeekStartDate, o.DayPositionIndex })
+                .IsUnique()
+                .HasDatabaseName("IX_SessionOccurrences_SessionId_WeekStartDate_DayPositionIndex");
 
             // Workhorse index: "which sessions occur today for this teacher?"
             entity.HasIndex(o => new { o.TeacherId, o.OccurrenceDate })
@@ -3395,11 +3412,6 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany()
                 .HasForeignKey(e => e.TeacherId)
                 .OnDelete(DeleteBehavior.NoAction);
-
-            entity.HasOne(e => e.TeacherSubject)
-                .WithMany()
-                .HasForeignKey(e => e.TeacherSubjectId)
-                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.CreatedByUser)
                 .WithMany()

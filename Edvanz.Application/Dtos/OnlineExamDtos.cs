@@ -32,7 +32,6 @@ public sealed class CreateOnlineExamQuestionDto
 /// <summary>T1 create body. Questions optional at create time (§4).</summary>
 public sealed class CreateOnlineExamRequest
 {
-    public long TeacherSubjectId { get; set; }
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
     public string? Instructions { get; set; }
@@ -47,7 +46,6 @@ public sealed class CreateOnlineExamRequest
 /// <summary>T8 edit body — metadata only, no questions. RowVersion required.</summary>
 public sealed class UpdateOnlineExamRequest
 {
-    public long TeacherSubjectId { get; set; }
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
     public string? Instructions { get; set; }
@@ -75,8 +73,6 @@ public sealed class UpdateOnlineExamStatusRequest
 public sealed class OnlineExamDetailDto
 {
     public long Id { get; set; }
-    public long TeacherSubjectId { get; set; }
-    public string SubjectName { get; set; } = string.Empty;
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
     public string? Instructions { get; set; }
@@ -113,7 +109,6 @@ public sealed class OnlineExamListItemDto
 {
     public long Id { get; set; }
     public string Title { get; set; } = null!;
-    public string SubjectName { get; set; } = string.Empty;
     public OnlineExamStatus Status { get; set; }
     public DateTime StartDateTime { get; set; }
     public DateTime EndDateTime { get; set; }

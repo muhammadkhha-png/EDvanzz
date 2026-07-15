@@ -33,6 +33,51 @@ jobs:
             -o migrate.sql
           echo "---- migrate.sql (head) ----"; head -n 40 migrate.sql
 
+      # ── Migration gates (run BEFORE anything touches Azure) ─────────────────
+      # Gate 1: the committed migrations must fully cover the EF model. A commit that
+      # changes an entity/OnModelCreating without adding a migration would otherwise ship
+      # code whose queries assume schema prod doesn't have — reject it here.
+      - name: 'Gate: model has no unmigrated changes'
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          if ! dotnet ef migrations has-pending-model-changes \
+               --project Edvanz.Infrastructure --startup-project Edvanz.API; then
+            echo "::error::EF model has changes not covered by any migration. Run 'dotnet ef migrations add <Name>' and commit it."
+            exit 1
+          fi
+
+      # Gate 2: rehearse the EXACT migrate.sql on a throwaway SQL Server before prod.
+      # Applied twice with -b (abort on first error): the first run catches migrations
+      # that cannot build a database from scratch (BUG-9 duplicate lineages) and batches
+      # that fail compile-time binding (BUG-10 same-batch column backfill); the second
+      # run proves the idempotent history-guards hold. Data-dependent prod failures are
+      # covered by -b on the prod apply step below. '-I' (QUOTED_IDENTIFIER ON) is required:
+      # the image's ODBC sqlcmd defaults it OFF and every filtered index in the script
+      # fails with Msg 1934 without it (go-sqlcmd on the prod step defaults it ON).
+      - name: 'Gate: migrations apply cleanly to a fresh database'
+        run: |
+          GATE_PW="Aa1!$(openssl rand -hex 12)"
+          docker run -d --name sqlgate \
+            -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$GATE_PW" \
+            mcr.microsoft.com/mssql/server:2022-latest
+          TOOLS=/opt/mssql-tools18/bin
+          echo "Waiting for SQL Server to accept connections..."
+          for i in $(seq 1 60); do
+            if docker exec sqlgate $TOOLS/sqlcmd -C -S localhost -U sa -P "$GATE_PW" -Q "SELECT 1" >/dev/null 2>&1; then
+              READY=1; break
+            fi
+            sleep 2
+          done
+          if [ -z "$READY" ]; then echo "::error::Gate SQL Server never became ready"; docker logs sqlgate | tail -20; exit 1; fi
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -Q "CREATE DATABASE EdvanzGate"
+          docker cp migrate.sql sqlgate:/tmp/migrate.sql
+          echo "Rehearsal 1/2 — fresh database..."
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -d EdvanzGate -i /tmp/migrate.sql
+          echo "Rehearsal 2/2 — idempotent re-run..."
+          docker exec sqlgate $TOOLS/sqlcmd -C -I -b -S localhost -U sa -P "$GATE_PW" -d EdvanzGate -i /tmp/migrate.sql
+          docker rm -f sqlgate >/dev/null
+          echo "migrate.sql verified: builds a fresh DB and re-runs idempotently."
+
       # SELF-CONTAINED publish (bundles .NET 10 runtime — immune to platform rollout)
       - run: dotnet publish Edvanz.API -c Release -r linux-x64 --self-contained true -o ./publish
 
@@ -75,11 +120,19 @@ jobs:
       # for the runner using the azure/login session above and removes it afterwards.
       # Requires repo secret PROD_SQL_CONNECTION (an ADO.NET connection string to the prod DB).
       # The azure/login identity must be allowed to manage the SQL server's firewall rules.
+      # '-b' is LOAD-BEARING: without it go-sqlcmd rolls back only the failing migration's
+      # transaction, keeps executing, and exits 0 — a broken migration is silently skipped
+      # while the code that needs it still deploys (root cause of the 2026-07-15/16
+      # attendance outage, BUG-10). With -b any SQL error aborts here with a non-zero exit,
+      # so the job stops BEFORE 'az webapp deploy' and prod code/schema never diverge.
+      # Enabled 2026-07-16 after the parent-phone index backlog was cleared by
+      # 20260715231605_RepairTeacherStudentPhoneIndexes.
       - name: Apply EF migrations to Azure SQL
         uses: azure/sql-action@v2
         with:
           connection-string: ${{ secrets.PROD_SQL_CONNECTION }}
           path: ./migrate.sql
+          arguments: '-b'
 
       # WEBSITE_RUN_FROM_PACKAGE=1 was tried on 2026-07-12 and is INERT on this Linux web
       # app (no package stored in /home/data/SitePackages; the site kept serving loose
@@ -117,12 +170,13 @@ jobs:
       # actually matters, with bounded budgets:
       #   1) the deployment record reaches status 4 (deployed) + active=true — Kudu
       #      finished extracting and registered the deployment (seconds, cap 2 min);
-      #   2) /health/live (anonymous since this commit) returns 200 — the NEW process
-      #      is serving (healthy path ~1-2 min, cap 5 min).
-      # If (2) misses its budget while (1) holds, App Service is still cycling the
-      # container through the known boot quirk: warn and exit 0 — the same trust level
-      # the old fallback applied, but the job never sits blind for 10 minutes and a
-      # red run once again means a REAL failure.
+      #   2) /health/live (anonymous) returns 200 — the NEW process is serving; then
+      #   3) /health/db (anonymous, SQL-only) returns 200 — the process can actually reach SQL.
+      #      A persistent DB-login failure now boots the app DEGRADED instead of crash-looping,
+      #      so (2) can be green on a bad/duplicate credential; (3) is what gates DB health.
+      # If (2) misses its budget, App Service is still cycling the container through the known
+      # boot quirk: warn and exit 0 — the job never sits blind for 10 minutes. If (2) holds but
+      # (3) fails, the build is up but cannot reach SQL — a REAL failure, exit 1.
       - name: Deploy zip to App Service (async + verify)
         run: |
           # --track-status false is CRITICAL: without it the CLI polls the CONTAINER
@@ -158,15 +212,37 @@ jobs:
             exit 1
           fi
 
-          echo "Polling /health/live for the new process (max 5 min)..."
+          echo "Phase 1 — polling /health/live for the new process (max 5 min)..."
+          LIVE_UP=""
           for i in $(seq 1 30); do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
               https://app-edvanz-api-prod.azurewebsites.net/health/live || true)
             if [ "$CODE" = "200" ]; then
-              echo "Site is serving the new build (healthy after ~$((i*10))s)."
+              echo "Process is up (live 200 after ~$((i*10))s)."
+              LIVE_UP=1
+              break
+            fi
+            sleep 10
+          done
+          if [ -z "$LIVE_UP" ]; then
+            echo "::warning::Deployment is active but /health/live has not reported healthy within 5 min — App Service is still retrying the container (known stale-settings boot quirk). The swap completes on Azure's side; check /health/live in a few minutes."
+            exit 0
+          fi
+
+          # Phase 2 — the process is up; confirm it can actually reach SQL. A persistent SQL-login
+          # failure no longer crash-loops (the app boots DEGRADED), so /health/live can be 200 while
+          # the DB is unreachable. /health/db (anonymous, SQL-only) returns 503 in that case — a REAL,
+          # non-self-healing failure (wrong/duplicate ConnectionStrings:con) — so fail the release
+          # instead of shipping a build that 500s on every DB call.
+          echo "Phase 2 — polling /health/db for SQL connectivity (max 2 min)..."
+          for i in $(seq 1 12); do
+            DB=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+              https://app-edvanz-api-prod.azurewebsites.net/health/db || true)
+            if [ "$DB" = "200" ]; then
+              echo "Database reachable (health/db 200 after ~$((i*10))s). Deploy verified."
               exit 0
             fi
             sleep 10
           done
-          echo "::warning::Deployment is active but the site has not reported healthy within 5 min — App Service is still retrying the container (known stale-settings boot quirk). The swap completes on Azure's side; check /health/live in a few minutes."
-          exit 0
+          echo "::error::Process is up but /health/db is not healthy after 2 min — the new build cannot reach SQL (check ConnectionStrings:con for a wrong/duplicate password). Failing the deploy."
+          exit 1

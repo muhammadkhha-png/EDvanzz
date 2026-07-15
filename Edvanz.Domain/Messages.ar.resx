@@ -1523,9 +1523,6 @@
   <data name="OnlineExam.ConcurrencyConflict" xml:space="preserve">
     <value>حد تاني عدّل الامتحان ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
   </data>
-  <data name="OnlineExam.TeacherSubjectNotOwned" xml:space="preserve">
-    <value>المادة المختارة مش تابعة لحسابك</value>
-  </data>
   <data name="OnlineExam.ScopeCannotBeEmpty" xml:space="preserve">
     <value>لازم تختار حصة أو مجموعة واحدة على الأقل للامتحان</value>
   </data>

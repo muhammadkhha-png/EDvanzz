@@ -68,6 +68,53 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task<SessionOccurrence?> GetOccurrenceBySessionAndDateAsync(long sessionId, DateTime date);
 
+    // ── Cross-session equivalence ("weekly-slot position") ──────────────────────────────
+    // Two occurrences of membership-linked sessions are the SAME logical slot iff they share
+    // (WeekStartDate, DayPositionIndex). These helpers resolve equivalent occurrences so a
+    // present mark on one linked session surfaces on every linked session's equivalent slot.
+
+    /// <summary>
+    /// The occurrence of <paramref name="sessionId"/> for a given equivalence slot
+    /// (WeekStartDate + DayPositionIndex), or null when that session has no occurrence in the slot
+    /// (e.g. a late-created session whose first partial week is missing early days).
+    /// Used by the write path to remap a cross-session mark onto the student's home-session occurrence.
+    /// </summary>
+    Task<SessionOccurrence?> GetOccurrenceBySessionAndSlotAsync(
+        long sessionId, DateTime weekStartDate, int dayPositionIndex);
+
+    /// <summary>
+    /// Resolves the equivalence slot of <paramref name="selectedSessionId"/>'s occurrence on
+    /// <paramref name="date"/>, then returns the ids of every occurrence across the selected session and
+    /// <paramref name="linkedSessionIds"/> that shares that slot. Empty when the selected session has no
+    /// occurrence on the date. Drives the equivalence-aware read (take-list / edit-occurrence) and dedup.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetEquivalentOccurrenceIdsAsync(
+        long selectedSessionId, DateTime date, IEnumerable<long> linkedSessionIds);
+
+    /// <summary>
+    /// The student's first non-absent (Present/CrossSessionPresent) record on ANY occurrence in
+    /// <paramref name="equivalentOccurrenceIds"/>, or null. Cross-session duplicate guard: a student
+    /// already marked present on an equivalent slot of any linked session cannot be marked again.
+    /// </summary>
+    Task<AttendanceRecord?> GetExistingAttendanceOnEquivalentOccurrenceAsync(
+        long teacherStudentId, IEnumerable<long> equivalentOccurrenceIds);
+
+    /// <summary>
+    /// Batch equivalence duplicate check for bulk marking: each student's existing record (if any) on
+    /// an equivalent-slot occurrence in <paramref name="equivalentOccurrenceIds"/>, keyed by student id.
+    /// </summary>
+    Task<Dictionary<long, AttendanceRecord>> GetExistingAttendanceOnEquivalentOccurrenceBatchAsync(
+        IEnumerable<long> teacherStudentIds, IEnumerable<long> equivalentOccurrenceIds);
+
+    /// <summary>
+    /// Records for the Edit-Attendance occurrence view: this occurrence's own marks PLUS cross-session
+    /// visitors who physically attended THIS session on this date (their record lives on their home
+    /// occurrence but is tagged with CrossSessionId = this session). Excludes a linked session's own
+    /// roster (they attended their own class, not this one).
+    /// </summary>
+    Task<IReadOnlyList<AttendanceRecord>> GetRecordsForOccurrenceEditViewAsync(
+        long sessionId, long occurrenceId, DateTime occurrenceDate);
+
     /// <summary>
     /// Retrieves all occurrences for a specific session, ordered by date ascending.
     /// REQ-ATT-037: Browsing past or future attendance dates.
@@ -122,12 +169,6 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// REQ-ATT-027: "Immediately preceding session occurrence" for absence check.
     /// </summary>
     Task<SessionOccurrence?> GetPreviousOccurrenceAsync(long sessionId, DateTime beforeDate);
-
-    /// <summary>
-    /// Gets the next occurrence for a session on or after a given date.
-    /// Step 4.2: Used for cross-session attendance date remapping (REQ-ATT-018).
-    /// </summary>
-    Task<SessionOccurrence?> GetNextOccurrenceAsync(long sessionId, DateTime onOrAfterDate);
 
     /// <summary>
     /// Gets the latest (most recent date) occurrence for a session.
@@ -246,27 +287,11 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<AttendanceRecord?> GetExistingAttendanceAsync(long teacherStudentId, long sessionOccurrenceId);
 
     /// <summary>
-    /// Checks if attendance already exists for a student on any linked session for the same date.
-    /// REQ-ATT-069/070: Cross-session duplicate detection.
-    /// </summary>
-    Task<AttendanceRecord?> GetExistingAttendanceByStudentAndDateAsync(
-        long teacherStudentId, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds);
-
-    /// <summary>
     /// Checks for existing attendance records for multiple students on a specific occurrence.
     /// Returns a set of TeacherStudentIds that already have attendance.
     /// </summary>
     Task<HashSet<long>> GetExistingAttendanceBatchAsync(
         IEnumerable<long> teacherStudentIds, long sessionOccurrenceId);
-
-    /// <summary>
-    /// Step 2.1: Batch cross-session duplicate check for multiple students on a date.
-    /// Returns a dictionary mapping TeacherStudentId to the existing record (if any)
-    /// across all linked sessions for the given date.
-    /// Used by BulkMarkAttendanceAsync to detect cross-session duplicates without N+1.
-    /// </summary>
-    Task<Dictionary<long, AttendanceRecord>> GetExistingAttendanceByStudentsAndDateAsync(
-        IEnumerable<long> teacherStudentIds, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds);
 
     /// <summary>
     /// Step 3.1: Gets a held record for a student on a specific occurrence.

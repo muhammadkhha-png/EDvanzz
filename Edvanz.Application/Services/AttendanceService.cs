@@ -90,16 +90,21 @@ public class AttendanceService : IAttendanceService
         if (session is null)
             return Result<int>.Failure(_localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
-        var dates = _occurrenceGenerator.ComputeOccurrenceDates(session);
+        // Compute each occurrence WITH its cross-session equivalence slot key (WeekStartDate +
+        // DayPositionIndex). Additive: only insert dates not already materialized. The slot key is a
+        // pure function of the date (+ SelectedDays), so existing rows never need renumbering.
+        var keys = _occurrenceGenerator.ComputeOccurrenceKeys(session);
         var existingDates = await _unitOfWork.AttendanceRepo.GetExistingOccurrenceDatesAsync(sessionId);
 
-        var newOccurrences = dates
-            .Where(d => !existingDates.Contains(d))
-            .Select(d => new SessionOccurrence
+        var newOccurrences = keys
+            .Where(k => !existingDates.Contains(k.Date))
+            .Select(k => new SessionOccurrence
             {
                 TeacherId = teacherId,
                 SessionId = sessionId,
-                OccurrenceDate = d,
+                OccurrenceDate = k.Date,
+                WeekStartDate = k.WeekStartDate,
+                DayPositionIndex = k.DayPositionIndex,
                 Status = OccurrenceStatus.Pending,
                 CreateAt = DateTime.UtcNow
             })
@@ -433,26 +438,30 @@ public class AttendanceService : IAttendanceService
             }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
         }
 
-        // REQ-ATT-069: Check cross-session duplicates across linked sessions
+        // 7. Resolve the active assignment + cross-session landing target via the SHARED helper
+        // (the same one bulk / add / hold use, so behaviour is identical everywhere).
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-        var allLinkedSessionIds = linkedSessions.Select(ls => ls.Id).Append(dto.SessionId).ToList();
+        var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
+        var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
 
-        // 7. Determine if this is cross-session attendance
-        var activeAssignment = await _unitOfWork.AttendanceRepo
-            .GetActiveAssignmentAsync(dto.TeacherStudentId);
+        var activeAssignment = await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(dto.TeacherStudentId);
+        if (activeAssignment is null)
+            return Result<MarkAttendanceResultDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned, HttpStatusCode.BadRequest);
 
-        bool isCrossSession = activeAssignment is not null
-            && activeAssignment.SessionId.HasValue
-            && activeAssignment.SessionId.Value != dto.SessionId;
+        var target = await ResolveMarkTargetAsync(occurrence, session, activeAssignment, linkedSessionIds, date);
+        if (target is null)
+            return Result<MarkAttendanceResultDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceCrossSessionNotLinked, HttpStatusCode.BadRequest);
+        var mt = target.Value;
 
-        if (isCrossSession && activeAssignment!.SessionId.HasValue
-            && !allLinkedSessionIds.Contains(activeAssignment.SessionId.Value))
-        {
-            allLinkedSessionIds.Add(activeAssignment.SessionId.Value);
-        }
-
+        // Equivalence-aware duplicate guard: one attendance state per logical slot across the linked
+        // group. Blocks a re-mark on ANY occurrence sharing this occurrence's (WeekStartDate,
+        // DayPositionIndex) — whether stored on this session or a linked session's equivalent slot.
+        var equivalentOccurrenceIds = await _unitOfWork.AttendanceRepo
+            .GetEquivalentOccurrenceIdsAsync(dto.SessionId, date, allLinkedSessionIds);
         var crossDuplicate = await _unitOfWork.AttendanceRepo
-            .GetExistingAttendanceByStudentAndDateAsync(dto.TeacherStudentId, date, allLinkedSessionIds);
+            .GetExistingAttendanceOnEquivalentOccurrenceAsync(dto.TeacherStudentId, equivalentOccurrenceIds);
         if (crossDuplicate is not null)
         {
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
@@ -486,69 +495,19 @@ public class AttendanceService : IAttendanceService
             }
         }
 
-        // Validate cross-session: BR-ATT-003
-        if (isCrossSession)
-        {
-            bool isLinked = linkedSessions.Any(ls => ls.Id == activeAssignment!.SessionId!.Value);
-            if (!isLinked)
-                return Result<MarkAttendanceResultDto>.Failure(
-                    _localizer, AttendanceConstants.Messages.AttendanceCrossSessionNotLinked,
-                    HttpStatusCode.BadRequest);
-        }
-
-        // AUDIT FIX Step 7 (REQ-ATT-013): Populate assigned session info for cross-session warning
-        if (isCrossSession && activeAssignment?.SessionId != null)
+        // AUDIT FIX Step 7 (REQ-ATT-013): Populate assigned session info for the cross-session warning
+        if (mt.IsCrossSession)
         {
             result.AssignedSessionId = activeAssignment.SessionId;
             result.AssignedSessionName = activeAssignment.SessionName;
         }
 
-        // 8. Determine the record's occurrence date (cross-session remapping)
-        var attendanceStatus = isCrossSession ? AttendanceStatus.CrossSessionPresent : dto.Status;
-        var recordOccurrenceDate = date;
+        // 8. Cross-session marks are always CrossSessionPresent (the visitor attended).
+        var attendanceStatus = mt.IsCrossSession ? AttendanceStatus.CrossSessionPresent : dto.Status;
+        var assignment = activeAssignment;
 
-        if (isCrossSession && activeAssignment?.SessionId != null)
-        {
-            var nextOccurrence = await _unitOfWork.AttendanceRepo
-                .GetNextOccurrenceAsync(activeAssignment.SessionId.Value, date);
-
-            // Step 4.2: Explicit null handling for cross-session date remapping
-            if (nextOccurrence is null)
-                return Result<MarkAttendanceResultDto>.Failure(
-                    _localizer, AttendanceConstants.Messages.CrossSessionNoFutureOccurrence,
-                    HttpStatusCode.BadRequest);
-
-            recordOccurrenceDate = nextOccurrence.OccurrenceDate;
-
-            // AUDIT FIX Step 6: Check for duplicate on the REMAPPED date.
-            // The earlier cross-session check used the physical date. But records are stored
-            // with the remapped date. This catches duplicates stored under the remapped date.
-            var remappedDuplicate = await _unitOfWork.AttendanceRepo
-                .GetExistingAttendanceByStudentSessionAndDateAsync(
-                    dto.TeacherStudentId, activeAssignment.SessionId!.Value, recordOccurrenceDate);
-            if (remappedDuplicate is not null)
-            {
-                return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
-                {
-                    Record = null,
-                    IsDuplicate = true,
-                    DuplicateSessionName = remappedDuplicate.SessionName,
-                    DuplicateRecordedAt = remappedDuplicate.RecordedAt
-                }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
-            }
-        }
-
-        // Get assignment for non-cross-session case
-        var assignment = isCrossSession ? activeAssignment
-            : await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(dto.TeacherStudentId);
-
-        if (assignment is null)
-            return Result<MarkAttendanceResultDto>.Failure(
-                _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned,
-                HttpStatusCode.BadRequest);
-
-        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before assignment date
-        if (recordOccurrenceDate.Date < assignment.AssignedAt.Date)
+        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before the (landed) occurrence's date
+        if (mt.RecordOccurrenceDate.Date < assignment.AssignedAt.Date)
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceBeforeAssignmentDate,
                 HttpStatusCode.BadRequest);
@@ -562,26 +521,24 @@ public class AttendanceService : IAttendanceService
             var record = new AttendanceRecord
             {
                 TeacherId = dto.TeacherId,
-                SessionOccurrenceId = occurrence.Id,
+                SessionOccurrenceId = mt.RecordOccurrenceId,
                 TeacherStudentId = dto.TeacherStudentId,
                 StudentSessionAssignmentId = assignment.Id,
                 // Step 7.2: Denormalized student fields
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
-                SessionId = isCrossSession && activeAssignment is not null
-                    ? activeAssignment.SessionId : dto.SessionId,
-                SessionName = isCrossSession && activeAssignment is not null
-                    ? activeAssignment.SessionName : session.SessionName,
+                SessionId = mt.RecordSessionId,
+                SessionName = mt.RecordSessionName,
                 // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                 // Enables Report Type 5 (SessionGroupAttendance) for deleted sessions.
                 SessionGroupId = session.SessionGroupId,
-                OccurrenceDate = recordOccurrenceDate,
+                OccurrenceDate = mt.RecordOccurrenceDate,
                 Status = attendanceStatus,
                 AttendanceMethod = dto.AttendanceMethod,
-                IsCrossSession = isCrossSession,
-                CrossSessionId = isCrossSession ? dto.SessionId : null,
-                CrossSessionName = isCrossSession ? session.SessionName : null,
-                CrossSessionOccurrenceDate = isCrossSession ? date : null,
+                IsCrossSession = mt.IsCrossSession,
+                CrossSessionId = mt.CrossSessionId,
+                CrossSessionName = mt.CrossSessionName,
+                CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                 RecordedAt = DateTime.UtcNow,
                 RecordedByUserId = dto.RecordedByUserId,
                 IsEdited = false,
@@ -613,8 +570,9 @@ public class AttendanceService : IAttendanceService
             // to always be "one mark behind".
             await _unitOfWork.SaveChangesAsync();
 
-            // 10. Update occurrence status — now sees the newly saved record
-            await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
+            // 10. Refresh the status of the occurrence the record LANDED on (the home-session
+            // occurrence for a cross-session mark; the selected occurrence otherwise).
+            await UpdateOccurrenceStatusAsync(mt.LandedOccurrence);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -708,11 +666,18 @@ public class AttendanceService : IAttendanceService
             var counterMap = await _unitOfWork.AttendanceRepo
                 .GetAbsenceCountersBatchAsync(dto.TeacherId, dto.TeacherStudentIds);
 
-            // Step 2.1: Batch cross-session duplicate check
+            // Step 2.1: Batch equivalence duplicate check across the linked group (by slot, not date).
             var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-            var allLinkedSessionIds = linkedSessions.Select(ls => ls.Id).Append(dto.SessionId).ToList();
+            var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
+            var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
+            var equivalentOccurrenceIds = await _unitOfWork.AttendanceRepo
+                .GetEquivalentOccurrenceIdsAsync(dto.SessionId, date, allLinkedSessionIds);
             var crossSessionDuplicates = await _unitOfWork.AttendanceRepo
-                .GetExistingAttendanceByStudentsAndDateAsync(dto.TeacherStudentIds, date, allLinkedSessionIds);
+                .GetExistingAttendanceOnEquivalentOccurrenceBatchAsync(dto.TeacherStudentIds, equivalentOccurrenceIds);
+
+            // Occurrences that received a mark — the selected occurrence for same-session marks, home
+            // occurrences for cross-session marks. Their statuses are refreshed together after the loop.
+            var affectedOccurrences = new HashSet<SessionOccurrence>();
 
             // Step 4.1: Track modified counters for batch save
             var modifiedCounters = new List<StudentAbsenceCounter>();
@@ -746,9 +711,29 @@ public class AttendanceService : IAttendanceService
                     continue;
                 }
 
-                // FIX H6 (BR-ATT-001): No retroactive attendance before assignment date.
-                // The single-mark path (MarkAttendanceAsync) had this guard but bulk path did not.
-                if (date.Date < assignment.AssignedAt.Date)
+                // Resolve the landing target via the SHARED cross-session helper — identical behaviour
+                // to the single-mark path. A linked visitor is slot-remapped onto their home occurrence;
+                // a same-session student lands on the selected occurrence.
+                var target = await ResolveMarkTargetAsync(occurrence, session, assignment, linkedSessionIds, date);
+                if (target is null)
+                {
+                    // Cross-session visitor whose home session is not linked — cannot mark here.
+                    skippedCount++;
+                    continue;
+                }
+                var mt = target.Value;
+
+                // A cross-session mark is always CrossSessionPresent (the visitor attended). Marking a
+                // visitor ABSENT is meaningless in a session that isn't theirs, so skip those.
+                if (mt.IsCrossSession && dto.Status == AttendanceStatus.Absent)
+                {
+                    skippedCount++;
+                    continue;
+                }
+                var effectiveStatus = mt.IsCrossSession ? AttendanceStatus.CrossSessionPresent : dto.Status;
+
+                // FIX H6 (BR-ATT-001): No retroactive attendance before the assignment date.
+                if (mt.RecordOccurrenceDate.Date < assignment.AssignedAt.Date)
                 {
                     skippedCount++;
                     continue;
@@ -774,20 +759,23 @@ public class AttendanceService : IAttendanceService
                 var record = new AttendanceRecord
                 {
                     TeacherId = dto.TeacherId,
-                    SessionOccurrenceId = occurrence.Id,
+                    SessionOccurrenceId = mt.RecordOccurrenceId,
                     TeacherStudentId = studentId,
                     StudentSessionAssignmentId = assignment.Id,
                     // Step 7.2: Denormalized student fields
                     StudentName = student.StudentName,
                     StudentCode = student.StudentCode,
-                    SessionId = dto.SessionId,
-                    SessionName = session.SessionName,
+                    SessionId = mt.RecordSessionId,
+                    SessionName = mt.RecordSessionName,
                     // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                     SessionGroupId = session.SessionGroupId,
-                    OccurrenceDate = date,
-                    Status = dto.Status,
+                    OccurrenceDate = mt.RecordOccurrenceDate,
+                    Status = effectiveStatus,
                     AttendanceMethod = dto.AttendanceMethod,
-                    IsCrossSession = false,
+                    IsCrossSession = mt.IsCrossSession,
+                    CrossSessionId = mt.CrossSessionId,
+                    CrossSessionName = mt.CrossSessionName,
+                    CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                     RecordedAt = DateTime.UtcNow,
                     RecordedByUserId = dto.RecordedByUserId,
                     IsEdited = false,
@@ -795,6 +783,7 @@ public class AttendanceService : IAttendanceService
                 };
 
                 await _unitOfWork.AttendanceRepo.AddAttendanceRecordAsync(record);
+                affectedOccurrences.Add(mt.LandedOccurrence);
 
                 // Step 4.1: Update counter in memory instead of DB call
                 if (counter is null)
@@ -809,7 +798,7 @@ public class AttendanceService : IAttendanceService
                 }
 
                 counter.TotalOccurrences++;
-                if (dto.Status == AttendanceStatus.Absent)
+                if (effectiveStatus == AttendanceStatus.Absent)
                 {
                     counter.ConsecutiveAbsences++;
                     counter.TotalAbsences++;
@@ -839,15 +828,21 @@ public class AttendanceService : IAttendanceService
             // flushed to the database first to get an accurate count.
             await _unitOfWork.SaveChangesAsync();
 
-            // Update occurrence status — now sees all newly saved records
-            await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
+            // Update the status of EVERY occurrence that received a mark (the selected occurrence for
+            // same-session marks; home-session occurrences for cross-session marks).
+            foreach (var affected in affectedOccurrences)
+                await UpdateOccurrenceStatusAsync(affected);
 
             await _unitOfWork.SaveChangesAsync();
 
+            // Totals for THIS occurrence's own roster (denormalized SessionId) — excludes any
+            // visitor/legacy cross-session record physically on this occurrence.
             var allRecords = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
-            int totalPresent = allRecords.Count(r => r.Status == AttendanceStatus.Present
-                || r.Status == AttendanceStatus.CrossSessionPresent);
-            int totalAbsent = allRecords.Count(r => r.Status == AttendanceStatus.Absent);
+            int totalPresent = allRecords.Count(r => (r.Status == AttendanceStatus.Present
+                || r.Status == AttendanceStatus.CrossSessionPresent)
+                && r.SessionId == occurrence.SessionId);
+            int totalAbsent = allRecords.Count(r => r.Status == AttendanceStatus.Absent
+                && r.SessionId == occurrence.SessionId);
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
@@ -920,8 +915,10 @@ public class AttendanceService : IAttendanceService
 
         var records = await _unitOfWork.AttendanceRepo
             .GetRecordsByOccurrenceAsync(occurrence.Id);
-        // Step 3.1: Exclude Held records from "marked" count
-        int markedCount = records.Count(r => r.Status != AttendanceStatus.Held);
+        // Step 3.1: Exclude Held records; count only this occurrence's own session (denormalized
+        // SessionId) so a cross-session visitor's fallback record doesn't inflate the marked count.
+        int markedCount = records.Count(r =>
+            r.Status != AttendanceStatus.Held && r.SessionId == occurrence.SessionId);
 
         int unmarkedCount = Math.Max(0, totalStudents - markedCount);
         return Result<int>.Success(unmarkedCount, _localizer, AttendanceConstants.Messages.Success);
@@ -1104,7 +1101,7 @@ public class AttendanceService : IAttendanceService
             // FIX H2: Recalculate occurrence status after hold release.
             // Previously, releasing a hold (mark as present or discard) did not
             // update the occurrence's Pending/InProgress/Completed status.
-            await UpdateOccurrenceStatusAsync(occurrence, dto.SessionId);
+            await UpdateOccurrenceStatusAsync(occurrence);
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
@@ -1182,7 +1179,10 @@ public class AttendanceService : IAttendanceService
             return Result<List<AttendanceRecordDto>>.Success(
                 new List<AttendanceRecordDto>(), _localizer, AttendanceConstants.Messages.Success);
 
-        var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
+        // Equivalence-aware: include cross-session visitors who physically attended THIS session on
+        // this date (their record lives on their home-session occurrence, tagged CrossSessionId=this).
+        var records = await _unitOfWork.AttendanceRepo
+            .GetRecordsForOccurrenceEditViewAsync(sessionId, occurrence.Id, occurrenceDate);
         var dtos = records.Select(r => MapToRecordDto(r,
             r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
             r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "")).ToList();
@@ -1290,23 +1290,35 @@ public class AttendanceService : IAttendanceService
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
 
-        // FIX H1 (BR-ATT-002): Check for duplicate before inserting.
-        // Previously this check was missing — the DB unique index would catch it
-        // with an unhandled DbUpdateException instead of a clean Result failure.
-        var existingRecord = await _unitOfWork.AttendanceRepo
-            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id);
-        if (existingRecord is not null)
-            return Result<AttendanceRecordDto>.Failure(
-                _localizer, AttendanceConstants.Messages.AttendanceDuplicateRecordExists,
-                HttpStatusCode.Conflict);
-
         var assignment = await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(dto.TeacherStudentId);
         if (assignment is null)
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned, HttpStatusCode.BadRequest);
 
-        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before assignment date
-        if (dto.OccurrenceDate.Date < assignment.AssignedAt.Date)
+        // Cross-session landing target via the SHARED helper (same design as mark / bulk).
+        var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
+        var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
+        var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
+
+        var target = await ResolveMarkTargetAsync(occurrence, session, assignment, linkedSessionIds, dto.OccurrenceDate.Date);
+        if (target is null)
+            return Result<AttendanceRecordDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceCrossSessionNotLinked, HttpStatusCode.BadRequest);
+        var mt = target.Value;
+        var addStatus = mt.IsCrossSession ? AttendanceStatus.CrossSessionPresent : dto.Status;
+
+        // FIX H1 (BR-ATT-002): equivalence-aware duplicate guard before inserting (one state per slot).
+        var equivalentOccurrenceIds = await _unitOfWork.AttendanceRepo
+            .GetEquivalentOccurrenceIdsAsync(dto.SessionId, dto.OccurrenceDate.Date, allLinkedSessionIds);
+        var existingRecord = await _unitOfWork.AttendanceRepo
+            .GetExistingAttendanceOnEquivalentOccurrenceAsync(dto.TeacherStudentId, equivalentOccurrenceIds);
+        if (existingRecord is not null)
+            return Result<AttendanceRecordDto>.Failure(
+                _localizer, AttendanceConstants.Messages.AttendanceDuplicateRecordExists,
+                HttpStatusCode.Conflict);
+
+        // AUDIT FIX Step 2 (BR-ATT-001): No retroactive attendance before the assignment date
+        if (mt.RecordOccurrenceDate.Date < assignment.AssignedAt.Date)
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceBeforeAssignmentDate,
                 HttpStatusCode.BadRequest);
@@ -1320,19 +1332,23 @@ public class AttendanceService : IAttendanceService
             var record = new AttendanceRecord
             {
                 TeacherId = dto.TeacherId,
-                SessionOccurrenceId = occurrence.Id,
+                SessionOccurrenceId = mt.RecordOccurrenceId,
                 TeacherStudentId = dto.TeacherStudentId,
                 StudentSessionAssignmentId = assignment.Id,
                 // Step 7.2: Denormalized student fields
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
-                SessionId = dto.SessionId,
-                SessionName = session.SessionName,
+                SessionId = mt.RecordSessionId,
+                SessionName = mt.RecordSessionName,
                 // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                 SessionGroupId = session.SessionGroupId,
-                OccurrenceDate = dto.OccurrenceDate.Date,
-                Status = dto.Status,
+                OccurrenceDate = mt.RecordOccurrenceDate,
+                Status = addStatus,
                 AttendanceMethod = AttendanceMethod.MultiSelect, // Via Edit Attendance
+                IsCrossSession = mt.IsCrossSession,
+                CrossSessionId = mt.CrossSessionId,
+                CrossSessionName = mt.CrossSessionName,
+                CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                 RecordedAt = DateTime.UtcNow,
                 RecordedByUserId = dto.RecordedByUserId,
                 IsEdited = false,
@@ -1342,7 +1358,7 @@ public class AttendanceService : IAttendanceService
             await _unitOfWork.AttendanceRepo.AddAttendanceRecordAsync(record);
 
             await UpdateAbsenceCounterForAddedRecord(dto.TeacherId, dto.TeacherStudentId,
-                dto.Status, dto.OccurrenceDate.Date, session.SessionName, dto.SessionId);
+                addStatus, mt.RecordOccurrenceDate.Date, session.SessionName, dto.SessionId);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -2415,13 +2431,79 @@ public class AttendanceService : IAttendanceService
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
     }
 
-    private async Task UpdateOccurrenceStatusAsync(SessionOccurrence occurrence, long sessionId)
+    /// <summary>
+    /// The resolved landing target for a single attendance mark. Shared by EVERY attendance-taking
+    /// path (single mark, bulk, add-record, hold) so cross-session behaviour is identical everywhere.
+    /// A cross-session (linked) student's record lands on their HOME session's equivalent-slot
+    /// occurrence; a same-session student lands on the selected occurrence.
+    /// </summary>
+    private readonly record struct MarkTarget(
+        bool IsCrossSession,
+        long RecordOccurrenceId,
+        DateTime RecordOccurrenceDate,
+        SessionOccurrence LandedOccurrence,
+        long? RecordSessionId,
+        string? RecordSessionName,
+        long? CrossSessionId,
+        string? CrossSessionName,
+        DateTime? CrossSessionOccurrenceDate);
+
+    /// <summary>
+    /// Resolves where a mark lands and its cross-session field values, applying the home-equivalent
+    /// slot remap (same WeekStartDate + DayPositionIndex as the attended occurrence). Returns null when
+    /// the student is a cross-session visitor whose home session is NOT linked to the selected session
+    /// (BR-ATT-003) — the caller rejects (single/add) or skips (bulk). Callers own the Status: a
+    /// cross-session PRESENCE mark becomes CrossSessionPresent; a hold stays Held.
+    /// </summary>
+    private async Task<MarkTarget?> ResolveMarkTargetAsync(
+        SessionOccurrence selectedOccurrence, Session selectedSession,
+        StudentSessionAssignment activeAssignment, IReadOnlyCollection<long> linkedSessionIds,
+        DateTime physicalDate)
+    {
+        bool isCrossSession = activeAssignment.SessionId.HasValue
+            && activeAssignment.SessionId.Value != selectedSession.Id;
+
+        if (!isCrossSession)
+        {
+            return new MarkTarget(false, selectedOccurrence.Id, physicalDate, selectedOccurrence,
+                selectedSession.Id, selectedSession.SessionName, null, null, null);
+        }
+
+        // BR-ATT-003: a cross-session mark is only valid when the student's home session is linked.
+        if (!linkedSessionIds.Contains(activeAssignment.SessionId!.Value))
+            return null;
+
+        // Slot remap onto the HOME session's equivalent occurrence so home-keyed reads stay correct.
+        // Fallback to the attended occurrence when the home has no occurrence for the slot yet.
+        long recordOccurrenceId = selectedOccurrence.Id;
+        DateTime recordOccurrenceDate = physicalDate;
+        SessionOccurrence landedOccurrence = selectedOccurrence;
+
+        var homeOccurrence = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndSlotAsync(
+            activeAssignment.SessionId.Value, selectedOccurrence.WeekStartDate, selectedOccurrence.DayPositionIndex);
+        if (homeOccurrence is not null)
+        {
+            recordOccurrenceId = homeOccurrence.Id;
+            recordOccurrenceDate = homeOccurrence.OccurrenceDate;
+            landedOccurrence = homeOccurrence;
+        }
+
+        return new MarkTarget(true, recordOccurrenceId, recordOccurrenceDate, landedOccurrence,
+            activeAssignment.SessionId, activeAssignment.SessionName,
+            selectedSession.Id, selectedSession.SessionName, physicalDate);
+    }
+
+    private async Task UpdateOccurrenceStatusAsync(SessionOccurrence occurrence)
     {
         var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
-        var assignments = await _unitOfWork.AttendanceRepo.GetActiveAssignmentsBySessionAsync(sessionId);
+        var assignments = await _unitOfWork.AttendanceRepo.GetActiveAssignmentsBySessionAsync(occurrence.SessionId);
 
-        // Step 3.1: Exclude Held records from "marked" count
-        int markedCount = records.Count(r => r.Status != AttendanceStatus.Held);
+        // Step 3.1: Exclude Held records. Also count only records belonging to THIS occurrence's own
+        // session (denormalized SessionId) so a cross-session visitor's record stored on the attended
+        // occurrence (partial-week fallback) — which carries its HOME SessionId — never inflates this
+        // occurrence's marked count against its own (home) roster.
+        int markedCount = records.Count(r =>
+            r.Status != AttendanceStatus.Held && r.SessionId == occurrence.SessionId);
         int totalStudents = assignments.Count;
 
         if (markedCount == 0)

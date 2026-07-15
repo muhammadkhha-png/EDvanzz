@@ -67,8 +67,6 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
 
     /// <summary>Sum of Question.Degree — the exam's live-computed total grade (never stored, do-not-reintroduce #6).</summary>
     Task<decimal> GetTotalDegreeAsync(long onlineExamId);
-    /// <summary>Teacher-owned check for the subject FK — no raw predicate leaves this repo.</summary>
-    Task<bool> IsTeacherSubjectOwnedByTeacherAsync(long teacherSubjectId, long teacherId);
 
     /// <summary>Session/SessionGroup ownership check for a scope target (mirrors IVideoAssetRepo.IsScopeTargetOwnedByTeacherAsync).</summary>
     Task<bool> IsScopeTargetOwnedByTeacherAsync(long teacherId, OnlineExamScopeType scopeType, long targetId);
