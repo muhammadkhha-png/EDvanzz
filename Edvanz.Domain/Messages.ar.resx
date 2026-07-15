@@ -249,6 +249,9 @@
   <data name="RosterStudentSelectionRequired" xml:space="preserve">
     <value>اختار الطلب ده بتاع أنهي طالب من طلابك قبل ما تقبله</value>
   </data>
+  <data name="StudentAccountCodeNotRosterCode" xml:space="preserve">
+    <value>ده كود حساب الطالب مش كود الطالب عندك. اكتب كود طالب من قايمة طلابك (أو اختار الطالب) عشان تربطه</value>
+  </data>
   <data name="RosterStudentNotFound" xml:space="preserve">
     <value>سجل الطالب اللي اخترته مش موجود في حسابك</value>
   </data>

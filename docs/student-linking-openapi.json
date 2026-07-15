@@ -33,7 +33,9 @@
   "paths": {
     "/api/studentuser/me": {
       "get": {
-        "tags": ["Student — profile & dashboard"],
+        "tags": [
+          "Student — profile & dashboard"
+        ],
         "summary": "My student profile",
         "description": "Returns the authenticated student's profile: account code (used by PARENTS to link to this child), language, status, first-login flag and the count of Active linked teachers.",
         "responses": {
@@ -41,27 +43,41 @@
             "description": "Profile",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StudentProfileEnvelope" }
+                "schema": {
+                  "$ref": "#/components/schemas/StudentProfileEnvelope"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/StudentNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/StudentNotResolved"
+          }
         }
       }
     },
     "/api/studentuser/me/profile": {
       "put": {
-        "tags": ["Student — profile & dashboard"],
+        "tags": [
+          "Student — profile & dashboard"
+        ],
         "summary": "Update my profile settings",
         "description": "Currently supports the UI language preference only (name/phone/password are User-module operations).",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateStudentProfileRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStudentProfileRequest"
+              },
               "examples": {
-                "arabic": { "value": { "languagePreference": "ar" } }
+                "arabic": {
+                  "value": {
+                    "languagePreference": "ar"
+                  }
+                }
               }
             }
           }
@@ -71,19 +87,29 @@
             "description": "Updated profile",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StudentProfileEnvelope" }
+                "schema": {
+                  "$ref": "#/components/schemas/StudentProfileEnvelope"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/StudentNotResolved" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/StudentNotResolved"
+          }
         }
       }
     },
     "/api/studentuser/me/dashboard": {
       "get": {
-        "tags": ["Student — profile & dashboard"],
+        "tags": [
+          "Student — profile & dashboard"
+        ],
         "summary": "My dashboard",
         "description": "First-login flag (drives the empty-state \"Add Teacher\" prompt), the student's account code, and the teacher entries — one per teacher, latest state, same shape as `GET /me/teachers`.",
         "responses": {
@@ -91,7 +117,9 @@
             "description": "Dashboard",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StudentDashboardEnvelope" },
+                "schema": {
+                  "$ref": "#/components/schemas/StudentDashboardEnvelope"
+                },
                 "examples": {
                   "withPendingAndActive": {
                     "value": {
@@ -125,14 +153,20 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/StudentNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/StudentNotResolved"
+          }
         }
       }
     },
     "/api/studentuser/me/teachers": {
       "get": {
-        "tags": ["Student — teacher linking"],
+        "tags": [
+          "Student — teacher linking"
+        ],
         "summary": "My teachers — with request status",
         "description": "One entry per teacher (the LATEST link row), so the student sees the current state: `Pending` (waiting for the teacher), `Active` (accepted — modules unlocked per the visibility flags), `Rejected`, `Unlinked`, `RemovedByTeacher`, `CancelledByStudent`. Live entries (Pending, Active) are sorted first. **This endpoint is how the app shows whether a request was accepted or rejected** (a push notification is also sent).",
         "responses": {
@@ -140,33 +174,50 @@
             "description": "Teacher entries",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StudentTeacherListEnvelope" }
+                "schema": {
+                  "$ref": "#/components/schemas/StudentTeacherListEnvelope"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/StudentNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/StudentNotResolved"
+          }
         }
       }
     },
     "/api/studentuser/me/link-requests": {
       "post": {
-        "tags": ["Student — teacher linking"],
+        "tags": [
+          "Student — teacher linking"
+        ],
         "summary": "Send a link request to a teacher",
         "description": "Creates a `Pending` request. `teacherCode` is the teacher's public 8-digit code; `studentName` is typed by the student so the teacher can recognize them; `studentCode` is OPTIONAL — when it matches a roster record it pre-suggests the binding on the teacher's accept screen. The link only becomes usable after the teacher accepts.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateLinkRequestRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequestRequest"
+              },
               "examples": {
                 "withCode": {
                   "summary": "Student knows their code at this teacher",
-                  "value": { "teacherCode": "48291057", "studentName": "Mohamed Ahmed", "studentCode": "A5" }
+                  "value": {
+                    "teacherCode": "48291057",
+                    "studentName": "Mohamed Ahmed",
+                    "studentCode": "A5"
+                  }
                 },
                 "withoutCode": {
                   "summary": "No code — teacher will pick the roster record manually",
-                  "value": { "teacherCode": "48291057", "studentName": "Mohamed Ahmed" }
+                  "value": {
+                    "teacherCode": "48291057",
+                    "studentName": "Mohamed Ahmed"
+                  }
                 }
               }
             }
@@ -177,29 +228,53 @@
             "description": "Request created (entry returned with `status: Pending`)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/StudentTeacherEntryEnvelope" }
+                "schema": {
+                  "$ref": "#/components/schemas/StudentTeacherEntryEnvelope"
+                }
               }
             }
           },
           "400": {
             "description": "Invalid teacher code format, or missing student name (`InvalidTeacherCode`, `StudentNameRequired`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "404": {
             "description": "No active teacher with this code (`TeacherNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "Already linked (`TeacherAlreadyLinked`) or a request is already pending (`LinkRequestAlreadyPending`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/studentuser/me/teachers/{teacherId}": {
       "delete": {
-        "tags": ["Student — teacher linking"],
+        "tags": [
+          "Student — teacher linking"
+        ],
         "summary": "Remove a teacher (cancel pending / unlink active)",
         "description": "Cancels a still-`Pending` request (state becomes `CancelledByStudent`, code `LinkRequestCancelled`) or unlinks an `Active` link (state `Unlinked`, code `TeacherUnlinkSuccess`). History is preserved; a new request can be sent later.",
         "parameters": [
@@ -207,26 +282,45 @@
             "name": "teacherId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer", "format": "int64" },
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
             "description": "The teacher's id (from the entry's teacher data)."
           }
         ],
         "responses": {
           "200": {
             "description": "Cancelled or unlinked (`data: true`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BooleanEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BooleanEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "404": {
             "description": "No pending request or active link with this teacher (`LinkNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/studentuser/by-code/{accountCode}": {
       "get": {
-        "tags": ["Student — profile & dashboard"],
+        "tags": [
+          "Student — profile & dashboard"
+        ],
         "summary": "Look up a student by account code (parent linking)",
         "description": "Used by the PARENT app (Method A child linking). Any authenticated role may call it. Returns minimal profile info.",
         "parameters": [
@@ -234,26 +328,44 @@
             "name": "accountCode",
             "in": "path",
             "required": true,
-            "schema": { "type": "string" },
+            "schema": {
+              "type": "string"
+            },
             "example": "STU4X7B2KM"
           }
         ],
         "responses": {
           "200": {
             "description": "Basic student profile",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StudentProfileEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentProfileEnvelope"
+                }
+              }
+            }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "404": {
             "description": "No active student with this code (`StudentUserNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/teacher/student-links/my-code": {
       "get": {
-        "tags": ["Teacher — student links"],
+        "tags": [
+          "Teacher — student links"
+        ],
         "summary": "My shareable teacher code",
         "description": "The unique, immutable 8-digit code students type to send a link request. Safe to display prominently — a request still needs this teacher's explicit approval. Requires `Student / ViewList` permission (assistants included).",
         "responses": {
@@ -261,34 +373,59 @@
             "description": "The code",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/TeacherCodeEnvelope" },
+                "schema": {
+                  "$ref": "#/components/schemas/TeacherCodeEnvelope"
+                },
                 "examples": {
-                  "ok": { "value": { "success": true, "code": "Success", "message": "Done successfully", "data": { "teacherCode": "48291057" } } }
+                  "ok": {
+                    "value": {
+                      "success": true,
+                      "code": "Success",
+                      "message": "Done successfully",
+                      "data": {
+                        "teacherCode": "48291057"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/TeacherNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TeacherNotResolved"
+          }
         }
       }
     },
     "/api/teacher/student-links/requests": {
       "get": {
-        "tags": ["Teacher — student links"],
+        "tags": [
+          "Teacher — student links"
+        ],
         "summary": "Pending link requests inbox",
         "description": "Newest first. Each item shows what the student typed (`requestedStudentName`, `requestedStudentCode`) plus their real account identity (`studentFullName`, `studentPhoneNumber`, `studentAccountCode`), and — when the typed code matched a roster record — `suggestedMatch` for one-tap accept. `suggestedMatch.isAlreadyLinked = true` warns that accepting with that record will 409. Requires `Student / ViewList`.",
         "parameters": [
-          { "$ref": "#/components/parameters/page" },
-          { "$ref": "#/components/parameters/pageSize" }
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/pageSize"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated pending requests",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/LinkRequestPageEnvelope" },
+                "schema": {
+                  "$ref": "#/components/schemas/LinkRequestPageEnvelope"
+                },
                 "examples": {
                   "onePending": {
                     "value": {
@@ -324,109 +461,239 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/TeacherNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TeacherNotResolved"
+          }
         }
       }
     },
     "/api/teacher/student-links/requests/{linkId}/accept": {
       "post": {
-        "tags": ["Teacher — student links"],
-        "summary": "Accept a request (binds a roster student)",
-        "description": "Activates the link and binds it to ONE of this teacher's TeacherStudent roster records — attendance, payments, homework, exams and videos all resolve through that record, so the binding is mandatory. Pass `teacherStudentId` to select explicitly (e.g. from `suggestedMatch` or a roster picker); omit/null to auto-match by the request's typed student code. The student is push-notified. Requires `Student / Add`.",
-        "parameters": [{ "$ref": "#/components/parameters/linkId" }],
+        "tags": [
+          "Teacher — student links"
+        ],
+        "summary": "Accept a request (optionally link a roster student)",
+        "description": "Activates the link (CONNECTS the account). Optionally binds it to ONE of this teacher's TeacherStudent roster records in the same call: pass `teacherStudentId` (e.g. from `suggestedMatch` or a roster picker) or the teacher-assigned `studentCode`. A supplied target that does not resolve FAILS the accept. Omit both to accept UNBOUND — connected but Not linked (`LinkRequestAcceptedUnlinked`, `isLinked: false`, no data access) — and link later via /{linkId}/bind. There is NO auto-match by the request's typed code. The student is push-notified. Requires `Student / Add`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/linkId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/AcceptLinkRequestRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/AcceptLinkRequestRequest"
+              },
               "examples": {
-                "autoMatch": { "summary": "Auto-match by the typed student code", "value": { "teacherStudentId": null } },
-                "explicit": { "summary": "Explicit roster selection", "value": { "teacherStudentId": 88 } }
+                "acceptUnbound": {
+                  "summary": "Accept only (connect now, link later)",
+                  "value": {}
+                },
+                "acceptAndLinkById": {
+                  "summary": "Accept & link — explicit roster selection",
+                  "value": {
+                    "teacherStudentId": 88
+                  }
+                },
+                "acceptAndLinkByCode": {
+                  "summary": "Accept & link — by the teacher's roster code",
+                  "value": {
+                    "studentCode": "A12"
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Accepted (`LinkRequestAccepted`) — returns the new linked-student row",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkedStudentEnvelope" } } }
+            "description": "Accepted — bound (`LinkRequestAccepted`, `isLinked: true`) or unbound (`LinkRequestAcceptedUnlinked`, `isLinked: false`); returns the linked-student row",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkedStudentEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
+          "400": {
+            "description": "The supplied code is the student's ACCOUNT code, not a roster code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "description": "Request not found (`LinkRequestNotFound`) or selected roster record not found (`RosterStudentNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "Already accepted/rejected (`LinkRequestAlreadyResolved`) or roster record already claimed by another account (`RosterStudentAlreadyClaimed`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
           "422": {
             "description": "No roster record could be resolved — the teacher must pick one (`RosterStudentSelectionRequired`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/teacher/student-links/requests/{linkId}/reject": {
       "post": {
-        "tags": ["Teacher — student links"],
+        "tags": [
+          "Teacher — student links"
+        ],
         "summary": "Reject a request",
         "description": "Marks the request `Rejected` (kept for history — the student sees the outcome and may send a new request later) and push-notifies the student. No body. Requires `Student / Add`.",
-        "parameters": [{ "$ref": "#/components/parameters/linkId" }],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/linkId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Rejected (`LinkRequestRejected`, `data: true`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BooleanEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BooleanEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "description": "Request not found (`LinkRequestNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "Already accepted/rejected (`LinkRequestAlreadyResolved`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/teacher/student-links": {
       "get": {
-        "tags": ["Teacher — student links"],
+        "tags": [
+          "Teacher — student links"
+        ],
         "summary": "My linked students",
         "description": "All `Active` links, newest first — the student's account identity plus the bound roster record (`rosterStudent*` are null if the teacher later deleted that record). Requires `Student / ViewList`.",
         "parameters": [
-          { "$ref": "#/components/parameters/page" },
-          { "$ref": "#/components/parameters/pageSize" }
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/pageSize"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated linked students",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkedStudentPageEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkedStudentPageEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
-          "404": { "$ref": "#/components/responses/TeacherNotResolved" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/TeacherNotResolved"
+          }
         }
       }
     },
     "/api/teacher/student-links/remove": {
       "post": {
-        "tags": ["Teacher — student links"],
+        "tags": [
+          "Teacher — student links"
+        ],
         "summary": "Remove linked students (one or many)",
         "description": "Soft-removes the given links (state `RemovedByTeacher`); each affected student is push-notified. Ids not owned by this teacher or not currently Active are skipped and echoed back in `skippedLinkIds`. Requires `Student / Delete`.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/RemoveLinkedStudentsRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/RemoveLinkedStudentsRequest"
+              },
               "examples": {
-                "single": { "value": { "linkIds": [12] } },
-                "bulk": { "value": { "linkIds": [12, 13, 14] } }
+                "single": {
+                  "value": {
+                    "linkIds": [
+                      12
+                    ]
+                  }
+                },
+                "bulk": {
+                  "value": {
+                    "linkIds": [
+                      12,
+                      13,
+                      14
+                    ]
+                  }
+                }
               }
             }
           }
@@ -436,14 +703,21 @@
             "description": "Removal outcome (`LinkedStudentsRemoved`)",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/RemoveResultEnvelope" },
+                "schema": {
+                  "$ref": "#/components/schemas/RemoveResultEnvelope"
+                },
                 "examples": {
                   "partial": {
                     "value": {
                       "success": true,
                       "code": "LinkedStudentsRemoved",
                       "message": "Selected students have been removed from your linked students",
-                      "data": { "removedCount": 2, "skippedLinkIds": [14] }
+                      "data": {
+                        "removedCount": 2,
+                        "skippedLinkIds": [
+                          14
+                        ]
+                      }
                     }
                   }
                 }
@@ -452,13 +726,115 @@
           },
           "400": {
             "description": "Empty selection (`NoLinksSelected`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "description": "None of the ids matched an Active link of this teacher (`LinkNotFound`)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teacher/student-links/{linkId}/bind": {
+      "post": {
+        "tags": [
+          "Teacher — student links"
+        ],
+        "summary": "Link or re-point an accepted connection to a roster student",
+        "description": "Points an Active link at ONE of this teacher's TeacherStudent roster records (`IsLinked: true`) or re-points it (\"Change linked student\"). Binding to the record it already holds is an idempotent success. Use /{linkId}/unbind (no body) to clear the binding while staying Active. The student is push-notified. Requires `Student / Edit`.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/linkId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindStudentLinkRequest"
+              },
+              "examples": {
+                "byId": {
+                  "summary": "Explicit roster selection",
+                  "value": {
+                    "teacherStudentId": 88
+                  }
+                },
+                "byCode": {
+                  "summary": "By the teacher's roster code (NOT the studentAccountCode)",
+                  "value": {
+                    "studentCode": "A12"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Linked (`LinkBound`) — returns the updated linked-student row",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkedStudentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No target supplied (`BindTargetRequired`), the supplied code is the student's ACCOUNT code rather than a roster code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "Link not found (`LinkNotFound`) or roster record not found (`RosterStudentNotFound`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Link is not Active (`LinkNotActive`) or the roster record is already claimed by another account (`RosterStudentAlreadyClaimed`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
@@ -476,175 +852,387 @@
       "page": {
         "name": "page",
         "in": "query",
-        "schema": { "type": "integer", "default": 1, "minimum": 1 }
+        "schema": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1
+        }
       },
       "pageSize": {
         "name": "pageSize",
         "in": "query",
-        "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+        "schema": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100
+        }
       },
       "linkId": {
         "name": "linkId",
         "in": "path",
         "required": true,
-        "schema": { "type": "integer", "format": "int64" },
+        "schema": {
+          "type": "integer",
+          "format": "int64"
+        },
         "description": "The link/request row id (`linkId` from the requests inbox)."
       }
     },
     "responses": {
       "Unauthorized": {
         "description": "JWT missing or expired",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
       },
       "Forbidden": {
         "description": "Caller lacks the required role/permission",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
       },
       "BadRequest": {
         "description": "Validation failure",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
       },
       "StudentNotResolved": {
         "description": "The authenticated user has no student account",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
       },
       "TeacherNotResolved": {
         "description": "Teacher record not found for the authenticated user",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
       }
     },
     "schemas": {
       "LinkStatus": {
         "type": "string",
-        "enum": ["Pending", "Active", "Rejected", "Unlinked", "RemovedByTeacher", "CancelledByStudent"],
+        "enum": [
+          "Pending",
+          "Active",
+          "Rejected",
+          "Unlinked",
+          "RemovedByTeacher",
+          "CancelledByStudent"
+        ],
         "description": "Pending = waiting for the teacher; Active = accepted (modules unlocked); Rejected = teacher declined; Unlinked = student removed an active link; RemovedByTeacher = teacher removed the student; CancelledByStudent = student cancelled their own pending request."
       },
       "ErrorEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": false },
-          "code": { "type": "string", "description": "Stable, language-independent key to branch on (e.g. LinkRequestAlreadyPending)" },
-          "message": { "type": "string", "description": "Localized (Accept-Language: en | ar)" }
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "code": {
+            "type": "string",
+            "description": "Stable, language-independent key to branch on (e.g. LinkRequestAlreadyPending)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Localized (Accept-Language: en | ar)"
+          }
         }
       },
       "BooleanEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean", "example": true },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "data": { "type": "boolean", "example": true }
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "boolean",
+            "example": true
+          }
         }
       },
       "StudentProfile": {
         "type": "object",
         "properties": {
-          "id": { "type": "integer", "format": "int64" },
-          "userId": { "type": "integer", "format": "int64" },
-          "studentAccountCode": { "type": "string", "example": "STU4X7B2KM" },
-          "fullName": { "type": "string" },
-          "email": { "type": "string", "nullable": true },
-          "phoneNumber": { "type": "string", "nullable": true },
-          "languagePreference": { "type": "string", "nullable": true, "example": "ar" },
-          "accountStatus": { "type": "string", "example": "Active" },
-          "isFirstLogin": { "type": "boolean" },
-          "createdAt": { "type": "string", "format": "date-time" },
-          "linkedTeacherCount": { "type": "integer", "description": "Active links only" }
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "studentAccountCode": {
+            "type": "string",
+            "example": "STU4X7B2KM"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "phoneNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "languagePreference": {
+            "type": "string",
+            "nullable": true,
+            "example": "ar"
+          },
+          "accountStatus": {
+            "type": "string",
+            "example": "Active"
+          },
+          "isFirstLogin": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "linkedTeacherCount": {
+            "type": "integer",
+            "description": "Active links only"
+          }
         }
       },
       "StudentProfileEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/StudentProfile" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StudentProfile"
+          }
         }
       },
       "UpdateStudentProfileRequest": {
         "type": "object",
         "properties": {
-          "languagePreference": { "type": "string", "enum": ["en", "ar"], "nullable": true }
+          "languagePreference": {
+            "type": "string",
+            "enum": [
+              "en",
+              "ar"
+            ],
+            "nullable": true
+          }
         }
       },
       "StudentTeacherEntry": {
         "type": "object",
         "description": "One teacher on the student's list — the LATEST link row for that teacher.",
         "properties": {
-          "linkId": { "type": "integer", "format": "int64" },
-          "status": { "$ref": "#/components/schemas/LinkStatus" },
-          "requestedAt": { "type": "string", "format": "date-time", "nullable": true, "description": "When the student sent the request" },
-          "respondedAt": { "type": "string", "format": "date-time", "nullable": true, "description": "When the teacher accepted/rejected" },
-          "teacherCode": { "type": "string", "example": "48291057" },
-          "teacherFullName": { "type": "string" },
-          "subjectName": { "type": "string", "description": "Localized to the student's language preference" },
-          "linkedAt": { "type": "string", "format": "date-time", "description": "When the link became Active (mirrors requestedAt while still pending)" },
-          "isEnrollmentActive": { "type": "boolean", "description": "True only when status=Active AND the teacher's roster record still exists" },
-          "visibilityAttendance": { "type": "boolean" },
-          "visibilityPayment": { "type": "boolean" },
-          "visibilityHomework": { "type": "boolean" },
-          "visibilityExamDefault": { "type": "boolean" }
+          "linkId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LinkStatus"
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the student sent the request"
+          },
+          "respondedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the teacher accepted/rejected"
+          },
+          "teacherCode": {
+            "type": "string",
+            "example": "48291057"
+          },
+          "teacherFullName": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string",
+            "description": "Localized to the student's language preference"
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the link became Active (mirrors requestedAt while still pending)"
+          },
+          "isEnrollmentActive": {
+            "type": "boolean",
+            "description": "True only when status=Active AND the teacher's roster record still exists"
+          },
+          "visibilityAttendance": {
+            "type": "boolean"
+          },
+          "visibilityPayment": {
+            "type": "boolean"
+          },
+          "visibilityHomework": {
+            "type": "boolean"
+          },
+          "visibilityExamDefault": {
+            "type": "boolean"
+          }
         }
       },
       "StudentTeacherEntryEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string", "example": "LinkRequestCreated" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/StudentTeacherEntry" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "example": "LinkRequestCreated"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StudentTeacherEntry"
+          }
         }
       },
       "StudentTeacherListEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/StudentTeacherEntry" }
+            "items": {
+              "$ref": "#/components/schemas/StudentTeacherEntry"
+            }
           }
         }
       },
       "StudentDashboard": {
         "type": "object",
         "properties": {
-          "isFirstLogin": { "type": "boolean", "description": "True until the student sends their first link request — drives the empty-state prompt" },
-          "studentAccountCode": { "type": "string" },
+          "isFirstLogin": {
+            "type": "boolean",
+            "description": "True until the student sends their first link request — drives the empty-state prompt"
+          },
+          "studentAccountCode": {
+            "type": "string"
+          },
           "linkedTeachers": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/StudentTeacherEntry" }
+            "items": {
+              "$ref": "#/components/schemas/StudentTeacherEntry"
+            }
           }
         }
       },
       "StudentDashboardEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/StudentDashboard" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/StudentDashboard"
+          }
         }
       },
       "CreateLinkRequestRequest": {
         "type": "object",
-        "required": ["teacherCode", "studentName"],
+        "required": [
+          "teacherCode",
+          "studentName"
+        ],
         "properties": {
-          "teacherCode": { "type": "string", "description": "The teacher's public 8-digit code", "example": "48291057" },
-          "studentName": { "type": "string", "maxLength": 200, "description": "Typed by the student — shown verbatim to the teacher" },
-          "studentCode": { "type": "string", "maxLength": 20, "nullable": true, "description": "OPTIONAL — the code this teacher assigned the student (e.g. A5); powers the accept-screen suggestion" }
+          "teacherCode": {
+            "type": "string",
+            "description": "The teacher's public 8-digit code",
+            "example": "48291057"
+          },
+          "studentName": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Typed by the student — shown verbatim to the teacher"
+          },
+          "studentCode": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true,
+            "description": "OPTIONAL — the code this teacher assigned the student (e.g. A5); powers the accept-screen suggestion"
+          }
         }
       },
       "TeacherCodeEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "object",
-            "properties": { "teacherCode": { "type": "string", "example": "48291057" } }
+            "properties": {
+              "teacherCode": {
+                "type": "string",
+                "example": "48291057"
+              }
+            }
           }
         }
       },
@@ -652,104 +1240,226 @@
         "type": "object",
         "nullable": true,
         "properties": {
-          "teacherStudentId": { "type": "integer", "format": "int64" },
-          "studentName": { "type": "string", "description": "Name on the teacher's roster record" },
-          "studentCode": { "type": "string", "example": "A5" },
-          "isAlreadyLinked": { "type": "boolean", "description": "True = another account already claims this record; accepting with it will 409" }
+          "teacherStudentId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "studentName": {
+            "type": "string",
+            "description": "Name on the teacher's roster record"
+          },
+          "studentCode": {
+            "type": "string",
+            "example": "A5"
+          },
+          "isAlreadyLinked": {
+            "type": "boolean",
+            "description": "True = another account already claims this record; accepting with it will 409"
+          }
         }
       },
       "LinkRequestListItem": {
         "type": "object",
         "properties": {
-          "linkId": { "type": "integer", "format": "int64" },
-          "requestedStudentName": { "type": "string", "nullable": true },
-          "requestedStudentCode": { "type": "string", "nullable": true },
-          "requestedAt": { "type": "string", "format": "date-time", "nullable": true },
-          "studentAccountCode": { "type": "string" },
-          "studentFullName": { "type": "string", "description": "The requesting ACCOUNT's registered name" },
-          "studentPhoneNumber": { "type": "string", "nullable": true },
-          "suggestedMatch": { "$ref": "#/components/schemas/RosterStudentSuggestion" }
+          "linkId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "requestedStudentName": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedStudentCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "studentAccountCode": {
+            "type": "string"
+          },
+          "studentFullName": {
+            "type": "string",
+            "description": "The requesting ACCOUNT's registered name"
+          },
+          "studentPhoneNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "suggestedMatch": {
+            "$ref": "#/components/schemas/RosterStudentSuggestion"
+          }
         }
       },
       "LinkRequestPage": {
         "type": "object",
         "properties": {
-          "totalCount": { "type": "integer" },
-          "page": { "type": "integer" },
-          "pageSize": { "type": "integer" },
-          "totalPages": { "type": "integer" },
-          "data": { "type": "array", "items": { "$ref": "#/components/schemas/LinkRequestListItem" } }
+          "totalCount": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkRequestListItem"
+            }
+          }
         }
       },
       "LinkRequestPageEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/LinkRequestPage" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LinkRequestPage"
+          }
         }
       },
       "AcceptLinkRequestRequest": {
         "type": "object",
+        "description": "Accepting CONNECTS the account (Active). Linking to a roster record is optional here (\"Accept & link\") and can also be done later via /bind. Unknown JSON fields are rejected (400).",
         "properties": {
           "teacherStudentId": {
             "type": "integer",
             "format": "int64",
             "nullable": true,
-            "description": "Explicit roster record to bind. Omit/null to auto-match by the request's typed student code. If neither resolves → 422."
+            "description": "Explicit roster record to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
+          },
+          "studentCode": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true,
+            "description": "TEACHER-assigned roster student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the record when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
           }
         }
       },
       "LinkedStudentListItem": {
         "type": "object",
         "properties": {
-          "linkId": { "type": "integer", "format": "int64" },
-          "linkedAt": { "type": "string", "format": "date-time" },
-          "studentAccountCode": { "type": "string" },
-          "studentFullName": { "type": "string" },
-          "studentPhoneNumber": { "type": "string", "nullable": true },
-          "teacherStudentId": { "type": "integer", "format": "int64", "nullable": true, "description": "Null if the teacher deleted the roster record after linking" },
-          "rosterStudentName": { "type": "string", "nullable": true },
-          "rosterStudentCode": { "type": "string", "nullable": true }
+          "linkId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "studentAccountCode": {
+            "type": "string"
+          },
+          "studentFullName": {
+            "type": "string"
+          },
+          "studentPhoneNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "teacherStudentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "description": "Null if the teacher deleted the roster record after linking"
+          },
+          "rosterStudentName": {
+            "type": "string",
+            "nullable": true
+          },
+          "rosterStudentCode": {
+            "type": "string",
+            "nullable": true
+          }
         }
       },
       "LinkedStudentEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string", "example": "LinkRequestAccepted" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/LinkedStudentListItem" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "example": "LinkRequestAccepted"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LinkedStudentListItem"
+          }
         }
       },
       "LinkedStudentPage": {
         "type": "object",
         "properties": {
-          "totalCount": { "type": "integer" },
-          "page": { "type": "integer" },
-          "pageSize": { "type": "integer" },
-          "totalPages": { "type": "integer" },
-          "data": { "type": "array", "items": { "$ref": "#/components/schemas/LinkedStudentListItem" } }
+          "totalCount": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "totalPages": {
+            "type": "integer"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedStudentListItem"
+            }
+          }
         }
       },
       "LinkedStudentPageEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string" },
-          "message": { "type": "string" },
-          "data": { "$ref": "#/components/schemas/LinkedStudentPage" }
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LinkedStudentPage"
+          }
         }
       },
       "RemoveLinkedStudentsRequest": {
         "type": "object",
-        "required": ["linkIds"],
+        "required": [
+          "linkIds"
+        ],
         "properties": {
           "linkIds": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "integer", "format": "int64" },
+            "items": {
+              "type": "integer",
+              "format": "int64"
+            },
             "description": "One or many link ids from the linked-students list"
           }
         }
@@ -757,15 +1467,48 @@
       "RemoveResultEnvelope": {
         "type": "object",
         "properties": {
-          "success": { "type": "boolean" },
-          "code": { "type": "string", "example": "LinkedStudentsRemoved" },
-          "message": { "type": "string" },
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "example": "LinkedStudentsRemoved"
+          },
+          "message": {
+            "type": "string"
+          },
           "data": {
             "type": "object",
             "properties": {
-              "removedCount": { "type": "integer" },
-              "skippedLinkIds": { "type": "array", "items": { "type": "integer", "format": "int64" } }
+              "removedCount": {
+                "type": "integer"
+              },
+              "skippedLinkIds": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
             }
+          }
+        }
+      },
+      "BindStudentLinkRequest": {
+        "type": "object",
+        "description": "Link (or re-point) an ACCEPTED connection to a roster record — the step that unlocks the student's access. Supply teacherStudentId OR studentCode; neither → 400 `BindTargetRequired`. Unknown JSON fields are rejected (400).",
+        "properties": {
+          "teacherStudentId": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "description": "Explicit roster record to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
+          },
+          "studentCode": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true,
+            "description": "TEACHER-assigned roster student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the record when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
           }
         }
       }

@@ -249,6 +249,9 @@
   <data name="RosterStudentSelectionRequired" xml:space="preserve">
     <value>Select which of your students this request belongs to before accepting</value>
   </data>
+  <data name="StudentAccountCodeNotRosterCode" xml:space="preserve">
+    <value>That is the student's account code. Enter one of your own student codes from your student list (or pick the student) to link</value>
+  </data>
   <data name="RosterStudentNotFound" xml:space="preserve">
     <value>The selected student record was not found in your account</value>
   </data>
