@@ -1,33 +1,48 @@
 ﻿using Edvanz.Application.Security;
+using Edvanz.Domain.Resources;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.Extensions.Localization;
 
 namespace Edvanz.API.Filters
 {
+    /// <summary>
+    /// Backing filter for <see cref="Edvanz.API.Attributes.ModulePermissionAttribute"/>.
+    ///
+    /// Runs in the MVC authorization-filter pipeline (NOT ASP.NET Core's
+    /// <c>UseAuthorization</c> middleware), so <see cref="IAuthorizationMiddlewareResultHandler"/>
+    /// never sees its results — a bare <see cref="ForbidResult"/> here would reach the client as
+    /// an empty 403. This filter therefore builds the localized JSON envelope itself, reading the
+    /// <see cref="AuthorizationFailureReason"/> markers <see cref="PermissionHandler"/> attaches to
+    /// distinguish "module not assigned" from "permission denied" / "role not allowed".
+    /// </summary>
     public class ModulePermissionFilter : IAsyncAuthorizationFilter
     {
         private readonly string _module;
         private readonly string? _permission;
         private readonly IAuthorizationService _authService;
+        private readonly IStringLocalizer<Messages> _localizer;
         private readonly bool _roleOnly;
         private readonly string[] _roles;
 
         public ModulePermissionFilter(
-    string module,
-    string permission,
-    string[] roles,
-    IAuthorizationService authService, bool roleOnly = false)
+            string module,
+            string permission,
+            string[] roles,
+            IAuthorizationService authService,
+            IStringLocalizer<Messages> localizer,
+            bool roleOnly = false)
         {
             _module = module;
             _permission = string.IsNullOrWhiteSpace(permission) ? null : permission;
             _roles = roles ?? Array.Empty<string>();
-
             _authService = authService;
+            _localizer = localizer;
             _roleOnly = roleOnly;
-            
-
         }
+
         public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
         {
             var user = context.HttpContext.User;
@@ -35,39 +50,40 @@ namespace Edvanz.API.Filters
             if (_roleOnly)
             {
                 if (_roles.Any(r => user.IsInRole(r)))
-                {
-                    return; 
-                }
-                context.Result = new ForbidResult();
+                    return;
+
+                context.Result = ForbidWithMessage(_localizer["Unauthorized"].Value, "roleNotAllowed");
                 return;
             }
 
-            // ✅ الترتيب الصح: module الأول
             var requirement = new PermissionRequirement(_module, _permission);
             var result = await _authService.AuthorizeAsync(user, null, requirement);
 
-            if (!result.Succeeded)
-                context.Result = new ForbidResult();
+            if (result.Succeeded)
+                return;
+
+            bool moduleNotAssigned = result.Failure?.FailureReasons
+                .Any(r => r.Message == PermissionHandler.ModuleNotAssignedReason) == true;
+
+            context.Result = moduleNotAssigned
+                ? ForbidWithMessage(_localizer["ModuleNotAssigned"].Value, "moduleAccessDenied")
+                : ForbidWithMessage(_localizer["Unauthorized"].Value, "permissionDenied");
         }
-        //public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
-        //{
-        //    var user = context.HttpContext.User;
 
-        //    // Role check (optional)
-        //    if (!string.IsNullOrEmpty(_role) && !user.IsInRole(_role))
-        //    {
-        //        context.Result = new ForbidResult();
-        //        return;
-        //    }
-
-        //    // Module + Permission check via PermissionRequirement
-        //    var requirement = new PermissionRequirement(_permission, _module);
-        //    var result = await _authService.AuthorizeAsync(user, null, requirement);
-
-        //    if (!result.Succeeded)
-        //    {
-        //        context.Result = new ForbidResult();
-        //    }
-        //}
+        /// <summary>
+        /// Builds the standard 403 envelope: <c>{ success: false, message: &lt;localized&gt;, [flagKey]: true }</c>.
+        /// Replaces the framework's bare <see cref="ForbidResult"/>, which produces no response body
+        /// for MVC-filter-level rejections (this filter never reaches <c>UseAuthorization</c> middleware).
+        /// </summary>
+        private static ObjectResult ForbidWithMessage(string message, string flagKey) =>
+            new(new Dictionary<string, object>
+            {
+                ["success"] = false,
+                ["message"] = message,
+                [flagKey] = true
+            })
+            {
+                StatusCode = StatusCodes.Status403Forbidden
+            };
     }
 }
