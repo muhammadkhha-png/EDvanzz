@@ -28,7 +28,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T1 — POST /api/online-exams
     [HttpPost]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> Create([FromBody] CreateOnlineExamRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -38,7 +38,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T8 — PUT /api/online-exams/{id}
     [HttpPut("{onlineExamId:long}")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> Update([FromRoute] long onlineExamId, [FromBody] UpdateOnlineExamRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -48,7 +48,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T9 — GET /api/online-exams/{id}
     [HttpGet("{onlineExamId:long}")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetById([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -58,7 +58,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T4 — GET /api/online-exams
     [HttpGet]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetList([FromQuery] OnlineExamListRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -68,7 +68,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T6 — GET /api/online-exams/{id}/overview
     [HttpGet("{onlineExamId:long}/overview")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetOverview([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -78,7 +78,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T7 — GET /api/online-exams/{id}/scope-analysis
     [HttpGet("{onlineExamId:long}/scope-analysis")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetScopeAnalysis([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -88,7 +88,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T12 — GET /api/online-exams/{id}/questions
     [HttpGet("{onlineExamId:long}/questions")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetQuestions([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -98,7 +98,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T10 — GET /api/online-exams/{id}/questions/overview
     [HttpGet("{onlineExamId:long}/questions/overview")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> GetQuestionsOverview([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -108,7 +108,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T2 — POST /api/online-exams/{id}/questions
     [HttpPost("{onlineExamId:long}/questions")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> AddQuestion([FromRoute] long onlineExamId, [FromBody] CreateOnlineExamQuestionDto request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -118,7 +118,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T3 — POST /api/online-exams/{id}/questions/bulk
     [HttpPost("{onlineExamId:long}/questions/bulk")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> AddQuestionsBulk([FromRoute] long onlineExamId, [FromBody] List<Application.Dtos.CreateOnlineExamQuestionDto> request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -128,7 +128,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T13 — PUT /api/online-exams/{id}/questions
     [HttpPut("{onlineExamId:long}/questions")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> ReplaceQuestions([FromRoute] long onlineExamId, [FromBody] ReplaceOnlineExamQuestionsRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -138,7 +138,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T11 — PATCH /api/online-exams/{id}/status
     [HttpPatch("{onlineExamId:long}/status")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> UpdateStatus([FromRoute] long onlineExamId, [FromBody] UpdateOnlineExamStatusRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -148,7 +148,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     // T14 — DELETE /api/online-exams/{id}
     [HttpDelete("{onlineExamId:long}")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> Delete([FromRoute] long onlineExamId)
     {
         long? teacherId = await ResolveTeacherIdAsync();
@@ -157,7 +157,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     }
     // T5s — PATCH /api/online-exams/{id}/students/{teacherStudentId}/status
     [HttpPatch("{onlineExamId:long}/students/{teacherStudentId:long}/status")]
-    [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
     public async Task<IActionResult> UpdateStudentStatus(
         [FromRoute] long onlineExamId, [FromRoute] long teacherStudentId,
         [FromBody] UpdateOnlineExamStudentStatusRequest request)
