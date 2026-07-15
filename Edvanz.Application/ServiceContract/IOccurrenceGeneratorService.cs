@@ -24,6 +24,17 @@ public interface IOccurrenceGeneratorService
     IReadOnlyList<DateTime> ComputeOccurrenceDates(Session session);
 
     /// <summary>
+    /// Computes each occurrence date together with its cross-session equivalence key
+    /// (WeekStartDate = Saturday-anchored calendar week; DayPositionIndex = 1-based rank of the
+    /// weekday within the session's sorted SelectedDays). This is the single source of truth for
+    /// the keys persisted on <see cref="SessionOccurrence"/>; the migration backfill mirrors it.
+    /// Monthly sessions yield WeekStartDate = 1st of the month and DayPositionIndex = 1.
+    /// </summary>
+    /// <param name="session">The session entity with recurrence configuration.</param>
+    /// <returns>Occurrence keys, sorted ascending by date.</returns>
+    IReadOnlyList<(DateTime Date, DateTime WeekStartDate, int DayPositionIndex)> ComputeOccurrenceKeys(Session session);
+
+    /// <summary>
     /// Checks whether a session occurs on a specific date.
     /// REQ-ATT-001/002: Session eligibility check for a given day.
     /// </summary>

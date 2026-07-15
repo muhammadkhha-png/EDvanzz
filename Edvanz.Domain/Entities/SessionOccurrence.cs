@@ -47,6 +47,25 @@ public class SessionOccurrence : BaseEntity
     public DateTime OccurrenceDate { get; set; }
 
     /// <summary>
+    /// Saturday-anchored start of the calendar week this occurrence falls in (app day model 0=Sat..6=Fri).
+    /// Together with <see cref="DayPositionIndex"/> forms the cross-session equivalence key ("weekly-slot
+    /// position"): two occurrences of membership-linked sessions are the SAME logical slot iff they share
+    /// both values. Derived purely from <see cref="OccurrenceDate"/> (+ the session's SelectedDays for the
+    /// position), so it is independent of StartDate and stable across StartDate/EndDate edits. For Monthly
+    /// sessions this is the 1st of the occurrence's month. Set by the occurrence generator; never renumbered.
+    /// </summary>
+    [Column(TypeName = "date")]
+    public DateTime WeekStartDate { get; set; }
+
+    /// <summary>
+    /// 1-based rank of this occurrence's weekday within the owning session's sorted SelectedDays pattern
+    /// (e.g. a Sun/Tue/Thu session: Sun=1, Tue=2, Thu=3). Pairs with <see cref="WeekStartDate"/> to align
+    /// linked sessions meeting on different weekdays (Sun≡Mon, Tue≡Wed, Thu≡Fri). A missing early occurrence
+    /// leaves an empty slot rather than shifting the others. Always 1 for Monthly sessions.
+    /// </summary>
+    public int DayPositionIndex { get; set; }
+
+    /// <summary>
     /// Tracks attendance-taking progress for this occurrence.
     /// REQ-ATT-049: Dashboard shows completed/pending counts.
     /// REQ-ATT-051: Color-coded session cards (green/amber/red/grey).

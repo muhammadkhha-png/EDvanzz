@@ -1141,10 +1141,26 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .IsRequired()
                 .HasDefaultValue(OccurrenceStatus.Pending);
 
+            // Cross-session equivalence slot key ("weekly-slot position").
+            entity.Property(o => o.WeekStartDate)
+                .HasColumnType("date")
+                .IsRequired()
+                .HasDefaultValue(new DateTime(2000, 1, 1));
+
+            entity.Property(o => o.DayPositionIndex)
+                .IsRequired()
+                .HasDefaultValue(1);
+
             // Unique: one occurrence per session per date
             entity.HasIndex(o => new { o.SessionId, o.OccurrenceDate })
                 .IsUnique()
                 .HasDatabaseName("IX_SessionOccurrences_SessionId_OccurrenceDate");
+
+            // Equivalence lookup: resolve a session's occurrence for a slot, and gather all linked
+            // sessions' occurrences sharing a slot. Unique — one occurrence per session per slot.
+            entity.HasIndex(o => new { o.SessionId, o.WeekStartDate, o.DayPositionIndex })
+                .IsUnique()
+                .HasDatabaseName("IX_SessionOccurrences_SessionId_WeekStartDate_DayPositionIndex");
 
             // Workhorse index: "which sessions occur today for this teacher?"
             entity.HasIndex(o => new { o.TeacherId, o.OccurrenceDate })

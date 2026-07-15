@@ -16,7 +16,6 @@ namespace Edvanz.Infrastructure.Repositories;
 /// Step 1.2: NullifyOccurrenceReferencesForSessionAsync and NullifySessionIdOnRecordsForSessionAsync
 ///           now use ExecuteUpdateAsync instead of load-and-loop (OOM fix at scale).
 /// Step 1.2: DeactivateAssignmentsBySessionAsync uses ExecuteUpdateAsync.
-/// Step 2.1: Added GetExistingAttendanceByStudentsAndDateAsync for batch cross-session dup check.
 /// Step 2.2: RecalculateConsecutiveAbsencesAsync excludes Held status, uses configurable depth.
 /// Step 3.1: Added GetHeldRecordAsync for hold/release flow.
 /// Step 4.1: Added UpdateAbsenceCountersRangeAsync for batch counter updates.
@@ -132,15 +131,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    public async Task<SessionOccurrence?> GetNextOccurrenceAsync(long sessionId, DateTime onOrAfterDate)
-    {
-        return await _context.SessionOccurrences
-            .Where(o => o.SessionId == sessionId && o.OccurrenceDate >= onOrAfterDate.Date)
-            .OrderBy(o => o.OccurrenceDate)
-            .FirstOrDefaultAsync();
-    }
-
-    /// <inheritdoc />
     public async Task<SessionOccurrence?> GetLatestOccurrenceBySessionAsync(long sessionId)
     {
         return await _context.SessionOccurrences
@@ -157,6 +147,42 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             .Select(o => o.OccurrenceDate)
             .ToListAsync();
         return new HashSet<DateTime>(dates);
+    }
+
+    /// <inheritdoc />
+    public async Task<SessionOccurrence?> GetOccurrenceBySessionAndSlotAsync(
+        long sessionId, DateTime weekStartDate, int dayPositionIndex)
+    {
+        // Tracked (like GetOccurrenceBySessionAndDateAsync): the write path may update this
+        // home-session occurrence's status after landing a cross-session record on it.
+        return await _context.SessionOccurrences
+            .FirstOrDefaultAsync(o => o.SessionId == sessionId
+                && o.WeekStartDate == weekStartDate.Date
+                && o.DayPositionIndex == dayPositionIndex);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetEquivalentOccurrenceIdsAsync(
+        long selectedSessionId, DateTime date, IEnumerable<long> linkedSessionIds)
+    {
+        // Resolve the selected session's occurrence slot for the date.
+        var slot = await _context.SessionOccurrences
+            .Where(o => o.SessionId == selectedSessionId && o.OccurrenceDate == date.Date)
+            .Select(o => new { o.WeekStartDate, o.DayPositionIndex })
+            .FirstOrDefaultAsync();
+        if (slot is null)
+            return Array.Empty<long>();
+
+        var sessionIds = linkedSessionIds.ToList();
+        if (!sessionIds.Contains(selectedSessionId))
+            sessionIds.Add(selectedSessionId);
+
+        return await _context.SessionOccurrences
+            .Where(o => sessionIds.Contains(o.SessionId)
+                && o.WeekStartDate == slot.WeekStartDate
+                && o.DayPositionIndex == slot.DayPositionIndex)
+            .Select(o => o.Id)
+            .ToListAsync();
     }
 
     /// <inheritdoc />
@@ -315,15 +341,41 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    public async Task<AttendanceRecord?> GetExistingAttendanceByStudentAndDateAsync(
-        long teacherStudentId, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds)
+    public async Task<AttendanceRecord?> GetExistingAttendanceOnEquivalentOccurrenceAsync(
+        long teacherStudentId, IEnumerable<long> equivalentOccurrenceIds)
     {
-        var sessionIds = linkedSessionIds.ToList();
+        var occIds = equivalentOccurrenceIds.ToList();
+        if (occIds.Count == 0)
+            return null;
+
+        // Any existing record on an equivalent-slot occurrence blocks a second mark of the same
+        // student across the linked group (one attendance state per logical slot).
         return await _context.AttendanceRecords
             .FirstOrDefaultAsync(r => r.TeacherStudentId == teacherStudentId
-                && r.OccurrenceDate == occurrenceDate.Date
-                && r.SessionId.HasValue
-                && sessionIds.Contains(r.SessionId.Value));
+                && r.SessionOccurrenceId.HasValue
+                && occIds.Contains(r.SessionOccurrenceId.Value));
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, AttendanceRecord>> GetExistingAttendanceOnEquivalentOccurrenceBatchAsync(
+        IEnumerable<long> teacherStudentIds, IEnumerable<long> equivalentOccurrenceIds)
+    {
+        var studentIds = teacherStudentIds.ToList();
+        var occIds = equivalentOccurrenceIds.ToList();
+        if (studentIds.Count == 0 || occIds.Count == 0)
+            return new Dictionary<long, AttendanceRecord>();
+
+        var records = await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId.HasValue
+                && studentIds.Contains(r.TeacherStudentId.Value)
+                && r.SessionOccurrenceId.HasValue
+                && occIds.Contains(r.SessionOccurrenceId.Value))
+            .ToListAsync();
+
+        return records
+            .Where(r => r.TeacherStudentId.HasValue)
+            .GroupBy(r => r.TeacherStudentId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
     }
 
     /// <inheritdoc />
@@ -345,32 +397,6 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    /// Step 2.1: Batch cross-session duplicate check for BulkMarkAttendanceAsync.
-    public async Task<Dictionary<long, AttendanceRecord>> GetExistingAttendanceByStudentsAndDateAsync(
-        IEnumerable<long> teacherStudentIds, DateTime occurrenceDate, IEnumerable<long> linkedSessionIds)
-    {
-        var studentIdList = teacherStudentIds.ToList();
-        var sessionIdList = linkedSessionIds.ToList();
-
-        if (studentIdList.Count == 0 || sessionIdList.Count == 0)
-            return new Dictionary<long, AttendanceRecord>();
-
-        var records = await _context.AttendanceRecords
-            .Where(r => r.TeacherStudentId.HasValue
-                && studentIdList.Contains(r.TeacherStudentId.Value)
-                && r.OccurrenceDate == occurrenceDate.Date
-                && r.SessionId.HasValue
-                && sessionIdList.Contains(r.SessionId.Value))
-            .ToListAsync();
-
-        // Return first match per student (there should be at most one per BR-ATT-002)
-        return records
-            .Where(r => r.TeacherStudentId.HasValue)
-            .GroupBy(r => r.TeacherStudentId!.Value)
-            .ToDictionary(g => g.Key, g => g.First());
-    }
-
-    /// <inheritdoc />
     /// Step 3.1: Find a held record for hold/release flow.
     public async Task<AttendanceRecord?> GetHeldRecordAsync(
         long teacherStudentId, long sessionOccurrenceId)
@@ -387,6 +413,17 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     {
         return await _context.AttendanceRecords
             .Where(r => r.SessionOccurrenceId == sessionOccurrenceId)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AttendanceRecord>> GetRecordsForOccurrenceEditViewAsync(
+        long sessionId, long occurrenceId, DateTime occurrenceDate)
+    {
+        return await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrenceId == occurrenceId
+                || (r.CrossSessionId == sessionId && r.CrossSessionOccurrenceDate == occurrenceDate.Date))
             .AsNoTracking()
             .ToListAsync();
     }
@@ -947,10 +984,12 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             // row would throw on the TeacherStudentId!.Value mapping below).
             .Where(a => a.TeacherStudent != null);
 
-        var occurrenceId = await _context.SessionOccurrences
-            .Where(o => o.SessionId == sessionId && o.OccurrenceDate == occurrenceDate.Date)
-            .Select(o => (long?)o.Id)
-            .FirstOrDefaultAsync();
+        // Equivalence-aware: a linked student's present mark lives on the equivalent-slot occurrence
+        // of THEIR session, not this session's occurrence id. Match each student against the whole
+        // equivalent-slot set (this session + linked sessions sharing the slot) so cross-session
+        // marks surface here. Empty when this session has no occurrence for the date.
+        var equivalentOccurrenceIds =
+            (await GetEquivalentOccurrenceIdsAsync(sessionId, occurrenceDate, linkedIds)).ToList();
 
         var rowQuery = assignmentQuery
             .Select(a => new
@@ -961,15 +1000,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 AssignedSessionId = a.SessionId,
                 AssignedSessionName = a.SessionName,
                 IsFromLinkedSession = a.SessionId != sessionId,
-                // The occurrence guard lives INSIDE the subquery WHERE so the projection member is
-                // always a typed subquery. A C#-side `occurrenceId.HasValue ? subquery : null` puts
-                // an untyped NULL constant in the SQL tree, and EF throws "Expression 'NULL' in the
-                // SQL tree does not have a type mapping assigned" at query-compile time for any
-                // date with no SessionOccurrence row (the root cause of the endpoint's 500s).
+                // Match against the equivalent-slot occurrence set. The guard lives INSIDE the subquery
+                // WHERE as a typed `Contains` over a C# list — an empty list compiles to `IN ()` /
+                // no-match, never an untyped NULL constant in the SQL tree (preserving the BUG-7 fix
+                // for dates with no occurrence). Do NOT hoist to `list.Any() ? subquery : null`.
                 AttendanceRecord = _context.AttendanceRecords
-                    .Where(r => occurrenceId.HasValue
-                        && r.TeacherStudentId == a.TeacherStudentId
-                        && r.SessionOccurrenceId == occurrenceId.Value)
+                    .Where(r => r.TeacherStudentId == a.TeacherStudentId
+                        && r.SessionOccurrenceId.HasValue
+                        && equivalentOccurrenceIds.Contains(r.SessionOccurrenceId.Value))
                     .Select(r => new { r.Status })
                     .FirstOrDefault(),
                 Counter = _context.StudentAbsenceCounters

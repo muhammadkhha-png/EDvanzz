@@ -46,6 +46,42 @@ public class OccurrenceGeneratorService : IOccurrenceGeneratorService
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<(DateTime Date, DateTime WeekStartDate, int DayPositionIndex)> ComputeOccurrenceKeys(Session session)
+    {
+        // Reuse the deterministic ascending date computation — the slot key is a pure function of
+        // each date (+ SelectedDays for the position), so no running counter is needed and a missing
+        // early occurrence never shifts the others.
+        var dates = ComputeOccurrenceDates(session);
+        var result = new List<(DateTime, DateTime, int)>(dates.Count);
+
+        if (session.OccurrenceType == OccurrenceType.Monthly)
+        {
+            // One occurrence per month → bucket by the month, single slot.
+            foreach (var d in dates)
+                result.Add((d, new DateTime(d.Year, d.Month, 1), 1));
+            return result;
+        }
+
+        // Weekly / BiWeekly: slot = (Saturday-anchored calendar week, rank of the weekday within
+        // the session's sorted SelectedDays). appDayIndex uses the app's 0=Sat..6=Fri model.
+        var selectedDays = ParseSelectedDays(session.SelectedDays)
+            .Where(x => x >= 0 && x <= 6)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        foreach (var d in dates)
+        {
+            int appDayIndex = ((int)d.DayOfWeek + 1) % 7;               // Sat=0, Sun=1 … Fri=6
+            DateTime weekStart = d.AddDays(-appDayIndex);               // that week's Saturday
+            int dayPosition = selectedDays.Count(x => x <= appDayIndex); // 1-based rank (date is a selected day)
+            result.Add((d, weekStart, dayPosition == 0 ? 1 : dayPosition));
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc />
     public bool OccursOnDate(Session session, DateTime date)
     {
         // Quick boundary check
