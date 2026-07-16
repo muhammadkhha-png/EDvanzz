@@ -123,6 +123,10 @@ builder.Services.AddSwaggerGen(c =>
     // Covers all endpoints, old and new, with zero maintenance.
     c.OperationFilter<ResponseEnvelopeExampleFilter>();
     c.UseInlineDefinitionsForEnums();
+    // Collision-proof schemaIds: two DTOs sharing a class name across namespaces used
+    // to abort the whole spec generation ("Can't use schemaId ... already used") — see
+    // SwaggerSchemaIds. First type keeps the short name; duplicates get namespace-prefixed.
+    c.CustomSchemaIds(SwaggerSchemaIds.For);
 
     // --- 👇 Add these lines ---
     var basePath = AppContext.BaseDirectory;
