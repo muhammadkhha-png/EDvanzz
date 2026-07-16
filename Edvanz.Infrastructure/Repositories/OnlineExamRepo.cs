@@ -276,7 +276,16 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
             .Where(q => q.OnlineExamId == onlineExamId)
             .ExecuteDeleteAsync();
 
-        await _context.OnlineExamQuestions.AddRangeAsync(newQuestions);
+        // Associate every replacement question with the target exam BEFORE insert.
+        // BuildQuestionEntities leaves OnlineExamId unset, so without this the new
+        // rows insert with OnlineExamId = 0 → FK violation → DbUpdateException →
+        // HTTP 409 "DatabaseConflict" (the add path sets this in the service; the
+        // replace path must set it here since this method owns the exam association).
+        var questions = newQuestions.ToList();
+        foreach (var q in questions)
+            q.OnlineExamId = onlineExamId;
+
+        await _context.OnlineExamQuestions.AddRangeAsync(questions);
     }
     /// <inheritdoc />
     public async Task<Dictionary<long, int>> GetAssignedCountsPerScopeAsync(long onlineExamId, long teacherId)
