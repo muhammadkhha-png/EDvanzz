@@ -668,6 +668,14 @@ public sealed class VideoService : IVideoService
         var responseDto = MapToDetailDto(video);
         responseDto.Attachment = currentAttachment is null ? null : ToAttachmentDto(currentAttachment);
 
+        // Mirror MapVideoBaseAsync — the update response is the edit screen's refresh, so it
+        // carries the current photo's fileId + gated URL too.
+        Domain.Entities.FileObject? currentPhoto = video.VideoPhotoFileId is null
+            ? null
+            : await _unitOfWork.FileObjectsRepo.GetByIdAsync(video.VideoPhotoFileId.Value);
+        responseDto.VideoPhotoFileId = currentPhoto?.PublicId;
+        responseDto.VideoPhotoUrl = currentPhoto is null ? null : _fileAccess.BuildGatedUrl(currentPhoto.PublicId);
+
         return Result<VideoDetailDto>.Success(
             responseDto, _localizer, VideoConstants.Messages.VideoUpdated);
     }
@@ -780,6 +788,12 @@ public sealed class VideoService : IVideoService
         var attachment = (await _unitOfWork.FileObjectsRepo
             .GetVideoAttachmentsAsync(video.Id)).FirstOrDefault();
 
+        // The edit screen needs the current photo's fileId (to resend/keep it) and its
+        // gated URL (to display it) — resolve the registry row to get the PublicId.
+        Domain.Entities.FileObject? photo = video.VideoPhotoFileId is null
+            ? null
+            : await _unitOfWork.FileObjectsRepo.GetByIdAsync(video.VideoPhotoFileId.Value);
+
         return new TDto
         {
             Id = video.Id,
@@ -791,6 +805,8 @@ public sealed class VideoService : IVideoService
             PublishDate = video.PublishDate,
             Status = video.Status,
             RowVersion = video.RowVersion,
+            VideoPhotoFileId = photo?.PublicId,
+            VideoPhotoUrl = photo is null ? null : _fileAccess.BuildGatedUrl(photo.PublicId),
             Attachment = attachment is null ? null : ToAttachmentDto(attachment),
         };
     }

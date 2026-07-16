@@ -121,7 +121,7 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 QuestionType = q.QuestionType,
                 Degree = q.Degree,
                 SortOrder = q.SortOrder,
-                ImageFileId = q.ImageFileId,
+                ImageFileInternalId = q.ImageFileId,
                 Options = q.Options
                     .OrderBy(o => o.SortOrder)
                     .Select(o => new OnlineExamQuestionOptionRow
@@ -151,7 +151,7 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 QuestionType = q.QuestionType,
                 Degree = q.Degree,
                 SortOrder = q.SortOrder,
-                ImageFileId = q.ImageFileId,
+                ImageFileInternalId = q.ImageFileId,
                 Options = q.Options
                     .OrderBy(o => o.SortOrder)
                     .Select(o => new StudentOnlineExamQuestionOptionRow

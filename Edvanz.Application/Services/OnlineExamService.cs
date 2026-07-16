@@ -54,11 +54,24 @@ public class OnlineExamService : IOnlineExamService
         return null;
     }
 
-    /// <summary>Populates <c>ImageUrl</c> on teacher question rows from their <c>ImageFileId</c>.</summary>
+    /// <summary>
+    /// Populates <c>ImageFileId</c> (the PublicId the edit screen resends to keep the image) and
+    /// <c>ImageUrl</c> on teacher question rows from the repo-projected internal id.
+    /// </summary>
     private async Task PopulateImageUrlsAsync(IReadOnlyList<OnlineExamQuestionRow> rows)
     {
         foreach (var row in rows)
-            row.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(row.ImageFileId);
+        {
+            if (row.ImageFileInternalId is null)
+                continue;
+
+            var file = await _unitOfWork.FileObjectsRepo.GetByIdAsync(row.ImageFileInternalId.Value);
+            if (file is null)
+                continue;
+
+            row.ImageFileId = file.PublicId;
+            row.ImageUrl = _fileAccess.BuildGatedUrl(file.PublicId);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════

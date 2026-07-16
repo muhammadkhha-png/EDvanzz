@@ -95,7 +95,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
 
         var questions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForStudentAsync(onlineExamId);
         foreach (var q in questions)
-            q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileId);
+            q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
 
         var dto = new OnlineExamTakeScreenDto
         {

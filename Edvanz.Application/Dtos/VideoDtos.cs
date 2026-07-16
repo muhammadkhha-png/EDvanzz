@@ -227,7 +227,17 @@ public abstract class VideoBaseDto
     /// <summary>Concurrency token to echo back on the next PUT.</summary>
     public byte[] RowVersion { get; set; } = null!;
 
-    /// <summary>Current attachment, or null if none.</summary>
+    /// <summary>
+    /// The current video photo's <c>fileId</c> (FileObject.PublicId), or null if none. This is
+    /// the id the edit screen resends (create/update <c>videoPhotoFileId</c>, or
+    /// <c>PUT /videos/{id}/video-photo</c>) to keep or re-point the photo.
+    /// </summary>
+    public Guid? VideoPhotoFileId { get; set; }
+
+    /// <summary>Stable gated URL of the current video photo, or null.</summary>
+    public string? VideoPhotoUrl { get; set; }
+
+    /// <summary>Current attachment, or null if none. Its <c>Id</c> is the attachment's fileId.</summary>
     public VideoAttachmentDto? Attachment { get; set; }
 }
 

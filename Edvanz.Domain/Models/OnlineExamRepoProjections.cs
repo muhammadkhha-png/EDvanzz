@@ -41,10 +41,18 @@ public sealed class OnlineExamQuestionRow
     public decimal Degree { get; set; }
     public int SortOrder { get; set; }
 
-    /// <summary>Registry image FK (FileObject.Id), or null. Projected by the repo.</summary>
-    public long? ImageFileId { get; set; }
+    /// <summary>Internal registry FK (FileObject.Id), repo-projected. Never serialized.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? ImageFileInternalId { get; set; }
 
-    /// <summary>Gated image URL, populated by the service from <see cref="ImageFileId"/> (not by the repo).</summary>
+    /// <summary>
+    /// The image's <c>fileId</c> (FileObject.PublicId), or null — populated by the service.
+    /// This is what the edit screen resends in <c>imageFileId</c> to KEEP the image on a
+    /// replace-questions call.
+    /// </summary>
+    public Guid? ImageFileId { get; set; }
+
+    /// <summary>Gated image URL, populated by the service (not by the repo).</summary>
     public string? ImageUrl { get; set; }
 
     public List<OnlineExamQuestionOptionRow> Options { get; set; } = new();
@@ -71,10 +79,11 @@ public sealed class StudentOnlineExamQuestionRow
     public decimal Degree { get; set; }
     public int SortOrder { get; set; }
 
-    /// <summary>Registry image FK (FileObject.Id), or null. Projected by the repo.</summary>
-    public long? ImageFileId { get; set; }
+    /// <summary>Internal registry FK (FileObject.Id), repo-projected. Never serialized.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? ImageFileInternalId { get; set; }
 
-    /// <summary>Gated image URL, populated by the service from <see cref="ImageFileId"/> (not by the repo).</summary>
+    /// <summary>Gated image URL, populated by the service (not by the repo). Students only need the URL.</summary>
     public string? ImageUrl { get; set; }
 
     public List<StudentOnlineExamQuestionOptionRow> Options { get; set; } = new();
