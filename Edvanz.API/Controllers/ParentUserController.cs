@@ -1,25 +1,65 @@
-﻿using Edvanz.Application.Dtos.ParentUser;
+using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos.ParentUser;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
 
 /// <summary>
 /// API endpoints for the Parent User module.
-/// 
+///
 /// Handles parent-specific operations: profile management, child management,
 /// and teacher linking for children without Student User accounts.
-/// 
+///
 /// Registration, login, password, and account-level operations live in the User module.
+///
+/// SECURITY — tenant isolation (mirrors <see cref="ParentAttendanceController"/> /
+/// <see cref="ParentPaymentController"/>): the acting parent is ALWAYS resolved from the
+/// JWT (User.Id → active <c>ParentUser</c>) via <see cref="ResolveParentUserIdAsync"/>.
+/// The <c>{parentUserId}</c> route segment is retained for backward-compatible URLs but its
+/// value is IGNORED — sending 0, a wrong id, a mismatched id, or the real id all behave the
+/// same, so a caller can never read or mutate another parent's data (previously every action
+/// trusted the route <c>parentUserId</c> with no authorization → mass horizontal IDOR).
+/// Each <c>childId</c> is scoped to the JWT-resolved parent inside the service
+/// (<c>GetActiveChildAsync(parentUserId, childId)</c>). Role gated to Parent.
 /// </summary>
+[Authorize]
 public class ParentUserController : ApiBaseController
 {
     private readonly IParentUserService _parentUserService;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ParentUserController(IParentUserService parentUserService)
+    public ParentUserController(
+        IParentUserService parentUserService,
+        ICurrentUserService currentUser,
+        IUnitOfWork unitOfWork)
     {
         _parentUserService = parentUserService;
+        _currentUser = currentUser;
+        _unitOfWork = unitOfWork;
     }
+
+    /// <summary>
+    /// Resolves the acting parent's <c>ParentUser.Id</c> from the JWT
+    /// (<c>User.Id</c> → active <c>ParentUser</c>). Returns null when the caller is not an
+    /// active parent — the route <c>{parentUserId}</c> is deliberately never consulted.
+    /// </summary>
+    private async Task<long?> ResolveParentUserIdAsync()
+    {
+        long? userId = _currentUser.UserId;
+        if (userId is null) return null;
+
+        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
+        return parentUser?.Id;
+    }
+
+    private IActionResult ParentNotResolved() =>
+        new ObjectResult(new { success = false, message = "Parent could not be resolved from token." })
+        { StatusCode = StatusCodes.Status404NotFound };
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: INITIALIZE PARENT USER
@@ -28,11 +68,19 @@ public class ParentUserController : ApiBaseController
     // POST /api/parentuser
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> InitializeParentUser([FromBody] CreateParentUserDto dto)
     {
+        // Tenant isolation: the ParentUser is always created for the AUTHENTICATED user.
+        // dto.UserId from the body is ignored (kept for wire compatibility). The registration
+        // flow initializes parents server-side via UserService — this HTTP path is self-init only.
+        long? userId = _currentUser.UserId;
+        if (userId is null) return UserNotResolved();
+        dto.UserId = userId.Value;
+
         var result = await _parentUserService.InitializeParentUserAsync(dto);
         return ToResponse(result);
     }
@@ -42,11 +90,16 @@ public class ParentUserController : ApiBaseController
     // GET /api/parentuser/{parentUserId}
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetParentUserProfile([FromRoute] long parentUserId)
     {
-        var result = await _parentUserService.GetParentUserProfileAsync(parentUserId);
+        // Route parentUserId ignored — identity comes from the JWT.
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.GetParentUserProfileAsync(resolvedParentId.Value);
         return ToResponse(result);
     }
 
@@ -56,6 +109,7 @@ public class ParentUserController : ApiBaseController
     // PUT /api/parentuser/{parentUserId}/profile
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{parentUserId:long}/profile")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -63,7 +117,10 @@ public class ParentUserController : ApiBaseController
         [FromRoute] long parentUserId,
         [FromBody] UpdateParentUserProfileDto dto)
     {
-        var result = await _parentUserService.UpdateParentUserProfileAsync(parentUserId, dto);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.UpdateParentUserProfileAsync(resolvedParentId.Value, dto);
         return ToResponse(result);
     }
 
@@ -73,11 +130,15 @@ public class ParentUserController : ApiBaseController
     // GET /api/parentuser/{parentUserId}/dashboard
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}/dashboard")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDashboard([FromRoute] long parentUserId)
     {
-        var result = await _parentUserService.GetDashboardAsync(parentUserId);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.GetDashboardAsync(resolvedParentId.Value);
         return ToResponse(result);
     }
 
@@ -88,6 +149,7 @@ public class ParentUserController : ApiBaseController
     // POST /api/parentuser/{parentUserId}/children/by-code
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/by-code")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -96,7 +158,10 @@ public class ParentUserController : ApiBaseController
         [FromRoute] long parentUserId,
         [FromBody] AddChildByAccountCodeDto dto)
     {
-        var result = await _parentUserService.AddChildByAccountCodeAsync(parentUserId, dto);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.AddChildByAccountCodeAsync(resolvedParentId.Value, dto);
         return ToResponse(result);
     }
 
@@ -106,6 +171,7 @@ public class ParentUserController : ApiBaseController
     // POST /api/parentuser/{parentUserId}/children/manual
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/manual")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -113,7 +179,10 @@ public class ParentUserController : ApiBaseController
         [FromRoute] long parentUserId,
         [FromBody] AddChildManualDto dto)
     {
-        var result = await _parentUserService.AddChildManualAsync(parentUserId, dto);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.AddChildManualAsync(resolvedParentId.Value, dto);
         return ToResponse(result);
     }
 
@@ -124,6 +193,7 @@ public class ParentUserController : ApiBaseController
     // POST /api/parentuser/{parentUserId}/children/{childId}/teachers
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/{childId:long}/teachers")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -133,7 +203,11 @@ public class ParentUserController : ApiBaseController
         [FromRoute] long childId,
         [FromBody] LinkTeacherToChildDto dto)
     {
-        var result = await _parentUserService.LinkTeacherToChildAsync(parentUserId, childId, dto);
+        // childId is scoped to the resolved parent inside the service.
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.LinkTeacherToChildAsync(resolvedParentId.Value, childId, dto);
         return ToResponse(result);
     }
 
@@ -142,6 +216,7 @@ public class ParentUserController : ApiBaseController
     // DELETE /api/parentuser/{parentUserId}/children/{childId}/teachers/{teacherId}
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{parentUserId:long}/children/{childId:long}/teachers/{teacherId:long}")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -150,7 +225,12 @@ public class ParentUserController : ApiBaseController
         [FromRoute] long childId,
         [FromRoute] long teacherId)
     {
-        var result = await _parentUserService.UnlinkTeacherFromChildAsync(parentUserId, childId, teacherId);
+        // parentUserId is ignored (resolved from JWT); childId is scoped to that parent in
+        // the service; teacherId here selects WHICH linked teacher to unlink from the child.
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.UnlinkTeacherFromChildAsync(resolvedParentId.Value, childId, teacherId);
         return ToResponse(result);
     }
 
@@ -160,13 +240,17 @@ public class ParentUserController : ApiBaseController
     // GET /api/parentuser/{parentUserId}/children/{childId}
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}/children/{childId:long}")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetChild(
         [FromRoute] long parentUserId,
         [FromRoute] long childId)
     {
-        var result = await _parentUserService.GetChildAsync(parentUserId, childId);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.GetChildAsync(resolvedParentId.Value, childId);
         return ToResponse(result);
     }
 
@@ -176,13 +260,17 @@ public class ParentUserController : ApiBaseController
     // DELETE /api/parentuser/{parentUserId}/children/{childId}
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{parentUserId:long}/children/{childId:long}")]
+    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveChild(
         [FromRoute] long parentUserId,
         [FromRoute] long childId)
     {
-        var result = await _parentUserService.RemoveChildAsync(parentUserId, childId);
+        long? resolvedParentId = await ResolveParentUserIdAsync();
+        if (resolvedParentId is null) return ParentNotResolved();
+
+        var result = await _parentUserService.RemoveChildAsync(resolvedParentId.Value, childId);
         return ToResponse(result);
     }
 }
