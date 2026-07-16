@@ -1802,9 +1802,6 @@ public sealed class VideoService : IVideoService
                 PublishDate = request.PublishDate,
             };
 
-            if (request.Status.HasValue)
-                video.Status = request.Status.Value;
-
             // Explicit duration override — same semantics as the update endpoint: stored value
             // wins and student reports can no longer overwrite it.
             if (request.DurationSeconds.HasValue)
@@ -1815,6 +1812,18 @@ public sealed class VideoService : IVideoService
 
             await _unitOfWork.VideoAssetsRepo.AddVideoAsync(video);
             await _unitOfWork.SaveChangesAsync(); // generates video.Id
+
+            // Status CANNOT be set on the INSERT: the column has a DB default (Published) and EF
+            // omits it from the INSERT whenever the CLR value equals the enum default — which is
+            // exactly 'Draft' (model warning 20601). Caught live: create with status=Draft
+            // persisted as Published. Applying it as an UPDATE after the row exists writes the
+            // column unconditionally.
+            if (request.Status.HasValue)
+            {
+                video.Status = request.Status.Value;
+                await _unitOfWork.VideoAssetsRepo.UpdateAsync(video); // full-entity Modified — column written regardless of change-tracker state
+                await _unitOfWork.SaveChangesAsync();
+            }
 
             // Unit links (M:N), created with the video — same validation + replace helper the
             // update endpoint uses. Ownership check → 400 VideoUnitNotFound on a foreign/unknown id.
