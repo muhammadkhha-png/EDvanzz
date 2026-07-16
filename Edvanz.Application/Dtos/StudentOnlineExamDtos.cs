@@ -54,6 +54,10 @@ public sealed class OnlineExamReviewQuestionDto
     public decimal Degree { get; set; }
     /// <summary>Null until Finalized=true.</summary>
     public decimal? AwardedDegree { get; set; }
+
+    /// <summary>Gated question-image URL, or null — same URL the take screen showed.</summary>
+    public string? ImageUrl { get; set; }
+
     public List<OnlineExamReviewOptionDto> Options { get; set; } = new();
 }
 

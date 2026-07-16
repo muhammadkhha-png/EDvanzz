@@ -483,15 +483,15 @@ public class OnlineExamService : IOnlineExamService
         return Result<bool>.Success(true, _localizer, OnlineExamConstants.Messages.Updated);
     }
 
-    public async Task<Result<bool>> UpdateStatusAsync(
+    public async Task<Result<OnlineExamStatusUpdatedDto>> UpdateStatusAsync(
      long teacherId, long onlineExamId, UpdateOnlineExamStatusRequest request)
     {
         var exam = await _unitOfWork.OnlineExamsRepo.GetByIdAndTeacherAsync(onlineExamId, teacherId);
         if (exam is null)
-            return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+            return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
 
         if (!exam.RowVersion.SequenceEqual(request.RowVersion))
-            return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
+            return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
 
         // Both sides of this tuple are OnlineExamStatus — exam.Status (entity) and
         // request.Status (UpdateOnlineExamStatusRequest.Status, OnlineExamStatus).
@@ -505,13 +505,13 @@ public class OnlineExamService : IOnlineExamService
             _ => false,
         };
         if (!validTransition)
-            return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.InvalidStatusTransition, HttpStatusCode.BadRequest);
+            return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.InvalidStatusTransition, HttpStatusCode.BadRequest);
 
         // §2 — Published → Draft only when nobody has submitted yet. Same "Solved" guard as T8.
         if (exam.Status == OnlineExamStatus.Published && request.Status == OnlineExamStatus.Draft
             && await _unitOfWork.StudentOnlineExamReportsRepo.HasAnySubmittedReportAsync(onlineExamId))
         {
-            return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.UnpublishBlockedBySubmissions, HttpStatusCode.Conflict);
+            return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.UnpublishBlockedBySubmissions, HttpStatusCode.Conflict);
         }
 
         if (request.Status == OnlineExamStatus.Published)
@@ -521,7 +521,7 @@ public class OnlineExamService : IOnlineExamService
             decimal totalDegree = await _unitOfWork.OnlineExamsRepo.GetTotalDegreeAsync(onlineExamId);
 
             if (questionCount == 0 || scopeCount == 0 || totalDegree <= 0)
-                return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.PublishRequiresQuestionAndScope, HttpStatusCode.BadRequest);
+                return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.PublishRequiresQuestionAndScope, HttpStatusCode.BadRequest);
         }
 
         exam.Status = request.Status;
@@ -534,7 +534,7 @@ public class OnlineExamService : IOnlineExamService
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
         {
-            return Result<bool>.Failure(_localizer, OnlineExamConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
+            return Result<OnlineExamStatusUpdatedDto>.Failure(_localizer, OnlineExamConstants.Messages.ConcurrencyConflict, HttpStatusCode.Conflict);
         }
 
         // No cast — request.Status is already OnlineExamStatus, matches the switch arms directly.
@@ -544,7 +544,13 @@ public class OnlineExamService : IOnlineExamService
             OnlineExamStatus.Closed => OnlineExamConstants.Messages.Closed,
             _ => OnlineExamConstants.Messages.Updated,
         };
-        return Result<bool>.Success(true, _localizer, key);
+
+        // EF refreshes RowVersion on the tracked entity after SaveChanges — return it so the
+        // client can chain the NEXT status change without a re-GET (fixes the 409 the frontend
+        // hit when publishing then unpublishing with the stale create-time RowVersion).
+        return Result<OnlineExamStatusUpdatedDto>.Success(
+            new OnlineExamStatusUpdatedDto { Status = exam.Status, RowVersion = exam.RowVersion },
+            _localizer, key);
     }
 
     // ══════════════════════════════════════════════════════════════════════

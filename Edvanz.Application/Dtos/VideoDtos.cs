@@ -97,6 +97,9 @@ public sealed class CreateVideoResponse
 {
     public long VideoAssetId { get; set; }
 
+    /// <summary>The attached video photo's fileId (echoed for symmetry with the read endpoints), or null.</summary>
+    public Guid? VideoPhotoFileId { get; set; }
+
     /// <summary>Stable gated read URL for the uploaded video photo, or null if none was provided.</summary>
     public string? VideoPhotoReadUrl { get; set; }
 
@@ -407,12 +410,12 @@ public sealed class ReplaceVideoPhotoRequest
     public Guid VideoPhotoFileId { get; set; }
 }
 
-/// <summary>
-/// Response for <c>PUT /api/videos/{id}/video-photo</c>. A video has at most one
-/// video photo, so no <c>Id</c> is needed — just the stable gated read URL.
-/// </summary>
+/// <summary>Response for <c>PUT /api/videos/{id}/video-photo</c> — the photo's fileId + gated URL.</summary>
 public sealed class VideoPhotoDto
 {
+    /// <summary>The current photo's fileId (FileObject.PublicId) — resend it to keep the photo.</summary>
+    public Guid VideoPhotoFileId { get; set; }
+
     public string ReadUrl { get; set; } = null!;
 }
 

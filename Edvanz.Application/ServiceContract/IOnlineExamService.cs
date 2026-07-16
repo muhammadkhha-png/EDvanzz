@@ -16,7 +16,7 @@ public interface IOnlineExamService
     Task<Result<bool>> AddQuestionAsync(long teacherId, long onlineExamId, CreateOnlineExamQuestionDto request);
     Task<Result<bool>> AddQuestionsBulkAsync(long teacherId, long onlineExamId, List<CreateOnlineExamQuestionDto> request);
     Task<Result<bool>> ReplaceQuestionsAsync(long teacherId, long onlineExamId, ReplaceOnlineExamQuestionsRequest request);
-    Task<Result<bool>> UpdateStatusAsync(long teacherId, long onlineExamId, UpdateOnlineExamStatusRequest request);
+    Task<Result<OnlineExamStatusUpdatedDto>> UpdateStatusAsync(long teacherId, long onlineExamId, UpdateOnlineExamStatusRequest request);
     Task<Result<bool>> DeleteAsync(long teacherId, long onlineExamId);
     Task<Result<OnlineExamStatsDto>> UpdateStudentStatusAsync(
     long teacherId, long onlineExamId, long teacherStudentId, UpdateOnlineExamStudentStatusRequest request);

@@ -1598,7 +1598,7 @@ public sealed class VideoService : IVideoService
         var currentPublicId = await CurrentPublicIdAsync(video.VideoPhotoFileId);
         if (currentPublicId == videoPhotoFileId)
             return Result<VideoPhotoDto>.Success(
-                new VideoPhotoDto { ReadUrl = _fileAccess.BuildGatedUrl(videoPhotoFileId) },
+                new VideoPhotoDto { VideoPhotoFileId = videoPhotoFileId, ReadUrl = _fileAccess.BuildGatedUrl(videoPhotoFileId) },
                 _localizer, VideoConstants.Messages.VideoPhotoReplaced, HttpStatusCode.OK);
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
@@ -1623,7 +1623,7 @@ public sealed class VideoService : IVideoService
                 await _unitOfWork.CommitAsync();
 
             return Result<VideoPhotoDto>.Success(
-                new VideoPhotoDto { ReadUrl = _fileAccess.BuildGatedUrl(attach.Data.PublicId) },
+                new VideoPhotoDto { VideoPhotoFileId = attach.Data.PublicId, ReadUrl = _fileAccess.BuildGatedUrl(attach.Data.PublicId) },
                 _localizer, VideoConstants.Messages.VideoPhotoReplaced, HttpStatusCode.OK);
         }
         catch
@@ -1864,6 +1864,7 @@ public sealed class VideoService : IVideoService
                    new CreateVideoResponse
                    {
                        VideoAssetId = video.Id,
+                       VideoPhotoFileId = videoPhotoPublicId,
                        VideoPhotoReadUrl = videoPhotoPublicId is null ? null : _fileAccess.BuildGatedUrl(videoPhotoPublicId.Value),
                        Attachment = attachmentDto,
                        ScopesAdded = scopesAdded,

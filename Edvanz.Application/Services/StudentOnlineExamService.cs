@@ -158,6 +158,8 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         if (finalized)
         {
             var teacherRows = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
+            foreach (var q in teacherRows)
+                q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
             dto.Questions = teacherRows.Select(q =>
             {
                 answersByQuestion.TryGetValue(q.Id, out var answer);
@@ -170,6 +172,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
                     QuestionType = q.QuestionType,
                     Degree = q.Degree,
                     AwardedDegree = answer?.AwardedDegree,
+                    ImageUrl = q.ImageUrl,
                     Options = q.Options.Select(o => new OnlineExamReviewOptionDto
                     {
                         OptionId = o.Id,
@@ -183,6 +186,8 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         else
         {
             var studentRows = await _unitOfWork.OnlineExamsRepo.GetQuestionsForStudentAsync(onlineExamId);
+            foreach (var q in studentRows)
+                q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
             dto.Questions = studentRows.Select(q =>
             {
                 answersByQuestion.TryGetValue(q.Id, out var answer);
@@ -195,6 +200,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
                     QuestionType = q.QuestionType,
                     Degree = q.Degree,
                     AwardedDegree = null,
+                    ImageUrl = q.ImageUrl,
                     Options = q.Options.Select(o => new OnlineExamReviewOptionDto
                     {
                         OptionId = o.Id,

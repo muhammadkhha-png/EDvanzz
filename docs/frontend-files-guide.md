@@ -382,7 +382,22 @@ The exam is created as Draft, students see nothing until you publish it.
 
 `rowVersion` comes from the create response or from `GET /online-exams/{id}`.
 
-**Response (200):** `{ "success": true, "code": "OnlineExam.Published", ... }`
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "code": "OnlineExam.Published",
+  "data": { "status": "Published", "rowVersion": "AAAAAAAAF6Q=" }
+}
+```
+
+IMPORTANT - the rowVersion rule: every successful status change gives the exam a NEW
+rowVersion, and the response returns it in `data.rowVersion`. For the NEXT status change
+(for example Published back to Draft) you must send this new value, not the old one. Sending
+an old rowVersion is what produces the 409 "changed by someone else - please refresh" error.
+So: keep always the rowVersion from the LAST response (or from a fresh GET), never reuse an
+old one.
 
 ### Step 4 - The student opens the exam list
 

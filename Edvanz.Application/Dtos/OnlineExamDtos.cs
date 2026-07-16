@@ -76,6 +76,17 @@ public sealed class UpdateOnlineExamStatusRequest
     public byte[] RowVersion { get; set; } = null!;
 }
 
+/// <summary>
+/// T11 response. Every successful status change gives the exam row a NEW RowVersion — the
+/// client must use THIS one on its next status call (sending the previous value is what
+/// produces the 409 ConcurrencyConflict "changed by someone else").
+/// </summary>
+public sealed class OnlineExamStatusUpdatedDto
+{
+    public OnlineExamStatus Status { get; set; }
+    public byte[] RowVersion { get; set; } = null!;
+}
+
 /// <summary>T9 edit-screen DTO (== create shape) + T1 create response.</summary>
 public sealed class OnlineExamDetailDto
 {
