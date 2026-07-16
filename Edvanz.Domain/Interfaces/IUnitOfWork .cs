@@ -118,6 +118,18 @@ namespace Edvanz.Domain.Interfaces
         ISubscriptionAlertRepo SubscriptionAlertsRepo { get; }
 
         /// <summary>
+        /// Teacher-initiated capacity-increase requests (Pending → Approved/Rejected/Cancelled).
+        /// Raising Teacher.StudentCapacity is admin-approved because capacity drives the
+        /// per-student subscription price.
+        /// </summary>
+        ICapacityIncreaseRequestRepo CapacityRequestsRepo { get; }
+
+        /// <summary>
+        /// Single-row per-student pricing settings (renewal price = capacity × rate).
+        /// </summary>
+        ISubscriptionPricingRepo SubscriptionPricingRepo { get; }
+
+        /// <summary>
         /// In-app push-notification inbox per user (bell-icon feed).
         /// </summary>
         IUserNotificationRepo UserNotificationsRepo { get; }

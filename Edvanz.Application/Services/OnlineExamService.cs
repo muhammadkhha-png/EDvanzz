@@ -18,16 +18,19 @@ public class OnlineExamService : IOnlineExamService
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IOnlineExamGradingService _grading;
     private readonly IFileAccessService _fileAccess;
+    private readonly ISubscriptionGateService _subscriptionGate;
 
     public OnlineExamService(
         IUnitOfWork unitOfWork, IOnlineExamScopeResolver scopeResolver, IStringLocalizer<Messages> localizer,
-        IOnlineExamGradingService grading, IFileAccessService fileAccess)
+        IOnlineExamGradingService grading, IFileAccessService fileAccess,
+        ISubscriptionGateService subscriptionGate)
     {
         _unitOfWork = unitOfWork;
         _scopeResolver = scopeResolver;
         _localizer = localizer;
         _grading = grading;
         _fileAccess = fileAccess;
+        _subscriptionGate = subscriptionGate;
     }
 
     /// <summary>
@@ -80,6 +83,14 @@ public class OnlineExamService : IOnlineExamService
     public async Task<Result<OnlineExamDetailDto>> CreateAsync(
         long teacherId, long actingUserId, CreateOnlineExamRequest request)
     {
+        // ── 0. Free-tier quota: online exams (ModuleQuota table; subscribed teachers bypass) ──
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, ModuleQuotaKeys.OnlineExams,
+                () => _unitOfWork.OnlineExamsRepo.CountByTeacherAsync(teacherId)))
+            return Result<OnlineExamDetailDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequired,
+                HttpStatusCode.Forbidden);
+
         var validation = await ValidateCreateOrUpdateAsync(
             teacherId, request.Title, request.StartDateTime,
             request.EndDateTime, request.PassPercentage, request.Scopes);

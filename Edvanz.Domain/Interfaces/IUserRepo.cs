@@ -641,16 +641,9 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task<TeacherReminderProjection?> GetTeacherForReminderAsync(long teacherId);
 
-        // ══════════════════════════════════════════════
-        // STUDENT CAPACITY PACKAGE PRICING (v1.2)
-        // ══════════════════════════════════════════════
+        // (UpdateCapacityPackagePriceAsync was removed 2026-07-17 with the retired
+        // per-package price endpoint — renewal pricing is per-student now.)
 
-        /// <summary>
-        /// Persists a price change for a StudentCapacityPackage (super admin only).
-        /// Updates MonthlyPriceEGP, PriceUpdatedAt, and PriceUpdatedByUserId on the row.
-        /// SaveChanges is NOT called here — the caller owns the transaction.
-        /// </summary>
-        Task UpdateCapacityPackagePriceAsync(StudentCapacityPackage package);
         /// <summary>
         /// Finds an active (non-deleted) student user by their underlying User.Id.
         ///

@@ -178,7 +178,9 @@ namespace Edvanz.Application.Services
                             CreatedByUserId = currentUserService.UserId,
                             LanguagePreference = user.languagePreference,
                             CustomSubject = user.customSubject,
-                            StudentCapacity = user.studentCapacity ?? 50,
+                            // 500 aligns the entity default, CreateTeacherDto default, and
+                            // REQ-STU-002 (this path used to say 50 — the lone outlier).
+                            StudentCapacity = user.studentCapacity ?? 500,
                             SubjectIds = user.subjectIds ?? new List<long>()
                         };
 

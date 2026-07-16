@@ -33,10 +33,18 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
-    public async Task<int> CountTemplatesByTeacherAsync(long teacherId)
+    public async Task<int> CountExamTemplatesByTeacherAsync(long teacherId)
     {
         // AssignmentTemplate is hard-delete (no IsDeleted), so live rows == the real count.
-        return await _context.AssignmentTemplates.CountAsync(t => t.TeacherId == teacherId);
+        return await _context.AssignmentTemplates
+            .CountAsync(t => t.TeacherId == teacherId && t.AssignmentType == AssignmentType.Exam);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountHomeworkTemplatesByTeacherAsync(long teacherId)
+    {
+        return await _context.AssignmentTemplates
+            .CountAsync(t => t.TeacherId == teacherId && t.AssignmentType == AssignmentType.Homework);
     }
 
     // ══════════════════════════════════════════════

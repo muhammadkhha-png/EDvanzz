@@ -26,4 +26,22 @@ public class ModuleQuotaRepo : IModuleQuotaRepo
             .AsNoTracking()
             .ToDictionaryAsync(q => q.ModuleKey, q => q.FreeTierLimit);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ModuleQuota>> GetAllAsync()
+    {
+        return await _context.Set<ModuleQuota>()
+            .AsNoTracking()
+            .OrderBy(q => q.ModuleKey)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<ModuleQuota?> GetByKeyAsync(string moduleKey)
+    {
+        // Tracked: the admin update path mutates FreeTierLimit/audit columns and lets
+        // UnitOfWork save. Served by UX_ModuleQuotas_ModuleKey.
+        return await _context.Set<ModuleQuota>()
+            .FirstOrDefaultAsync(q => q.ModuleKey == moduleKey);
+    }
 }

@@ -45,7 +45,6 @@ namespace Edvanz.Application.Services;
 public class SubscriptionService : ISubscriptionService
 {
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IPaymentGateway _paymentGateway;
     private readonly ISubscriptionCacheService _cache;
     private readonly IEncryptionService _encryption;
     private readonly IBackgroundJobClient _backgroundJobs;
@@ -55,7 +54,6 @@ public class SubscriptionService : ISubscriptionService
 
     public SubscriptionService(
         IUnitOfWork unitOfWork,
-        IPaymentGateway paymentGateway,
         ISubscriptionCacheService cache,
         IEncryptionService encryption,
         IBackgroundJobClient backgroundJobs,
@@ -64,7 +62,6 @@ public class SubscriptionService : ISubscriptionService
         ILogger<SubscriptionService> logger)
     {
         _unitOfWork = unitOfWork;
-        _paymentGateway = paymentGateway;
         _cache = cache;
         _encryption = encryption;
         _backgroundJobs = backgroundJobs;
@@ -89,9 +86,9 @@ public class SubscriptionService : ISubscriptionService
                 _localizer, SubscriptionConstants.Messages.NoActiveSubscription, HttpStatusCode.NotFound);
         }
 
-        // Load the renewal price separately — it lives on StudentCapacityPackage,
-        // not on the subscription row (BR-SUB-009).
-        decimal renewalAmount = await ResolveCurrentPackagePriceAsync(projection.StudentCapacityPackageId);
+        // Load the renewal price separately — it is Teacher.StudentCapacity × the
+        // per-student rate, not stored on the subscription row (BR-SUB-009).
+        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId);
 
         // SubscriptionStatusCalculator.Derive expects a TeacherSubscription instance.
         // Build a transient one from the projection's two dates — IsCurrent = true so
@@ -181,7 +178,10 @@ public class SubscriptionService : ISubscriptionService
                 HttpStatusCode.Conflict);
         }
 
-        // ── Resolve the price from the teacher's package (BR-SUB-009) ──
+        // ── Resolve the price: StudentCapacity × per-student rate (BR-SUB-009) ──
+        // "1 student = 2.5 EGP/month" — the configured capacity limit determines what
+        // the teacher pays. Snapshotted onto the pending row below, so later rate or
+        // capacity changes never alter an in-flight payment.
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
         {
@@ -189,22 +189,23 @@ public class SubscriptionService : ISubscriptionService
                 _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
         }
 
-        if (teacher.StudentCapacityPackageId is null)
+        decimal? ratePerStudent = await _unitOfWork.SubscriptionPricingRepo.GetPricePerStudentAsync();
+        if (ratePerStudent is null || ratePerStudent.Value <= 0m)
         {
             return Result<RenewInitiateResponse>.Failure(
-                _localizer, SubscriptionConstants.Messages.CapacityPackageNotAssigned);
+                _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured);
         }
 
-        var package = await _unitOfWork.GetRepository<StudentCapacityPackage, long>()
-            .GetByIdAsync(teacher.StudentCapacityPackageId.Value);
-
-        if (package is null || package.MonthlyPriceEGP <= 0m)
+        // Guard the decimal(10,2) money columns: capacity must be a sane positive number.
+        // Legacy int.MaxValue "unlimited" capacities were concretized by migration, but
+        // fail closed here rather than overflow if an out-of-range value ever reappears.
+        if (teacher.StudentCapacity <= 0 || teacher.StudentCapacity > SubscriptionConstants.MaxStudentCapacity)
         {
             return Result<RenewInitiateResponse>.Failure(
-                _localizer, SubscriptionConstants.Messages.CapacityPackagePriceNotSet);
+                _localizer, SubscriptionConstants.Messages.StudentCapacityNotConfigured);
         }
 
-        decimal amountEGP = package.MonthlyPriceEGP;
+        decimal amountEGP = teacher.StudentCapacity * ratePerStudent.Value;
 
         // ── Persist a fresh pending row in Status = Initiated ──
         var pending = new PendingSubscriptionPayment
@@ -221,40 +222,12 @@ public class SubscriptionService : ISubscriptionService
         await _unitOfWork.SubscriptionPaymentsRepo.AddAsync(pending);
         await _unitOfWork.SaveChangesAsync();
 
-        // ── Decide between Paymob and manual flows ──
-        // D-04: when Paymob is stubbed off (PaymobOptions.Enabled = false),
-        // CreateSessionAsync returns Success = false and we fall through to manual.
-        if (request.PaymentChannel == PaymentChannel.Paymob)
-        {
-            var session = await _paymentGateway.CreateSessionAsync(
-                pending.Id, amountEGP, BuildGatewayDescription(teacher));
-
-            if (session.Success)
-            {
-                pending.PaymobSessionId = session.SessionId;
-                _unitOfWork.SubscriptionPaymentsRepo.UpdatePending(pending);
-                await _unitOfWork.SaveChangesAsync();
-
-                var paymobPayload = new PaymobInitiatePayload
-                {
-                    PendingPaymentId = pending.Id,
-                    IframeUrl = session.IframeUrl!,
-                    SessionId = session.SessionId!
-                };
-
-                return Result<RenewInitiateResponse>.Success(
-                    new RenewInitiateResponse { Mode = "paymob", Paymob = paymobPayload },
-                    _localizer,
-                    SubscriptionConstants.Messages.SubscriptionRenewalInitiated);
-            }
-
-            // Paymob failure / stub mode — fall through to manual flow below.
-            _logger.LogInformation(
-                "Paymob unavailable (code {Code}) — falling back to manual for pending {PendingId}",
-                session.ErrorCode, pending.Id);
-        }
-
-        // ── Manual flow ──
+        // ── Manual flow (the only channel) ──
+        // The Paymob gateway path was removed 2026-07-17: it was disabled in every
+        // environment (stub always failed → fell through to manual), so every channel —
+        // including a request that still says Paymob — returns the manual payload,
+        // exactly as before. RenewInitiateResponse keeps its Mode/Paymob/Manual shape
+        // for wire-compat; Mode is always "manual" now.
         var manualPayload = BuildManualPayload(pending.Id, amountEGP, request.PaymentMethod);
 
         return Result<RenewInitiateResponse>.Success(
@@ -336,6 +309,147 @@ public class SubscriptionService : ISubscriptionService
 
         return Result<RenewStatusDto>.Success(ToRenewStatusDto(pending), _localizer);
     }
+
+    // ════════════════════════════════════════════════
+    // CAPACITY-INCREASE REQUESTS (teacher side)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<CapacityRequestDto>> SubmitCapacityRequestAsync(
+        long teacherId, long actingUserId, CreateCapacityRequestRequest request)
+    {
+        // ── Validation ──
+        if (request.RequestedCapacity <= 0
+            || request.RequestedCapacity > SubscriptionConstants.MaxStudentCapacity)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedCapacityTooLarge);
+        }
+
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+        }
+
+        // Increase-only: decreases stay an admin-side operation.
+        if (request.RequestedCapacity <= teacher.StudentCapacity)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedCapacityMustExceedCurrent);
+        }
+
+        if (await _unitOfWork.CapacityRequestsRepo.HasPendingRequestAsync(teacherId))
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestAlreadyPending,
+                HttpStatusCode.Conflict);
+        }
+
+        string? note = string.IsNullOrWhiteSpace(request.Note)
+            ? null
+            : request.Note.Trim();
+        if (note is { Length: > 500 })
+            note = note[..500];
+
+        var row = new CapacityIncreaseRequest
+        {
+            TeacherId = teacherId,
+            CapacityAtRequest = teacher.StudentCapacity,
+            RequestedCapacity = request.RequestedCapacity,
+            Note = note,
+            Status = CapacityRequestStatus.Pending,
+            RequestedAt = DateTime.UtcNow,
+            RequestedByUserId = actingUserId,
+            CreateAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.CapacityRequestsRepo.AddAsync(row);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // Race-loss on UX_CapacityIncreaseRequests_Teacher_Pending — a concurrent
+            // submit won. Same outcome as the pre-check above.
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestAlreadyPending,
+                HttpStatusCode.Conflict);
+        }
+
+        return Result<CapacityRequestDto>.Success(
+            ToCapacityRequestDto(row),
+            _localizer,
+            SubscriptionConstants.Messages.CapacityRequestSubmitted);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<CapacityRequestDto>>>> GetCapacityRequestsPagedAsync(
+        long teacherId, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (items, totalCount) = await _unitOfWork.CapacityRequestsRepo
+            .GetByTeacherPagedAsync(teacherId, page, pageSize);
+
+        var paged = new PaginatedResponse<List<CapacityRequestDto>>
+        {
+            data = items.Select(ToCapacityRequestDto).ToList(),
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount
+        };
+
+        return Result<PaginatedResponse<List<CapacityRequestDto>>>.Success(paged, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<CapacityRequestDto>> CancelCapacityRequestAsync(
+        long teacherId, long actingUserId, long requestId)
+    {
+        var row = await _unitOfWork.CapacityRequestsRepo
+            .GetByIdAndTeacherAsync(requestId, teacherId);
+
+        if (row is null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotFound, HttpStatusCode.NotFound);
+        }
+
+        if (row.Status != CapacityRequestStatus.Pending)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotPending,
+                HttpStatusCode.Conflict);
+        }
+
+        row.Status = CapacityRequestStatus.Cancelled;
+        row.ResolvedAt = DateTime.UtcNow;
+        row.ResolvedByUserId = actingUserId;
+        _unitOfWork.CapacityRequestsRepo.UpdateRequest(row);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<CapacityRequestDto>.Success(
+            ToCapacityRequestDto(row),
+            _localizer,
+            SubscriptionConstants.Messages.CapacityRequestCancelled);
+    }
+
+    private static CapacityRequestDto ToCapacityRequestDto(CapacityIncreaseRequest row) => new()
+    {
+        Id = row.Id,
+        RequestedCapacity = row.RequestedCapacity,
+        CapacityAtRequest = row.CapacityAtRequest,
+        Status = row.Status,
+        Note = row.Note,
+        RejectionReason = row.RejectionReason,
+        RequestedAt = row.RequestedAt,
+        ResolvedAt = row.ResolvedAt
+    };
 
     // ════════════════════════════════════════════════
     // CRITICAL: CONFIRM PAYMENT (§6.3 / §6.6)
@@ -515,14 +629,24 @@ public class SubscriptionService : ISubscriptionService
             : paymentConfirmedAt;
     }
 
-    private async Task<decimal> ResolveCurrentPackagePriceAsync(long? packageId)
+    /// <summary>
+    /// Read-time renewal price for display (GET current): StudentCapacity × per-student
+    /// rate. Returns 0 when unpriceable (teacher missing, capacity out of bounds, or the
+    /// rate not configured) — same "0 when unpriceable" semantics the package-price
+    /// resolver had, so the CurrentSubscriptionDto wire contract is unchanged.
+    /// </summary>
+    private async Task<decimal> ComputeRenewalPriceAsync(long teacherId)
     {
-        if (packageId is null) return 0m;
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null) return 0m;
 
-        var package = await _unitOfWork.GetRepository<StudentCapacityPackage, long>()
-            .GetByIdAsync(packageId.Value);
+        if (teacher.StudentCapacity <= 0 || teacher.StudentCapacity > SubscriptionConstants.MaxStudentCapacity)
+            return 0m;
 
-        return package?.MonthlyPriceEGP ?? 0m;
+        decimal? ratePerStudent = await _unitOfWork.SubscriptionPricingRepo.GetPricePerStudentAsync();
+        if (ratePerStudent is null || ratePerStudent.Value <= 0m) return 0m;
+
+        return teacher.StudentCapacity * ratePerStudent.Value;
     }
 
     private static RenewStatusDto ToRenewStatusDto(PendingSubscriptionPayment pending) => new()
@@ -588,9 +712,6 @@ public class SubscriptionService : ISubscriptionService
             AmountEGP = amountEGP
         };
     }
-
-    private static string BuildGatewayDescription(Teacher teacher) =>
-        $"Edvanz subscription renewal — teacher {teacher.TeacherCode}";
 
     /// <summary>
     /// Detects SQL Server unique-key violation (errors 2601/2627) inside DbUpdateException.

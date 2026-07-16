@@ -205,33 +205,135 @@ public class AdminSubscriptionController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ENDPOINT 7: UPDATE PACKAGE PRICE (REQ-ADM-016 / BR-SUB-009)
+    // ENDPOINT 7: CAPACITY-INCREASE REQUEST QUEUE
     // ══════════════════════════════════════════════════════════════════════════
     //
     // WHAT IT DOES:
-    //   Updates a StudentCapacityPackage's MonthlyPriceEGP. Records who/when.
-    //   In-flight pending payments retain their initiation-time price snapshot.
+    //   Paginated FIFO queue of Pending capacity-increase requests, enriched with
+    //   the teacher's live capacity, active student count, and the projected
+    //   renewal price at the requested capacity.
     //
-    // TABLES WRITTEN: StudentCapacityPackages
+    // TABLES READ: CapacityIncreaseRequests, Teachers, Users, TeacherStudents,
+    //              SubscriptionPricingSettings
     //
-    // SAMPLE: PUT /api/admin/subscriptions/packages/3/price
-    //   { "newMonthlyPriceEGP": 250.00 }
+    // SAMPLE: GET /api/admin/subscriptions/capacity-requests?page=1&pageSize=20
     //
     // ══════════════════════════════════════════════════════════════════════════
-    [HttpPut("packages/{packageId:long}/price")]
+    [HttpGet("capacity-requests")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UpdatePackagePrice(
-        [FromRoute] long packageId,
-        [FromBody] UpdatePackagePriceRequest request)
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.AdminCapacityRequestQueueItemDto>>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCapacityRequestQueue(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         long? adminUserId = _currentUser.UserId;
         if (adminUserId is null) return AdminNotResolved();
 
-        var result = await _adminService.UpdatePackagePriceAsync(
-            adminUserId.Value, packageId, request.NewMonthlyPriceEGP);
+        var result = await _adminService.GetCapacityRequestQueueAsync(page, pageSize);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 8: APPROVE CAPACITY REQUEST
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Raises Teacher.StudentCapacity to the requested value immediately (never
+    //   decreases) and flips the request to Approved in one transaction, then
+    //   notifies the teacher. The new price applies from the NEXT renewal
+    //   (initiation reads live capacity — BR-SUB-009).
+    //
+    // TABLES WRITTEN: Teachers (StudentCapacity), CapacityIncreaseRequests
+    //
+    // SAMPLE: POST /api/admin/subscriptions/capacity-requests/42/approve
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("capacity-requests/{requestId:long}/approve")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApproveCapacityRequest([FromRoute] long requestId)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.ApproveCapacityRequestAsync(adminUserId.Value, requestId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 9: REJECT CAPACITY REQUEST
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Rejects a Pending capacity request with a required reason (max 500 chars)
+    //   and notifies the teacher with that reason.
+    //
+    // TABLES WRITTEN: CapacityIncreaseRequests
+    //
+    // SAMPLE: POST /api/admin/subscriptions/capacity-requests/42/reject
+    //   { "rejectionReason": "Please contact support to discuss your plan first" }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("capacity-requests/{requestId:long}/reject")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectCapacityRequest(
+        [FromRoute] long requestId,
+        [FromBody] RejectCapacityRequestRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.RejectCapacityRequestAsync(
+            adminUserId.Value, requestId, request.RejectionReason);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 10: GET / UPDATE PER-STUDENT PRICING
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Reads / sets the per-student monthly rate that drives renewal pricing
+    //   (Teacher.StudentCapacity × rate — "1 student = 2.5 EGP/month").
+    //   BR-SUB-009: in-flight pending payments keep their initiation-time snapshot.
+    //   Replaces the retired per-package price endpoint.
+    //
+    // TABLES: SubscriptionPricingSettings (single row)
+    //
+    // SAMPLE: PUT /api/admin/subscriptions/pricing
+    //   { "pricePerStudentEGP": 2.50 }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("pricing")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionPricingDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPricing()
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.GetPricingAsync();
+        return ToResponse(result);
+    }
+
+    [HttpPut("pricing")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionPricingDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdatePricing([FromBody] UpdateSubscriptionPricingRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.UpdatePricingAsync(
+            adminUserId.Value, request.PricePerStudentEGP);
         return ToResponse(result);
     }
 

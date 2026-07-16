@@ -26,6 +26,13 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
     }
 
     /// <inheritdoc />
+    public async Task<int> CountByTeacherAsync(long teacherId)
+    {
+        // OnlineExam is hard-delete, so live rows == the real count (free-tier quota input).
+        return await _context.OnlineExams.CountAsync(e => e.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
     public async Task AddQuestionsRangeAsync(IEnumerable<OnlineExamQuestion> questions)
     {
         await _context.OnlineExamQuestions.AddRangeAsync(questions);

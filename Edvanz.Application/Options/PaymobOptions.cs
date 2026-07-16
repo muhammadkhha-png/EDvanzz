@@ -1,44 +1,8 @@
 ﻿namespace Edvanz.Application.Options;
 
-/// <summary>
-/// Paymob payment-gateway configuration. Bound from appsettings.json section "Paymob".
-/// FR-SUB-034 / D-04: when Enabled = false (v1 default), the stub gateway is registered
-/// and the renewal flow falls back to manual mode.
-/// </summary>
-public class PaymobOptions
-{
-    public const string Section = "Paymob";
-
-    /// <summary>
-    /// Master switch for the Paymob integration. False in v1 until credentials are provisioned.
-    /// </summary>
-    public bool Enabled { get; set; } = false;
-
-    /// <summary>
-    /// Paymob API key. Stored in user-secrets / Azure Key Vault — never in source control.
-    /// </summary>
-    public string ApiKey { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Paymob integration id for the iframe.
-    /// </summary>
-    public string IntegrationId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Paymob iframe id (the hosted-checkout template).
-    /// </summary>
-    public string IframeId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// HMAC secret used to verify webhook signatures (REQ-SUB-NFR-008).
-    /// </summary>
-    public string WebhookHmacSecret { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Public base URL Paymob redirects to after iframe completion.
-    /// </summary>
-    public string ReturnUrl { get; set; } = string.Empty;
-}
+// The PaymobOptions class (and the whole Paymob gateway/webhook path) was removed
+// 2026-07-17: it was disabled in every environment and the renewal flow is manual-only.
+// PaymentChannel.Paymob remains as an enum value for historical rows.
 
 /// <summary>
 /// Firebase Cloud Messaging configuration. Bound from appsettings.json section "Firebase".

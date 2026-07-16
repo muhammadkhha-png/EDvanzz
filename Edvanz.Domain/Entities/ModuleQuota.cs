@@ -24,4 +24,10 @@ public class ModuleQuota : BaseEntity
     /// <summary>Optional human-readable note for whoever edits the row.</summary>
     [MaxLength(256)]
     public string? Description { get; set; }
+
+    /// <summary>When the limit was last changed via the admin endpoint (UTC). Null = never edited since seeding.</summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>User id of the super admin who last changed the limit. Plain audit column — no FK.</summary>
+    public long? UpdatedByUserId { get; set; }
 }

@@ -21,6 +21,25 @@ public static class SubscriptionConstants
     // (appsettings "FreeTierQuotas" section), not hardcoded here.
 
     /// <summary>
+    /// Upper bound for Teacher.StudentCapacity under per-student pricing. Protects the
+    /// decimal(10,2) money columns: 100,000 students × even a 3-digit rate stays within
+    /// range, whereas the legacy int.MaxValue "unlimited" capacity would overflow.
+    /// Capacity-increase requests and the renewal price computation both enforce it.
+    /// </summary>
+    public const int MaxStudentCapacity = 100_000;
+
+    /// <summary>
+    /// Effective capacity granted when an onboarding teacher selects the open-ended
+    /// "3000+" StudentCapacityPackage (MaxStudents = null). Replaces the legacy
+    /// int.MaxValue mapping, which is incompatible with capacity × rate pricing.
+    /// Teachers can raise it further via the capacity-increase request flow.
+    /// </summary>
+    public const int UnlimitedPackageFallbackCapacity = 3000;
+
+    /// <summary>Upper bound accepted by the admin module-quota endpoint for FreeTierLimit.</summary>
+    public const int MaxFreeTierLimit = 10_000;
+
+    /// <summary>
     /// Window size (in days) before EndDate during which the dispatcher fires reminders.
     /// REQ-SUB-005: D-5 through D-0 — six alerts.
     /// </summary>
@@ -115,8 +134,33 @@ public static class SubscriptionConstants
         public const string InvalidPaymentChannel = "InvalidPaymentChannel";
         public const string SuperAdminMethodNotAllowed = "SuperAdminMethodNotAllowed";
         public const string PendingPaymentAlreadyInFlight = "PendingPaymentAlreadyInFlight";
-        public const string CapacityPackageNotAssigned = "CapacityPackageNotAssigned";
-        public const string CapacityPackagePriceNotSet = "CapacityPackagePriceNotSet";
+
+        // ── Per-student pricing (capacity × rate) ──
+        public const string PerStudentRateNotConfigured = "PerStudentRateNotConfigured";
+        public const string StudentCapacityNotConfigured = "StudentCapacityNotConfigured";
+        public const string PricePerStudentUpdated = "PricePerStudentUpdated";
+        public const string PricePerStudentMustBePositive = "PricePerStudentMustBePositive";
+
+        // ── Capacity-increase requests ──
+        public const string CapacityChangeRequiresApproval = "CapacityChangeRequiresApproval";
+        public const string CapacityRequestSubmitted = "CapacityRequestSubmitted";
+        public const string CapacityRequestAlreadyPending = "CapacityRequestAlreadyPending";
+        public const string CapacityRequestNotFound = "CapacityRequestNotFound";
+        public const string CapacityRequestNotPending = "CapacityRequestNotPending";
+        public const string CapacityRequestCancelled = "CapacityRequestCancelled";
+        public const string CapacityRequestApproved = "CapacityRequestApproved";
+        public const string CapacityRequestRejected = "CapacityRequestRejected";
+        public const string RequestedCapacityMustExceedCurrent = "RequestedCapacityMustExceedCurrent";
+        public const string RequestedCapacityTooLarge = "RequestedCapacityTooLarge";
+        public const string CapacityRequestApprovedTitle = "CapacityRequestApprovedTitle";
+        public const string CapacityRequestApprovedBody = "CapacityRequestApprovedBody";
+        public const string CapacityRequestRejectedTitle = "CapacityRequestRejectedTitle";
+        public const string CapacityRequestRejectedBody = "CapacityRequestRejectedBody";
+
+        // ── Module-quota admin ──
+        public const string ModuleQuotaNotFound = "ModuleQuotaNotFound";
+        public const string ModuleQuotaUpdated = "ModuleQuotaUpdated";
+        public const string FreeTierLimitInvalid = "FreeTierLimitInvalid";
 
         // ── Manual submit ──
         public const string ManualSubmissionRecorded = "ManualSubmissionRecorded";
@@ -144,9 +188,8 @@ public static class SubscriptionConstants
         public const string SubscriptionNotFound = "SubscriptionNotFound";
         public const string ExtensionDaysMustBePositive = "ExtensionDaysMustBePositive";
         public const string EndDateMustBeAfterStart = "EndDateMustBeAfterStart";
-        public const string PackagePriceUpdated = "PackagePriceUpdated";
-        public const string PackageNotFound = "PackageNotFound";
-        public const string PriceMustBeNonNegative = "PriceMustBeNonNegative";
+        // (PackagePriceUpdated / PackageNotFound / PriceMustBeNonNegative retired
+        // 2026-07-17 with the per-package price endpoint — pricing is per-student now.)
 
         // ── Notifications inbox ──
         public const string NotificationNotFound = "NotificationNotFound";
@@ -168,8 +211,6 @@ public static class SubscriptionConstants
         public const string ManualPayInstructionsVodafoneCash = "ManualPayInstructionsVodafoneCash";
         public const string ManualPayInstructionsInstaPay = "ManualPayInstructionsInstaPay";
 
-        // ── Webhook ──
-        public const string WebhookSignatureInvalid = "WebhookSignatureInvalid";
-        public const string PaymobNotConfigured = "PaymobNotConfigured";
+        // (Webhook keys retired 2026-07-17 with the Paymob webhook/gateway removal.)
     }
 }

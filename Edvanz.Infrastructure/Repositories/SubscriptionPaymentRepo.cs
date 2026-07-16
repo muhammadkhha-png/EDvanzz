@@ -39,15 +39,6 @@ public class SubscriptionPaymentRepo
             .FirstOrDefaultAsync(p => p.Id == pendingPaymentId);
     }
 
-    /// <inheritdoc />
-    public async Task<PendingSubscriptionPayment?> GetByPaymobSessionIdAsync(string paymobSessionId)
-    {
-        // Tracked: webhook handler updates Status on confirm/reject.
-        // Indexed by IX_PendingSubscriptionPayments_PaymobSessionId.
-        return await _context.Set<PendingSubscriptionPayment>()
-            .FirstOrDefaultAsync(p => p.PaymobSessionId == paymobSessionId);
-    }
-
     // ══════════════════════════════════════════════
     // LIST QUERIES
     // ══════════════════════════════════════════════

@@ -76,14 +76,60 @@ public interface IAdminSubscriptionService
         long adminUserId, long pendingPaymentId, string rejectionReason);
 
     // ══════════════════════════════════════════════
-    // PRICING (REQ-ADM-016 — package monthly price)
+    // CAPACITY-INCREASE REQUEST QUEUE
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// Updates the MonthlyPriceEGP on a StudentCapacityPackage (BR-SUB-009).
-    /// Records PriceUpdatedAt and PriceUpdatedByUserId for audit.
-    /// Existing in-flight pending payments retain their initiation-time price snapshot.
+    /// Paginated FIFO queue of Pending capacity-increase requests, each enriched with
+    /// live teacher context (current capacity, active student count) and the projected
+    /// renewal price at the requested capacity.
     /// </summary>
-    Task<Result<bool>> UpdatePackagePriceAsync(
-        long adminUserId, long packageId, decimal newMonthlyPriceEGP);
+    Task<Result<PaginatedResponse<List<AdminCapacityRequestQueueItemDto>>>> GetCapacityRequestQueueAsync(
+        int page, int pageSize);
+
+    /// <summary>
+    /// Approves a capacity request: raises Teacher.StudentCapacity to the requested
+    /// value immediately (never decreases — Math.Max guard) inside one transaction with
+    /// the request's status flip, then notifies the teacher post-commit. The new price
+    /// naturally applies from the NEXT renewal (initiation reads live capacity, BR-SUB-009).
+    /// </summary>
+    Task<Result<CapacityRequestDto>> ApproveCapacityRequestAsync(
+        long adminUserId, long requestId);
+
+    /// <summary>
+    /// Rejects a capacity request with a required reason (max 500 chars), then notifies
+    /// the teacher post-commit with that reason.
+    /// </summary>
+    Task<Result<CapacityRequestDto>> RejectCapacityRequestAsync(
+        long adminUserId, long requestId, string rejectionReason);
+
+    // ══════════════════════════════════════════════
+    // PRICING (per-student rate: renewal = capacity × rate)
+    // ══════════════════════════════════════════════
+
+    /// <summary>Returns the current per-student monthly rate with its audit fields.</summary>
+    Task<Result<SubscriptionPricingDto>> GetPricingAsync();
+
+    /// <summary>
+    /// Updates the per-student monthly rate (must be &gt; 0). BR-SUB-009: in-flight
+    /// pending payments retain their initiation-time amount snapshot.
+    /// </summary>
+    Task<Result<SubscriptionPricingDto>> UpdatePricingAsync(
+        long adminUserId, decimal pricePerStudentEGP);
+
+    // ══════════════════════════════════════════════
+    // MODULE QUOTAS (free-tier limits table)
+    // ══════════════════════════════════════════════
+
+    /// <summary>All free-tier module quota rows, ordered by ModuleKey.</summary>
+    Task<Result<List<ModuleQuotaDto>>> GetModuleQuotasAsync();
+
+    /// <summary>
+    /// Updates one module's FreeTierLimit (0–10,000; 0 = subscriber-only) and optional
+    /// description, records the audit columns, and invalidates the gate cache so the
+    /// change applies immediately on this instance (≤60s elsewhere). 404 when the key
+    /// has no seeded row.
+    /// </summary>
+    Task<Result<ModuleQuotaDto>> UpdateModuleQuotaAsync(
+        long adminUserId, string moduleKey, UpdateModuleQuotaRequest request);
 }

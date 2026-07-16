@@ -14,9 +14,10 @@ public class RenewInitiateRequest
     public PaymentMethod PaymentMethod { get; set; }
 
     /// <summary>
-    /// Tutor-selected channel: Paymob (auto-confirm) or Manual (admin-approved).
-    /// In v1 with PaymobOptions.Enabled = false, the service flips a Paymob request
-    /// to Manual mode in the response (D-04 / FR-SUB-034).
+    /// Tutor-selected channel. Manual (admin-approved) is the only live channel —
+    /// the Paymob gateway path was removed 2026-07-17, so a request that still says
+    /// Paymob gets the manual payload in the response (unchanged wire behavior:
+    /// the disabled stub always fell through to manual).
     /// </summary>
     public PaymentChannel PaymentChannel { get; set; }
 }

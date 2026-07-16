@@ -16,6 +16,8 @@ public static class ModuleQuotaKeys
     public const string Events = "Events";
     public const string MessageTemplates = "MessageTemplates";
     public const string Triggers = "Triggers";
+    public const string Exams = "Exams";
+    public const string OnlineExams = "OnlineExams";
 
     /// <summary>All known keys with their seeded default free-tier limits (used by the migration seed).</summary>
     public static readonly IReadOnlyDictionary<string, int> Defaults = new Dictionary<string, int>
@@ -29,5 +31,7 @@ public static class ModuleQuotaKeys
         [Events] = 1,
         [MessageTemplates] = 1,
         [Triggers] = 0,
+        [Exams] = 1,
+        [OnlineExams] = 1,
     };
 }

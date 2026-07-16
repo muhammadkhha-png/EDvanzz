@@ -4962,3 +4962,389 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    DROP TABLE [VideoAttachments];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    DECLARE @var3 nvarchar(max);
+    SELECT @var3 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[VideoAssets]') AND [c].[name] = N'ThumbnailBlobPath');
+    IF @var3 IS NOT NULL EXEC(N'ALTER TABLE [VideoAssets] DROP CONSTRAINT ' + @var3 + ';');
+    ALTER TABLE [VideoAssets] DROP COLUMN [ThumbnailBlobPath];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    DECLARE @var4 nvarchar(max);
+    SELECT @var4 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[Users]') AND [c].[name] = N'IdImage');
+    IF @var4 IS NOT NULL EXEC(N'ALTER TABLE [Users] DROP CONSTRAINT ' + @var4 + ';');
+    ALTER TABLE [Users] DROP COLUMN [IdImage];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [VideoExamQuestions] ADD [ImageFileId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD [ThumbnailFileId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [IdImageFileId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [OnlineExamQuestions] ADD [ImageFileId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE TABLE [FileObjects] (
+        [Id] bigint NOT NULL IDENTITY,
+        [PublicId] uniqueidentifier NOT NULL,
+        [OwnerUserId] bigint NOT NULL,
+        [TeacherId] bigint NULL,
+        [Category] tinyint NOT NULL,
+        [Status] tinyint NOT NULL,
+        [BlobPath] nvarchar(500) NOT NULL,
+        [ContentType] nvarchar(100) NOT NULL,
+        [SizeBytes] bigint NOT NULL,
+        [OriginalName] nvarchar(260) NOT NULL,
+        [VideoAssetId] bigint NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_FileObjects] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_FileObjects_VideoAssets_VideoAssetId] FOREIGN KEY ([VideoAssetId]) REFERENCES [VideoAssets] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_VideoExamQuestions_ImageFileId] ON [VideoExamQuestions] ([ImageFileId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_VideoAssets_ThumbnailFileId] ON [VideoAssets] ([ThumbnailFileId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_Users_IdImageFileId] ON [Users] ([IdImageFileId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_OnlineExamQuestions_ImageFileId] ON [OnlineExamQuestions] ([ImageFileId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_FileObjects_Status] ON [FileObjects] ([Status]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE INDEX [IX_FileObjects_VideoAssetId] ON [FileObjects] ([VideoAssetId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_FileObjects_PublicId] ON [FileObjects] ([PublicId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [OnlineExamQuestions] ADD CONSTRAINT [FK_OnlineExamQuestions_FileObjects_ImageFileId] FOREIGN KEY ([ImageFileId]) REFERENCES [FileObjects] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [Users] ADD CONSTRAINT [FK_Users_FileObjects_IdImageFileId] FOREIGN KEY ([IdImageFileId]) REFERENCES [FileObjects] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD CONSTRAINT [FK_VideoAssets_FileObjects_ThumbnailFileId] FOREIGN KEY ([ThumbnailFileId]) REFERENCES [FileObjects] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    ALTER TABLE [VideoExamQuestions] ADD CONSTRAINT [FK_VideoExamQuestions_FileObjects_ImageFileId] FOREIGN KEY ([ImageFileId]) REFERENCES [FileObjects] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716140711_FileObjectRegistry'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260716140711_FileObjectRegistry', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716151304_RenameThumbnailToVideoPhoto'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] DROP CONSTRAINT [FK_VideoAssets_FileObjects_ThumbnailFileId];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716151304_RenameThumbnailToVideoPhoto'
+)
+BEGIN
+    EXEC sp_rename N'[VideoAssets].[ThumbnailFileId]', N'VideoPhotoFileId', 'COLUMN';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716151304_RenameThumbnailToVideoPhoto'
+)
+BEGIN
+    EXEC sp_rename N'[VideoAssets].[IX_VideoAssets_ThumbnailFileId]', N'IX_VideoAssets_VideoPhotoFileId', 'INDEX';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716151304_RenameThumbnailToVideoPhoto'
+)
+BEGIN
+    ALTER TABLE [VideoAssets] ADD CONSTRAINT [FK_VideoAssets_FileObjects_VideoPhotoFileId] FOREIGN KEY ([VideoPhotoFileId]) REFERENCES [FileObjects] ([Id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716151304_RenameThumbnailToVideoPhoto'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260716151304_RenameThumbnailToVideoPhoto', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716222904_ModuleQuotaAuditColumns'
+)
+BEGIN
+    ALTER TABLE [ModuleQuotas] ADD [UpdatedAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716222904_ModuleQuotaAuditColumns'
+)
+BEGIN
+    ALTER TABLE [ModuleQuotas] ADD [UpdatedByUserId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716222904_ModuleQuotaAuditColumns'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260716222904_ModuleQuotaAuditColumns', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    CREATE TABLE [CapacityIncreaseRequests] (
+        [Id] bigint NOT NULL IDENTITY,
+        [TeacherId] bigint NOT NULL,
+        [CapacityAtRequest] int NOT NULL,
+        [RequestedCapacity] int NOT NULL,
+        [Note] nvarchar(500) NULL,
+        [Status] tinyint NOT NULL,
+        [RequestedAt] datetime2 NOT NULL,
+        [RequestedByUserId] bigint NOT NULL,
+        [ResolvedAt] datetime2 NULL,
+        [ResolvedByUserId] bigint NULL,
+        [RejectionReason] nvarchar(500) NULL,
+        [CreateAt] datetime2 NOT NULL,
+        CONSTRAINT [PK_CapacityIncreaseRequests] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_CapacityIncreaseRequests_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id]),
+        CONSTRAINT [FK_CapacityIncreaseRequests_Users_ResolvedByUserId] FOREIGN KEY ([ResolvedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    CREATE TABLE [SubscriptionPricingSettings] (
+        [Id] bigint NOT NULL IDENTITY,
+        [PricePerStudentEGP] decimal(10,2) NOT NULL,
+        [UpdatedAt] datetime2 NULL,
+        [UpdatedByUserId] bigint NULL,
+        [CreateAt] datetime2 NOT NULL,
+        CONSTRAINT [PK_SubscriptionPricingSettings] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_SubscriptionPricingSettings_Users_UpdatedByUserId] FOREIGN KEY ([UpdatedByUserId]) REFERENCES [Users] ([Id]) ON DELETE SET NULL
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'Description', N'FreeTierLimit', N'ModuleKey', N'UpdatedAt', N'UpdatedByUserId') AND [object_id] = OBJECT_ID(N'[ModuleQuotas]'))
+        SET IDENTITY_INSERT [ModuleQuotas] ON;
+    EXEC(N'INSERT INTO [ModuleQuotas] ([Id], [CreateAt], [Description], [FreeTierLimit], [ModuleKey], [UpdatedAt], [UpdatedByUserId])
+    VALUES (CAST(10 AS bigint), ''2026-07-17T00:00:00.0000000Z'', NULL, 1, N''Exams'', NULL, NULL),
+    (CAST(11 AS bigint), ''2026-07-17T00:00:00.0000000Z'', NULL, 1, N''OnlineExams'', NULL, NULL)');
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'Description', N'FreeTierLimit', N'ModuleKey', N'UpdatedAt', N'UpdatedByUserId') AND [object_id] = OBJECT_ID(N'[ModuleQuotas]'))
+        SET IDENTITY_INSERT [ModuleQuotas] OFF;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'PricePerStudentEGP', N'UpdatedAt', N'UpdatedByUserId') AND [object_id] = OBJECT_ID(N'[SubscriptionPricingSettings]'))
+        SET IDENTITY_INSERT [SubscriptionPricingSettings] ON;
+    EXEC(N'INSERT INTO [SubscriptionPricingSettings] ([Id], [CreateAt], [PricePerStudentEGP], [UpdatedAt], [UpdatedByUserId])
+    VALUES (CAST(1 AS bigint), ''2026-07-17T00:00:00.0000000Z'', 2.5, NULL, NULL)');
+    IF EXISTS (SELECT * FROM [sys].[identity_columns] WHERE [name] IN (N'Id', N'CreateAt', N'PricePerStudentEGP', N'UpdatedAt', N'UpdatedByUserId') AND [object_id] = OBJECT_ID(N'[SubscriptionPricingSettings]'))
+        SET IDENTITY_INSERT [SubscriptionPricingSettings] OFF;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    CREATE INDEX [IX_CapacityIncreaseRequests_ResolvedByUserId] ON [CapacityIncreaseRequests] ([ResolvedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    CREATE INDEX [IX_CapacityIncreaseRequests_Status_RequestedAt] ON [CapacityIncreaseRequests] ([Status], [RequestedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [UX_CapacityIncreaseRequests_Teacher_Pending] ON [CapacityIncreaseRequests] ([TeacherId]) WHERE [Status] = 1');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    CREATE INDEX [IX_SubscriptionPricingSettings_UpdatedByUserId] ON [SubscriptionPricingSettings] ([UpdatedByUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    UPDATE [Teachers] SET [StudentCapacity] = 3000 WHERE [StudentCapacity] > 100000;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260716225157_PerStudentPricingAndCapacityRequests'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260716225157_PerStudentPricingAndCapacityRequests', N'10.0.9');
+END;
+
+COMMIT;
+GO
+

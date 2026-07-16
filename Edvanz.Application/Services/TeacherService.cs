@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
@@ -228,6 +229,19 @@ public class TeacherService : ITeacherService
                 return Result<TeacherProfileDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
         }
 
+        // Capacity is admin-approved after onboarding: StudentCapacity drives the
+        // per-student subscription price, so a configured teacher selecting a DIFFERENT
+        // package must go through the capacity-increase request flow instead.
+        // Re-sending the CURRENT package id (or none) stays a no-op — wire-compat for
+        // clients that resubmit the whole profile object.
+        if (selectedPackage is not null
+            && teacher.IsConfigurationCompleted
+            && teacher.StudentCapacityPackageId != selectedPackage.Id)
+        {
+            return Result<TeacherProfileDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityChangeRequiresApproval, HttpStatusCode.BadRequest);
+        }
+
         // ── Transaction-safe: participates in outer tx if active ──
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -243,12 +257,17 @@ public class TeacherService : ITeacherService
             teacher.LanguagePreference = dto.LanguagePreference;
             teacher.CustomSubject = string.IsNullOrWhiteSpace(dto.CustomSubject) ? null : dto.CustomSubject.Trim();
 
-            // Update capacity package and auto-set StudentCapacity from the package tier
-            if (selectedPackage is not null)
+            // Update capacity package and auto-set StudentCapacity from the package tier —
+            // ONBOARDING ONLY. After configuration completes, capacity changes flow through
+            // the admin-approved capacity-increase request (echoing the same package id
+            // above must NOT overwrite an admin-granted capacity).
+            if (selectedPackage is not null && !teacher.IsConfigurationCompleted)
             {
                 teacher.StudentCapacityPackageId = selectedPackage.Id;
-                // MaxStudents is null for the "3000+" tier — use int.MaxValue as effective capacity
-                teacher.StudentCapacity = selectedPackage.MaxStudents ?? int.MaxValue;
+                // MaxStudents is null for the open-ended "3000+" tier — cap at the concrete
+                // fallback (int.MaxValue would overflow capacity × rate pricing).
+                teacher.StudentCapacity = selectedPackage.MaxStudents
+                    ?? SubscriptionConstants.UnlimitedPackageFallbackCapacity;
             }
 
             await _unitOfWork.Users.UpdateTeacherAsync(teacher);
@@ -336,6 +355,18 @@ public class TeacherService : ITeacherService
         if (dto.ProratedTiers.Count > 3)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "MaxThreeProratedTiers", HttpStatusCode.BadRequest);
 
+        // Capacity is admin-approved after onboarding (per-student pricing depends on it):
+        // a configured teacher sending a DIFFERENT package id must use the capacity-increase
+        // request flow. The same id (or none) is ignored — wire-compat for clients that
+        // resubmit the whole configuration object.
+        if (teacher.IsConfigurationCompleted
+            && dto.StudentCapacityPackageId.HasValue
+            && dto.StudentCapacityPackageId != teacher.StudentCapacityPackageId)
+        {
+            return Result<TeacherConfigurationDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityChangeRequiresApproval, HttpStatusCode.BadRequest);
+        }
+
         // ── Transaction-safe ──
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -343,16 +374,21 @@ public class TeacherService : ITeacherService
 
         try
         {
-            if (dto.StudentCapacityPackageId.HasValue)
+            // ONBOARDING ONLY (the post-completion different-package case already 400'd
+            // above; the same-id case is deliberately ignored so an admin-granted
+            // capacity is never overwritten by a config resubmit).
+            if (dto.StudentCapacityPackageId.HasValue && !teacher.IsConfigurationCompleted)
             {
                 var package = await _unitOfWork.Users.GetActiveCapacityPackageByIdAsync(dto.StudentCapacityPackageId.Value);
                 if (package is null)
                     return Result<TeacherConfigurationDto>.Failure(_localizer, "InvalidCapacityPackage", HttpStatusCode.BadRequest);
 
                 teacher.StudentCapacityPackageId = dto.StudentCapacityPackageId;
-                // Auto-update StudentCapacity from the selected package tier
-                // MaxStudents is null for the "3000+" tier — use int.MaxValue as effective capacity
-                teacher.StudentCapacity = package.MaxStudents ?? int.MaxValue;
+                // Auto-update StudentCapacity from the selected package tier.
+                // MaxStudents is null for the open-ended "3000+" tier — cap at the concrete
+                // fallback (int.MaxValue would overflow capacity × rate pricing).
+                teacher.StudentCapacity = package.MaxStudents
+                    ?? SubscriptionConstants.UnlimitedPackageFallbackCapacity;
                 await _unitOfWork.Users.UpdateTeacherAsync(teacher);
             }
 

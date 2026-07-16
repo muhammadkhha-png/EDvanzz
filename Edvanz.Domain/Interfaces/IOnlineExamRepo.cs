@@ -22,6 +22,12 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
     /// <summary>Loads an exam scoped to its owning teacher. Returns null on mismatch/not-found.</summary>
     Task<OnlineExam?> GetByIdAndTeacherAsync(long onlineExamId, long teacherId);
 
+    /// <summary>
+    /// Counts the online exams owned by a teacher (free-tier quota key
+    /// ModuleQuotaKeys.OnlineExams). OnlineExam is hard-delete, so a plain count is exact.
+    /// </summary>
+    Task<int> CountByTeacherAsync(long teacherId);
+
     Task AddQuestionsRangeAsync(IEnumerable<OnlineExamQuestion> questions);
 
     Task AddScopesRangeAsync(IEnumerable<OnlineExamScope> scopes);

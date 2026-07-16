@@ -41,12 +41,37 @@ public interface ISubscriptionService
 
     /// <summary>
     /// Initiates a renewal flow (FR-SUB-040 — discriminated union response).
-    /// When PaymobOptions.Enabled = false, the service flips the response to
-    /// { mode: "manual", manual: { ... } } regardless of the requested channel
-    /// (D-04 / FR-SUB-034).
+    /// The response is always { mode: "manual", manual: { ... } } regardless of the
+    /// requested channel — the Paymob gateway path was removed 2026-07-17 (it was
+    /// disabled everywhere and already fell through to manual).
+    /// Price = Teacher.StudentCapacity × the per-student rate, snapshotted onto the
+    /// pending row (BR-SUB-009).
     /// </summary>
     Task<Result<RenewInitiateResponse>> InitiateRenewalAsync(
         long teacherId, RenewInitiateRequest request);
+
+    /// <summary>
+    /// Teacher submits a capacity-increase request (increase-only; one live Pending
+    /// request per teacher). Approval is a super-admin operation — capacity applies
+    /// immediately on approve, the new price from the NEXT renewal.
+    /// </summary>
+    /// <param name="teacherId">The tenant teacher (resolved from the JWT).</param>
+    /// <param name="actingUserId">The submitting user (teacher, or assistant acting for the tutor) — audit only.</param>
+    /// <param name="request">Requested capacity + optional note.</param>
+    Task<Result<CapacityRequestDto>> SubmitCapacityRequestAsync(
+        long teacherId, long actingUserId, CreateCapacityRequestRequest request);
+
+    /// <summary>
+    /// Paginated history of the teacher's own capacity requests, newest first, all statuses.
+    /// </summary>
+    Task<Result<PaginatedResponse<List<CapacityRequestDto>>>> GetCapacityRequestsPagedAsync(
+        long teacherId, int page, int pageSize);
+
+    /// <summary>
+    /// Teacher withdraws a Pending capacity request. Terminal rows are kept for audit.
+    /// </summary>
+    Task<Result<CapacityRequestDto>> CancelCapacityRequestAsync(
+        long teacherId, long actingUserId, long requestId);
 
     /// <summary>
     /// Tutor submits the transaction reference they paid with externally.
@@ -63,9 +88,10 @@ public interface ISubscriptionService
         long teacherId, long pendingPaymentId);
 
     /// <summary>
-    /// Internal confirmation pipeline — called by:
-    ///   (a) PaymobWebhookController on a successful webhook callback,
-    ///   (b) AdminSubscriptionService.ApprovePendingAsync.
+    /// Internal confirmation pipeline — called by
+    /// AdminSubscriptionService.ApprovePendingAsync (the Paymob webhook caller was
+    /// removed 2026-07-17; the null resolvedByUserId path remains for any future
+    /// gateway integration).
     ///
     /// Runs §6.3's full sequence:
     ///   - Capture paymentConfirmedAt = UtcNow ONCE (BR-SUB-013).

@@ -117,6 +117,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ISubscriptionReminderJob, SubscriptionReminderJob>();
         services.AddScoped<IRenewalNotificationJob, RenewalNotificationJob>();
         services.AddScoped<IPendingPaymentRejectedNotificationJob, PendingPaymentRejectedNotificationJob>();
+        services.AddScoped<ICapacityRequestResolvedNotificationJob, CapacityRequestResolvedNotificationJob>();
         // ── Exams & Homework Module — recurrence materializer (Phase 6) ──
         // Pure business logic for generating the next occurrence of a recurring
         // template. The Hangfire dispatcher and worker (registered in

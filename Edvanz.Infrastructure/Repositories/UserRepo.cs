@@ -1044,18 +1044,10 @@ namespace Edvanz.Infrastructure.Repositories
                 .FirstOrDefaultAsync();
         }
 
-        // ══════════════════════════════════════════════
-        // STUDENT CAPACITY PACKAGE PRICING (v1.2)
-        // ══════════════════════════════════════════════
+        // (UpdateCapacityPackagePriceAsync was removed 2026-07-17 with the retired
+        // per-package price endpoint — pricing is per-student now; see
+        // SubscriptionPricingRepo. Package price columns remain in the DB, unread.)
 
-        /// <inheritdoc />
-        // FIX BUG-2: EF's Entry().State is synchronous — await Task.CompletedTask
-        // for the project's all-async convention.
-        public async Task UpdateCapacityPackagePriceAsync(StudentCapacityPackage package)
-        {
-            _context.Entry(package).State = EntityState.Modified;
-            await Task.CompletedTask;
-        }
         /// <inheritdoc />
         public async Task<StudentUser?> GetActiveStudentUserByUserIdAsync(long userId)
         {

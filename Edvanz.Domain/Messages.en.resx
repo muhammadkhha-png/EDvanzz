@@ -906,12 +906,6 @@
   <data name="PendingPaymentAlreadyInFlight" xml:space="preserve">
     <value>You already have a renewal payment in progress. Please wait for it to complete or cancel before starting a new one</value>
   </data>
-  <data name="CapacityPackageNotAssigned" xml:space="preserve">
-    <value>No subscription package is assigned to your account. Please contact support</value>
-  </data>
-  <data name="CapacityPackagePriceNotSet" xml:space="preserve">
-    <value>The subscription price for your package has not been configured yet. Please contact support</value>
-  </data>
   <data name="ManualSubmissionRecorded" xml:space="preserve">
     <value>Your payment details were submitted. Awaiting administrator approval</value>
   </data>
@@ -969,15 +963,6 @@
   <data name="EndDateMustBeAfterStart" xml:space="preserve">
     <value>End date must be after the subscription start date</value>
   </data>
-  <data name="PackagePriceUpdated" xml:space="preserve">
-    <value>Package price updated successfully</value>
-  </data>
-  <data name="PackageNotFound" xml:space="preserve">
-    <value>Capacity package not found</value>
-  </data>
-  <data name="PriceMustBeNonNegative" xml:space="preserve">
-    <value>Price must be zero or a positive value</value>
-  </data>
   <data name="NotificationNotFound" xml:space="preserve">
     <value>Notification not found</value>
   </data>
@@ -1019,12 +1004,6 @@
   </data>
   <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
     <value>Send {0} EGP via InstaPay to {1}, then submit the transaction reference here</value>
-  </data>
-  <data name="WebhookSignatureInvalid" xml:space="preserve">
-    <value>Webhook signature verification failed</value>
-  </data>
-  <data name="PaymobNotConfigured" xml:space="preserve">
-    <value>Online payment is not configured. Please use the manual payment flow</value>
   </data>
   <data name="AssignmentCreated" xml:space="preserve">
     <value>Assignment created successfully</value>
@@ -1598,4 +1577,67 @@
   <data name="ModuleNotAssigned" xml:space="preserve">
     <value>You don't have access to this module. Please contact your account administrator.</value>
 </data>
+  <data name="PerStudentRateNotConfigured" xml:space="preserve">
+    <value>The subscription price has not been configured yet. Please contact support</value>
+  </data>
+  <data name="StudentCapacityNotConfigured" xml:space="preserve">
+    <value>Your student capacity is not set correctly. Please contact support</value>
+  </data>
+  <data name="PricePerStudentUpdated" xml:space="preserve">
+    <value>Per-student subscription price updated successfully</value>
+  </data>
+  <data name="PricePerStudentMustBePositive" xml:space="preserve">
+    <value>The per-student price must be greater than zero</value>
+  </data>
+  <data name="CapacityChangeRequiresApproval" xml:space="preserve">
+    <value>Changing your student capacity requires admin approval. Please submit a capacity increase request</value>
+  </data>
+  <data name="CapacityRequestSubmitted" xml:space="preserve">
+    <value>Your capacity increase request was submitted. Awaiting administrator approval</value>
+  </data>
+  <data name="CapacityRequestAlreadyPending" xml:space="preserve">
+    <value>You already have a capacity request awaiting review</value>
+  </data>
+  <data name="CapacityRequestNotFound" xml:space="preserve">
+    <value>The capacity request was not found</value>
+  </data>
+  <data name="CapacityRequestNotPending" xml:space="preserve">
+    <value>This capacity request has already been resolved</value>
+  </data>
+  <data name="CapacityRequestCancelled" xml:space="preserve">
+    <value>Your capacity request was cancelled</value>
+  </data>
+  <data name="CapacityRequestApproved" xml:space="preserve">
+    <value>Capacity request approved</value>
+  </data>
+  <data name="CapacityRequestRejected" xml:space="preserve">
+    <value>Capacity request rejected</value>
+  </data>
+  <data name="RequestedCapacityMustExceedCurrent" xml:space="preserve">
+    <value>The requested capacity must be greater than your current capacity</value>
+  </data>
+  <data name="RequestedCapacityTooLarge" xml:space="preserve">
+    <value>The requested capacity is not within the allowed range</value>
+  </data>
+  <data name="CapacityRequestApprovedTitle" xml:space="preserve">
+    <value>Capacity Increase Approved</value>
+  </data>
+  <data name="CapacityRequestApprovedBody" xml:space="preserve">
+    <value>Your student capacity was increased to {0}. The new subscription price applies from your next renewal</value>
+  </data>
+  <data name="CapacityRequestRejectedTitle" xml:space="preserve">
+    <value>Capacity Increase Rejected</value>
+  </data>
+  <data name="CapacityRequestRejectedBody" xml:space="preserve">
+    <value>Your capacity increase request was rejected: {0}</value>
+  </data>
+  <data name="ModuleQuotaNotFound" xml:space="preserve">
+    <value>The module quota was not found</value>
+  </data>
+  <data name="ModuleQuotaUpdated" xml:space="preserve">
+    <value>Module quota updated successfully</value>
+  </data>
+  <data name="FreeTierLimitInvalid" xml:space="preserve">
+    <value>The free-tier limit must be between 0 and 10000</value>
+  </data>
 </root>

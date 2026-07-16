@@ -104,10 +104,19 @@ public class ExamHomeworkService : IExamHomeworkService
     public async Task<Result<AssignmentTemplateDto>> CreateTemplateAsync(
         long teacherId, long actingUserId, CreateAssignmentTemplateDto dto)
     {
-        // ── 0. Free-tier quota: assignment templates (see ModuleQuota table) ──
+        // ── 0. Free-tier quota, keyed by assignment type (see ModuleQuota table) ──
+        // An Exam-type template counts against the Exams quota (same pool as /api/exams —
+        // this route used to bypass the exam cap via the all-types template count);
+        // Homework counts against AssignmentTemplates.
+        bool isExamTemplate = dto.AssignmentType == AssignmentType.Exam;
         if (!await _subscriptionGate.CanCreateAsync(
-                teacherId, Domain.Constants.ModuleQuotaKeys.AssignmentTemplates,
-                () => _unitOfWork.ExamHomeworkRepo.CountTemplatesByTeacherAsync(teacherId)))
+                teacherId,
+                isExamTemplate
+                    ? Domain.Constants.ModuleQuotaKeys.Exams
+                    : Domain.Constants.ModuleQuotaKeys.AssignmentTemplates,
+                isExamTemplate
+                    ? () => _unitOfWork.ExamHomeworkRepo.CountExamTemplatesByTeacherAsync(teacherId)
+                    : () => _unitOfWork.ExamHomeworkRepo.CountHomeworkTemplatesByTeacherAsync(teacherId)))
             return Result<AssignmentTemplateDto>.Failure(
                 _localizer, Domain.Constants.SubscriptionConstants.Messages.SubscriptionRequired,
                 System.Net.HttpStatusCode.Forbidden);

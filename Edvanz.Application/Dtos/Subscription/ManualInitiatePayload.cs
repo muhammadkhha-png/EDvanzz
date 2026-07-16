@@ -2,18 +2,19 @@
 
 /// <summary>
 /// Discriminated-union response for POST /api/subscription/renew/initiate (Critique M-2).
-/// Exactly one of <see cref="Paymob"/> or <see cref="Manual"/> is non-null,
-/// determined by <see cref="Mode"/>.
+/// The Mode/Paymob/Manual shape is a shipped wire contract and is KEPT — but since the
+/// Paymob gateway removal (2026-07-17) Mode is always "manual" and <see cref="Paymob"/>
+/// is always null.
 /// </summary>
 public class RenewInitiateResponse
 {
     /// <summary>
-    /// "paymob" or "manual". Frontend switches on this value.
+    /// Always "manual" (historically also "paymob"). Frontend switches on this value.
     /// </summary>
     public string Mode { get; set; } = null!;
 
     /// <summary>
-    /// Populated when Mode = "paymob". Null otherwise.
+    /// Always null since the Paymob gateway removal — retained for wire-compat.
     /// </summary>
     public PaymobInitiatePayload? Paymob { get; set; }
 
@@ -24,7 +25,8 @@ public class RenewInitiateResponse
 }
 
 /// <summary>
-/// Payload returned when a Paymob session was successfully created.
+/// Legacy payload shape from the removed Paymob path — never populated; kept only so
+/// the RenewInitiateResponse wire contract is unchanged.
 /// </summary>
 public class PaymobInitiatePayload
 {

@@ -62,7 +62,6 @@ public static class InfrastructureServiceExtensions
         // ════════════════════════════════════════════════
 
         // ── Bind options sections from appsettings.json ──
-        services.Configure<PaymobOptions>(configuration.GetSection(PaymobOptions.Section));
         services.Configure<FirebaseOptions>(configuration.GetSection(FirebaseOptions.Section));
         services.Configure<SubscriptionCacheOptions>(configuration.GetSection(SubscriptionCacheOptions.Section));
         services.Configure<ReminderSchedulerOptions>(configuration.GetSection(ReminderSchedulerOptions.Section));
@@ -72,27 +71,8 @@ public static class InfrastructureServiceExtensions
         // ── Live permission / module-revocation cache options (REQ-USR-013 / BR-ADM-010) ──
         services.Configure<UserAuthCacheOptions>(configuration.GetSection(UserAuthCacheOptions.Section));
 
-        // ── Payment gateway: stub vs Paymob, selected by PaymobOptions.Enabled ──
-        // ── Payment gateway: stub vs Paymob, selected by PaymobOptions.Enabled ──
-        // FR-SUB-034 / D-04: Paymob is stubbed off in v1; the real adapter ships
-        // dormant and is activated by flipping configuration only — no code change.
-        var paymobEnabled = configuration
-            .GetSection(PaymobOptions.Section)
-            .GetValue<bool>(nameof(PaymobOptions.Enabled));
-
-        if (paymobEnabled)
-        {
-            services.AddHttpClient<IPaymentGateway, PaymobPaymentGateway>(client =>
-            {
-                // Paymob's accept.paymob.com production base. Override per environment via DI later if needed.
-                client.BaseAddress = new Uri("https://accept.paymob.com/");
-                client.Timeout = TimeSpan.FromSeconds(30);
-            });
-        }
-        else
-        {
-            services.AddScoped<IPaymentGateway, StubPaymentGateway>();
-        }
+        // (The Paymob payment gateway and its stub/selection block were removed 2026-07-17 —
+        // the renewal flow is manual-only; renew/initiate always returns the manual payload.)
 
         // ── Firebase push sender (real — there is no stub mode for push) ──
         // The class is safe to register even if FirebaseOptions.CredentialsPath is

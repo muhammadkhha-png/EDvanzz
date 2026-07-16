@@ -906,12 +906,6 @@
   <data name="PendingPaymentAlreadyInFlight" xml:space="preserve">
     <value>عندك طلب تجديد جاري بالفعل. استنى لحد ما يخلص قبل ما تبدأ واحد جديد</value>
   </data>
-  <data name="CapacityPackageNotAssigned" xml:space="preserve">
-    <value>مفيش باقة اشتراك محددة لحسابك. من فضلك تواصل مع الدعم</value>
-  </data>
-  <data name="CapacityPackagePriceNotSet" xml:space="preserve">
-    <value>سعر الاشتراك للباقة بتاعتك لسه ما اتحددش. من فضلك تواصل مع الدعم</value>
-  </data>
   <data name="ManualSubmissionRecorded" xml:space="preserve">
     <value>تم تسجيل بيانات الدفع. في انتظار موافقة الإدارة</value>
   </data>
@@ -969,15 +963,6 @@
   <data name="EndDateMustBeAfterStart" xml:space="preserve">
     <value>تاريخ الانتهاء لازم يكون بعد تاريخ البداية</value>
   </data>
-  <data name="PackagePriceUpdated" xml:space="preserve">
-    <value>تم تحديث سعر الباقة بنجاح</value>
-  </data>
-  <data name="PackageNotFound" xml:space="preserve">
-    <value>الباقة مش موجودة</value>
-  </data>
-  <data name="PriceMustBeNonNegative" xml:space="preserve">
-    <value>السعر لازم يكون صفر أو قيمة موجبة</value>
-  </data>
   <data name="NotificationNotFound" xml:space="preserve">
     <value>الإشعار مش موجود</value>
   </data>
@@ -1019,12 +1004,6 @@
   </data>
   <data name="ManualPayInstructionsInstaPay" xml:space="preserve">
     <value>ابعت {0} جنيه عبر إنستاباي لـ {1}، وبعدين دخّل رقم العملية هنا</value>
-  </data>
-  <data name="WebhookSignatureInvalid" xml:space="preserve">
-    <value>فشل التحقق من توقيع الـ webhook</value>
-  </data>
-  <data name="PaymobNotConfigured" xml:space="preserve">
-    <value>الدفع الإلكتروني مش متاح حاليًا. استخدم الدفع اليدوي</value>
   </data>
   <data name="AssignmentCreated" xml:space="preserve">
     <value>تم إنشاء المهمة بنجاح</value>
@@ -1631,4 +1610,67 @@
   <data name="ModuleNotAssigned" xml:space="preserve">
     <value>معندكش صلاحية توصل للجزء ده. تواصل مع مسؤول الحساب عشان يفعّل لك الصلاحية دي</value>
 </data>
+  <data name="PerStudentRateNotConfigured" xml:space="preserve">
+    <value>سعر الاشتراك لسه ما اتحددش. من فضلك تواصل مع الدعم</value>
+  </data>
+  <data name="StudentCapacityNotConfigured" xml:space="preserve">
+    <value>سعة الطلاب لحسابك مش مظبوطة. من فضلك تواصل مع الدعم</value>
+  </data>
+  <data name="PricePerStudentUpdated" xml:space="preserve">
+    <value>تم تحديث سعر الاشتراك لكل طالب بنجاح</value>
+  </data>
+  <data name="PricePerStudentMustBePositive" xml:space="preserve">
+    <value>سعر الطالب لازم يكون أكبر من صفر</value>
+  </data>
+  <data name="CapacityChangeRequiresApproval" xml:space="preserve">
+    <value>تغيير سعة الطلاب محتاج موافقة الإدارة. من فضلك ابعت طلب زيادة السعة</value>
+  </data>
+  <data name="CapacityRequestSubmitted" xml:space="preserve">
+    <value>تم إرسال طلب زيادة السعة. في انتظار موافقة الإدارة</value>
+  </data>
+  <data name="CapacityRequestAlreadyPending" xml:space="preserve">
+    <value>عندك طلب زيادة سعة قيد المراجعة بالفعل</value>
+  </data>
+  <data name="CapacityRequestNotFound" xml:space="preserve">
+    <value>طلب زيادة السعة مش موجود</value>
+  </data>
+  <data name="CapacityRequestNotPending" xml:space="preserve">
+    <value>الطلب ده تم البت فيه بالفعل</value>
+  </data>
+  <data name="CapacityRequestCancelled" xml:space="preserve">
+    <value>تم إلغاء طلب زيادة السعة</value>
+  </data>
+  <data name="CapacityRequestApproved" xml:space="preserve">
+    <value>تمت الموافقة على طلب زيادة السعة</value>
+  </data>
+  <data name="CapacityRequestRejected" xml:space="preserve">
+    <value>تم رفض طلب زيادة السعة</value>
+  </data>
+  <data name="RequestedCapacityMustExceedCurrent" xml:space="preserve">
+    <value>السعة المطلوبة لازم تكون أكبر من سعتك الحالية</value>
+  </data>
+  <data name="RequestedCapacityTooLarge" xml:space="preserve">
+    <value>السعة المطلوبة خارج الحد المسموح</value>
+  </data>
+  <data name="CapacityRequestApprovedTitle" xml:space="preserve">
+    <value>تمت الموافقة على زيادة السعة</value>
+  </data>
+  <data name="CapacityRequestApprovedBody" xml:space="preserve">
+    <value>تمت زيادة سعة الطلاب إلى {0}. السعر الجديد هيتطبق من التجديد الجاي</value>
+  </data>
+  <data name="CapacityRequestRejectedTitle" xml:space="preserve">
+    <value>تم رفض طلب زيادة السعة</value>
+  </data>
+  <data name="CapacityRequestRejectedBody" xml:space="preserve">
+    <value>تم رفض طلب زيادة السعة: {0}</value>
+  </data>
+  <data name="ModuleQuotaNotFound" xml:space="preserve">
+    <value>حد الاستخدام للموديول ده مش موجود</value>
+  </data>
+  <data name="ModuleQuotaUpdated" xml:space="preserve">
+    <value>تم تحديث حد الاستخدام بنجاح</value>
+  </data>
+  <data name="FreeTierLimitInvalid" xml:space="preserve">
+    <value>الحد المجاني لازم يكون بين 0 و10000</value>
+  </data>
 </root>

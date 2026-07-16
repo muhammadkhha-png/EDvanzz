@@ -365,39 +365,268 @@ public class AdminSubscriptionService : IAdminSubscriptionService
     }
 
     // ════════════════════════════════════════════════
-    // PRICING (REQ-ADM-016)
+    // CAPACITY-INCREASE REQUEST QUEUE
     // ════════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<bool>> UpdatePackagePriceAsync(
-        long adminUserId, long packageId, decimal newMonthlyPriceEGP)
+    public async Task<Result<PaginatedResponse<List<AdminCapacityRequestQueueItemDto>>>> GetCapacityRequestQueueAsync(
+        int page, int pageSize)
     {
-        if (newMonthlyPriceEGP < 0m)
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (items, totalCount) = await _unitOfWork.CapacityRequestsRepo
+            .GetAdminQueuePagedAsync(page, pageSize);
+
+        // One rate read serves every row; 0 when unconfigured (mirrors the renewal display).
+        decimal rate = await _unitOfWork.SubscriptionPricingRepo.GetPricePerStudentAsync() ?? 0m;
+
+        // Enrich each row with live teacher context. A few round-trips per row is
+        // acceptable here — the admin queue is rarely deeper than a few dozen rows
+        // (same trade-off as GetPendingQueueAsync above).
+        var dtoList = new List<AdminCapacityRequestQueueItemDto>(items.Count);
+        foreach (var request in items)
         {
-            return Result<bool>.Failure(
-                _localizer, SubscriptionConstants.Messages.PriceMustBeNonNegative);
+            var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(request.TeacherId);
+            var teacherInfo = await _unitOfWork.Users.GetTeacherForReminderAsync(request.TeacherId);
+            int activeStudents = await _unitOfWork.Students.CountActiveStudentsAsync(request.TeacherId);
+
+            dtoList.Add(new AdminCapacityRequestQueueItemDto
+            {
+                Id = request.Id,
+                TeacherId = request.TeacherId,
+                TeacherName = teacherInfo?.FullName ?? string.Empty,
+                TeacherCode = teacher?.TeacherCode ?? string.Empty,
+                CurrentCapacity = teacher?.StudentCapacity ?? request.CapacityAtRequest,
+                CapacityAtRequest = request.CapacityAtRequest,
+                RequestedCapacity = request.RequestedCapacity,
+                ActiveStudentCount = activeStudents,
+                ProjectedMonthlyPriceEGP = rate <= 0m ? 0m : request.RequestedCapacity * rate,
+                Note = request.Note,
+                RequestedAt = request.RequestedAt
+            });
         }
 
-        var package = await _unitOfWork.GetRepository<StudentCapacityPackage, long>()
-            .GetByIdAsync(packageId);
-
-        if (package is null)
+        var paged = new PaginatedResponse<List<AdminCapacityRequestQueueItemDto>>
         {
-            return Result<bool>.Failure(
-                _localizer, SubscriptionConstants.Messages.PackageNotFound, HttpStatusCode.NotFound);
+            data = dtoList,
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount
+        };
+
+        return Result<PaginatedResponse<List<AdminCapacityRequestQueueItemDto>>>.Success(paged, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<CapacityRequestDto>> ApproveCapacityRequestAsync(
+        long adminUserId, long requestId)
+    {
+        // ── Load + state check ──
+        var request = await _unitOfWork.CapacityRequestsRepo.GetByIdForAdminAsync(requestId);
+        if (request is null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotFound, HttpStatusCode.NotFound);
         }
 
-        package.MonthlyPriceEGP = newMonthlyPriceEGP;
-        package.PriceUpdatedAt = DateTime.UtcNow;
-        package.PriceUpdatedByUserId = adminUserId;
+        if (request.Status != CapacityRequestStatus.Pending)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotPending,
+                HttpStatusCode.Conflict);
+        }
 
-        await _unitOfWork.Users.UpdateCapacityPackagePriceAsync(package);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(request.TeacherId);
+        if (teacher is null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+        }
+
+        // ── Capacity raise + status flip in ONE transaction ──
+        // Math.Max: never lower capacity, even if an admin already raised it past the
+        // requested value while this request sat in the queue.
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            teacher.StudentCapacity = Math.Max(teacher.StudentCapacity, request.RequestedCapacity);
+            await _unitOfWork.Users.UpdateTeacherAsync(teacher);
+
+            request.Status = CapacityRequestStatus.Approved;
+            request.ResolvedAt = DateTime.UtcNow;
+            request.ResolvedByUserId = adminUserId;
+            _unitOfWork.CapacityRequestsRepo.UpdateRequest(request);
+
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        // ── Post-commit, best-effort notification (module-standard enqueue pattern;
+        // the Application-layer IBackgroundJobClient use mirrors the existing
+        // subscription jobs and is a known §6.2 architectural violation). ──
+        // No subscription-cache invalidation needed: the cached projection carries
+        // dates only — the new price is read live at the next renewal initiation.
+        _backgroundJobs.Enqueue<ICapacityRequestResolvedNotificationJob>(
+            job => job.SendAsync(request.TeacherId, request.Id, true, null));
+
+        return Result<CapacityRequestDto>.Success(
+            ToCapacityRequestDto(request),
+            _localizer,
+            SubscriptionConstants.Messages.CapacityRequestApproved);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<CapacityRequestDto>> RejectCapacityRequestAsync(
+        long adminUserId, long requestId, string rejectionReason)
+    {
+        // ── Validation ──
+        if (string.IsNullOrWhiteSpace(rejectionReason))
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RejectionReasonRequired);
+        }
+
+        // ── Load + state check ──
+        var request = await _unitOfWork.CapacityRequestsRepo.GetByIdForAdminAsync(requestId);
+        if (request is null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotFound, HttpStatusCode.NotFound);
+        }
+
+        if (request.Status != CapacityRequestStatus.Pending)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.CapacityRequestNotPending,
+                HttpStatusCode.Conflict);
+        }
+
+        // ── Persist rejection ──
+        string trimmedReason = rejectionReason.Trim();
+        if (trimmedReason.Length > SubscriptionConstants.RejectionReasonMaxLength)
+        {
+            trimmedReason = trimmedReason[..SubscriptionConstants.RejectionReasonMaxLength];
+        }
+
+        request.Status = CapacityRequestStatus.Rejected;
+        request.ResolvedAt = DateTime.UtcNow;
+        request.ResolvedByUserId = adminUserId;
+        request.RejectionReason = trimmedReason;
+
+        _unitOfWork.CapacityRequestsRepo.UpdateRequest(request);
         await _unitOfWork.SaveChangesAsync();
 
-        // BR-SUB-009: in-flight pending payments retain their initiation-time price snapshot.
-        // No mass-update of pending rows here.
+        // ── Fire the rejection notification (push + UserNotification) ──
+        _backgroundJobs.Enqueue<ICapacityRequestResolvedNotificationJob>(
+            job => job.SendAsync(request.TeacherId, request.Id, false, trimmedReason));
 
-        return Result<bool>.Success(true, _localizer, SubscriptionConstants.Messages.PackagePriceUpdated);
+        return Result<CapacityRequestDto>.Success(
+            ToCapacityRequestDto(request),
+            _localizer,
+            SubscriptionConstants.Messages.CapacityRequestRejected);
+    }
+
+    // ════════════════════════════════════════════════
+    // PRICING (per-student rate: renewal = capacity × rate)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionPricingDto>> GetPricingAsync()
+    {
+        var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
+        if (setting is null)
+        {
+            // Defensive — the row is HasData-seeded; missing means the migration never ran.
+            return Result<SubscriptionPricingDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured, HttpStatusCode.NotFound);
+        }
+
+        return Result<SubscriptionPricingDto>.Success(ToPricingDto(setting), _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionPricingDto>> UpdatePricingAsync(
+        long adminUserId, decimal pricePerStudentEGP)
+    {
+        if (pricePerStudentEGP <= 0m)
+        {
+            return Result<SubscriptionPricingDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.PricePerStudentMustBePositive);
+        }
+
+        var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
+        if (setting is null)
+        {
+            return Result<SubscriptionPricingDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured, HttpStatusCode.NotFound);
+        }
+
+        setting.PricePerStudentEGP = pricePerStudentEGP;
+        setting.UpdatedAt = DateTime.UtcNow;
+        setting.UpdatedByUserId = adminUserId;
+        await _unitOfWork.SaveChangesAsync();
+
+        // BR-SUB-009: in-flight pending payments retain their initiation-time amount
+        // snapshot. No mass-update of pending rows here.
+
+        return Result<SubscriptionPricingDto>.Success(
+            ToPricingDto(setting), _localizer, SubscriptionConstants.Messages.PricePerStudentUpdated);
+    }
+
+    // ════════════════════════════════════════════════
+    // MODULE QUOTAS (free-tier limits table)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<List<ModuleQuotaDto>>> GetModuleQuotasAsync()
+    {
+        var rows = await _unitOfWork.ModuleQuotaRepo.GetAllAsync();
+        var dtos = rows.Select(ToModuleQuotaDto).ToList();
+        return Result<List<ModuleQuotaDto>>.Success(dtos, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ModuleQuotaDto>> UpdateModuleQuotaAsync(
+        long adminUserId, string moduleKey, UpdateModuleQuotaRequest request)
+    {
+        if (request.FreeTierLimit < 0 || request.FreeTierLimit > SubscriptionConstants.MaxFreeTierLimit)
+        {
+            return Result<ModuleQuotaDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.FreeTierLimitInvalid);
+        }
+
+        // Keys are code-defined (ModuleQuotaKeys) and seeded by migration — an unknown
+        // key 404s rather than inserting a row no gate would ever read.
+        var quota = await _unitOfWork.ModuleQuotaRepo.GetByKeyAsync(moduleKey?.Trim() ?? string.Empty);
+        if (quota is null)
+        {
+            return Result<ModuleQuotaDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.ModuleQuotaNotFound, HttpStatusCode.NotFound);
+        }
+
+        quota.FreeTierLimit = request.FreeTierLimit;
+        if (request.Description is not null)
+        {
+            quota.Description = string.IsNullOrWhiteSpace(request.Description)
+                ? null
+                : request.Description.Trim();
+        }
+        quota.UpdatedAt = DateTime.UtcNow;
+        quota.UpdatedByUserId = adminUserId;
+
+        await _unitOfWork.SaveChangesAsync();
+
+        // Immediate effect on this instance; other instances converge via the 60s TTL.
+        SubscriptionGateService.InvalidateLimitsCache();
+
+        return Result<ModuleQuotaDto>.Success(
+            ToModuleQuotaDto(quota), _localizer, SubscriptionConstants.Messages.ModuleQuotaUpdated);
     }
 
     // ════════════════════════════════════════════════
@@ -480,4 +709,30 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         return end < 0 ? blob[start..].Trim() : blob[start..end].Trim();
     }
 
+    private static CapacityRequestDto ToCapacityRequestDto(CapacityIncreaseRequest row) => new()
+    {
+        Id = row.Id,
+        RequestedCapacity = row.RequestedCapacity,
+        CapacityAtRequest = row.CapacityAtRequest,
+        Status = row.Status,
+        Note = row.Note,
+        RejectionReason = row.RejectionReason,
+        RequestedAt = row.RequestedAt,
+        ResolvedAt = row.ResolvedAt
+    };
+
+    private static SubscriptionPricingDto ToPricingDto(SubscriptionPricingSetting setting) => new()
+    {
+        PricePerStudentEGP = setting.PricePerStudentEGP,
+        UpdatedAt = setting.UpdatedAt,
+        UpdatedByUserId = setting.UpdatedByUserId
+    };
+
+    private static ModuleQuotaDto ToModuleQuotaDto(ModuleQuota quota) => new()
+    {
+        ModuleKey = quota.ModuleKey,
+        FreeTierLimit = quota.FreeTierLimit,
+        Description = quota.Description,
+        UpdatedAt = quota.UpdatedAt
+    };
 }

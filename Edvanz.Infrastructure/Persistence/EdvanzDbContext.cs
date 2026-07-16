@@ -82,6 +82,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     // ─── Subscription Management Module (Module 11 — v1.2) ───
     public DbSet<PendingSubscriptionPayment> PendingSubscriptionPayments { get; set; }
     public DbSet<SubscriptionAlert> SubscriptionAlerts { get; set; }
+    public DbSet<CapacityIncreaseRequest> CapacityIncreaseRequests { get; set; }
+    public DbSet<SubscriptionPricingSetting> SubscriptionPricingSettings { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
 
@@ -617,6 +619,72 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(a => new { a.TeacherId, a.SubscriptionEndDate, a.AlertDay })
                 .IsUnique()
                 .HasDatabaseName("IX_SubscriptionAlerts_Key");
+        });
+        #endregion
+
+        #region SubscriptionPricingSetting (per-student pricing: renewal = capacity × rate)
+        modelBuilder.Entity<SubscriptionPricingSetting>(entity =>
+        {
+            entity.ToTable("SubscriptionPricingSettings");
+
+            // Money: decimal(10,2) consistent with all EGP financial columns in the system.
+            entity.Property(p => p.PricePerStudentEGP)
+                .HasColumnType("decimal(10,2)");
+
+            // UpdatedByUser is an audit FK — keep the row even if the admin user is removed.
+            entity.HasOne(p => p.UpdatedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Seed the single settings row: 1 student = 2.50 EGP / month.
+            // Static values only (HasData requirement).
+            entity.HasData(new SubscriptionPricingSetting
+            {
+                Id = 1,
+                PricePerStudentEGP = 2.50m,
+                CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, DateTimeKind.Utc)
+            });
+        });
+        #endregion
+
+        #region CapacityIncreaseRequest (teacher-requested StudentCapacity raise, admin-approved)
+        modelBuilder.Entity<CapacityIncreaseRequest>(entity =>
+        {
+            entity.ToTable("CapacityIncreaseRequests");
+
+            entity.Property(r => r.Note)
+                .HasMaxLength(500);
+
+            // RejectionReason: nvarchar(500), surfaced to the teacher in the rejection notification.
+            entity.Property(r => r.RejectionReason)
+                .HasMaxLength(500);
+
+            // ── Relationships ──
+            // NoAction on the owning Teacher: requests are tenant-scoped audit rows.
+            entity.HasOne(r => r.Teacher)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ResolvedByUser is an audit FK — keep the row even if the admin user is removed.
+            entity.HasOne(r => r.ResolvedByUser)
+                .WithMany()
+                .HasForeignKey(r => r.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── Indexes ──
+            // One LIVE Pending request per teacher; terminal rows accumulate for audit.
+            // Keep the [Status] literal in sync with CapacityRequestStatus.Pending = 1
+            // (StudentTeacherLink filtered-index precedent).
+            entity.HasIndex(r => r.TeacherId)
+                .IsUnique()
+                .HasFilter("[Status] = 1")
+                .HasDatabaseName("UX_CapacityIncreaseRequests_Teacher_Pending");
+
+            // Admin FIFO queue listing (Status = Pending, RequestedAt ASC).
+            entity.HasIndex(r => new { r.Status, r.RequestedAt })
+                .HasDatabaseName("IX_CapacityIncreaseRequests_Status_RequestedAt");
         });
         #endregion
 
@@ -3385,6 +3453,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
             // Seed one row per known module. Static values only (HasData requirement).
             var seededAt = new DateTime(2026, 7, 10, 0, 0, 0, DateTimeKind.Utc);
+            var examsSeededAt = new DateTime(2026, 7, 17, 0, 0, 0, DateTimeKind.Utc);
             entity.HasData(
                 new ModuleQuota { Id = 1, ModuleKey = ModuleQuotaKeys.Students, FreeTierLimit = 1, CreateAt = seededAt },
                 new ModuleQuota { Id = 2, ModuleKey = ModuleQuotaKeys.Sessions, FreeTierLimit = 1, CreateAt = seededAt },
@@ -3394,7 +3463,10 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 new ModuleQuota { Id = 6, ModuleKey = ModuleQuotaKeys.AssignmentTemplates, FreeTierLimit = 1, CreateAt = seededAt },
                 new ModuleQuota { Id = 7, ModuleKey = ModuleQuotaKeys.Events, FreeTierLimit = 1, CreateAt = seededAt },
                 new ModuleQuota { Id = 8, ModuleKey = ModuleQuotaKeys.MessageTemplates, FreeTierLimit = 1, CreateAt = seededAt },
-                new ModuleQuota { Id = 9, ModuleKey = ModuleQuotaKeys.Triggers, FreeTierLimit = 0, CreateAt = seededAt }
+                new ModuleQuota { Id = 9, ModuleKey = ModuleQuotaKeys.Triggers, FreeTierLimit = 0, CreateAt = seededAt },
+                // Exam quotas added 2026-07-17 (paper + online exams were the only ungated creatables).
+                new ModuleQuota { Id = 10, ModuleKey = ModuleQuotaKeys.Exams, FreeTierLimit = 1, CreateAt = examsSeededAt },
+                new ModuleQuota { Id = 11, ModuleKey = ModuleQuotaKeys.OnlineExams, FreeTierLimit = 1, CreateAt = examsSeededAt }
             );
         });
         #endregion

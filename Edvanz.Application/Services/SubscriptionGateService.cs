@@ -88,6 +88,14 @@ public sealed class SubscriptionGateService : ISubscriptionGateService
         };
     }
 
+    /// <summary>
+    /// Drops the process-wide limits cache so the next gate check re-reads ModuleQuotas.
+    /// Called by the admin quota-update path (AdminSubscriptionService.UpdateModuleQuotaAsync)
+    /// so limit edits take effect immediately on this instance; other instances in a
+    /// multi-instance deployment still converge within the 60s TTL.
+    /// </summary>
+    public static void InvalidateLimitsCache() => _cachedLimits = null;
+
     private async Task<IReadOnlyDictionary<string, int>> GetLimitsCachedAsync()
     {
         if (_cachedLimits is not null && DateTime.UtcNow - _cachedAtUtc < CacheTtl)

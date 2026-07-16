@@ -33,25 +33,36 @@ public class ExamService : IExamService
     private readonly ITimeZoneService _timeZoneService;
     private readonly IExamAttendanceSyncService _examAttendanceSync;
     private readonly IExamHomeworkService _examHomework;
+    private readonly ISubscriptionGateService _subscriptionGate;
 
     public ExamService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Messages> localizer,
         ITimeZoneService timeZoneService,
         IExamAttendanceSyncService examAttendanceSync,
-        IExamHomeworkService examHomework)
+        IExamHomeworkService examHomework,
+        ISubscriptionGateService subscriptionGate)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
         _examAttendanceSync = examAttendanceSync;
         _examHomework = examHomework;
+        _subscriptionGate = subscriptionGate;
     }
 
     /// <inheritdoc />
     public async Task<Result<ExamCreatedDto>> CreateExamAsync(
         long teacherId, long actingUserId, CreateExamDto dto)
     {
+        // ── 0. Free-tier quota: paper exams (ModuleQuota table; subscribed teachers bypass) ──
+        if (!await _subscriptionGate.CanCreateAsync(
+                teacherId, Domain.Constants.ModuleQuotaKeys.Exams,
+                () => _unitOfWork.ExamHomeworkRepo.CountExamTemplatesByTeacherAsync(teacherId)))
+            return Result<ExamCreatedDto>.Failure(
+                _localizer, Domain.Constants.SubscriptionConstants.Messages.SubscriptionRequired,
+                HttpStatusCode.Forbidden);
+
         // ── 1. Scalar validation ─────────────────────────────────────────────
         if (string.IsNullOrWhiteSpace(dto.Name) || dto.Name.Trim().Length > 200)
             return Fail("ExamNameRequired");

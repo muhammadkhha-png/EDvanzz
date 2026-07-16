@@ -50,6 +50,8 @@ namespace Edvanz.Infrastructure
         // Subscription Management Module (Module 11 — v1.2)
         private ISubscriptionPaymentRepo? _subscriptionPaymentsRepo;
         private ISubscriptionAlertRepo? _subscriptionAlertsRepo;
+        private ICapacityIncreaseRequestRepo? _capacityRequestsRepo;
+        private ISubscriptionPricingRepo? _subscriptionPricingRepo;
         private IUserNotificationRepo? _userNotificationsRepo;
         private IUserDeviceTokenRepo? _userDeviceTokensRepo;
         // Exam & Homework Module repo (Module 6: templates, occurrences, obligations,
@@ -195,6 +197,12 @@ namespace Edvanz.Infrastructure
 
         public ISubscriptionAlertRepo SubscriptionAlertsRepo
             => _subscriptionAlertsRepo ??= new SubscriptionAlertRepo(_Context);
+
+        public ICapacityIncreaseRequestRepo CapacityRequestsRepo
+            => _capacityRequestsRepo ??= new CapacityIncreaseRequestRepo(_Context);
+
+        public ISubscriptionPricingRepo SubscriptionPricingRepo
+            => _subscriptionPricingRepo ??= new SubscriptionPricingRepo(_Context);
 
         public IUserNotificationRepo UserNotificationsRepo
             => _userNotificationsRepo ??= new UserNotificationRepo(_Context);

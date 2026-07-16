@@ -22,5 +22,11 @@ public enum NotificationCategory : byte
     /// Student-teacher link request lifecycle: new request received (teacher),
     /// request accepted/rejected or link removed by the teacher (student).
     /// </summary>
-    LinkRequest = 4
+    LinkRequest = 4,
+
+    /// <summary>Capacity-increase request approved — Teacher.StudentCapacity raised.</summary>
+    CapacityRequestApproved = 5,
+
+    /// <summary>Capacity-increase request rejected (body carries the reason).</summary>
+    CapacityRequestRejected = 6
 }

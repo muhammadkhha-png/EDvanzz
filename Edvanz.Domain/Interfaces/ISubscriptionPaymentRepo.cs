@@ -33,11 +33,9 @@ public interface ISubscriptionPaymentRepo : IGenericRepo<PendingSubscriptionPaym
     /// </summary>
     Task<PendingSubscriptionPayment?> GetByIdForAdminAsync(long pendingPaymentId);
 
-    /// <summary>
-    /// Paymob webhook lookup — incoming callback knows only the Paymob session id.
-    /// Indexed by IX_PendingSubscriptionPayments_PaymobSessionId.
-    /// </summary>
-    Task<PendingSubscriptionPayment?> GetByPaymobSessionIdAsync(string paymobSessionId);
+    // (GetByPaymobSessionIdAsync was removed 2026-07-17 with the Paymob webhook —
+    // the renewal flow is manual-only. The PaymobSessionId column and its index
+    // remain for historical rows.)
 
     // ══════════════════════════════════════════════
     // LIST QUERIES

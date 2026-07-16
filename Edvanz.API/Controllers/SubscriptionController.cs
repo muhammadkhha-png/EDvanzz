@@ -103,11 +103,12 @@ public class SubscriptionController : ApiBaseController
     //
     // WHAT IT DOES:
     //   Creates a PendingSubscriptionPayment row in Status = Initiated and returns
-    //   either a Paymob iframe URL (if PaymobOptions.Enabled = true and the gateway
-    //   responded) or the manual-pay instructions (D-04 stub fallback).
+    //   the manual-pay instructions. Amount = StudentCapacity × per-student rate,
+    //   snapshotted onto the pending row (BR-SUB-009). Manual is the only channel
+    //   (the Paymob path was removed 2026-07-17).
     //
     // TABLES WRITTEN: PendingSubscriptionPayments (one new row)
-    // TABLES READ: Teachers, StudentCapacityPackages
+    // TABLES READ: Teachers, SubscriptionPricingSettings
     //
     // SAMPLE: POST /api/subscription/renew/initiate
     //   { "paymentMethod": "VodafoneCash", "paymentChannel": "Manual" }
@@ -178,6 +179,91 @@ public class SubscriptionController : ApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _subscriptionService.GetRenewalStatusAsync(teacherId.Value, pendingPaymentId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 6: SUBMIT CAPACITY-INCREASE REQUEST
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Teacher asks the super admin to raise their StudentCapacity — the
+    //   configuration limit that bounds the roster AND drives the per-student
+    //   subscription price (capacity × rate). Increase-only; one live Pending
+    //   request per teacher (409 otherwise). Approval applies the capacity
+    //   immediately; the new price applies from the NEXT renewal.
+    //
+    // TABLES WRITTEN: CapacityIncreaseRequests (one new row)
+    // TABLES READ: Teachers
+    //
+    // SAMPLE: POST /api/subscription/capacity-requests
+    //   { "requestedCapacity": 600, "note": "Expecting a new class next month" }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("capacity-requests")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitCapacityRequest([FromBody] CreateCapacityRequestRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.SubmitCapacityRequestAsync(
+            teacherId.Value, _currentUser.UserId!.Value, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 7: LIST MY CAPACITY REQUESTS
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Paginated history of the calling teacher's capacity requests (all
+    //   statuses, newest first) so the app can show pending/approved/rejected
+    //   outcomes.
+    //
+    // TABLES READ: CapacityIncreaseRequests
+    //
+    // SAMPLE: GET /api/subscription/capacity-requests?page=1&pageSize=20
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("capacity-requests")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCapacityRequests(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.GetCapacityRequestsPagedAsync(teacherId.Value, page, pageSize);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 8: CANCEL A PENDING CAPACITY REQUEST
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Withdraws a Pending request (tenant-guarded). Terminal rows are kept for
+    //   audit; only Pending can be cancelled (409 otherwise).
+    //
+    // TABLES WRITTEN: CapacityIncreaseRequests (status flip)
+    //
+    // SAMPLE: DELETE /api/subscription/capacity-requests/42
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("capacity-requests/{requestId:long}")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelCapacityRequest([FromRoute] long requestId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.CancelCapacityRequestAsync(
+            teacherId.Value, _currentUser.UserId!.Value, requestId);
         return ToResponse(result);
     }
 

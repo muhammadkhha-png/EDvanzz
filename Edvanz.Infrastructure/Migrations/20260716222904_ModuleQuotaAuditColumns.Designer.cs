@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260716222904_ModuleQuotaAuditColumns")]
+    partial class ModuleQuotaAuditColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -597,64 +600,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasIndex("teacherId");
 
                     b.ToTable("AuditTrial");
-                });
-
-            modelBuilder.Entity("Edvanz.Domain.Entities.CapacityIncreaseRequest", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<int>("CapacityAtRequest")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreateAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("RejectionReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime>("RequestedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("RequestedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("RequestedCapacity")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("ResolvedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("ResolvedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.Property<byte>("Status")
-                        .HasColumnType("tinyint");
-
-                    b.Property<long>("TeacherId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ResolvedByUserId");
-
-                    b.HasIndex("TeacherId")
-                        .IsUnique()
-                        .HasDatabaseName("UX_CapacityIncreaseRequests_Teacher_Pending")
-                        .HasFilter("[Status] = 1");
-
-                    b.HasIndex("Status", "RequestedAt")
-                        .HasDatabaseName("IX_CapacityIncreaseRequests_Status_RequestedAt");
-
-                    b.ToTable("CapacityIncreaseRequests", (string)null);
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Chat.ChatMessage", b =>
@@ -1366,20 +1311,6 @@ namespace Edvanz.Infrastructure.Migrations
                             CreateAt = new DateTime(2026, 7, 10, 0, 0, 0, 0, DateTimeKind.Utc),
                             FreeTierLimit = 0,
                             ModuleKey = "Triggers"
-                        },
-                        new
-                        {
-                            Id = 10L,
-                            CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FreeTierLimit = 1,
-                            ModuleKey = "Exams"
-                        },
-                        new
-                        {
-                            Id = 11L,
-                            CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, 0, DateTimeKind.Utc),
-                            FreeTierLimit = 1,
-                            ModuleKey = "OnlineExams"
                         });
                 });
 
@@ -3414,41 +3345,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.ToTable("SubscriptionAlerts", (string)null);
                 });
 
-            modelBuilder.Entity("Edvanz.Domain.Entities.SubscriptionPricingSetting", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreateAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("PricePerStudentEGP")
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("UpdatedByUserId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UpdatedByUserId");
-
-                    b.ToTable("SubscriptionPricingSettings", (string)null);
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1L,
-                            CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, 0, DateTimeKind.Utc),
-                            PricePerStudentEGP = 2.50m
-                        });
-                });
-
             modelBuilder.Entity("Edvanz.Domain.Entities.Teacher", b =>
                 {
                     b.Property<long>("Id")
@@ -4947,24 +4843,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Navigation("module");
                 });
 
-            modelBuilder.Entity("Edvanz.Domain.Entities.CapacityIncreaseRequest", b =>
-                {
-                    b.HasOne("Edvanz.Domain.Entities.User", "ResolvedByUser")
-                        .WithMany()
-                        .HasForeignKey("ResolvedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Edvanz.Domain.Entities.Teacher", "Teacher")
-                        .WithMany()
-                        .HasForeignKey("TeacherId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.Navigation("ResolvedByUser");
-
-                    b.Navigation("Teacher");
-                });
-
             modelBuilder.Entity("Edvanz.Domain.Entities.Chat.ChatMessage", b =>
                 {
                     b.HasOne("Edvanz.Domain.Entities.Chat.Conversation", "Conversation")
@@ -5801,16 +5679,6 @@ namespace Edvanz.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Teacher");
-                });
-
-            modelBuilder.Entity("Edvanz.Domain.Entities.SubscriptionPricingSetting", b =>
-                {
-                    b.HasOne("Edvanz.Domain.Entities.User", "UpdatedByUser")
-                        .WithMany()
-                        .HasForeignKey("UpdatedByUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("UpdatedByUser");
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Teacher", b =>
