@@ -115,10 +115,12 @@ builder.Services.AddSwaggerGen(c =>
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
     // Fully automatic examples — no per-endpoint/per-module providers.
-    //   • AutoExampleSchemaFilter  → request-body example for every DTO (from its type).
+    //   • AutoExampleSchemaFilter  → request-body example for every DTO (from its type)
+    //     + "Allowed values: …" appended to every enum field. Registered AFTER
+    //     IncludeXmlComments (below) so it appends to, rather than is overwritten by,
+    //     the XML-comment description.
     //   • ResponseEnvelopeExampleFilter → { success, message, data } example for every response.
     // Covers all endpoints, old and new, with zero maintenance.
-    c.SchemaFilter<AutoExampleSchemaFilter>();
     c.OperationFilter<ResponseEnvelopeExampleFilter>();
     c.UseInlineDefinitionsForEnums();
 
@@ -136,6 +138,10 @@ builder.Services.AddSwaggerGen(c =>
     var appPath = Path.Combine(basePath, appXml);
     if (File.Exists(appPath))
         c.IncludeXmlComments(appPath);
+
+    // Registered LAST so its enum "Allowed values: …" text appends to the XML-comment
+    // description instead of being overwritten by it.
+    c.SchemaFilter<AutoExampleSchemaFilter>();
 });
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 // ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────

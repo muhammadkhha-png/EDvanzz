@@ -33,10 +33,25 @@ public sealed class AutoExampleSchemaFilter : ISchemaFilter
     {
         // Only the mutable implementation can carry an example; refs/read-only skip.
         if (schema is not OpenApiSchema concrete || context?.Type is null) return;
-        if (concrete.Example is not null) return; // respect explicit/curated examples
 
-        JsonNode? example = BuildForType(context.Type, new HashSet<Type>(), 0);
-        if (example is not null) concrete.Example = example;
+        Type type = Nullable.GetUnderlyingType(context.Type) ?? context.Type;
+
+        // Enums: spell out every allowed value in the description so the reader/frontend
+        // sees exactly what can be written (the example itself only shows one value).
+        if (type.IsEnum)
+        {
+            string allowed = "Allowed values: " + string.Join(", ", Enum.GetNames(type)) + ".";
+            if (string.IsNullOrWhiteSpace(concrete.Description))
+                concrete.Description = allowed;
+            else if (!concrete.Description.Contains("Allowed values:"))
+                concrete.Description = concrete.Description.TrimEnd() + " " + allowed;
+        }
+
+        if (concrete.Example is null) // respect explicit/curated examples
+        {
+            JsonNode? example = BuildForType(context.Type, new HashSet<Type>(), 0);
+            if (example is not null) concrete.Example = example;
+        }
     }
 
     private static JsonNode? BuildForType(Type type, HashSet<Type> seen, int depth)
