@@ -3,7 +3,7 @@
   "info": {
     "title": "Edvanz — Student↔Teacher Linking (Request/Approval)",
     "version": "1.0",
-    "description": "The redesigned student-teacher linking flow (2026-07-12). It REPLACES the old 3-credential instant link (`TeacherCode + StudentCode + HashedToken`) — those student-side endpoints no longer exist.\n\n**The flow:**\n1. The teacher reads their shareable 8-digit code (`GET /api/teacher/student-links/my-code`) and gives it to students.\n2. The student sends a link REQUEST (`POST /api/studentuser/me/link-requests`) with that code, their own typed name, and — optionally — the student code the teacher assigned them (e.g. `A5`).\n3. The request appears on the teacher's inbox (`GET /api/teacher/student-links/requests`) with the requester's account identity and, when a student code was supplied, a suggested roster match.\n4. The teacher ACCEPTS (binding the request to one of their TeacherStudent roster records) or REJECTS. The student gets a push notification + the outcome is visible as `status` on `GET /api/studentuser/me/teachers`.\n5. Either side can end an Active link: the student via `DELETE /api/studentuser/me/teachers/{teacherId}` (also cancels a still-pending request), the teacher via `POST /api/teacher/student-links/remove` (one or many).\n\n**Link lifecycle (`status`):** `Pending` → `Active` (accepted) | `Rejected` (rejected) | `CancelledByStudent` (student cancelled); `Active` → `Unlinked` (student removed) | `RemovedByTeacher` (teacher removed). Terminal states are kept for history; the student can always send a NEW request afterwards. At most one live (Pending/Active) link exists per student-teacher pair, and one roster record can be claimed by at most one student account.\n\n**Auth:** student endpoints require a Student-role Bearer JWT; teacher endpoints require a Teacher/Assistant Bearer JWT (assistants act for their owning tutor, gated by Student-module permissions). Identity is ALWAYS taken from the token — no user ids in routes/bodies.\n\n**Envelope:** every response is `{ success, code, message, data }`. `code` is a stable language-independent string to branch on; `message` is localized via `Accept-Language: en | ar`.\n\n**Visibility:** each teacher entry returned to the student carries the teacher's module visibility flags (`visibilityAttendance/Payment/Homework/ExamDefault`) — once a link is `Active`, the app shows exactly the module tiles these flags allow. The per-module data endpoints (attendance, videos, …) only work for `Active` links.\n\n**Push notifications:** the teacher is notified when a request arrives; the student is notified on accept, reject, and teacher-removal (FCM + in-app inbox `GET /api/notifications`)."
+    "description": "The redesigned student-teacher linking flow (2026-07-12). It REPLACES the old 3-credential instant link (`TeacherCode + StudentCode + HashedToken`) — those student-side endpoints no longer exist.\n\n**The flow:**\n1. The teacher reads their shareable 8-digit code (`GET /api/teacher/student-links/my-code`) and gives it to students.\n2. The student sends a link REQUEST (`POST /api/studentuser/me/link-requests`) with that code, their own typed name, and — optionally — the student code the teacher assigned them (e.g. `A5`).\n3. The request appears on the teacher's inbox (`GET /api/teacher/student-links/requests`) with the requester's account identity and, when a student code was supplied, a suggested student match.\n4. The teacher ACCEPTS (binding the request to one of their TeacherStudent student records) or REJECTS. The student gets a push notification + the outcome is visible as `status` on `GET /api/studentuser/me/teachers`.\n5. Either side can end an Active link: the student via `DELETE /api/studentuser/me/teachers/{teacherId}` (also cancels a still-pending request), the teacher via `POST /api/teacher/student-links/remove` (one or many).\n\n**Link lifecycle (`status`):** `Pending` → `Active` (accepted) | `Rejected` (rejected) | `CancelledByStudent` (student cancelled); `Active` → `Unlinked` (student removed) | `RemovedByTeacher` (teacher removed). Terminal states are kept for history; the student can always send a NEW request afterwards. At most one live (Pending/Active) link exists per student-teacher pair, and one student record can be claimed by at most one student account.\n\n**Auth:** student endpoints require a Student-role Bearer JWT; teacher endpoints require a Teacher/Assistant Bearer JWT (assistants act for their owning tutor, gated by Student-module permissions). Identity is ALWAYS taken from the token — no user ids in routes/bodies.\n\n**Envelope:** every response is `{ success, code, message, data }`. `code` is a stable language-independent string to branch on; `message` is localized via `Accept-Language: en | ar`.\n\n**Visibility:** each teacher entry returned to the student carries the teacher's module visibility flags (`visibilityAttendance/Payment/Homework/ExamDefault`) — once a link is `Active`, the app shows exactly the module tiles these flags allow. The per-module data endpoints (attendance, videos, …) only work for `Active` links.\n\n**Push notifications:** the teacher is notified when a request arrives; the student is notified on accept, reject, and teacher-removal (FCM + in-app inbox `GET /api/notifications`)."
   },
   "servers": [
     {
@@ -195,7 +195,7 @@
           "Student — teacher linking"
         ],
         "summary": "Send a link request to a teacher",
-        "description": "Creates a `Pending` request. `teacherCode` is the teacher's public 8-digit code; `studentName` is typed by the student so the teacher can recognize them; `studentCode` is OPTIONAL — when it matches a roster record it pre-suggests the binding on the teacher's accept screen. The link only becomes usable after the teacher accepts.",
+        "description": "Creates a `Pending` request. `teacherCode` is the teacher's public 8-digit code; `studentName` is typed by the student so the teacher can recognize them; `studentCode` is OPTIONAL — when it matches a student record it pre-suggests the binding on the teacher's accept screen. The link only becomes usable after the teacher accepts.",
         "requestBody": {
           "required": true,
           "content": {
@@ -213,7 +213,7 @@
                   }
                 },
                 "withoutCode": {
-                  "summary": "No code — teacher will pick the roster record manually",
+                  "summary": "No code — teacher will pick the student record manually",
                   "value": {
                     "teacherCode": "48291057",
                     "studentName": "Mohamed Ahmed"
@@ -409,7 +409,7 @@
           "Teacher — student links"
         ],
         "summary": "Pending link requests inbox",
-        "description": "Newest first. Each item shows what the student typed (`requestedStudentName`, `requestedStudentCode`) plus their real account identity (`studentFullName`, `studentPhoneNumber`, `studentAccountCode`), and — when the typed code matched a roster record — `suggestedMatch` for one-tap accept. `suggestedMatch.isAlreadyLinked = true` warns that accepting with that record will 409. Requires `Student / ViewList`.",
+        "description": "Newest first. Each item shows what the student typed (`requestedStudentName`, `requestedStudentCode`) plus their real account identity (`studentFullName`, `studentPhoneNumber`, `studentAccountCode`), and — when the typed code matched a student record — `suggestedMatch` for one-tap accept. `suggestedMatch.isAlreadyLinked = true` warns that accepting with that record will 409. Requires `Student / ViewList`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/page"
@@ -478,8 +478,8 @@
         "tags": [
           "Teacher — student links"
         ],
-        "summary": "Accept a request (optionally link a roster student)",
-        "description": "Activates the link (CONNECTS the account). Optionally binds it to ONE of this teacher's TeacherStudent roster records in the same call: pass `teacherStudentId` (e.g. from `suggestedMatch` or a roster picker) or the teacher-assigned `studentCode`. A supplied target that does not resolve FAILS the accept. Omit both to accept UNBOUND — connected but Not linked (`LinkRequestAcceptedUnlinked`, `isLinked: false`, no data access) — and link later via /{linkId}/bind. There is NO auto-match by the request's typed code. The student is push-notified. Requires `Student / Add`.",
+        "summary": "Accept a request (optionally link a student record)",
+        "description": "Activates the link (CONNECTS the account). Optionally binds it to ONE of this teacher's TeacherStudent student records in the same call: pass `teacherStudentId` (e.g. from `suggestedMatch` or a student picker) or the teacher-assigned `studentCode`. A supplied target that does not resolve FAILS the accept. Omit both to accept UNBOUND — connected but Not linked (`LinkRequestAcceptedUnlinked`, `isLinked: false`, no data access) — and link later via /{linkId}/bind. There is NO auto-match by the request's typed code. The student is push-notified. Requires `Student / Add`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/linkId"
@@ -498,13 +498,13 @@
                   "value": {}
                 },
                 "acceptAndLinkById": {
-                  "summary": "Accept & link — explicit roster selection",
+                  "summary": "Accept & link — explicit student selection",
                   "value": {
                     "teacherStudentId": 88
                   }
                 },
                 "acceptAndLinkByCode": {
-                  "summary": "Accept & link — by the teacher's roster code",
+                  "summary": "Accept & link — by the teacher's student code",
                   "value": {
                     "studentCode": "A12"
                   }
@@ -525,7 +525,7 @@
             }
           },
           "400": {
-            "description": "The supplied code is the student's ACCOUNT code, not a roster code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
+            "description": "The supplied code is the student's ACCOUNT code, not the teacher's student code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
             "content": {
               "application/json": {
                 "schema": {
@@ -541,7 +541,7 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Request not found (`LinkRequestNotFound`) or selected roster record not found (`RosterStudentNotFound`)",
+            "description": "Request not found (`LinkRequestNotFound`), wrong student code (`TeacherStudentCodeNotFound`), or selected student id not found (`RosterStudentNotFound`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -551,7 +551,7 @@
             }
           },
           "409": {
-            "description": "Already accepted/rejected (`LinkRequestAlreadyResolved`) or roster record already claimed by another account (`RosterStudentAlreadyClaimed`)",
+            "description": "Already accepted/rejected (`LinkRequestAlreadyResolved`) or student record already claimed by another account (`RosterStudentAlreadyClaimed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -561,7 +561,7 @@
             }
           },
           "422": {
-            "description": "No roster record could be resolved — the teacher must pick one (`RosterStudentSelectionRequired`)",
+            "description": "No student record could be resolved — the teacher must pick one (`RosterStudentSelectionRequired`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -631,7 +631,7 @@
           "Teacher — student links"
         ],
         "summary": "My linked students",
-        "description": "All `Active` links, newest first — the student's account identity plus the bound roster record (`rosterStudent*` are null if the teacher later deleted that record). Requires `Student / ViewList`.",
+        "description": "All `Active` links, newest first — the student's account identity plus the bound student record (`rosterStudent*` are null if the teacher later deleted that record). Requires `Student / ViewList`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/page"
@@ -758,8 +758,8 @@
         "tags": [
           "Teacher — student links"
         ],
-        "summary": "Link or re-point an accepted connection to a roster student",
-        "description": "Points an Active link at ONE of this teacher's TeacherStudent roster records (`IsLinked: true`) or re-points it (\"Change linked student\"). Binding to the record it already holds is an idempotent success. Use /{linkId}/unbind (no body) to clear the binding while staying Active. The student is push-notified. Requires `Student / Edit`.",
+        "summary": "Link or re-point an accepted connection to a student record",
+        "description": "Points an Active link at ONE of this teacher's TeacherStudent student records (`IsLinked: true`) or re-points it (\"Change linked student\"). Binding to the record it already holds is an idempotent success. Use /{linkId}/unbind (no body) to clear the binding while staying Active. The student is push-notified. Requires `Student / Edit`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/linkId"
@@ -774,13 +774,13 @@
               },
               "examples": {
                 "byId": {
-                  "summary": "Explicit roster selection",
+                  "summary": "Explicit student selection",
                   "value": {
                     "teacherStudentId": 88
                   }
                 },
                 "byCode": {
-                  "summary": "By the teacher's roster code (NOT the studentAccountCode)",
+                  "summary": "By the teacher's student code (NOT the studentAccountCode)",
                   "value": {
                     "studentCode": "A12"
                   }
@@ -801,7 +801,7 @@
             }
           },
           "400": {
-            "description": "No target supplied (`BindTargetRequired`), the supplied code is the student's ACCOUNT code rather than a roster code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
+            "description": "No target supplied (`BindTargetRequired`), the supplied code is the student's ACCOUNT code rather than the teacher's student code (`StudentAccountCodeNotRosterCode`), or the body contains an unknown field",
             "content": {
               "application/json": {
                 "schema": {
@@ -817,7 +817,7 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "Link not found (`LinkNotFound`) or roster record not found (`RosterStudentNotFound`)",
+            "description": "Link not found (`LinkNotFound`), wrong student code (`TeacherStudentCodeNotFound`), or selected student id not found (`RosterStudentNotFound`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -827,7 +827,7 @@
             }
           },
           "409": {
-            "description": "Link is not Active (`LinkNotActive`) or the roster record is already claimed by another account (`RosterStudentAlreadyClaimed`)",
+            "description": "Link is not Active (`LinkNotActive`) or the student record is already claimed by another account (`RosterStudentAlreadyClaimed`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1099,7 +1099,7 @@
           },
           "isEnrollmentActive": {
             "type": "boolean",
-            "description": "True only when status=Active AND the teacher's roster record still exists"
+            "description": "True only when status=Active AND the teacher's student record still exists"
           },
           "visibilityAttendance": {
             "type": "boolean"
@@ -1246,7 +1246,7 @@
           },
           "studentName": {
             "type": "string",
-            "description": "Name on the teacher's roster record"
+            "description": "Name on the teacher's student record"
           },
           "studentCode": {
             "type": "string",
@@ -1336,19 +1336,19 @@
       },
       "AcceptLinkRequestRequest": {
         "type": "object",
-        "description": "Accepting CONNECTS the account (Active). Linking to a roster record is optional here (\"Accept & link\") and can also be done later via /bind. Unknown JSON fields are rejected (400).",
+        "description": "Accepting CONNECTS the account (Active). Linking to a student record is optional here (\"Accept & link\") and can also be done later via /bind. Unknown JSON fields are rejected (400).",
         "properties": {
           "teacherStudentId": {
             "type": "integer",
             "format": "int64",
             "nullable": true,
-            "description": "Explicit roster record to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
+            "description": "Explicit student record id to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
           },
           "studentCode": {
             "type": "string",
             "maxLength": 20,
             "nullable": true,
-            "description": "TEACHER-assigned roster student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the record when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
+            "description": "Teacher-assigned student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the student when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
           }
         }
       },
@@ -1377,7 +1377,7 @@
             "type": "integer",
             "format": "int64",
             "nullable": true,
-            "description": "Null if the teacher deleted the roster record after linking"
+            "description": "Null if the teacher deleted the student record after linking"
           },
           "rosterStudentName": {
             "type": "string",
@@ -1496,19 +1496,19 @@
       },
       "BindStudentLinkRequest": {
         "type": "object",
-        "description": "Link (or re-point) an ACCEPTED connection to a roster record — the step that unlocks the student's access. Supply teacherStudentId OR studentCode; neither → 400 `BindTargetRequired`. Unknown JSON fields are rejected (400).",
+        "description": "Link (or re-point) an ACCEPTED connection to a student record — the step that unlocks the student's access. Supply teacherStudentId OR studentCode; neither → 400 `BindTargetRequired`. Unknown JSON fields are rejected (400).",
         "properties": {
           "teacherStudentId": {
             "type": "integer",
             "format": "int64",
             "nullable": true,
-            "description": "Explicit roster record to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
+            "description": "Explicit student record id to bind (takes precedence over studentCode). Omit BOTH fields to accept unbound (connected, Not linked, no data access)."
           },
           "studentCode": {
             "type": "string",
             "maxLength": 20,
             "nullable": true,
-            "description": "TEACHER-assigned roster student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the record when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
+            "description": "Teacher-assigned student code (TeacherStudent.StudentCode, e.g. \"A12\") to resolve the student when no id is given. NOT the student's account code (the 10-char studentAccountCode shown on link rows) — sending that returns 400 `StudentAccountCodeNotRosterCode`. A supplied id/code that does not resolve FAILS the accept."
           }
         }
       }

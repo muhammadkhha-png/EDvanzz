@@ -414,7 +414,11 @@ credential flow on the student side (the PARENT Method B flow still uses it —
   globally-unique account code (`StudentUser.StudentAccountCode`, the 10-char
   `studentAccountCode` on link rows). Passing the account code returns 400
   `StudentAccountCodeNotRosterCode` (dedicated message; the generic
-  `RosterStudentNotFound` confused the frontend into reporting it as a bug). Both DTOs
+  `RosterStudentNotFound` confused the frontend into reporting it as a bug). A wrong
+  CODE returns 404 `TeacherStudentCodeNotFound` ("Wrong student code was provided…");
+  `RosterStudentNotFound` is now only for a wrong `teacherStudentId`. Message TEXTS
+  avoid the word "roster" (user-unfriendly); the `Roster*` resx keys and
+  `rosterStudent*` DTO fields keep their names — shipped wire contract. Both DTOs
   reject unknown JSON fields (`JsonUnmappedMemberHandling.Disallow`) so a typo'd field
   400s instead of silently succeeding. `IsLinked` (= `Active && TeacherStudentId !=
   null`) is exposed on the teacher `LinkedStudentListItemDto` AND the student

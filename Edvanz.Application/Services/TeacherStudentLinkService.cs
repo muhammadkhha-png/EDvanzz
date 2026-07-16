@@ -399,6 +399,11 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
                 if (string.Equals(studentUser?.StudentAccountCode, normalized, StringComparison.OrdinalIgnoreCase))
                     return (null, Result<LinkedStudentListItemDto>.Failure(
                         _localizer, "StudentAccountCodeNotRosterCode", HttpStatusCode.BadRequest));
+
+                // Wrong CODE gets its own wording; the generic "selected student not
+                // found" below is for the id path, where the caller sent a picker id.
+                return (null, Result<LinkedStudentListItemDto>.Failure(
+                    _localizer, "TeacherStudentCodeNotFound", HttpStatusCode.NotFound));
             }
         }
         else
