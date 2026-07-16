@@ -122,6 +122,9 @@ builder.Services.AddSwaggerGen(c =>
     //   • ResponseEnvelopeExampleFilter → { success, message, data } example for every response.
     // Covers all endpoints, old and new, with zero maintenance.
     c.OperationFilter<ResponseEnvelopeExampleFilter>();
+    // Parameter-level examples so imported GET requests get filled query strings
+    // (Postman ignores schema-level examples on parameters) — see ParameterExampleFilter.
+    c.OperationFilter<ParameterExampleFilter>();
     c.UseInlineDefinitionsForEnums();
     // Collision-proof schemaIds: two DTOs sharing a class name across namespaces used
     // to abort the whole spec generation ("Can't use schemaId ... already used") — see
