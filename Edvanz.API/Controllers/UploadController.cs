@@ -60,12 +60,12 @@ public sealed class UploadController : ApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> Replace([FromForm] string url, [FromForm] IFormFile file)
+    public async Task<IActionResult> Replace([FromForm] ReplaceFileForm form)
     {
         long? userId = _currentUser.UserId;
         if (userId is null) return UserNotResolved();
 
-        return ToResponse(await _uploads.ReplaceFileAsync(userId.Value, _currentUser.Role, url, file));
+        return ToResponse(await _uploads.ReplaceFileAsync(userId.Value, _currentUser.Role, form.Url, form.File));
     }
 
     /// <summary>Deletes the file behind <paramref name="url"/>. Idempotent. Ownership-guarded.</summary>
@@ -81,4 +81,22 @@ public sealed class UploadController : ApiBaseController
 
         return ToResponse(await _uploads.DeleteFileAsync(userId.Value, _currentUser.Role, url));
     }
+}
+
+/// <summary>
+/// Multipart form model for <see cref="UploadController.Replace"/>. Bundling the
+/// scalar <c>url</c> field and the <c>file</c> together in a single [FromForm] type
+/// keeps Swashbuckle able to generate the OpenAPI schema — a [FromForm] string mixed
+/// with a bare [FromForm] IFormFile parameter throws SwaggerGeneratorException and
+/// aborts the whole document. Field names (url, file) bind unchanged on the wire.
+/// </summary>
+public sealed class ReplaceFileForm
+{
+    /// <summary>URL of the existing blob to replace.</summary>
+    [FromForm]
+    public string Url { get; set; } = default!;
+
+    /// <summary>The new file to upload in its place.</summary>
+    [FromForm]
+    public IFormFile File { get; set; } = default!;
 }
