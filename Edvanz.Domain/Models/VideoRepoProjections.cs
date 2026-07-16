@@ -41,6 +41,12 @@ public sealed class TeacherVideoListRow
     /// <summary>= <see cref="StudentsInScope"/> - <see cref="SeenStudentCount"/> (G-ANL-3).</summary>
     public int UnseenStudentCount { get; set; }
 
+    /// <summary>Publish state (Draft/Published), shown on the list card.</summary>
+    public Enums.VideoStatus Status { get; set; }
+
+    /// <summary>Scheduled-publish timestamp, or null — lets the card distinguish Scheduled from Published.</summary>
+    public DateTime? PublishDate { get; set; }
+
     /// <summary>
     /// Registry file id (<c>FileObject.Id</c>) of the video's cover photo, or null. The service
     /// batch-resolves these to the opaque <c>PublicId</c> + gated URL for the list card (no

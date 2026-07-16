@@ -135,6 +135,8 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
                     .Where(a => a.VideoAssetId == v.Id)
                     .Sum(a => (int?)a.OpenCount) ??0,
                 SeenStudentCount = _context.VideoAnalytics.Count(a => a.VideoAssetId == v.Id),
+                Status = v.Status,
+                PublishDate = v.PublishDate,
                 // Parity with GetTeacherVideosPagedAsync: cover-photo id (resolved to
                 // PublicId + gated URL in the service) and the exam/attachment counts.
                 VideoPhotoFileId = v.VideoPhotoFileId,

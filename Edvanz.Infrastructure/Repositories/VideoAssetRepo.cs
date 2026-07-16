@@ -297,6 +297,8 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                // implies the student has opened the video once.
                SeenStudentCount = _context.VideoAnalytics
                     .Count(a => a.VideoAssetId == v.Id),
+               Status = v.Status,
+               PublishDate = v.PublishDate,
                // Cover-photo registry id (resolved to PublicId + gated URL in the service).
                VideoPhotoFileId = v.VideoPhotoFileId,
                // Exam question count (0 when the video has no exam) and live attachment count —

@@ -186,6 +186,8 @@ public sealed class VideoUnitService : IVideoUnitService
             TotalOpens = r.TotalOpens,
             SeenStudentCount = r.SeenStudentCount,
             UnseenStudentCount = r.UnseenStudentCount,
+            Status = r.Status,
+            PublishDate = r.PublishDate,
             VideoPhotoFileId = r.VideoPhotoFileId is long pid && photosById.TryGetValue(pid, out var photo)
                 ? photo.PublicId
                 : null,

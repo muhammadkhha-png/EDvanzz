@@ -592,6 +592,20 @@ public sealed class TeacherVideoListItemDto
     public int UnseenStudentCount { get; set; }
 
     /// <summary>
+    /// Publish state — <c>Draft</c> or <c>Published</c>. Combined with
+    /// <see cref="PublishDate"/> the client can show Draft / Published / Scheduled on the card.
+    /// Serialized as a string (global <c>JsonStringEnumConverter</c>).
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoStatus Status { get; set; }
+
+    /// <summary>
+    /// Scheduled-publish timestamp, or null. When <see cref="Status"/> is Published and this is a
+    /// future date the video is "Scheduled" (hidden from students until reached).
+    /// </summary>
+    public DateTime? PublishDate { get; set; }
+
+    /// <summary>
     /// The current video photo's <c>fileId</c> (FileObject.PublicId), or null if none. Mirrors
     /// the edit-screen field on <see cref="VideoDetailDto"/> so the list card can render the cover.
     /// </summary>
