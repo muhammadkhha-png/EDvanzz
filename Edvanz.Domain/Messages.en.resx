@@ -259,7 +259,7 @@
     <value>The selected student record was not found in your account</value>
   </data>
   <data name="RosterStudentAlreadyClaimed" xml:space="preserve">
-    <value>This student record is already linked to another student account</value>
+    <value>This student is already linked to another student account — if you want to link it here, unbind that student first</value>
   </data>
   <data name="LinkedStudentsRemoved" xml:space="preserve">
     <value>Selected students have been removed from your linked students</value>

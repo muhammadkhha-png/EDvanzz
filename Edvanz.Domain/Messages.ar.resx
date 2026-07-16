@@ -259,7 +259,7 @@
     <value>سجل الطالب اللي اخترته مش موجود في حسابك</value>
   </data>
   <data name="RosterStudentAlreadyClaimed" xml:space="preserve">
-    <value>سجل الطالب ده مربوط بحساب طالب تاني بالفعل</value>
+    <value>الطالب ده مربوط بحساب طالب تاني بالفعل — لو عايز تربطه هنا، افصل الربط التاني الأول</value>
   </data>
   <data name="LinkedStudentsRemoved" xml:space="preserve">
     <value>تم إزالة الطلاب المحددين من قائمة طلابك المرتبطين</value>
