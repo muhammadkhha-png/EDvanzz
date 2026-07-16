@@ -87,6 +87,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IMessageSenderJob, MessageSenderJob>();
 
+        // Generic file upload (images + PDF → permanent public blob URLs)
+        services.AddScoped<IFileUploadService, FileUploadService>();
+
         #endregion
 
         // ════════════════════════════════════════════════

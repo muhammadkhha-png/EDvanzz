@@ -1477,6 +1477,27 @@
 <data name="AttachmentUpdateFailedVideoSaved" xml:space="preserve">
     <value>التعديلات اتحفظت، بس الملف المرفق ماتحدثش. جرّب ترفعه تاني</value>
   </data>
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- FILE UPLOAD MODULE                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="UploadNoFiles" xml:space="preserve">
+    <value>مفيش أي ملفات اترفعت.</value>
+  </data>
+  <data name="UploadTooManyFiles" xml:space="preserve">
+    <value>ملفات كتير أوي في الطلب الواحد. ارفع ملفات أقل.</value>
+  </data>
+  <data name="UploadFileTooLarge" xml:space="preserve">
+    <value>واحد من الملفات كبير أوي. الحد الأقصى ١٠ ميجا للملف.</value>
+  </data>
+  <data name="UploadInvalidType" xml:space="preserve">
+    <value>نوع الملف ده مش مدعوم. مسموح بالصور وملفات PDF بس.</value>
+  </data>
+  <data name="UploadInvalidUrl" xml:space="preserve">
+    <value>رابط الملف غير صحيح أو مش تابع للتخزين بتاعنا.</value>
+  </data>
+  <data name="UploadFileNotOwned" xml:space="preserve">
+    <value>تقدر تعدّل أو تمسح الملفات اللي إنت رفعتها بس.</value>
+  </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->

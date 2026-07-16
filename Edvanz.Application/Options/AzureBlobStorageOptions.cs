@@ -13,4 +13,11 @@ public class AzureBlobStorageOptions
 
     /// <summary>Container name attachments are uploaded into.</summary>
     public string ContainerName { get; set; } = "video-attachments";
+
+    /// <summary>
+    /// Container for the generic upload endpoint. PUBLIC (anonymous blob read) so
+    /// the returned URLs are permanent and directly embeddable. Separate from
+    /// <see cref="ContainerName"/> (private video attachments served via SAS).
+    /// </summary>
+    public string PublicContainerName { get; set; } = "uploads";
 }

@@ -1433,6 +1433,27 @@
     <value>Your changes were saved, but the attachment couldn't be updated. Please try uploading it again</value>
   </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>Video units updated</value></data>
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- FILE UPLOAD MODULE (generic images + PDF → public blob URLs)     -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <data name="UploadNoFiles" xml:space="preserve">
+    <value>No files were provided.</value>
+  </data>
+  <data name="UploadTooManyFiles" xml:space="preserve">
+    <value>Too many files in one request. Please upload fewer files.</value>
+  </data>
+  <data name="UploadFileTooLarge" xml:space="preserve">
+    <value>One of the files is too large. The maximum size is 10 MB per file.</value>
+  </data>
+  <data name="UploadInvalidType" xml:space="preserve">
+    <value>Unsupported file type. Only images and PDF files are allowed.</value>
+  </data>
+  <data name="UploadInvalidUrl" xml:space="preserve">
+    <value>The file URL is invalid or does not belong to this storage.</value>
+  </data>
+  <data name="UploadFileNotOwned" xml:space="preserve">
+    <value>You can only modify or delete files you uploaded.</value>
+  </data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->
   <!-- ═══════════════════════════════════════════════════════════════ -->

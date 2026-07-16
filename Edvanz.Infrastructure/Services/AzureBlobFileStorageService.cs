@@ -17,12 +17,14 @@ namespace Edvanz.Infrastructure.Services;
 public sealed class AzureBlobFileStorageService : IFileStorageService
 {
     private readonly BlobContainerClient _containerClient;
+    private readonly BlobContainerClient _publicContainerClient;
 
     public AzureBlobFileStorageService(IOptions<AzureBlobStorageOptions> options)
     {
         var config = options.Value;
         var serviceClient = new BlobServiceClient(config.ConnectionString);
         _containerClient = serviceClient.GetBlobContainerClient(config.ContainerName);
+        _publicContainerClient = serviceClient.GetBlobContainerClient(config.PublicContainerName);
     }
 
     /// <inheritdoc />
@@ -70,5 +72,55 @@ public sealed class AzureBlobFileStorageService : IFileStorageService
         }
 
         return Task.FromResult(blobClient.GenerateSasUri(sasBuilder).ToString());
+    }
+
+    /// <inheritdoc />
+    public async Task<string> UploadPublicAsync(string blobPath, Stream content, string contentType)
+    {
+        // Public-read container so the returned URL is permanent and directly
+        // embeddable. CreateIfNotExists is a no-op when the container already
+        // exists (e.g. pre-created public via the Azure CLI). Requires the
+        // storage account to permit anonymous blob access.
+        await _publicContainerClient.CreateIfNotExistsAsync(PublicAccessType.Blob);
+
+        var blobClient = _publicContainerClient.GetBlobClient(blobPath);
+        await blobClient.UploadAsync(content, new BlobUploadOptions
+        {
+            HttpHeaders = new BlobHttpHeaders
+            {
+                ContentType = contentType,                             // so <img>/PDF render correctly
+                CacheControl = "public, max-age=31536000, immutable",  // objects are immutable — new URL on change
+            },
+        });
+
+        return blobClient.Uri.ToString();
+    }
+
+    /// <inheritdoc />
+    public async Task DeletePublicAsync(string blobPath) =>
+        await _publicContainerClient.GetBlobClient(blobPath).DeleteIfExistsAsync();
+
+    /// <inheritdoc />
+    public string? ResolvePublicBlobPath(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return null;
+
+        try
+        {
+            var builder = new BlobUriBuilder(new Uri(url));
+
+            bool belongsToPublicContainer =
+                string.Equals(builder.Host, _publicContainerClient.Uri.Host, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(builder.BlobContainerName, _publicContainerClient.Name, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(builder.BlobName);
+
+            return belongsToPublicContainer ? builder.BlobName : null;
+        }
+        catch
+        {
+            // Malformed URL, wrong scheme, not a blob URL — treat as "not ours".
+            return null;
+        }
     }
 }
