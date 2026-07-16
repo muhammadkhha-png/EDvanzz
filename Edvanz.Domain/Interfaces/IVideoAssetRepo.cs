@@ -444,8 +444,16 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// </summary>
     Task DeleteAllVideosForTeacherAsync(long teacherId);
 
-    // Attachments and thumbnails are now central-registry FileObjects (referenced by
-    // VideoAsset.ThumbnailFileId / FileObject.VideoAssetId). See IFileObjectRepo.
+    // Attachments and video photos are now central-registry FileObjects (referenced by
+    // VideoAsset.VideoPhotoFileId / FileObject.VideoAssetId). See IFileObjectRepo.
+
+    /// <summary>
+    /// Resolves the video that OWNS a registry file, tenant-scoped — used by the gated file
+    /// endpoint's scoped-student authorization to find which video a photo / video-exam-question
+    /// image belongs to (attachments carry <c>FileObject.VideoAssetId</c> directly and don't
+    /// need this). Returns null when no video of <paramref name="teacherId"/> references the file.
+    /// </summary>
+    Task<long?> GetOwningVideoAssetIdForFileAsync(long fileObjectId, FileCategory category, long teacherId);
 
     Task ReplaceUnitLinksAsync(
     long videoAssetId,

@@ -1374,20 +1374,20 @@
   <data name="AttachmentInvalidType" xml:space="preserve">
     <value>الملفات المرفقة لازم تكون PDF بس</value>
   </data>
-  <data name="ThumbnailUploaded" xml:space="preserve">
-    <value>تم رفع الصورة المصغرة بنجاح</value>
+  <data name="VideoPhotoUploaded" xml:space="preserve">
+    <value>تم رفع صورة الفيديو بنجاح</value>
   </data>
-  <data name="ThumbnailReplaced" xml:space="preserve">
-    <value>تم استبدال الصورة المصغرة بنجاح</value>
+  <data name="VideoPhotoReplaced" xml:space="preserve">
+    <value>تم استبدال صورة الفيديو بنجاح</value>
   </data>
-  <data name="ThumbnailInvalidType" xml:space="preserve">
-    <value>الصور المصغرة لازم تكون JPEG أو PNG بس</value>
+  <data name="VideoPhotoInvalidType" xml:space="preserve">
+    <value>صور الفيديو لازم تكون JPEG أو PNG بس</value>
   </data>
-  <data name="ThumbnailTooLarge" xml:space="preserve">
-    <value>الصورة المصغرة دي كبيرة أوي. من فضلك ارفع صورة أصغر</value>
+  <data name="VideoPhotoTooLarge" xml:space="preserve">
+    <value>صورة الفيديو دي كبيرة أوي. من فضلك ارفع صورة أصغر</value>
   </data>
-  <data name="ThumbnailNotFound" xml:space="preserve">
-    <value>مقدرناش نلاقي صورة مصغرة للفيديو ده</value>
+  <data name="VideoPhotoNotFound" xml:space="preserve">
+    <value>مقدرناش نلاقي صورة للفيديو ده</value>
   </data>
   <data name="PhoneNumberRequired" xml:space="preserve">
     <value>رقم الموبايل مطلوب.</value>

@@ -75,10 +75,11 @@ public sealed class CreateVideoRequest
     public CreateExamDto? Exam { get; set; }
 
     /// <summary>
-    /// Optional thumbnail — the opaque <c>fileId</c> (FileObject.PublicId) previously returned by
-    /// <c>POST /api/upload</c> (category <c>VideoThumbnail</c>). Null = no thumbnail.
+    /// Optional video photo (cover image) — the opaque <c>fileId</c> (FileObject.PublicId)
+    /// previously returned by <c>POST /api/upload</c> (category <c>VideoPhoto</c>).
+    /// Null = no video photo.
     /// </summary>
-    public Guid? ThumbnailFileId { get; set; }
+    public Guid? VideoPhotoFileId { get; set; }
 
     /// <summary>
     /// Optional PDF attachment — the <c>fileId</c> from <c>POST /api/upload</c> (category
@@ -96,8 +97,8 @@ public sealed class CreateVideoResponse
 {
     public long VideoAssetId { get; set; }
 
-    /// <summary>Fresh SAS read URL for the uploaded thumbnail, or null if none was provided.</summary>
-    public string? ThumbnailReadUrl { get; set; }
+    /// <summary>Stable gated read URL for the uploaded video photo, or null if none was provided.</summary>
+    public string? VideoPhotoReadUrl { get; set; }
 
     /// <summary>The uploaded attachment's DTO, or null if none was provided.</summary>
     public VideoAttachmentDto? Attachment { get; set; }
@@ -182,11 +183,11 @@ public sealed class UpdateVideoRequest
     public CreateExamDto? Exam { get; set; }
 
     /// <summary>
-    /// Optional thumbnail replacement — the <c>fileId</c> (FileObject.PublicId) from
-    /// <c>POST /api/upload</c>. Null = leave the current thumbnail unchanged. Resending the current
-    /// thumbnail's id is an idempotent no-op.
+    /// Optional video photo replacement — the <c>fileId</c> (FileObject.PublicId) from
+    /// <c>POST /api/upload</c>. Null = leave the current video photo unchanged. Resending the
+    /// current video photo's id is an idempotent no-op.
     /// </summary>
-    public Guid? ThumbnailFileId { get; set; }
+    public Guid? VideoPhotoFileId { get; set; }
 
     /// <summary>
     /// Optional attachment replacement — the <c>fileId</c> from <c>POST /api/upload</c>. Null =
@@ -388,19 +389,19 @@ public sealed class VideoAttachmentDto
     public DateTime CreatedAt { get; set; }
 }
 
-/// <summary>Request body for <c>PUT /api/videos/{id}/thumbnail</c> — the uploaded file's id.</summary>
-public sealed class ReplaceThumbnailRequest
+/// <summary>Request body for <c>PUT /api/videos/{id}/video-photo</c> — the uploaded file's id.</summary>
+public sealed class ReplaceVideoPhotoRequest
 {
-    /// <summary>The thumbnail's <c>fileId</c> (FileObject.PublicId) from <c>POST /api/upload</c>.</summary>
+    /// <summary>The video photo's <c>fileId</c> (FileObject.PublicId) from <c>POST /api/upload</c>.</summary>
     [Required]
-    public Guid ThumbnailFileId { get; set; }
+    public Guid VideoPhotoFileId { get; set; }
 }
 
 /// <summary>
-/// Response for <c>PUT /api/videos/{id}/thumbnail</c>. A video has at most one
-/// thumbnail, so no <c>Id</c> is needed — just the stable gated read URL.
+/// Response for <c>PUT /api/videos/{id}/video-photo</c>. A video has at most one
+/// video photo, so no <c>Id</c> is needed — just the stable gated read URL.
 /// </summary>
-public sealed class ThumbnailDto
+public sealed class VideoPhotoDto
 {
     public string ReadUrl { get; set; } = null!;
 }
@@ -590,6 +591,19 @@ public sealed class StudentVideoListItemDto
     public DateTime AssignedAt { get; set; }
     public bool HasOpened { get; set; }
     public DateTime? LastOpenedAt { get; set; }
+
+    /// <summary>
+    /// Stable gated URL of the video's cover photo (<c>/api/files/{fileId}</c>), or null if the
+    /// video has none. Load with the student's JWT; access is re-checked per fetch (scoped
+    /// students only).
+    /// </summary>
+    public string? VideoPhotoUrl { get; set; }
+
+    /// <summary>
+    /// The video's attachment (e.g. a PDF handout), or null. <c>ReadUrl</c> is the stable gated
+    /// URL — same access rules as the video photo.
+    /// </summary>
+    public VideoAttachmentDto? Attachment { get; set; }
 }
 
 

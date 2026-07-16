@@ -77,6 +77,12 @@ public sealed class StudentVideoListRow
     public DateTime AssignedAt { get; set; }
     public bool HasOpened { get; set; }
     public DateTime? LastOpenedAt { get; set; }
+
+    /// <summary>
+    /// Registry file id (<c>FileObject.Id</c>) of the video's cover photo, or null. The service
+    /// batch-resolves these to gated URLs for the student card (no per-row query).
+    /// </summary>
+    public long? VideoPhotoFileId { get; set; }
 }
 
 /// <summary>

@@ -157,11 +157,12 @@ public class VideoAsset : BaseEntity
     public byte[] RowVersion { get; set; } = null!;
 
     /// <summary>
-    /// FK to the thumbnail's <see cref="FileObject"/> in the central file registry, or null if
-    /// none set. References <c>FileObject.Id</c>; the gated read URL is reconstructed from the
-    /// FileObject's <c>PublicId</c>. Replaces the former inline <c>ThumbnailBlobPath</c> string.
+    /// FK to the video photo's (cover image's) <see cref="FileObject"/> in the central file
+    /// registry, or null if none set. References <c>FileObject.Id</c>; the gated read URL is
+    /// reconstructed from the FileObject's <c>PublicId</c>. Formerly named ThumbnailFileId
+    /// ("thumbnail" → "video photo" app-wide); before that, the inline <c>ThumbnailBlobPath</c>.
     /// </summary>
-    public long? ThumbnailFileId { get; set; }
+    public long? VideoPhotoFileId { get; set; }
 
     /// <summary>
     /// True once a teacher has explicitly set <see cref="DurationSeconds"/> via

@@ -365,10 +365,10 @@ public sealed class VideosController : ModuleSixApiBaseController
     }
    
     // ══════════════════════════════════════════════════════════════════════
-    // REPLACE THUMBNAIL (Phase 5) — upload-new → update-DB → delete-old
-    // PUT /api/videos/{videoAssetId}/thumbnail
+    // REPLACE VIDEO PHOTO (cover image; formerly "thumbnail") — attach-new → detach-old
+    // PUT /api/videos/{videoAssetId}/video-photo
     // ══════════════════════════════════════════════════════════════════════
-    [HttpPut("{videoAssetId:long}/thumbnail")]
+    [HttpPut("{videoAssetId:long}/video-photo")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -376,14 +376,14 @@ public sealed class VideosController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> ReplaceThumbnail(
-        [FromRoute] long videoAssetId, [FromBody] ReplaceThumbnailRequest request)
+    public async Task<IActionResult> ReplaceVideoPhoto(
+        [FromRoute] long videoAssetId, [FromBody] ReplaceVideoPhotoRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _service.ReplaceThumbnailAsync(
-            teacherId.Value, GetActingUserId(), videoAssetId, request.ThumbnailFileId);
+        var result = await _service.ReplaceVideoPhotoAsync(
+            teacherId.Value, GetActingUserId(), videoAssetId, request.VideoPhotoFileId);
         return ToResponse(result);
     }
 

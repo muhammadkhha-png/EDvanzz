@@ -294,11 +294,17 @@ The storage account has `allow-blob-public-access=false`: an anonymous blob URL 
 - **Reads**: only via `GET /api/files/{fileId}` (`FilesController`, `[Authorize]`), which
   re-authorizes on EVERY fetch — owner → SuperAdmin → category policy (`FileAccessService`,
   fail-closed) — then 302s to a short-lived SAS (`UploadsSasLifetimeMinutes`, default 240).
-  Category policies: `VideoThumbnail`/`VideoAttachment`/`VideoExamQuestionImage` =
-  teacher-tenant only; `OnlineExamQuestionImage` = tenant OR a student in the exam's LIVE
+  Category policies: `VideoPhoto` (the video's cover image — renamed app-wide from
+  "thumbnail" 2026-07-16) / `VideoAttachment` / `VideoExamQuestionImage` = teacher-tenant OR
+  a student the OWNING VIDEO is scoped to (`IsScopedStudentOfVideoAsync` →
+  `GetOwningVideoAssetIdForFileAsync` + the module's canonical `IsStudentInVideoScopeAsync`,
+  which also enforces the Published + PublishDate gate — Draft/scheduled videos never expose
+  files to students); `OnlineExamQuestionImage` = tenant OR a student in the exam's LIVE
   assigned set (tenant-scoped EXISTS, `IsQuestionImageAssignedToStudentAsync`);
   `NationalIdImage` = owner+admin only (no resource policy; excluded from
-  `FileConstants.UploadableCategories` — created server-side during sign-up).
+  `FileConstants.UploadableCategories` — created server-side during sign-up). The student
+  video list (`GetVisibleVideosForStudentAsync`) returns `videoPhotoUrl` + `attachment` per
+  row, batch-resolved (no N+1).
 - **Writes**: frontend uploads via `POST /api/upload` (multipart `files` + required
   `category`) → 201 `{fileId, url, ...}` with `Status=Pending`; resource create/update then
   passes `fileId` and the service attaches it via `IFileAccessService.ResolveForAttachAsync`
@@ -312,14 +318,17 @@ The storage account has `allow-blob-public-access=false`: an anonymous blob URL 
   **Never hard-delete a FileObject row or its blob inline** — that orphans the blob forever
   (only registry-backed blobs are GC-visible). `VideoAssetRepo.DeleteVideoAsync` carries a
   defensive detach `ExecuteUpdate` so the NoAction FK can never block a video delete.
-- **Consequences shipped with this change**: videos create/update/replace-thumbnail are
-  **JSON** (`thumbnailFileId` / attachment `fileId` / `ReplaceThumbnailRequest`) — no more
-  multipart or `IFormFile` on those routes; the attachment-download endpoint was removed
-  (the gated URL is used directly); `User.IdImage` varbinary → `IdImageFileId` FK;
-  `VideoAttachments` table dropped (folded into the registry, category `VideoAttachment`,
-  back-ref `FileObject.VideoAssetId`); `OnlineExamQuestion.ImageFileId` /
-  `VideoExamQuestion.ImageFileId` added (requests carry `imageFileId`, responses carry the
-  gated `imageUrl`). Migration `20260716140711_FileObjectRegistry`.
+- **Consequences shipped with this change**: videos create/update/replace-video-photo are
+  **JSON** (`videoPhotoFileId` / `attachmentFileId` / `ReplaceVideoPhotoRequest` on
+  `PUT /api/videos/{id}/video-photo`) — no more multipart or `IFormFile` on those routes; the
+  attachment-download endpoint was removed (the gated URL is used directly); `User.IdImage`
+  varbinary → `IdImageFileId` FK; `VideoAttachments` table dropped (folded into the registry,
+  category `VideoAttachment`, back-ref `FileObject.VideoAssetId`);
+  `OnlineExamQuestion.ImageFileId` / `VideoExamQuestion.ImageFileId` added (requests carry
+  `imageFileId`, responses carry the gated `imageUrl`). Migrations
+  `20260716140711_FileObjectRegistry` + `20260716151304_RenameThumbnailToVideoPhoto`
+  (column `VideoAssets.ThumbnailFileId` → `VideoPhotoFileId`; "thumbnail" is "video photo"
+  everywhere — enum `FileCategory.VideoPhoto`, DTOs, route, resx keys `VideoPhoto*`).
 - **Adding a new file-bearing feature** = add a `FileCategory` value + a policy branch in
   `FileAccessService.IsReadAuthorizedAsync` + a named EXISTS repo method — nothing else.
   Unhandled categories are DENIED by default.

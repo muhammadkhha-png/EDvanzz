@@ -15,10 +15,12 @@ namespace Edvanz.Application.Services;
 /// Central file-registry authorization + lifecycle service. See <see cref="IFileAccessService"/>.
 ///
 /// Authorization order for a gated read (fail-closed): owner → SuperAdmin → category policy. The
-/// teacher-scoped categories authorize by the denormalized <see cref="FileObject.TeacherId"/> tenant
-/// column (set server-side from the uploader's JWT — never client-supplied, §4.4); the online-exam
-/// student branch additionally checks live exam assignment; the national-ID image has no resource
-/// policy (owner + admin only).
+/// teacher tenant authorizes by the denormalized <see cref="FileObject.TeacherId"/> column (set
+/// server-side from the uploader's JWT — never client-supplied, §4.4). Student branches: the
+/// online-exam image checks live exam assignment; the video categories (photo / attachment /
+/// video-exam question image) check live membership of the OWNING VIDEO's scope, which also
+/// enforces the Published + PublishDate gate. The national-ID image has no resource policy
+/// (owner + admin only).
 /// </summary>
 public sealed class FileAccessService : IFileAccessService
 {
@@ -77,10 +79,12 @@ public sealed class FileAccessService : IFileAccessService
         // 3. Category policy.
         switch (file.Category)
         {
-            case FileCategory.VideoThumbnail:
+            case FileCategory.VideoPhoto:
             case FileCategory.VideoAttachment:
             case FileCategory.VideoExamQuestionImage:
-                return await IsSameTeacherTenantAsync(file);
+                if (await IsSameTeacherTenantAsync(file))
+                    return true;
+                return await IsScopedStudentOfVideoAsync(file);
 
             case FileCategory.OnlineExamQuestionImage:
                 if (await IsSameTeacherTenantAsync(file))
@@ -111,20 +115,64 @@ public sealed class FileAccessService : IFileAccessService
         if (file.TeacherId is null)
             return false;
 
-        long? userId = _currentUser.UserId;
-        if (userId is null)
-            return false;
-
-        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByUserIdAsync(userId.Value);
-        if (studentUser is null)
-            return false;
-
-        var link = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUser.Id, file.TeacherId.Value);
-        if (link is null || link.LinkStatus != LinkStatus.Active || link.TeacherStudentId is null)
+        long? teacherStudentId = await ResolveBoundTeacherStudentIdAsync(file.TeacherId.Value);
+        if (teacherStudentId is null)
             return false;
 
         return await _unitOfWork.OnlineExamsRepo.IsQuestionImageAssignedToStudentAsync(
-            file.Id, file.TeacherId.Value, link.TeacherStudentId.Value);
+            file.Id, file.TeacherId.Value, teacherStudentId.Value);
+    }
+
+    /// <summary>
+    /// True when the caller is a student the file's OWNING VIDEO is scoped to. Applies to
+    /// <see cref="FileCategory.VideoPhoto"/> / <see cref="FileCategory.VideoAttachment"/> /
+    /// <see cref="FileCategory.VideoExamQuestionImage"/>. Resolves the owning video (attachments
+    /// carry the back-reference; photos and exam images are looked up tenant-scoped), then reuses
+    /// the module's canonical scope predicate <c>IsStudentInVideoScopeAsync</c> — which also
+    /// enforces the Published + PublishDate visibility gate, so a Draft/scheduled video's files
+    /// are never readable by students.
+    /// </summary>
+    private async Task<bool> IsScopedStudentOfVideoAsync(FileObject file)
+    {
+        if (file.TeacherId is null)
+            return false;
+
+        long? teacherStudentId = await ResolveBoundTeacherStudentIdAsync(file.TeacherId.Value);
+        if (teacherStudentId is null)
+            return false;
+
+        long? videoAssetId = file.Category == FileCategory.VideoAttachment
+            ? file.VideoAssetId
+            : await _unitOfWork.VideoAssetsRepo.GetOwningVideoAssetIdForFileAsync(
+                  file.Id, file.Category, file.TeacherId.Value);
+        if (videoAssetId is null)
+            return false;
+
+        return await _unitOfWork.VideoAssetsRepo.IsStudentInVideoScopeAsync(
+            teacherStudentId.Value, videoAssetId.Value, file.TeacherId.Value);
+    }
+
+    /// <summary>
+    /// Resolves the calling JWT to the bound roster record (<c>TeacherStudentId</c>) for the given
+    /// teacher tenant: active <c>StudentUser</c> → Active <c>StudentTeacherLink</c> to that teacher
+    /// → non-null binding. Null (deny) at any missing step — shared by the exam-assigned and
+    /// video-scoped student policies.
+    /// </summary>
+    private async Task<long?> ResolveBoundTeacherStudentIdAsync(long teacherId)
+    {
+        long? userId = _currentUser.UserId;
+        if (userId is null)
+            return null;
+
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByUserIdAsync(userId.Value);
+        if (studentUser is null)
+            return null;
+
+        var link = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUser.Id, teacherId);
+        if (link is null || link.LinkStatus != LinkStatus.Active || link.TeacherStudentId is null)
+            return null;
+
+        return link.TeacherStudentId;
     }
 
     /// <summary>

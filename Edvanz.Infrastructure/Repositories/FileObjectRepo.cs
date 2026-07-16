@@ -45,4 +45,33 @@ public sealed class FileObjectRepo : GenericRepo<FileObject, long>, IFileObjectR
             .OrderBy(f => f.CreateAt)
             .ToListAsync();
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<FileObject>> GetByIdsAsync(IReadOnlyCollection<long> ids)
+    {
+        if (ids.Count == 0)
+            return Array.Empty<FileObject>();
+
+        return await _context.Set<FileObject>()
+            .AsNoTracking()
+            .Where(f => ids.Contains(f.Id))
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<FileObject>> GetVideoAttachmentsForVideosAsync(
+        IReadOnlyCollection<long> videoAssetIds)
+    {
+        if (videoAssetIds.Count == 0)
+            return Array.Empty<FileObject>();
+
+        return await _context.Set<FileObject>()
+            .AsNoTracking()
+            .Where(f => f.VideoAssetId != null
+                     && videoAssetIds.Contains(f.VideoAssetId.Value)
+                     && f.Category == FileCategory.VideoAttachment
+                     && f.Status == FileStatus.Attached)
+            .OrderBy(f => f.CreateAt)
+            .ToListAsync();
+    }
 }

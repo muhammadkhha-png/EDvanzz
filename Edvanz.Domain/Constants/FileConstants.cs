@@ -16,7 +16,7 @@ public static class FileConstants
     /// </summary>
     public static readonly IReadOnlySet<FileCategory> UploadableCategories = new HashSet<FileCategory>
     {
-        FileCategory.VideoThumbnail,
+        FileCategory.VideoPhoto,
         FileCategory.VideoAttachment,
         FileCategory.OnlineExamQuestionImage,
         FileCategory.VideoExamQuestionImage,

@@ -1408,9 +1408,21 @@
   <data name="ConcurrencyConflict" xml:space="preserve">
     <value>This video was changed by someone else while you were editing. Please refresh and try again</value>
   </data>
-  <data name="ThumbnailTooLarge" xml:space="preserve">
-    <value>This thumbnail is too large.</value>
-</data>
+  <data name="VideoPhotoTooLarge" xml:space="preserve">
+    <value>This video photo is too large.</value>
+  </data>
+  <data name="VideoPhotoUploaded" xml:space="preserve">
+    <value>Video photo uploaded successfully</value>
+  </data>
+  <data name="VideoPhotoReplaced" xml:space="preserve">
+    <value>Video photo replaced successfully</value>
+  </data>
+  <data name="VideoPhotoInvalidType" xml:space="preserve">
+    <value>Video photos must be JPEG or PNG</value>
+  </data>
+  <data name="VideoPhotoNotFound" xml:space="preserve">
+    <value>We couldn't find a photo for this video</value>
+  </data>
  <data name="ExamTitleRequired" xml:space="preserve">
     <value>The exam needs a title</value>
   </data>

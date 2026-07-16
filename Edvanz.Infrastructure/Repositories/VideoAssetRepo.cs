@@ -401,6 +401,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                     AssignedAt = x.AssignedAt,
                     HasOpened = an != null,
                     LastOpenedAt = an != null ? (DateTime?)an.LastUpdated : null,
+                    VideoPhotoFileId = x.Asset.VideoPhotoFileId,
                 })
             .AsNoTracking()
             .ToListAsync();
@@ -984,6 +985,31 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
 
     // Attachments are now FileObjects (central registry) filtered by VideoAssetId + category —
     // see IFileObjectRepo.GetVideoAttachmentsAsync. The old VideoAttachment table is gone.
+
+    /// <inheritdoc />
+    public async Task<long?> GetOwningVideoAssetIdForFileAsync(
+        long fileObjectId, FileCategory category, long teacherId)
+    {
+        switch (category)
+        {
+            case FileCategory.VideoPhoto:
+                return await _context.VideoAssets
+                    .Where(v => v.VideoPhotoFileId == fileObjectId && v.TeacherId == teacherId)
+                    .Select(v => (long?)v.Id)
+                    .FirstOrDefaultAsync();
+
+            case FileCategory.VideoExamQuestionImage:
+                return await _context.VideoExamQuestions
+                    .Where(q => q.ImageFileId == fileObjectId && q.Exam.TeacherId == teacherId)
+                    .Select(q => (long?)q.Exam.VideoAssetId)
+                    .FirstOrDefaultAsync();
+
+            default:
+                // Attachments carry FileObject.VideoAssetId directly (no lookup needed);
+                // any other category has no owning video.
+                return null;
+        }
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     // UNIT LINKS — WRITE/READ PATH (M:N, Phase 1 VideoAssetUnit join table)

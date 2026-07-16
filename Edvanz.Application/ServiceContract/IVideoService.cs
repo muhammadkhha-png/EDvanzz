@@ -44,27 +44,21 @@ public interface IVideoService
     // TEACHER + ASSISTANT WRITE FLOWS
     // ══════════════════════════════════════════════════════════════════════
 
-    /// REQ-VCM-FR-01. Story A. Phase 3: multipart create — optional thumbnail
-    /// (image/jpeg, image/png) and optional PDF attachment are uploaded to blob
-    /// storage and linked atomically with the video row. This is a saga, not a
-    /// single DB transaction: the <c>VideoAsset</c> row (+ unit links) commits
-    /// first; blob uploads happen after commit; a blob failure compensates by
-    /// hard-deleting the video row and any blob that did upload. Errors:
+    /// REQ-VCM-FR-01. Story A. JSON create — the optional video photo (cover image) and optional
+    /// PDF attachment are referenced by <c>fileId</c> (already uploaded via <c>POST /api/upload</c>,
+    /// categories <c>VideoPhoto</c> / <c>VideoAttachment</c>) and attached atomically with the
+    /// video row in ONE DB transaction (no multipart, no blob I/O here). Errors:
     /// <see cref="Domain.Constants.VideoConstants.Messages.InvalidUrl"/>,
     /// <see cref="Domain.Constants.VideoConstants.Messages.UnsupportedSource"/>,
     /// <see cref="Domain.Constants.VideoConstants.Messages.VideoUnitNotFound"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.ThumbnailInvalidType"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.ThumbnailTooLarge"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.AttachmentInvalidType"/>,
-    /// <see cref="Domain.Constants.VideoConstants.Messages.AttachmentTooLarge"/>.
+    /// plus the registry attach errors: <c>FileNotFound</c> (404), <c>FileNotOwned</c> (403),
+    /// <c>FileCategoryMismatch</c> (400), <c>FileAlreadyInUse</c> (409).
     /// </summary>
     /// <param name="teacherId">Tenant scope from JWT.</param>
     /// <param name="actingUserId">User who clicked Create — Teacher or
     /// Assistant. Stored on <c>VideoAsset.CreatedByUserId</c>.</param>
-    /// <param name="request">Create payload (deserialized from the multipart
-    /// <c>request</c> form field).</param>
-    /// <param name="thumbnail">Optional thumbnail image.</param>
-    /// <param name="attachment">Optional PDF attachment.</param>
+    /// <param name="request">Create payload (JSON body, incl. optional
+    /// <c>VideoPhotoFileId</c>/<c>AttachmentFileId</c>).</param>
     Task<Result<CreateVideoResponse>> CreateVideoAsync(
         long teacherId, long actingUserId, CreateVideoRequest request);
 
@@ -277,14 +271,14 @@ public interface IVideoService
     // ══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Replaces the video's thumbnail by referencing an already-uploaded registry file
-    /// (<c>fileId</c> = FileObject.PublicId, category <c>VideoThumbnail</c>). Attaches the new file,
+    /// Replaces the video's photo (cover image) by referencing an already-uploaded registry file
+    /// (<c>fileId</c> = FileObject.PublicId, category <c>VideoPhoto</c>). Attaches the new file,
     /// detaches the old (GC reaps its blob), and returns the stable gated URL. Idempotent if the
-    /// current thumbnail id is resent. Errors: <c>VideoNotFound</c> (404), <c>FileNotFound</c> (404),
+    /// current video photo id is resent. Errors: <c>VideoNotFound</c> (404), <c>FileNotFound</c> (404),
     /// <c>FileNotOwned</c> (403), <c>FileCategoryMismatch</c> (400), <c>FileAlreadyInUse</c> (409).
     /// </summary>
-    Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
-        long teacherId, long actingUserId, long videoAssetId, Guid thumbnailFileId);
+    Task<Result<VideoPhotoDto>> ReplaceVideoPhotoAsync(
+        long teacherId, long actingUserId, long videoAssetId, Guid videoPhotoFileId);
     /// <summary>
     /// Pre-fill payload for the Edit screen — base fields + current Exam +
     /// current Scopes, everything needed to reconstruct the edit form in one

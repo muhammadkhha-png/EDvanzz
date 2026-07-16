@@ -2551,11 +2551,11 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.Property(v => v.RowVersion)
                 .IsRowVersion();
 
-            // Thumbnail is a registry file reference (FileObject.Id). Fluent-only, NoAction
-            // (app-layer / GC cleanup); no inverse navigation on FileObject.
+            // The video photo (cover image) is a registry file reference (FileObject.Id).
+            // Fluent-only, NoAction (app-layer / GC cleanup); no inverse navigation on FileObject.
             entity.HasOne<FileObject>()
                 .WithMany()
-                .HasForeignKey(v => v.ThumbnailFileId)
+                .HasForeignKey(v => v.VideoPhotoFileId)
                 .OnDelete(DeleteBehavior.NoAction);
 
             entity.Property(v => v.IsDurationManuallySet)

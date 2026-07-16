@@ -29,4 +29,18 @@ public interface IFileObjectRepo : IGenericRepo<FileObject, long>
     /// AsNoTracking; ordered oldest-first.
     /// </summary>
     Task<IReadOnlyList<FileObject>> GetVideoAttachmentsAsync(long videoAssetId);
+
+    /// <summary>
+    /// Batch lookup by internal ids — one query for a whole page of rows (e.g. resolving the
+    /// student video list's photo <c>FileObject.Id</c>s to <c>PublicId</c>s without an N+1).
+    /// AsNoTracking.
+    /// </summary>
+    Task<IReadOnlyList<FileObject>> GetByIdsAsync(IReadOnlyCollection<long> ids);
+
+    /// <summary>
+    /// The live (<c>Attached</c>) attachment files for MANY videos in one query — the batch
+    /// counterpart of <see cref="GetVideoAttachmentsAsync"/>, used by the student video list.
+    /// AsNoTracking; ordered oldest-first within each video.
+    /// </summary>
+    Task<IReadOnlyList<FileObject>> GetVideoAttachmentsForVideosAsync(IReadOnlyCollection<long> videoAssetIds);
 }

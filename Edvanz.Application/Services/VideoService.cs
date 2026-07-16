@@ -337,9 +337,9 @@ public sealed class VideoService : IVideoService
                     _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
             }
 
-            // Detach this video's registry files (thumbnail, attachments, exam-question images) so
+            // Detach this video's registry files (video photo, attachments, exam-question images) so
             // the GC reaps their blobs — fixes the historical orphan bug (delete left blobs behind).
-            await DetachVideoFilesAsync(videoAssetId, trackedVideo.ThumbnailFileId);
+            await DetachVideoFilesAsync(videoAssetId, trackedVideo.VideoPhotoFileId);
 
             await _unitOfWork.VideoAssetsRepo.DeleteVideoAsync(trackedVideo);
             await _unitOfWork.SaveChangesAsync();
@@ -358,12 +358,12 @@ public sealed class VideoService : IVideoService
     }
 
     /// <summary>
-    /// Detaches every registry file a video references — thumbnail, attachments, and exam-question
+    /// Detaches every registry file a video references — video photo, attachments, and exam-question
     /// images — so the GC reaps their blobs. Runs inside the caller's transaction (no SaveChanges).
     /// </summary>
-    private async Task DetachVideoFilesAsync(long videoAssetId, long? thumbnailFileId)
+    private async Task DetachVideoFilesAsync(long videoAssetId, long? videoPhotoFileId)
     {
-        await _fileAccess.DetachAsync(thumbnailFileId);
+        await _fileAccess.DetachAsync(videoPhotoFileId);
 
         foreach (var att in await _unitOfWork.FileObjectsRepo.GetVideoAttachmentsAsync(videoAssetId))
             await _fileAccess.DetachAsync(att.Id);
@@ -567,22 +567,22 @@ public sealed class VideoService : IVideoService
                 }
             }
 
-            // Step 10a — thumbnail reference. null = leave as-is; a new id repoints the FK and
-            // detaches the old thumbnail file (GC reaps its blob). Same id = idempotent no-op.
-            if (request.ThumbnailFileId is Guid newThumbId)
+            // Step 10a — video photo reference. null = leave as-is; a new id repoints the FK and
+            // detaches the old video photo file (GC reaps its blob). Same id = idempotent no-op.
+            if (request.VideoPhotoFileId is Guid newPhotoId)
             {
-                var currentThumbPublicId = await CurrentPublicIdAsync(video.ThumbnailFileId);
-                if (currentThumbPublicId != newThumbId)
+                var currentPhotoPublicId = await CurrentPublicIdAsync(video.VideoPhotoFileId);
+                if (currentPhotoPublicId != newPhotoId)
                 {
                     var attach = await AttachFileAsync(
-                        newThumbId, FileCategory.VideoThumbnail, teacherId, actingUserId);
+                        newPhotoId, FileCategory.VideoPhoto, teacherId, actingUserId);
                     if (!attach.IsSuccess)
                     {
                         if (ownsTransaction) await _unitOfWork.RollbackAsync();
                         return Result<VideoDetailDto>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
                     }
-                    await _fileAccess.DetachAsync(video.ThumbnailFileId);
-                    video.ThumbnailFileId = attach.Data!.Id;
+                    await _fileAccess.DetachAsync(video.VideoPhotoFileId);
+                    video.VideoPhotoFileId = attach.Data!.Id;
                 }
             }
 
@@ -920,6 +920,22 @@ public sealed class VideoService : IVideoService
         var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
             .GetVisibleVideosForStudentAsync(teacherId, teacherStudentId, request.Page, request.PageSize);
 
+        // Batch-resolve the page's file references to gated URLs — two queries for the whole
+        // page (photos by id, attachments by video id), never a per-row lookup. BuildGatedUrl
+        // is pure string work off the loaded PublicIds.
+        var photoIds = rows.Where(r => r.VideoPhotoFileId is not null)
+            .Select(r => r.VideoPhotoFileId!.Value).Distinct().ToList();
+        var photosById = photoIds.Count == 0
+            ? new Dictionary<long, Domain.Entities.FileObject>()
+            : (await _unitOfWork.FileObjectsRepo.GetByIdsAsync(photoIds)).ToDictionary(f => f.Id);
+
+        var videoIds = rows.Select(r => r.Id).ToList();
+        var attachmentByVideo = videoIds.Count == 0
+            ? new Dictionary<long, Domain.Entities.FileObject>()
+            : (await _unitOfWork.FileObjectsRepo.GetVideoAttachmentsForVideosAsync(videoIds))
+                .GroupBy(f => f.VideoAssetId!.Value)
+                .ToDictionary(g => g.Key, g => g.First()); // one live attachment per video (oldest-first)
+
         var items = rows.Select(r => new StudentVideoListItemDto
         {
             Id = r.Id,
@@ -931,6 +947,10 @@ public sealed class VideoService : IVideoService
             AssignedAt = r.AssignedAt,
             HasOpened = r.HasOpened,
             LastOpenedAt = r.LastOpenedAt,
+            VideoPhotoUrl = r.VideoPhotoFileId is long pid && photosById.TryGetValue(pid, out var photo)
+                ? _fileAccess.BuildGatedUrl(photo.PublicId)
+                : null,
+            Attachment = attachmentByVideo.TryGetValue(r.Id, out var att) ? ToAttachmentDto(att) : null,
         }).ToList();
 
         var response = new PaginatedResponse<List<StudentVideoListItemDto>>
@@ -1164,7 +1184,7 @@ public sealed class VideoService : IVideoService
                 });
 
                 // Detach this video's registry files so the GC reaps their blobs (orphan-bug fix).
-                await DetachVideoFilesAsync(row.Id, fullVideo.ThumbnailFileId);
+                await DetachVideoFilesAsync(row.Id, fullVideo.VideoPhotoFileId);
                 audited++;
             }
 
@@ -1550,20 +1570,20 @@ public sealed class VideoService : IVideoService
     }
 
     /// <inheritdoc />
-    public async Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
-        long teacherId, long actingUserId, long videoAssetId, Guid thumbnailFileId)
+    public async Task<Result<VideoPhotoDto>> ReplaceVideoPhotoAsync(
+        long teacherId, long actingUserId, long videoAssetId, Guid videoPhotoFileId)
     {
         var video = await _unitOfWork.VideoAssetsRepo.GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
         if (video is null)
-            return Result<ThumbnailDto>.Failure(
+            return Result<VideoPhotoDto>.Failure(
                 _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
 
         // Idempotent no-op if the same file is resent.
-        var currentPublicId = await CurrentPublicIdAsync(video.ThumbnailFileId);
-        if (currentPublicId == thumbnailFileId)
-            return Result<ThumbnailDto>.Success(
-                new ThumbnailDto { ReadUrl = _fileAccess.BuildGatedUrl(thumbnailFileId) },
-                _localizer, VideoConstants.Messages.ThumbnailReplaced, HttpStatusCode.OK);
+        var currentPublicId = await CurrentPublicIdAsync(video.VideoPhotoFileId);
+        if (currentPublicId == videoPhotoFileId)
+            return Result<VideoPhotoDto>.Success(
+                new VideoPhotoDto { ReadUrl = _fileAccess.BuildGatedUrl(videoPhotoFileId) },
+                _localizer, VideoConstants.Messages.VideoPhotoReplaced, HttpStatusCode.OK);
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -1572,23 +1592,23 @@ public sealed class VideoService : IVideoService
         try
         {
             var attach = await AttachFileAsync(
-                thumbnailFileId, FileCategory.VideoThumbnail, teacherId, actingUserId);
+                videoPhotoFileId, FileCategory.VideoPhoto, teacherId, actingUserId);
             if (!attach.IsSuccess)
             {
                 if (ownsTransaction) await _unitOfWork.RollbackAsync();
-                return Result<ThumbnailDto>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
+                return Result<VideoPhotoDto>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
             }
 
-            await _fileAccess.DetachAsync(video.ThumbnailFileId);
-            video.ThumbnailFileId = attach.Data!.Id;
+            await _fileAccess.DetachAsync(video.VideoPhotoFileId);
+            video.VideoPhotoFileId = attach.Data!.Id;
             await _unitOfWork.SaveChangesAsync();
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
-            return Result<ThumbnailDto>.Success(
-                new ThumbnailDto { ReadUrl = _fileAccess.BuildGatedUrl(attach.Data.PublicId) },
-                _localizer, VideoConstants.Messages.ThumbnailReplaced, HttpStatusCode.OK);
+            return Result<VideoPhotoDto>.Success(
+                new VideoPhotoDto { ReadUrl = _fileAccess.BuildGatedUrl(attach.Data.PublicId) },
+                _localizer, VideoConstants.Messages.VideoPhotoReplaced, HttpStatusCode.OK);
         }
         catch
         {
@@ -1671,7 +1691,7 @@ public sealed class VideoService : IVideoService
                 _localizer, urlErrorKey, HttpStatusCode.BadRequest);
         }
 
-        // Files (thumbnail/attachment) were already uploaded via POST /api/upload and validated
+        // Files (video photo/attachment) were already uploaded via POST /api/upload and validated
         // there (type/size). Here we only reference them by id; type/size are not re-checked.
 
         // ── Merged-creation refactor: scope + exam validated BEFORE any write, fail-fast.
@@ -1719,7 +1739,7 @@ public sealed class VideoService : IVideoService
                     _localizer, examShapeError, HttpStatusCode.BadRequest);
         }
 
-        // Everything is ONE SQL transaction now — video, thumbnail/attachment file references,
+        // Everything is ONE SQL transaction now — video, video photo/attachment file references,
         // scopes, and exam are all-or-nothing. The files themselves were already uploaded to blob
         // storage via POST /api/upload; here we only flip their registry rows to Attached and store
         // FK references, so there is no cross-store saga and no compensation.
@@ -1731,7 +1751,7 @@ public sealed class VideoService : IVideoService
         int scopesAdded = 0;
         int studentsInScope = 0;
         long? examId = null;
-        Guid? thumbnailPublicId = null;
+        Guid? videoPhotoPublicId = null;
         VideoAttachmentDto? attachmentDto = null;
         try
         {
@@ -1753,18 +1773,18 @@ public sealed class VideoService : IVideoService
 
             var utcNow = DateTime.UtcNow;
 
-            // Thumbnail reference.
-            if (request.ThumbnailFileId is Guid thumbId)
+            // Video photo reference.
+            if (request.VideoPhotoFileId is Guid photoId)
             {
                 var attach = await AttachFileAsync(
-                    thumbId, FileCategory.VideoThumbnail, teacherId, actingUserId);
+                    photoId, FileCategory.VideoPhoto, teacherId, actingUserId);
                 if (!attach.IsSuccess)
                 {
                     if (ownsTransaction) await _unitOfWork.RollbackAsync();
                     return Result<CreateVideoResponse>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
                 }
-                video.ThumbnailFileId = attach.Data!.Id;
-                thumbnailPublicId = attach.Data.PublicId;
+                video.VideoPhotoFileId = attach.Data!.Id;
+                videoPhotoPublicId = attach.Data.PublicId;
             }
 
             // Attachment reference (back-referenced to this video).
@@ -1828,7 +1848,7 @@ public sealed class VideoService : IVideoService
                    new CreateVideoResponse
                    {
                        VideoAssetId = video.Id,
-                       ThumbnailReadUrl = thumbnailPublicId is null ? null : _fileAccess.BuildGatedUrl(thumbnailPublicId.Value),
+                       VideoPhotoReadUrl = videoPhotoPublicId is null ? null : _fileAccess.BuildGatedUrl(videoPhotoPublicId.Value),
                        Attachment = attachmentDto,
                        ScopesAdded = scopesAdded,
                        StudentsInScope = studentsInScope,

@@ -81,15 +81,16 @@ public static class VideoConstants
     public const long AttachmentMaxSizeBytes = 25 * 1024 * 1024;
 
     /// <summary>
-    /// Maximum size of a single thumbnail image upload. 5 MB — proposed default;
+    /// Maximum size of a single video photo (cover image) upload. 5 MB — proposed default;
     /// confirm with product before relying on this as a hard business rule.
     /// (Same caveat pattern as <see cref="AttachmentMaxSizeBytes"/> carried before
-    /// ratification.)
+    /// ratification.) Renamed from ThumbnailMaxSizeBytes — "thumbnail" is now "video photo"
+    /// across the application.
     /// </summary>
-    public const long ThumbnailMaxSizeBytes = 5 * 1024 * 1024;
+    public const long VideoPhotoMaxSizeBytes = 5 * 1024 * 1024;
 
-    /// <summary>Allowed content types for thumbnail uploads.</summary>
-    public static readonly string[] AllowedThumbnailContentTypes = { "image/jpeg", "image/png" };
+    /// <summary>Allowed content types for video photo (cover image) uploads.</summary>
+    public static readonly string[] AllowedVideoPhotoContentTypes = { "image/jpeg", "image/png" };
 
     /// <summary>Allowed content types for video attachments — PDF only (ratified).</summary>
     public static readonly string[] AllowedAttachmentContentTypes = { "application/pdf" };
@@ -190,11 +191,12 @@ public static class VideoConstants
         public const string AttachmentNotFound    = "AttachmentNotFound";
         public const string AttachmentTooLarge    = "AttachmentTooLarge";
         public const string AttachmentInvalidType = "AttachmentInvalidType";
-        public const string ThumbnailUploaded     = "ThumbnailUploaded";
-        public const string ThumbnailReplaced     = "ThumbnailReplaced";
-        public const string ThumbnailInvalidType  = "ThumbnailInvalidType";
-        public const string ThumbnailTooLarge     = "ThumbnailTooLarge";
-        public const string ThumbnailNotFound = "ThumbnailNotFound";
+        // "Thumbnail" renamed to "VideoPhoto" app-wide — same messages, new terminology.
+        public const string VideoPhotoUploaded    = "VideoPhotoUploaded";
+        public const string VideoPhotoReplaced    = "VideoPhotoReplaced";
+        public const string VideoPhotoInvalidType = "VideoPhotoInvalidType";
+        public const string VideoPhotoTooLarge    = "VideoPhotoTooLarge";
+        public const string VideoPhotoNotFound    = "VideoPhotoNotFound";
 
         // ── Phase 3 — multipart create request shape ──────────────────────────
         // ── Phase 3 — multipart create request shape ──────────────────────────
