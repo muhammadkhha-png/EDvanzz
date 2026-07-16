@@ -122,9 +122,16 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .Where(s => s.VideoAssetId == videoAssetId)
             .ExecuteDeleteAsync();
 
-        await _context.VideoAttachments
-            .Where(a => a.VideoAssetId == videoAssetId)
-            .ExecuteDeleteAsync();
+        // Registry files (attachments et al.) back-reference this video via a NoAction FK
+        // (FileObjects.VideoAssetId). The service layer detaches them first
+        // (VideoService.DetachVideoFilesAsync), but this defensive detach guarantees the FK can
+        // never block the delete regardless of caller. DETACH — never hard-delete — so the GC
+        // reaps the blob + row (a hard delete here would orphan the blob permanently).
+        await _context.FileObjects
+            .Where(f => f.VideoAssetId == videoAssetId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.VideoAssetId, (long?)null)
+                .SetProperty(f => f.Status, FileStatus.Detached));
 
         await _context.VideoAnalytics
             .Where(a => a.VideoAssetId == videoAssetId)
