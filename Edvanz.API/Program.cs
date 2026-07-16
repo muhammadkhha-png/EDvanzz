@@ -114,7 +114,14 @@ builder.Services.AddSwaggerGen(c =>
     });
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
-     c.OperationFilter<SwaggerExamplesFilter>();
+    // Fully automatic examples — no per-endpoint/per-module providers.
+    //   • AutoExampleSchemaFilter  → request-body example for every DTO (from its type)
+    //     + "Allowed values: …" appended to every enum field. Registered AFTER
+    //     IncludeXmlComments (below) so it appends to, rather than is overwritten by,
+    //     the XML-comment description.
+    //   • ResponseEnvelopeExampleFilter → { success, message, data } example for every response.
+    // Covers all endpoints, old and new, with zero maintenance.
+    c.OperationFilter<ResponseEnvelopeExampleFilter>();
     c.UseInlineDefinitionsForEnums();
 
     // --- 👇 Add these lines ---
@@ -131,16 +138,11 @@ builder.Services.AddSwaggerGen(c =>
     var appPath = Path.Combine(basePath, appXml);
     if (File.Exists(appPath))
         c.IncludeXmlComments(appPath);
+
+    // Registered LAST so its enum "Allowed values: …" text appends to the XML-comment
+    // description instead of being overwritten by it.
+    c.SchemaFilter<AutoExampleSchemaFilter>();
 });
-// Swagger example providers — one per module (composed by SwaggerExamplesFilter).
-// Add a new registration here to document a new module; the filter never changes.
-builder.Services.AddSingleton<IEndpointExampleProvider, SubscriptionExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, AuthExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, TeacherStudentExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, PaymentScreenExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, VideoExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, StudentAssignmentObligationExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, VideoUnitExampleProvider>();
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 // ── Hangfire — production-tuned for Azure SQL Basic (5 DTU) ──────────────
 // QueuePollInterval at 15s: the default is already 15s in Hangfire 1.8;
@@ -247,8 +249,6 @@ builder.Services.AddScoped<IOnlineExamScopeResolver, OnlineExamScopeResolver>();
 builder.Services.AddScoped<IOnlineExamService, OnlineExamService>();
 builder.Services.AddScoped<IStudentOnlineExamService, StudentOnlineExamService>();
 builder.Services.AddScoped<IOnlineExamGradingService, OnlineExamGradingService>();
-builder.Services.AddSingleton<IEndpointExampleProvider, OnlineExamExampleProvider>();
-builder.Services.AddSingleton<IEndpointExampleProvider, StudentOnlineExamExampleProvider>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
 
