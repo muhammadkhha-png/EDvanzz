@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.Dtos;
+﻿using Edvanz.API.Attributes;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Enums;
@@ -689,6 +690,7 @@ public class TeacherController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("list")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTeachers(
     [FromQuery] PaginatedRequest request,

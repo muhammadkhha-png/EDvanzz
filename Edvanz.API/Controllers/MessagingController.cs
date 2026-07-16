@@ -17,7 +17,7 @@ namespace Edvanz.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    //[Authorize]
+    [Authorize]
     [ServiceFilter(typeof(Edvanz.API.Filters.TenantScopeFilter))]
     public class MessagingController : ApiBaseController
     {
@@ -227,7 +227,7 @@ namespace Edvanz.API.Controllers
         /// POST /api/messaging/send
         /// Sends a manual message — returns preview + recipient count for confirmation 
         [HttpPost("send")]
-        //[ModulePermission("Messaging", "SendManual")]
+        [ModulePermission("Messaging", "SendManual")]
         public async Task<IActionResult> SendManual([FromBody] ManualMessageRequests request)
         {
           
@@ -238,7 +238,7 @@ namespace Edvanz.API.Controllers
 
         /// GET /api/messaging/history
         [HttpGet("history")]
-        //[ModulePermission("Messaging", "ViewHistory")]
+        [ModulePermission("Messaging", "ViewHistory")]
         public async Task<IActionResult> GetHistory([FromQuery] MessageLogQueryDto query)
         {
             
@@ -247,7 +247,7 @@ namespace Edvanz.API.Controllers
 
         /// POST /api/messaging/history/{id}/resend
         [HttpPost("history/{id:long}/resend")]
-        //[ModulePermission("Messaging", "SendManual")]
+        [ModulePermission("Messaging", "SendManual")]
         public async Task<IActionResult> Resend(MessageLogRequestDto req)
             => ToResponse(await _logService.ResendAsync(req.teacherId, req.messageLogId));
 
