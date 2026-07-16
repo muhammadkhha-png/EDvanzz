@@ -491,4 +491,11 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// by GetVideoDetailAsync's read-only pre-fill mapping.
     /// </summary>
     Task<VideoExam?> GetExamWithQuestionsAsync(long videoAssetId, long teacherId);
+
+    /// <summary>
+    /// Counts the questions in a video's exam (0 when the video has no exam).
+    /// A cheap COUNT — used by the overview/detail base mapper to populate
+    /// <c>QuestionsNumber</c> without materializing the exam tree.
+    /// </summary>
+    Task<int> GetExamQuestionCountAsync(long videoAssetId);
 }

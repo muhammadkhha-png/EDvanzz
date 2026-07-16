@@ -41,6 +41,19 @@ public sealed class TeacherVideoListRow
     /// <summary>= <see cref="StudentsInScope"/> - <see cref="SeenStudentCount"/> (G-ANL-3).</summary>
     public int UnseenStudentCount { get; set; }
 
+    /// <summary>
+    /// Registry file id (<c>FileObject.Id</c>) of the video's cover photo, or null. The service
+    /// batch-resolves these to the opaque <c>PublicId</c> + gated URL for the list card (no
+    /// per-row query) — same pattern as <see cref="StudentVideoListRow.VideoPhotoFileId"/>.
+    /// </summary>
+    public long? VideoPhotoFileId { get; set; }
+
+    /// <summary>Number of questions in the video's exam (0 when the video has no exam).</summary>
+    public int QuestionsNumber { get; set; }
+
+    /// <summary>Number of live (Attached) attachments on the video.</summary>
+    public int AttachmentsNumber { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 

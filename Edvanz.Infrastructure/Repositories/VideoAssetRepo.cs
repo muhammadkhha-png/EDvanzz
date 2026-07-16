@@ -297,6 +297,16 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                // implies the student has opened the video once.
                SeenStudentCount = _context.VideoAnalytics
                     .Count(a => a.VideoAssetId == v.Id),
+               // Cover-photo registry id (resolved to PublicId + gated URL in the service).
+               VideoPhotoFileId = v.VideoPhotoFileId,
+               // Exam question count (0 when the video has no exam) and live attachment count —
+               // both as SQL subquery aggregates so the whole list is one round trip.
+               QuestionsNumber = _context.VideoExamQuestions
+                    .Count(q => q.Exam.VideoAssetId == v.Id),
+               AttachmentsNumber = _context.Set<FileObject>()
+                    .Count(f => f.VideoAssetId == v.Id
+                             && f.Category == FileCategory.VideoAttachment
+                             && f.Status == FileStatus.Attached),
                CreatedAt = v.CreateAt,
            })
             .AsNoTracking()
@@ -1087,5 +1097,12 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 .ThenInclude(q => q.Options.OrderBy(o => o.SortOrder))
             .AsNoTracking()
             .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> GetExamQuestionCountAsync(long videoAssetId)
+    {
+        return await _context.VideoExamQuestions
+            .CountAsync(q => q.Exam.VideoAssetId == videoAssetId);
     }
 }

@@ -276,6 +276,12 @@ public abstract class VideoBaseDto
 
     /// <summary>Current attachments (each <c>Id</c> is its fileId). Empty when the video has none.</summary>
     public List<VideoAttachmentDto> Attachments { get; set; } = new();
+
+    /// <summary>Number of questions in the video's exam (0 when the video has no exam).</summary>
+    public int QuestionsNumber { get; set; }
+
+    /// <summary>Number of attachments on the video (= <see cref="Attachments"/>.Count).</summary>
+    public int AttachmentsNumber { get; set; }
 }
 
 /// <summary>
@@ -584,6 +590,21 @@ public sealed class TeacherVideoListItemDto
 
     /// <summary>= <see cref="StudentsInScope"/> - <see cref="SeenStudentCount"/> (G-ANL-3).</summary>
     public int UnseenStudentCount { get; set; }
+
+    /// <summary>
+    /// The current video photo's <c>fileId</c> (FileObject.PublicId), or null if none. Mirrors
+    /// the edit-screen field on <see cref="VideoDetailDto"/> so the list card can render the cover.
+    /// </summary>
+    public Guid? VideoPhotoFileId { get; set; }
+
+    /// <summary>Stable gated URL of the current video photo (<c>/api/files/{fileId}</c>), or null.</summary>
+    public string? VideoPhotoUrl { get; set; }
+
+    /// <summary>Number of questions in the video's exam (0 when the video has no exam).</summary>
+    public int QuestionsNumber { get; set; }
+
+    /// <summary>Number of attachments on the video.</summary>
+    public int AttachmentsNumber { get; set; }
 
     public DateTime CreatedAt { get; set; }
 }
