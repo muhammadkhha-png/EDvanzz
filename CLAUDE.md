@@ -111,7 +111,8 @@ before assuming something is missing:
 - Recurring Hangfire jobs are registered inline via `RecurringJob.AddOrUpdate<T>(...)`:
   subscription reminder dispatcher (09:00 Africa/Cairo), pending-payment expiry sweep
   (hourly), assistant cleanup (01:00 Africa/Cairo), recurring-assignment materializer
-  (06:00 Africa/Cairo). A new recurring job needs its own registration here.
+  (06:00 Africa/Cairo), file-registry GC `file-object-gc` (hourly — see §5.5). A new
+  recurring job needs its own registration here.
 - Swagger example providers (see `IEndpointExampleProvider`, §3.7-adjacent Swagger tooling)
   are added one `AddSingleton<IEndpointExampleProvider, ...>()` call at a time.
 - `/health/live` (process-up only) and `/health/ready` (checks SQL Server + Hangfire) are
@@ -279,6 +280,49 @@ Live permissions are resolved from `UserAuthSnapshot` on every request by
 `SecurityStampValidationMiddleware`.
 
 ---
+
+### 5.5 File Handling — Central FileObject Registry (shipped 2026-07-16, merge `07aba66`)
+
+ALL uploaded files (video thumbnails, video PDF attachments, exam-question images, the
+sign-up national-ID image) live in ONE **private** blob container (`uploads`;
+`AzureBlobStorageOptions.UploadsContainerName`) and are tracked one-row-per-file in the
+**`FileObjects` registry** (opaque `PublicId` GUID; `OwnerUserId`; denormalized `TeacherId`
+tenant set server-side from the JWT; `Category`; `Status`; `BlobPath` — never exposed).
+The storage account has `allow-blob-public-access=false`: an anonymous blob URL returning
+401/403/409 is the INTENDED state, not a bug — never re-enable public access.
+
+- **Reads**: only via `GET /api/files/{fileId}` (`FilesController`, `[Authorize]`), which
+  re-authorizes on EVERY fetch — owner → SuperAdmin → category policy (`FileAccessService`,
+  fail-closed) — then 302s to a short-lived SAS (`UploadsSasLifetimeMinutes`, default 240).
+  Category policies: `VideoThumbnail`/`VideoAttachment`/`VideoExamQuestionImage` =
+  teacher-tenant only; `OnlineExamQuestionImage` = tenant OR a student in the exam's LIVE
+  assigned set (tenant-scoped EXISTS, `IsQuestionImageAssignedToStudentAsync`);
+  `NationalIdImage` = owner+admin only (no resource policy; excluded from
+  `FileConstants.UploadableCategories` — created server-side during sign-up).
+- **Writes**: frontend uploads via `POST /api/upload` (multipart `files` + required
+  `category`) → 201 `{fileId, url, ...}` with `Status=Pending`; resource create/update then
+  passes `fileId` and the service attaches it via `IFileAccessService.ResolveForAttachAsync`
+  (ownership/tenant + category match + 409 claim-stealing guard) INSIDE the resource's
+  transaction. Replace/delete on `/api/upload` are fileId-based and ownership-guarded.
+- **Lifecycle / cleanup**: `Pending → Attached → Detached`. Deleting/replacing a resource
+  DETACHES its files in the same transaction (`DetachAsync`; e.g.
+  `VideoService.DetachVideoFilesAsync`, exam replace/delete). Blob deletion happens ONLY in
+  the hourly `FileObjectGcJob` (`file-object-gc`): reaps every `Detached` row + `Pending`
+  rows older than `UploadsPendingGraceHours` (24), blob-first then row, retried next sweep.
+  **Never hard-delete a FileObject row or its blob inline** — that orphans the blob forever
+  (only registry-backed blobs are GC-visible). `VideoAssetRepo.DeleteVideoAsync` carries a
+  defensive detach `ExecuteUpdate` so the NoAction FK can never block a video delete.
+- **Consequences shipped with this change**: videos create/update/replace-thumbnail are
+  **JSON** (`thumbnailFileId` / attachment `fileId` / `ReplaceThumbnailRequest`) — no more
+  multipart or `IFormFile` on those routes; the attachment-download endpoint was removed
+  (the gated URL is used directly); `User.IdImage` varbinary → `IdImageFileId` FK;
+  `VideoAttachments` table dropped (folded into the registry, category `VideoAttachment`,
+  back-ref `FileObject.VideoAssetId`); `OnlineExamQuestion.ImageFileId` /
+  `VideoExamQuestion.ImageFileId` added (requests carry `imageFileId`, responses carry the
+  gated `imageUrl`). Migration `20260716140711_FileObjectRegistry`.
+- **Adding a new file-bearing feature** = add a `FileCategory` value + a policy branch in
+  `FileAccessService.IsReadAuthorizedAsync` + a named EXISTS repo method — nothing else.
+  Unhandled categories are DENIED by default.
 
 ## 6. Hangfire & Background Jobs
 
@@ -617,5 +661,7 @@ Always cross-reference code comments to the relevant `REQ-*` / `BR-*` IDs.
 | Generic `IJobScheduler` wrappers that re-export Hangfire | Use intent-based interfaces instead |
 | Fabricating transactional rows directly in seeders | Referentially inconsistent state |
 | Throwing exceptions for business-logic failures | Use `Result<T>.Failure(...)` |
+| Hard-deleting `FileObject` rows or blobs inline | Only `file-object-gc` reaps (Detach instead); inline deletes orphan blobs (§5.5) |
+| Re-enabling anonymous blob access / exposing `BlobPath` | Files are JWT-gated via `/api/files/{fileId}`; anonymous blob 401/403/409 is intended (§5.5) |
 
 <!-- ci: markdown-only edits do not trigger the deploy workflow (paths-ignore). -->
