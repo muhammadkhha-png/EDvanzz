@@ -698,6 +698,15 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<int> SetExamAttendanceByOccurrenceAsync(
         long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds,
         ObligationStatus newStatus, bool clearGrade, bool skipGraded, DateTime utcNow, long actingUserId);
+    /// <summary>
+    /// Student-facing, paged: offline-exam occurrences (AssignmentType.Exam) the given student
+    /// has an obligation for under this teacher, joined to its template for display fields.
+    /// One row per occurrence, ordered by DueDate descending. Rides the same
+    /// IX_StudentAssignmentObligations_StudentHistory index as GetStudentHistoryPagedAsync
+    /// (same leading columns: TeacherId, TeacherStudentId).
+    /// </summary>
+    Task<(IReadOnlyList<StudentOfflineExamRow> Items, int TotalCount)> GetOfflineExamsForStudentPagedAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize);
 }
 
 // ══════════════════════════════════════════════
@@ -837,4 +846,21 @@ public sealed class EligibleStudentRow
     public string StudentName { get; set; } = null!;
     public string StudentCode { get; set; } = null!;
     public string? SessionName { get; set; }
+}
+/// <summary>
+/// Student-facing projection for one offline-exam occurrence (Module 6, AssignmentType.Exam).
+/// One row per occurrence the student has an obligation for — a recurring exam template
+/// surfaces one row per DueDate. Score/percentage are computed in the service layer from
+/// GradeValue and MaxGradeSnapshot; this projection only carries raw values.
+/// </summary>
+public sealed class StudentOfflineExamRow
+{
+    public long OccurrenceId { get; set; }
+    public long TemplateId { get; set; }
+    public string ExamName { get; set; } = null!;
+    public string? Notes { get; set; }
+    public DateTime DueDate { get; set; }
+    public decimal? GradeValue { get; set; }
+    public decimal? MaxGradeSnapshot { get; set; }
+    public ObligationStatus Status { get; set; }
 }

@@ -2078,4 +2078,49 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
     }
     private Result<AssignmentTemplateDto> Failure(string key) =>
         Result<AssignmentTemplateDto>.Failure(_localizer, key, HttpStatusCode.BadRequest);
+    private static StudentOfflineExamListItemDto MapToStudentOfflineExamListItemDto(StudentOfflineExamRow row) => new()
+    {
+        ExamId = row.OccurrenceId,
+        ExamName = row.ExamName,
+        Description = row.Notes,
+        Date = DateOnly.FromDateTime(row.DueDate),
+        Score = row.GradeValue,
+        ScorePercentage = ComputeScorePercentage(row.GradeValue, row.MaxGradeSnapshot),
+        Status = row.Status,
+    };
+
+    /// <summary>Null when not gradeable (no grade entered yet, or MaxGradeSnapshot missing/zero).</summary>
+    private static decimal? ComputeScorePercentage(decimal? score, decimal? maxScore)
+    {
+        if (score is null || maxScore is null || maxScore.Value == 0m) return null;
+        return Math.Round(score.Value / maxScore.Value * 100m, 2);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // STUDENT-FACING (mobile app)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (rows, totalCount) = await _unitOfWork.ExamHomeworkRepo
+            .GetOfflineExamsForStudentPagedAsync(teacherId, teacherStudentId, page, pageSize);
+
+        var dtos = rows.Select(MapToStudentOfflineExamListItemDto).ToList();
+
+        var response = new PaginatedResponse<List<StudentOfflineExamListItemDto>>
+        {
+            data = dtos,
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount,
+            totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+        };
+
+        return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Success(response, _localizer);
+    }
 }

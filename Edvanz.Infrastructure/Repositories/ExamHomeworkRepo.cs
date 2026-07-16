@@ -113,7 +113,38 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             .Where(s => s.TemplateId == templateId)
             .ExecuteDeleteAsync();
     }
+    /// <inheritdoc />
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<StudentOfflineExamRow> Items, int TotalCount)> GetOfflineExamsForStudentPagedAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize)
+    {
+        var query = _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.Template.AssignmentType == AssignmentType.Exam);
 
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(o => o.Occurrence.DueDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(o => new StudentOfflineExamRow
+            {
+                OccurrenceId = o.OccurrenceId,
+                TemplateId = o.Occurrence.TemplateId,
+                ExamName = o.Occurrence.Template.Name,
+                Notes = o.Occurrence.Template.Notes,
+                DueDate = o.Occurrence.DueDate,
+                GradeValue = o.GradeValue,
+                MaxGradeSnapshot = o.Occurrence.MaxGradeSnapshot,
+                Status = o.Status,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
     /// <inheritdoc />
     public async Task<AssignmentTemplate?> GetTemplateByIdAndTeacherAsync(long templateId, long teacherId)
     {

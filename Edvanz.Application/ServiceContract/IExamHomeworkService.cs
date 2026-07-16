@@ -199,4 +199,10 @@ public interface IExamHomeworkService
     /// <summary>Paginated audit history for a single obligation. REQ-EXH-028.</summary>
     Task<Result<PaginatedResponse<List<ObligationAuditEntryDto>>>> GetObligationAuditLogAsync(
         long teacherId, long obligationId, int page, int pageSize);
+    /// <summary>
+    /// Every offline exam (AssignmentType.Exam) the calling student has an obligation for
+    /// under this teacher, paginated, sorted by date descending.
+    /// </summary>
+    Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize);
 }
