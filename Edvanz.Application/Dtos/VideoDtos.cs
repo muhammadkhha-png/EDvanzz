@@ -75,6 +75,33 @@ public sealed class CreateVideoRequest
     public CreateExamDto? Exam { get; set; }
 
     /// <summary>
+    /// Optional initial status. Omitted/null = <see cref="VideoStatus.Published"/> (the entity
+    /// default — unchanged behavior). <c>Draft</c> keeps the video (and its files) invisible to
+    /// students until published.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoStatus? Status { get; set; }
+
+    /// <summary>
+    /// Optional scheduled-publish timestamp. A future date keeps the video hidden from students
+    /// until reached, even when <see cref="Status"/> is Published. Null = publish immediately.
+    /// </summary>
+    public DateTime? PublishDate { get; set; }
+
+    /// <summary>
+    /// Optional explicit duration override. When set, <c>DurationSeconds</c> is stored and
+    /// <c>IsDurationManuallySet</c> = true (student reports won't overwrite it — same semantics
+    /// as the update endpoint). Null = 0, learned from the first student open.
+    /// </summary>
+    public int? DurationSeconds { get; set; }
+
+    /// <summary>
+    /// Optional unit links created with the video (M:N). Null or empty = no unit links; link
+    /// later via <c>PUT /videos/{id}/units</c>. Units must belong to the calling teacher.
+    /// </summary>
+    public List<long>? UnitIds { get; set; }
+
+    /// <summary>
     /// Optional video photo (cover image) — the opaque <c>fileId</c> (FileObject.PublicId)
     /// previously returned by <c>POST /api/upload</c> (category <c>VideoPhoto</c>).
     /// Null = no video photo.

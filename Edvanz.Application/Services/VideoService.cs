@@ -1794,13 +1794,43 @@ public sealed class VideoService : IVideoService
                 SourceUrl = request.SourceUrl.Trim(),
                 SourceType = parseOutcome.Success!.SourceType,
                 ExternalId = parseOutcome.Success.ExternalId,
-                DurationSeconds = 0, // Story A: learned on first open.
+                DurationSeconds = 0, // Story A: learned on first open (unless overridden below).
                 CreatedByUserId = actingUserId,
                 CreateAt = DateTime.UtcNow,
+                // Optional create-time visibility controls (parity with the update endpoint).
+                // Status omitted = entity default (Published) — unchanged behavior.
+                PublishDate = request.PublishDate,
             };
+
+            if (request.Status.HasValue)
+                video.Status = request.Status.Value;
+
+            // Explicit duration override — same semantics as the update endpoint: stored value
+            // wins and student reports can no longer overwrite it.
+            if (request.DurationSeconds.HasValue)
+            {
+                video.DurationSeconds = request.DurationSeconds.Value;
+                video.IsDurationManuallySet = true;
+            }
 
             await _unitOfWork.VideoAssetsRepo.AddVideoAsync(video);
             await _unitOfWork.SaveChangesAsync(); // generates video.Id
+
+            // Unit links (M:N), created with the video — same validation + replace helper the
+            // update endpoint uses. Ownership check → 400 VideoUnitNotFound on a foreign/unknown id.
+            if (request.UnitIds is { Count: > 0 })
+            {
+                var unitOwnershipError = await ValidateUnitIdsOwnershipAsync(teacherId, request.UnitIds);
+                if (unitOwnershipError is not null)
+                {
+                    if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                    return Result<CreateVideoResponse>.Failure(
+                        _localizer, unitOwnershipError, HttpStatusCode.BadRequest);
+                }
+
+                await _unitOfWork.VideoAssetsRepo.ReplaceUnitLinksAsync(video.Id, request.UnitIds);
+                await _unitOfWork.SaveChangesAsync();
+            }
 
             var utcNow = DateTime.UtcNow;
 
