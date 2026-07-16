@@ -15,6 +15,13 @@ public class OnlineExamQuestion : BaseEntity
 
     public string QuestionText { get; set; } = null!;
 
+    /// <summary>
+    /// Optional FK to an image <see cref="FileObject"/> (registry) shown with the question.
+    /// References <c>FileObject.Id</c>; the gated read URL is rebuilt from its <c>PublicId</c>.
+    /// Visible to the exam's teacher/assistant and to students assigned to the exam.
+    /// </summary>
+    public long? ImageFileId { get; set; }
+
     public OnlineExamQuestionType QuestionType { get; set; }
 
     /// <summary>

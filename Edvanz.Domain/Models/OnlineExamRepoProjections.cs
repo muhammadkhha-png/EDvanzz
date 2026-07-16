@@ -40,6 +40,13 @@ public sealed class OnlineExamQuestionRow
     public OnlineExamQuestionType QuestionType { get; set; }
     public decimal Degree { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>Registry image FK (FileObject.Id), or null. Projected by the repo.</summary>
+    public long? ImageFileId { get; set; }
+
+    /// <summary>Gated image URL, populated by the service from <see cref="ImageFileId"/> (not by the repo).</summary>
+    public string? ImageUrl { get; set; }
+
     public List<OnlineExamQuestionOptionRow> Options { get; set; } = new();
 }
 
@@ -63,6 +70,13 @@ public sealed class StudentOnlineExamQuestionRow
     public OnlineExamQuestionType QuestionType { get; set; }
     public decimal Degree { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>Registry image FK (FileObject.Id), or null. Projected by the repo.</summary>
+    public long? ImageFileId { get; set; }
+
+    /// <summary>Gated image URL, populated by the service from <see cref="ImageFileId"/> (not by the repo).</summary>
+    public string? ImageUrl { get; set; }
+
     public List<StudentOnlineExamQuestionOptionRow> Options { get; set; } = new();
 }
 

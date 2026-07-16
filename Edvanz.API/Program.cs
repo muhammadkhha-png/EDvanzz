@@ -247,6 +247,7 @@ builder.Services.AddScoped<IVideoService, VideoService>();
 builder.Services.AddScoped<IVideoUnitService, VideoUnitService>();
 builder.Services.AddScoped<IOnlineExamScopeResolver, OnlineExamScopeResolver>();
 builder.Services.AddScoped<IOnlineExamService, OnlineExamService>();
+builder.Services.AddScoped<IStudentOnlineExamService, StudentOnlineExamService>();
 builder.Services.AddScoped<IOnlineExamGradingService, OnlineExamGradingService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();
@@ -482,6 +483,14 @@ for (int attempt = 1; ; attempt++)
         // Hourly pending-payment expiry sweep (EC-18). Runs at minute 0 of every hour.
         RecurringJob.AddOrUpdate<PendingPaymentExpiryJob>(
             SubscriptionConstants.PendingPaymentExpiryJobId,
+            job => job.RunAsync(),
+            Cron.Hourly);
+
+        // Central file-registry GC — reaps abandoned (Pending) and released (Detached)
+        // FileObjects (blob + row). Hourly; idempotent, so a transient Azure failure just
+        // retries next sweep. This is the single reliable reaper of blob storage.
+        RecurringJob.AddOrUpdate<FileObjectGcJob>(
+            "file-object-gc",
             job => job.RunAsync(),
             Cron.Hourly);
 

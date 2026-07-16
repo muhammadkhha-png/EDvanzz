@@ -157,13 +157,11 @@ public class VideoAsset : BaseEntity
     public byte[] RowVersion { get; set; } = null!;
 
     /// <summary>
-    /// Blob path to the uploaded thumbnail image, or null if none set. Same
-    /// convention as <see cref="VideoAttachment.BlobPath"/> — canonical reference
-    /// stored in DB; SAS read URL generated per request via
-    /// <c>IFileStorageService.GetReadUrlAsync</c>, never persisted.
+    /// FK to the thumbnail's <see cref="FileObject"/> in the central file registry, or null if
+    /// none set. References <c>FileObject.Id</c>; the gated read URL is reconstructed from the
+    /// FileObject's <c>PublicId</c>. Replaces the former inline <c>ThumbnailBlobPath</c> string.
     /// </summary>
-    [MaxLength(500)]
-    public string? ThumbnailBlobPath { get; set; }
+    public long? ThumbnailFileId { get; set; }
 
     /// <summary>
     /// True once a teacher has explicitly set <see cref="DurationSeconds"/> via

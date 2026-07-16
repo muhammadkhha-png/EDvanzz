@@ -87,7 +87,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IEncryptionService, EncryptionService>();
         services.AddScoped<IMessageSenderJob, MessageSenderJob>();
 
-        // Generic file upload (images + PDF → permanent public blob URLs)
+        // Central file registry — gated reads, attach/detach lifecycle, gated-URL builder.
+        services.AddScoped<IFileAccessService, FileAccessService>();
+        // Generic file upload (images + PDF → private uploads container + registry row).
         services.AddScoped<IFileUploadService, FileUploadService>();
 
         #endregion

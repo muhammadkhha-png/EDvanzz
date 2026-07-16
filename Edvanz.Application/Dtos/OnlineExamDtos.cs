@@ -26,6 +26,13 @@ public sealed class CreateOnlineExamQuestionDto
     public string QuestionText { get; set; } = null!;
     public OnlineExamQuestionType QuestionType { get; set; }
     public decimal Degree { get; set; }
+
+    /// <summary>
+    /// Optional question image — the <c>fileId</c> (FileObject.PublicId) from <c>POST /api/upload</c>
+    /// (category <c>OnlineExamQuestionImage</c>). Null = no image.
+    /// </summary>
+    public Guid? ImageFileId { get; set; }
+
     public List<CreateOnlineExamQuestionOptionDto> Options { get; set; } = new();
 }
 

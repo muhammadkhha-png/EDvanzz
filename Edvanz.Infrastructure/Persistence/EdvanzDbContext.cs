@@ -191,7 +191,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// </summary>
     public DbSet<VideoUnitScope> VideoUnitScopes => Set<VideoUnitScope>();
 
-    public DbSet<VideoAttachment> VideoAttachments => Set<VideoAttachment>();
+    // VideoAttachment table dropped — folded into the FileObject registry (see FileObjects DbSet).
 
     /// <summary>
     /// Video Content Management Module (Module 14) — an exam attached to a
@@ -215,6 +215,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// Reference table of per-module free-tier creation quotas (see ModuleQuotaKeys).
     /// </summary>
     public DbSet<ModuleQuota> ModuleQuotas => Set<ModuleQuota>();
+
+    /// <summary>
+    /// Central file registry — one row per uploaded file, served through the gated
+    /// <c>GET /api/files/{fileId}</c> endpoint. See <see cref="FileObject"/>.
+    /// </summary>
+    public DbSet<FileObject> FileObjects => Set<FileObject>();
     // ════════════════════════════════════════════════════════════════════════════
     // DIRECT CHAT (1:1 two-way messaging — supersedes AAM-FR-07 one-way)
     // ════════════════════════════════════════════════════════════════════════════
@@ -289,6 +295,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
               .IsUnique()
               .HasFilter("[PhoneNumber] IS NOT NULL")
               .HasDatabaseName("UX_Users_PhoneNumber");
+
+        // National-ID image is a registry file reference (FileObject.Id), replacing the former
+        // inline IdImage varbinary. Fluent-only, NoAction; no inverse navigation on FileObject.
+        modelBuilder.Entity<User>()
+            .HasOne<FileObject>()
+            .WithMany()
+            .HasForeignKey(u => u.IdImageFileId)
+            .OnDelete(DeleteBehavior.NoAction);
 
         #endregion
 
@@ -2537,8 +2551,12 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.Property(v => v.RowVersion)
                 .IsRowVersion();
 
-            entity.Property(v => v.ThumbnailBlobPath)
-                .HasMaxLength(500);
+            // Thumbnail is a registry file reference (FileObject.Id). Fluent-only, NoAction
+            // (app-layer / GC cleanup); no inverse navigation on FileObject.
+            entity.HasOne<FileObject>()
+                .WithMany()
+                .HasForeignKey(v => v.ThumbnailFileId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.Property(v => v.IsDurationManuallySet)
                 .HasDefaultValue(false)
@@ -2769,41 +2787,49 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
         });
         #endregion
 
-        #region VideoAttachment (Track F / §5 "Files / Attachments")
-        modelBuilder.Entity<VideoAttachment>(entity =>
+        // VideoAttachment was folded into the central FileObject registry (a video's attachments
+        // are FileObjects of category VideoAttachment back-referencing the video via VideoAssetId).
+
+        #region FileObject (central file registry — gated /api/files/{fileId})
+        modelBuilder.Entity<FileObject>(entity =>
         {
-            entity.ToTable("VideoAttachments");
+            entity.ToTable("FileObjects");
 
-            entity.Property(a => a.FileName)
-                .HasMaxLength(260)
-                .IsRequired();
+            entity.Property(f => f.PublicId).IsRequired();
+            entity.HasIndex(f => f.PublicId)
+                .IsUnique()
+                .HasDatabaseName("UX_FileObjects_PublicId");
 
-            entity.Property(a => a.ContentType)
-                .HasMaxLength(100)
-                .IsRequired();
-
-            entity.Property(a => a.BlobPath)
+            entity.Property(f => f.BlobPath)
                 .HasMaxLength(500)
                 .IsRequired();
 
-            entity.Property(a => a.CreateAt)
+            entity.Property(f => f.ContentType)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(f => f.OriginalName)
+                .HasMaxLength(260)
+                .IsRequired();
+
+            entity.Property(f => f.Category).IsRequired();
+            entity.Property(f => f.Status).IsRequired();
+
+            entity.Property(f => f.CreateAt)
                 .HasColumnType("datetime2(0)")
                 .IsRequired();
 
-            // Composite-FK tenant integrity — same pattern as VideoScope.
-            entity.HasOne(a => a.VideoAsset)
+            // A video's attachments point back here (one-to-many). Fluent-only, NoAction
+            // (app-layer cascade / GC-driven cleanup) — no inverse navigation on VideoAsset.
+            entity.HasOne<VideoAsset>()
                 .WithMany()
-                .HasForeignKey(a => new { a.VideoAssetId, a.TeacherId })
-                .HasPrincipalKey(v => new { v.Id, v.TeacherId })
+                .HasForeignKey(f => f.VideoAssetId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne(a => a.UploadedByUser)
-                .WithMany()
-                .HasForeignKey(a => a.UploadedByUserId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasIndex(a => a.VideoAssetId)
-           .HasDatabaseName("IX_VideoAttachments_VideoAssetId");
+            // GC scans Status + CreateAt; attach/detach and the gated read look up by PublicId
+            // (already uniquely indexed above).
+            entity.HasIndex(f => f.Status)
+                .HasDatabaseName("IX_FileObjects_Status");
         });
         #endregion
 
@@ -2863,6 +2889,13 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .WithMany(e => e.Questions)
                 .HasForeignKey(q => q.ExamId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Optional question image — registry file reference (FileObject.Id). Fluent-only,
+            // NoAction (app-layer / GC cleanup); no inverse navigation on FileObject.
+            entity.HasOne<FileObject>()
+                .WithMany()
+                .HasForeignKey(q => q.ImageFileId)
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasIndex(q => q.ExamId)
                 .HasDatabaseName("IX_VideoExamQuestions_ExamId");
@@ -3453,6 +3486,13 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.HasOne(q => q.OnlineExam)
                 .WithMany(e => e.Questions)
                 .HasForeignKey(q => q.OnlineExamId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Optional question image — registry file reference (FileObject.Id). Fluent-only,
+            // NoAction (app-layer / GC cleanup); no inverse navigation on FileObject.
+            entity.HasOne<FileObject>()
+                .WithMany()
+                .HasForeignKey(q => q.ImageFileId)
                 .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasIndex(q => new { q.OnlineExamId, q.SortOrder })

@@ -74,7 +74,17 @@ public sealed class CreateVideoRequest
     /// </summary>
     public CreateExamDto? Exam { get; set; }
 
+    /// <summary>
+    /// Optional thumbnail — the opaque <c>fileId</c> (FileObject.PublicId) previously returned by
+    /// <c>POST /api/upload</c> (category <c>VideoThumbnail</c>). Null = no thumbnail.
+    /// </summary>
+    public Guid? ThumbnailFileId { get; set; }
 
+    /// <summary>
+    /// Optional PDF attachment — the <c>fileId</c> from <c>POST /api/upload</c> (category
+    /// <c>VideoAttachment</c>). Null = no attachment.
+    /// </summary>
+    public Guid? AttachmentFileId { get; set; }
 }
 
 /// <summary>
@@ -172,9 +182,21 @@ public sealed class UpdateVideoRequest
     public CreateExamDto? Exam { get; set; }
 
     /// <summary>
-    /// True to remove the video's attachment without uploading a
-    /// replacement. Ignored if the multipart request also includes a new
-    /// attachment file part — the new file wins.
+    /// Optional thumbnail replacement — the <c>fileId</c> (FileObject.PublicId) from
+    /// <c>POST /api/upload</c>. Null = leave the current thumbnail unchanged. Resending the current
+    /// thumbnail's id is an idempotent no-op.
+    /// </summary>
+    public Guid? ThumbnailFileId { get; set; }
+
+    /// <summary>
+    /// Optional attachment replacement — the <c>fileId</c> from <c>POST /api/upload</c>. Null =
+    /// leave the current attachment unchanged. Wins over <see cref="RemoveAttachment"/>.
+    /// </summary>
+    public Guid? AttachmentFileId { get; set; }
+
+    /// <summary>
+    /// True to remove the video's attachment without providing a replacement. Ignored if
+    /// <see cref="AttachmentFileId"/> is also set — the new file wins.
     /// </summary>
     public bool RemoveAttachment { get; set; }
 }
@@ -355,17 +377,28 @@ public sealed class TeacherVideoUnitListItemDto
 
 public sealed class VideoAttachmentDto
 {
-    public long Id { get; set; }
+    /// <summary>The attachment's registry id (FileObject.PublicId).</summary>
+    public Guid Id { get; set; }
     public string FileName { get; set; } = null!;
     public string ContentType { get; set; } = null!;
     public long FileSizeBytes { get; set; }
+
+    /// <summary>Stable gated URL (<c>/api/files/{id}</c>) — re-checks access per fetch.</summary>
     public string ReadUrl { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>Request body for <c>PUT /api/videos/{id}/thumbnail</c> — the uploaded file's id.</summary>
+public sealed class ReplaceThumbnailRequest
+{
+    /// <summary>The thumbnail's <c>fileId</c> (FileObject.PublicId) from <c>POST /api/upload</c>.</summary>
+    [Required]
+    public Guid ThumbnailFileId { get; set; }
+}
+
 /// <summary>
 /// Response for <c>PUT /api/videos/{id}/thumbnail</c>. A video has at most one
-/// thumbnail, so no <c>Id</c> is needed — just a fresh SAS read URL.
+/// thumbnail, so no <c>Id</c> is needed — just the stable gated read URL.
 /// </summary>
 public sealed class ThumbnailDto
 {
@@ -801,7 +834,7 @@ public sealed class CreateExamQuestionOptionDto
     public bool IsCorrect { get; set; }
 }
 
-/// <summary>One question for a create-time exam.</summary>
+/// <summary>One question for a create-time exam. Also the read shape (request + response).</summary>
 public sealed class CreateExamQuestionDto
 {
     [Required]
@@ -810,6 +843,16 @@ public sealed class CreateExamQuestionDto
     [Required]
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public VideoExamQuestionType QuestionType { get; set; }
+
+    /// <summary>
+    /// Optional question image. On write: the <c>fileId</c> (FileObject.PublicId) from
+    /// <c>POST /api/upload</c> (category <c>VideoExamQuestionImage</c>). On read: the same
+    /// <c>fileId</c>, alongside <see cref="ImageUrl"/>. Teacher/assistant-scoped access.
+    /// </summary>
+    public Guid? ImageFileId { get; set; }
+
+    /// <summary>Read-only: the stable gated URL for <see cref="ImageFileId"/>, or null. Ignored on write.</summary>
+    public string? ImageUrl { get; set; }
 
     [Required]
     public List<CreateExamQuestionOptionDto> Options { get; set; } = new();

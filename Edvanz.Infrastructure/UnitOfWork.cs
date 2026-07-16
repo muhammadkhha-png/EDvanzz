@@ -236,6 +236,12 @@ namespace Edvanz.Infrastructure
 
         public IStudentOnlineExamReportRepo StudentOnlineExamReportsRepo
             => _studentOnlineExamReportsRepo ??= new Repositories.StudentOnlineExamReportRepo(_Context);
+
+        private IFileObjectRepo? _fileObjectsRepo;
+
+        /// <summary>Central file registry (<see cref="FileObject"/>) — see <see cref="IFileObjectRepo"/>.</summary>
+        public IFileObjectRepo FileObjectsRepo
+            => _fileObjectsRepo ??= new Repositories.FileObjectRepo(_Context);
     }
 
 

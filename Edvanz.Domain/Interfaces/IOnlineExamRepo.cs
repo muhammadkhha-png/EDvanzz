@@ -100,4 +100,18 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
         long teacherId, long? studentSessionId, long? studentSessionGroupId);
     /// <summary>T5s ownership guard — teacherStudentId must belong to this teacher.</summary>
     Task<bool> IsTeacherStudentOwnedByTeacherAsync(long teacherStudentId, long teacherId);
+
+    /// <summary>
+    /// File-access policy support (<c>IFileAccessService</c>): true when <paramref name="fileObjectId"/>
+    /// is the image of a question on an exam owned by <paramref name="teacherId"/> and the student
+    /// <paramref name="teacherStudentId"/> is in that exam's live assigned set. Composes
+    /// <see cref="BuildAssignedStudentIdsQuery"/> — never materializes it.
+    /// </summary>
+    Task<bool> IsQuestionImageAssignedToStudentAsync(long fileObjectId, long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// The non-null <c>ImageFileId</c>s of every question in an exam — the registry files to detach
+    /// when questions are replaced or the exam is deleted. Empty if none.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetQuestionImageFileIdsAsync(long onlineExamId);
 }

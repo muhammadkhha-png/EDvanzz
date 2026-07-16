@@ -16,13 +16,16 @@ public class StudentOnlineExamService : IStudentOnlineExamService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IOnlineExamGradingService _grading;
+    private readonly IFileAccessService _fileAccess;
 
-    public StudentOnlineExamService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IOnlineExamGradingService grading)
+    public StudentOnlineExamService(
+        IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IOnlineExamGradingService grading,
+        IFileAccessService fileAccess)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _grading = grading;
-
+        _fileAccess = fileAccess;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -91,6 +94,8 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             return Result<OnlineExamTakeScreenDto>.Failure(_localizer, "OnlineExam.NotInScope", HttpStatusCode.Forbidden);
 
         var questions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForStudentAsync(onlineExamId);
+        foreach (var q in questions)
+            q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileId);
 
         var dto = new OnlineExamTakeScreenDto
         {
