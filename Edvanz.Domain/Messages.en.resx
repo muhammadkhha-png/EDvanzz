@@ -250,7 +250,7 @@
     <value>Select which of your students this request belongs to before accepting</value>
   </data>
   <data name="TeacherStudentCodeNotFound" xml:space="preserve">
-    <value>Wrong student code was provided — no student with this code exists in your account</value>
+    <value>This is a wrong student code — it can’t be found in your students</value>
   </data>
   <data name="StudentAccountCodeNotRosterCode" xml:space="preserve">
     <value>That is the student's account code. Enter one of your own student codes from your student list (or pick the student) to link</value>
