@@ -96,27 +96,22 @@ builder.Services.AddSwaggerGen(c =>
     // JWT Bearer Authentication
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token. Example: \"Bearer 12345abcdef\"",
+        Description = "Paste ONLY your JWT access token below — the 'Bearer ' prefix is added automatically.",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
     });
 
-    //c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    //{
-    //    {
-    //        new OpenApiSecurityScheme
-    //        {
-    //            Reference = new OpenApiReference // <-- Use fully qualified name if needed
-    //            {
-    //                Type = ReferenceType.SecurityScheme,
-    //                Id = "Bearer"
-    //            }
-    //        },
-    //        new List<string>()
-    //    }
-    //});
+    // Apply the Bearer scheme to every operation so the token entered in the
+    // Authorize dialog is actually attached to requests. Without this, the
+    // Authorize button stores the token but never sends it → every call 401s.
+    // Microsoft.OpenApi v2 syntax: reference the scheme by id via OpenApiSecuritySchemeReference.
+    c.AddSecurityRequirement(doc => new OpenApiSecurityRequirement
+    {
+        { new OpenApiSecuritySchemeReference("Bearer", doc), new List<string>() }
+    });
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Edvanz", Version = "v1" });
     c.OperationFilter<AcceptLanguageHeaderFilter>();
      c.OperationFilter<SwaggerExamplesFilter>();
