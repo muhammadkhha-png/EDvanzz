@@ -18,12 +18,15 @@ public sealed class VideoUnitService : IVideoUnitService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly IFileAccessService _fileAccess;
 
     public VideoUnitService(
-        IUnitOfWork unitOfWork, IStringLocalizer<Domain.Resources.Messages> localizer)
+        IUnitOfWork unitOfWork, IStringLocalizer<Domain.Resources.Messages> localizer,
+        IFileAccessService fileAccess)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
+        _fileAccess = fileAccess;
     }
 
     public async Task<Result<CreateVideoUnitResponse>> CreateUnitAsync(
@@ -161,18 +164,36 @@ public sealed class VideoUnitService : IVideoUnitService
                 _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.NotFound);
 
         var (rows, totalCount) = await _unitOfWork.VideoUnitsRepo
-            .GetVideosInUnitPagedAsync(unitId, teacherId, request.Page, request.PageSize);
+            .GetVideosInUnitPagedAsync(unitId, teacherId, request.Search, request.Page, request.PageSize);
+
+        // Batch-resolve the page's cover-photo file ids to opaque PublicId + gated URL in one
+        // query — identical to VideoService.GetTeacherVideosAsync so both video lists match.
+        var photoIds = rows.Where(r => r.VideoPhotoFileId is not null)
+            .Select(r => r.VideoPhotoFileId!.Value).Distinct().ToList();
+        var photosById = photoIds.Count == 0
+            ? new Dictionary<long, FileObject>()
+            : (await _unitOfWork.FileObjectsRepo.GetByIdsAsync(photoIds)).ToDictionary(f => f.Id);
 
         var items = rows.Select(r => new TeacherVideoListItemDto
         {
             Id = r.Id,
             Title = r.Title,
+            Description = r.Description,
+            SourceUrl = r.SourceUrl,
             SourceType = r.SourceType,
             DurationSeconds = r.DurationSeconds,
             StudentsInScope = r.StudentsInScope,
             TotalOpens = r.TotalOpens,
             SeenStudentCount = r.SeenStudentCount,
             UnseenStudentCount = r.UnseenStudentCount,
+            VideoPhotoFileId = r.VideoPhotoFileId is long pid && photosById.TryGetValue(pid, out var photo)
+                ? photo.PublicId
+                : null,
+            VideoPhotoUrl = r.VideoPhotoFileId is long pid2 && photosById.TryGetValue(pid2, out var photo2)
+                ? _fileAccess.BuildGatedUrl(photo2.PublicId)
+                : null,
+            QuestionsNumber = r.QuestionsNumber,
+            AttachmentsNumber = r.AttachmentsNumber,
             CreatedAt = r.CreatedAt,
         }).ToList();
 

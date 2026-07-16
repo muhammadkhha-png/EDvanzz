@@ -48,11 +48,12 @@ public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
 
     /// <summary>
     /// Paged list of videos inside a specific unit — backs the S6 drill-down.
-    /// Reuses <see cref="TeacherVideoListRow"/>, the same shape as the
-    /// top-level teacher video list.
+    /// Reuses <see cref="TeacherVideoListRow"/>, the same shape (and same
+    /// optional Title <paramref name="search"/> filter) as the top-level
+    /// teacher video list — the only difference is the unit filter.
     /// </summary>
     Task<(IReadOnlyList<TeacherVideoListRow> Items, int TotalCount)>
-        GetVideosInUnitPagedAsync(long unitId, long teacherId, int page, int pageSize);
+        GetVideosInUnitPagedAsync(long unitId, long teacherId, string? search, int page, int pageSize);
 
     // ══════════════════════════════════════════════════════════════════════
     // UNIT SCOPE — collection-level Target Scope (final decision)

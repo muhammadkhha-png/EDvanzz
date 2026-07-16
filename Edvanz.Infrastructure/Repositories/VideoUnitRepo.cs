@@ -1,4 +1,5 @@
 using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -102,11 +103,18 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
     /// <inheritdoc />
     /// <inheritdoc />
     public async Task<(IReadOnlyList<TeacherVideoListRow> Items, int TotalCount)>
-        GetVideosInUnitPagedAsync(long unitId, long teacherId, int page, int pageSize)
+        GetVideosInUnitPagedAsync(long unitId, long teacherId, string? search, int page, int pageSize)
     {
         var query = _context.VideoAssets
             .Where(v => v.TeacherId == teacherId
                 && _context.VideoAssetUnits.Any(au => au.UnitId == unitId && au.VideoAssetId == v.Id));
+
+        // Same Title search as GetTeacherVideosPagedAsync — parity with the top-level list.
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{search.Trim()}%";
+            query = query.Where(v => EF.Functions.Like(v.Title, pattern));
+        }
 
         int totalCount = await query.CountAsync();
 
@@ -127,6 +135,15 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
                     .Where(a => a.VideoAssetId == v.Id)
                     .Sum(a => (int?)a.OpenCount) ??0,
                 SeenStudentCount = _context.VideoAnalytics.Count(a => a.VideoAssetId == v.Id),
+                // Parity with GetTeacherVideosPagedAsync: cover-photo id (resolved to
+                // PublicId + gated URL in the service) and the exam/attachment counts.
+                VideoPhotoFileId = v.VideoPhotoFileId,
+                QuestionsNumber = _context.VideoExamQuestions
+                    .Count(q => q.Exam.VideoAssetId == v.Id),
+                AttachmentsNumber = _context.Set<FileObject>()
+                    .Count(f => f.VideoAssetId == v.Id
+                             && f.Category == FileCategory.VideoAttachment
+                             && f.Status == FileStatus.Attached),
                 CreatedAt = v.CreateAt,
             })
             .AsNoTracking()
