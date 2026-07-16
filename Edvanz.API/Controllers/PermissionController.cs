@@ -89,6 +89,11 @@ namespace Edvanz.API.Controllers
 
        
         [HttpGet("teacher")]
+
+
+
+       
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.ModulesPermissions.ModulePermissionsDto>>), StatusCodes.Status200OK)]
         [HttpGet("teacher/{teacherId}")]
         [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         public async Task<IActionResult> GetAvailablePermissionsPerTeacher([FromRoute] long? teacherId = null)

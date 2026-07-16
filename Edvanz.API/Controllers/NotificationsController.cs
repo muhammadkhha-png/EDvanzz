@@ -42,7 +42,7 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.NotificationDto>>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPaged(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
@@ -61,7 +61,7 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("unread-count")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetUnreadCount()
     {
         long? userId = _currentUser.UserId;
@@ -79,7 +79,7 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{notificationId:long}/mark-read")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> MarkRead([FromRoute] long notificationId)
     {
@@ -98,7 +98,7 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("mark-all-read")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     public async Task<IActionResult> MarkAllRead()
     {
         long? userId = _currentUser.UserId;
@@ -122,7 +122,7 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("register-fcm-token")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RegisterFcmToken([FromBody] RegisterFcmTokenRequest request)
     {

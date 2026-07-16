@@ -71,7 +71,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("sign-up")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> Signup([FromForm] SigupDto req)
@@ -92,7 +92,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("generate-otp")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> GenerateOtp([FromQuery] string phoneNumber)
@@ -108,7 +108,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("verify-otp")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> VerifyOtp(OtpVerificationDto req)
@@ -130,7 +130,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("login")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> Login(LoginDto req)
@@ -153,7 +153,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("admin-login")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> AdminLogin([FromBody] LoginDto req)
@@ -172,7 +172,7 @@ namespace Edvanz.API.Controllers
         /// <response code="200">New tokens issued.</response>
         /// <response code="400">Refresh token invalid, expired, or revoked.</response>
         [HttpPost("refresh")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> RefreshToken(RefreshDto req)
         {
@@ -199,7 +199,7 @@ namespace Edvanz.API.Controllers
         [Authorize]
         [HttpPost("change-password")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
@@ -225,7 +225,7 @@ namespace Edvanz.API.Controllers
         /// <response code="429">Rate limit exceeded.</response>
         [HttpPost("sigup-by-google")]
         [EnableRateLimiting("auth")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
         public async Task<IActionResult> GoogleSignUp(SigUpByGoogle req)
@@ -252,7 +252,7 @@ namespace Edvanz.API.Controllers
         /// <response code="401">Missing or invalid complete-profile token.</response>
         [Authorize(Policy = "CompleteProfile")]
         [HttpPost("complete-profile")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
         public async Task<IActionResult> CompleteProfile(CompleteProfileDto req)
@@ -270,7 +270,7 @@ namespace Edvanz.API.Controllers
         /// <param name="req">The refresh token to revoke, and whether to end all sessions.</param>
         /// <response code="200">Logged out (always, by idempotency).</response>
         [HttpPost("logout")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
         public async Task<IActionResult> Logout([FromBody] LogoutDto req)
         {
             var result = await authService.Logout(req.token, req.logoutAllSessions);

@@ -69,7 +69,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> InitializeParentUser([FromBody] CreateParentUserDto dto)
@@ -91,7 +91,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetParentUserProfile([FromRoute] long parentUserId)
     {
@@ -110,7 +110,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{parentUserId:long}/profile")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateParentUserProfile(
@@ -131,7 +131,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}/dashboard")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentDashboardDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDashboard([FromRoute] long parentUserId)
     {
@@ -150,7 +150,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/by-code")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -172,7 +172,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/manual")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AddChildManual(
@@ -194,7 +194,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("{parentUserId:long}/children/{childId:long}/teachers")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildTeacherDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -217,7 +217,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{parentUserId:long}/children/{childId:long}/teachers/{teacherId:long}")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UnlinkTeacherFromChild(
@@ -241,7 +241,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{parentUserId:long}/children/{childId:long}")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetChild(
         [FromRoute] long parentUserId,
@@ -261,7 +261,7 @@ public class ParentUserController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{parentUserId:long}/children/{childId:long}")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveChild(
         [FromRoute] long parentUserId,

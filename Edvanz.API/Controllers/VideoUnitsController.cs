@@ -34,7 +34,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // POST /api/video-units — create a new unit.
     [HttpPost]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.CreateVideoUnitResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateUnit([FromBody] VideoUnitRequest request)
@@ -49,7 +49,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // PUT /api/video-units/{unitId} — rename/update a unit.
     [HttpPut("{unitId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -66,7 +66,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // DELETE /api/video-units/{unitId} — soft-delete; videos become loose, never orphaned/cascaded.
     [HttpDelete("{unitId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -82,7 +82,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // GET /api/video-units — paged unit list with rolled-up aggregates (backs S2).
     [HttpGet]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.TeacherVideoUnitListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetTeacherUnits([FromQuery] TeacherVideoUnitListRequest request)
@@ -97,7 +97,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // GET /api/video-units/{unitId}/videos — videos-in-unit drill-down (backs S6).
     [HttpGet("{unitId:long}/videos")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.TeacherVideoListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -113,7 +113,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
     // GET /api/video-units/{unitId} — get unit details with its scopes.
     [HttpGet("{unitId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoUnitResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

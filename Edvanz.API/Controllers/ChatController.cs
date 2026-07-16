@@ -65,8 +65,8 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("conversations")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Chat.ConversationDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Chat.ConversationDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -104,7 +104,7 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("conversations/{conversationId:long}/messages")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Chat.ChatMessageDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -139,7 +139,7 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("conversations")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Chat.ConversationDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetConversations(
         [FromQuery] int page = 1,
@@ -174,7 +174,7 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("conversations/{conversationId:long}/messages")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Chat.ChatMessageDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetThread(
@@ -211,7 +211,7 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("conversations/{conversationId:long}/mark-read")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> MarkRead([FromRoute] long conversationId)
@@ -243,7 +243,7 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("unread-count")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetUnreadCount()
     {

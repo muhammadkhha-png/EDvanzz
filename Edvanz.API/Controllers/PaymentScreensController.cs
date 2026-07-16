@@ -48,7 +48,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collections")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.CollectionsByMonthResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -75,7 +75,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/assistants/{assistantId:long}/wallet")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletScreenResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -99,7 +99,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collect/students")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.CollectStudentsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -125,7 +125,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/students")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentsByStatusResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -151,7 +151,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collections/yearly")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.YearlyCollectionsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -176,7 +176,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/collect/lookup")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.CollectLookupResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -200,7 +200,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/tracking")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.TrackingResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -222,7 +222,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("/api/v1/payments/collect/mark-paid")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.MarkPaidResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -248,7 +248,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("/api/v1/collect/submit")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.SubmitCollectionResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -274,7 +274,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("/api/v1/assistants/{assistantId:long}/wallet/withdraw")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.WalletWithdrawResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

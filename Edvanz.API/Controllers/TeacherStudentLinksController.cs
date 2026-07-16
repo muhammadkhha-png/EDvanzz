@@ -47,7 +47,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("my-code")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.TeacherCodeDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -69,7 +69,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="200">Paginated pending requests.</response>
     [HttpGet("requests")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherLinks.TeacherLinkRequestListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -96,7 +96,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="422">No roster record could be resolved — selection required.</response>
     [HttpPost("requests/{linkId:long}/accept")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionAdd)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -125,7 +125,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="409">Link is not Active, or the record is already linked to another account.</response>
     [HttpPost("{linkId:long}/bind")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -151,7 +151,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="409">Link is not Active.</response>
     [HttpPost("{linkId:long}/unbind")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -175,7 +175,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="409">Request already resolved.</response>
     [HttpPost("requests/{linkId:long}/reject")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionAdd)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -197,7 +197,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="200">Paginated linked students.</response>
     [HttpGet]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -221,7 +221,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="404">None of the ids matched an Active link of this teacher.</response>
     [HttpPost("remove")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.RemoveLinkedStudentsResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

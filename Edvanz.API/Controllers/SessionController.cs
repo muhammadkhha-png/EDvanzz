@@ -88,7 +88,7 @@ public class SessionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -114,7 +114,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}")]
     [HttpGet("{teacherId:long}/sessions/{sessionId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSessionById(
         [FromRoute] long sessionId,
@@ -144,7 +144,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("sessions/{sessionId:long}")]
     [HttpPut("{teacherId:long}/sessions/{sessionId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -176,7 +176,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/delete-confirmation")]
     [HttpGet("{teacherId:long}/sessions/{sessionId:long}/delete-confirmation")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionDeleteConfirmationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetDeleteConfirmation(
         [FromRoute] long sessionId,
@@ -206,7 +206,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("sessions/{sessionId:long}")]
     [HttpDelete("{teacherId:long}/sessions/{sessionId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteSession(
         [FromRoute] long sessionId,
@@ -235,7 +235,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("sessions/{sessionId:long}/duplicate")]
     [HttpPost("{teacherId:long}/sessions/{sessionId:long}/duplicate")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DuplicateSession(
         [FromRoute] long sessionId,
@@ -268,7 +268,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions")]
     [HttpGet("{teacherId:long}/sessions")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Session.SessionDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSessionList(
         [FromQuery] SessionListRequest request,
@@ -296,7 +296,7 @@ public class SessionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("groups")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionGroupDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -322,7 +322,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("groups")]
     [HttpGet("{teacherId:long}/groups")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Session.SessionGroupDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetGroups([FromRoute] long? teacherId = null)
     {
@@ -349,7 +349,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("groups/{groupId:long}")]
     [HttpPut("{teacherId:long}/groups/{groupId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.SessionGroupDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RenameGroup(
@@ -379,7 +379,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("groups/{groupId:long}")]
     [HttpDelete("{teacherId:long}/groups/{groupId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteGroup(
         [FromRoute] long groupId,
@@ -409,7 +409,7 @@ public class SessionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("links")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -436,7 +436,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("links/{sessionIdA:long}/{sessionIdB:long}")]
     [HttpDelete("{teacherId:long}/links/{sessionIdA:long}/{sessionIdB:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveLink(
         [FromRoute] long sessionIdA,
@@ -468,7 +468,7 @@ public class SessionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("assign-students")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Session.AssignStudentsResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AssignStudents([FromBody] AssignStudentsToSessionDto dto)
@@ -495,7 +495,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("sessions/{sessionId:long}/confirm-reassign")]
     [HttpPost("{teacherId:long}/sessions/{sessionId:long}/confirm-reassign")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ConfirmReassign(
@@ -525,7 +525,7 @@ public class SessionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("sessions/{sessionId:long}/students/{studentId:long}")]
     [HttpDelete("{teacherId:long}/sessions/{sessionId:long}/students/{studentId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UnassignStudent(

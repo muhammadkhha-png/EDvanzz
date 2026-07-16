@@ -24,6 +24,7 @@ namespace Edvanz.API.Controllers
         }
         [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [HttpGet]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.AuditTrial.AuditTrialListDto>>>), StatusCodes.Status200OK)]
         public async Task<IActionResult> GetAssisstantsAudits([FromQuery] AuditTrailQueryRequest req)
         {
             var res = await auditTrialService.GetAssistantsAuditTrialsPerTeacher(req);
@@ -31,6 +32,7 @@ namespace Edvanz.API.Controllers
         }
         [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [HttpGet("export")]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<byte[]>), StatusCodes.Status200OK)]
         public async Task<IActionResult> ExportAssistantsAudits([FromQuery] AuditTrialExcelFilterQuery req)
         {
             var result = await auditTrialService.ExportToExcel(req);

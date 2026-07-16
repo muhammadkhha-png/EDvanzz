@@ -51,7 +51,7 @@ public class AdminTutorModuleController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("grant")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Grant([FromBody] ModuleGrantRequest request)
@@ -74,7 +74,7 @@ public class AdminTutorModuleController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("revoke")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Revoke([FromBody] ModuleRevokeRequest request)
@@ -104,7 +104,7 @@ public class AdminTutorModuleController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("replace")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Replace([FromBody] TutorModulesReplaceRequest request)

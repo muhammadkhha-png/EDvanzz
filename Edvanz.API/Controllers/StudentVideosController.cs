@@ -75,7 +75,7 @@ public sealed class StudentVideosController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpGet("teachers/{teacherId:long}")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.StudentVideoListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -115,7 +115,7 @@ public sealed class StudentVideosController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPost("teachers/{teacherId:long}/{videoAssetId:long}/start")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.StartWatchResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -158,7 +158,7 @@ public sealed class StudentVideosController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPost("teachers/{teacherId:long}/{videoAssetId:long}/stop")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.StopWatchResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

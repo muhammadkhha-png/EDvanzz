@@ -58,7 +58,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="404">The authenticated user has no student account.</response>
     [HttpGet("me")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentUserProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMyProfile()
@@ -75,7 +75,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="400">Invalid language preference.</response>
     [HttpPut("me/profile")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentUserProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -101,7 +101,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="200">Dashboard payload.</response>
     [HttpGet("me/dashboard")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentDashboardDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMyDashboard()
@@ -121,7 +121,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="200">One entry per teacher (latest state), live entries first.</response>
     [HttpGet("me/teachers")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.StudentUser.StudentDashboardTeacherDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMyTeachers()
@@ -145,7 +145,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="409">Already linked to this teacher, or a request is already pending.</response>
     [HttpPost("me/link-requests")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentDashboardTeacherDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -168,7 +168,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="404">No pending request or active link with this teacher.</response>
     [HttpDelete("me/teachers/{teacherId:long}")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveMyTeacher([FromRoute] long teacherId)
@@ -196,7 +196,7 @@ public class StudentUserController : ApiBaseController
     /// <response code="400">Blank account code.</response>
     /// <response code="404">No active student with this code.</response>
     [HttpGet("by-code/{accountCode}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentUserProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetStudentUserByAccountCode([FromRoute] string accountCode)

@@ -73,7 +73,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("events")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionCreate)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.EventDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -102,7 +102,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("events")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Payment.EventDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetEvents([FromQuery] EventListFilterDto filter)
@@ -129,7 +129,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("events/{eventId:long}/tracking")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.EventTrackingDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -166,7 +166,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("events/{eventId:long}")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.EventDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -199,7 +199,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("events/{eventId:long}")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -226,7 +226,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("events/{eventId:long}/students/{teacherStudentId:long}/custom-amount")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -265,7 +265,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("events/{eventId:long}/collect")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionCollectPayment)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.EventPaymentResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -300,7 +300,7 @@ public sealed class EventPaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("reports/generate")]
     [ModulePermission(PaymentConstants.EventModuleName, PaymentConstants.EventPermissionGenerateReports)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

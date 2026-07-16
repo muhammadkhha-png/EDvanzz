@@ -45,7 +45,7 @@ public sealed class StudentAssignmentObligationsController : ApiBaseController
     /// <response code="404">Caller has no student account.</response>
     [HttpGet("teachers/{teacherId:long}/exams")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<StudentOfflineExamListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

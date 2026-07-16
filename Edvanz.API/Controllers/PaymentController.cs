@@ -79,7 +79,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("collect")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.CollectPaymentResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -111,7 +111,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/payment-status")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.PaymentStatusDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -138,7 +138,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/duplicate-check")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DuplicateCheckResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CheckDuplicatePayment([FromRoute] long teacherStudentId)
@@ -167,7 +167,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("transactions/{transactionId:long}")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.PaymentTransactionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -204,7 +204,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("transactions/{transactionId:long}")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -233,7 +233,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("transactions/{transactionId:long}/edit-logs")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Payment.PaymentEditLogDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -260,7 +260,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/history")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<Edvanz.Application.Dtos.Payment.PaymentHistoryDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -293,7 +293,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/custom-amount")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<decimal?>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetCustomAmount([FromRoute] long teacherStudentId)
@@ -319,7 +319,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("students/{teacherStudentId:long}/custom-amount")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -351,7 +351,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("unpaid")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Payment.UnpaidStudentDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetUnpaidStudents([FromQuery] UnpaidStudentsFilterDto filter)
@@ -377,7 +377,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/unpaid-count")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewUnpaidStudents)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetUnpaidCountBySession([FromRoute] long sessionId)
@@ -407,7 +407,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("collectors")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Payment.CollectorSummaryDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetCollectorSummary(
@@ -436,7 +436,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("wallets")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletsSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAllWallets()
@@ -462,7 +462,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("wallets/{assistantId:long}")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -492,7 +492,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("wallets/{assistantId:long}/reset")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.WalletResetLogDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -527,7 +527,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("dashboard")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.PaymentDashboardDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetDashboard([FromQuery] PaymentDashboardFilterDto filter)
@@ -556,7 +556,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/collection-summary")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Payment.SessionCollectionSummaryDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetSessionsCollectionSummary()
@@ -582,7 +582,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/departure-summary")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DepartureSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -610,7 +610,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("departure/confirm")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentDepartureDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -640,7 +640,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/transfer-summary")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.TransferSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -673,7 +673,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("transfer/confirm")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.SessionTransferEventDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -706,7 +706,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("sync")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.PaymentSyncResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> SyncOfflinePayments([FromBody] OfflinePaymentSyncRequestDto dto)
@@ -742,7 +742,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/payment-view")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentViewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -772,7 +772,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("reports/generate")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionGenerateReports)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<object>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -847,7 +847,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("collect/batch")]
     [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.BatchCollectResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -886,7 +886,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("transactions/batch")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.BatchEditResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -925,7 +925,7 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("transactions/batch-revert")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.BatchRevertResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

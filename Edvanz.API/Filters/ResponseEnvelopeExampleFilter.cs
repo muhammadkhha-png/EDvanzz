@@ -50,6 +50,8 @@ public sealed class ResponseEnvelopeExampleFilter : IOperationFilter
 
             // 3xx responses (302 gated-file redirect) have no JSON body — no envelope.
             if (status.StartsWith('3')) continue;
+            // 204/205 responses have no body by definition — no envelope either.
+            if (status is "204" or "205") continue;
             bool success = status.StartsWith('2');
 
             foreach (var (mediaType, media) in response.Content)

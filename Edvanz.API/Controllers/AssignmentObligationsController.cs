@@ -43,7 +43,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("occurrences/{occurrenceId:long}")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.OccurrenceDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetOccurrence([FromRoute] long occurrenceId)
     {
@@ -60,7 +60,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("occurrences/{occurrenceId:long}/summary")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.OccurrenceSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetOccurrenceSummary([FromRoute] long occurrenceId)
     {
@@ -77,7 +77,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("occurrences/{occurrenceId:long}/tracking")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTrackingView(
         [FromRoute] long occurrenceId, [FromQuery] TrackingViewRequest request)
@@ -95,7 +95,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("occurrences/{occurrenceId:long}/students/search")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.ExamHomework.StudentPickerRowDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SearchStudents(
         [FromRoute] long occurrenceId,
@@ -116,7 +116,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("occurrences/{occurrenceId:long}/students/{teacherStudentId:long}/exam-status")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -139,7 +139,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("occurrences/{occurrenceId:long}/students/{teacherStudentId:long}/homework-status")]
     [ModulePermission("Exams And Homework", "RecordHomeworkCompletion")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -162,7 +162,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("occurrences/{occurrenceId:long}/exam-status/by-code")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateExamStatusByCode(
@@ -182,7 +182,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("occurrences/{occurrenceId:long}/homework-status/by-code")]
     [ModulePermission("Exams And Homework", "RecordHomeworkCompletion")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateHomeworkStatusByCode(
@@ -207,7 +207,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("occurrences/{occurrenceId:long}/bulk-status")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.BulkStatusResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -231,7 +231,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("occurrences/{occurrenceId:long}/scan")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.ScanResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ScanBarcode(
@@ -251,7 +251,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("occurrences/{occurrenceId:long}/pending-grades")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.GradeEntryViewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetPendingGrades(
         [FromRoute] long occurrenceId, [FromQuery] GradeEntryRequest request)
@@ -269,7 +269,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{obligationId:long}/grade")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ExamHomework.TrackingViewRowDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -290,6 +290,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // DELETE /api/assignmentobligations/{obligationId}?force=false
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{obligationId:long}")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ModulePermission("Exams And Homework", "ManageAssignments")]
     [ProducesResponseType(typeof(object), StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -313,7 +314,7 @@ public class AssignmentObligationsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{obligationId:long}/audit-log")]
     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.ExamHomework.ObligationAuditEntryDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAuditLog(
         [FromRoute] long obligationId,

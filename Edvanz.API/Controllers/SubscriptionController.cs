@@ -61,7 +61,7 @@ public class SubscriptionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("current")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetCurrent()
     {
@@ -86,7 +86,7 @@ public class SubscriptionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("history")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.SubscriptionHistoryItemDto>>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHistory(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
@@ -114,7 +114,7 @@ public class SubscriptionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("renew/initiate")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.RenewInitiateResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> InitiateRenewal([FromBody] RenewInitiateRequest request)
@@ -143,7 +143,7 @@ public class SubscriptionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("renew/manual-submit")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.RenewStatusDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -170,7 +170,7 @@ public class SubscriptionController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("renew/status/{pendingPaymentId:long}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.RenewStatusDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetRenewalStatus([FromRoute] long pendingPaymentId)
     {

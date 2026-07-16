@@ -28,6 +28,7 @@ public sealed class FilesController : ApiBaseController
     /// 401 (no JWT), 404 (unknown file), 403 (not authorized).
     /// </summary>
     [HttpGet("{fileId:guid}")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status302Found)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

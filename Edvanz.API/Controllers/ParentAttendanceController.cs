@@ -55,7 +55,7 @@ public sealed class ParentAttendanceController : ApiBaseController
     // ──────────────────────────────────────────────────────────────────────
     [HttpGet("children/{childId:long}/teachers/{teacherId:long}/summary")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.StudentAttendanceSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -77,7 +77,7 @@ public sealed class ParentAttendanceController : ApiBaseController
     // ──────────────────────────────────────────────────────────────────────
     [HttpGet("children/{childId:long}/teachers/{teacherId:long}/month")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MonthlyAttendanceSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

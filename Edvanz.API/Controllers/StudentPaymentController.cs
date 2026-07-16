@@ -52,7 +52,7 @@ public sealed class StudentPaymentController : ApiBaseController
     // ──────────────────────────────────────────────────────────────────────
     [HttpGet("teachers/{teacherId:long}/tracking")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentTrackingDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

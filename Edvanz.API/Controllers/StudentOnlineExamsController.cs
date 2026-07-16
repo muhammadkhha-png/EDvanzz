@@ -48,7 +48,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="404">Caller has no student account.</response>
     [HttpGet("teachers/{teacherId:long}")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentOnlineExamListDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -73,7 +73,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="404">Exam not found, not published, or caller has no student account.</response>
     [HttpGet("teachers/{teacherId:long}/{onlineExamId:long}/questions")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamTakeScreenDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -101,7 +101,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="409">The exam window is closed, or the report is already locked (submitted or blocked).</response>
     [HttpPost("teachers/{teacherId:long}/{onlineExamId:long}/answers")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamStatsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -132,7 +132,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="409">The exam window is closed, or this exam was already submitted.</response>
     [HttpPost("teachers/{teacherId:long}/{onlineExamId:long}/submit")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamStatsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -160,7 +160,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="404">Exam not found, or the student has no attempt recorded for it.</response>
     [HttpGet("teachers/{teacherId:long}/{onlineExamId:long}/result")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamStatsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -185,7 +185,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     /// <response code="404">Exam not found, or still in Draft.</response>
     [HttpGet("teachers/{teacherId:long}/{onlineExamId:long}/answers")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamReviewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

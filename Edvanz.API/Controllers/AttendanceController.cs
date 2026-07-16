@@ -58,7 +58,7 @@ public class AttendanceController : ModuleSixApiBaseController
    //// </summary>
     [HttpPost("sessions/{sessionId:long}/occurrences/generate")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -85,7 +85,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("dashboard")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.AttendanceDashboardDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -111,7 +111,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/students")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.AttendanceStudentListDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -148,7 +148,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/month")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.SessionMonthAttendanceDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -181,7 +181,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MarkAttendanceResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -213,7 +213,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark-bulk")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.BulkMarkAttendanceResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -242,7 +242,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/occurrences/calendar")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.OccurrenceCalendarItemDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -273,7 +273,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/occurrences/{occurrenceDate:datetime}/students")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.AttendanceRecordDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -302,7 +302,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPut("edit")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.AttendanceRecordDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -331,7 +331,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("add")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.AttendanceRecordDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -362,7 +362,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("delete")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -389,7 +389,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("records/{recordId:long}/history")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.AttendanceEditLogDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -415,7 +415,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/absences")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewAbsenceOverview)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.AbsenceOverviewStudentDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -442,7 +442,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("timeline/students")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.StudentAttendanceSummaryDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -468,7 +468,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("timeline/students/{studentId:long}")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.StudentAttendanceSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -494,7 +494,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("timeline/students/{studentId:long}/month")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionViewHistory)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MonthlyAttendanceSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -522,7 +522,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("reports")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionGenerateReports)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Attendance.AttendanceRecordDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -552,7 +552,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("mark-hold")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MarkAttendanceResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -583,7 +583,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("release-hold")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MarkAttendanceResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -689,7 +689,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpPost("sync")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.SyncResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -718,7 +718,7 @@ public class AttendanceController : ModuleSixApiBaseController
     /// ══════════════════════════════════════════════════════════════════════════
     [HttpGet("sessions/{sessionId:long}/unmarked-count")]
     [ModulePermission(AttendanceConstants.ModuleName, AttendanceConstants.PermissionTake)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

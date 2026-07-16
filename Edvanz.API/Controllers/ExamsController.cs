@@ -36,7 +36,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost]
     [ModulePermission("Exams And Homework", "ManageAssignments")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamCreatedDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreateExam([FromBody] CreateExamDto dto)
@@ -56,7 +56,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{examId:long}")]
     [ModulePermission("Exams And Homework", "ManageAssignments")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamViewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -76,7 +76,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("session-dates")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Exams.SessionExamDateDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSessionDates(
         [FromQuery] long sessionId, [FromQuery] int year, [FromQuery] int month)
@@ -93,7 +93,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("home")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamHomeDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetHome(
         [FromQuery] int upcomingPage = 1,
         [FromQuery] int pastPage = 1,
@@ -111,7 +111,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{examId:long}")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamViewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetExam([FromRoute] long examId)
     {
@@ -127,7 +127,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("{examId:long}/sessions/{sessionId:long}")]
     [ModulePermission("Exams And Homework", "View")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamSessionRosterDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetExamSession(
         [FromRoute] long examId,
@@ -149,7 +149,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("grades")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.BatchGradeResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> SaveGrades([FromBody] BatchGradeDto dto)
@@ -166,7 +166,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("attendance")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamAttendanceResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -184,7 +184,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("attendance/scan")]
     [ModulePermission("Exams And Homework", "RecordExamAttendanceAndGrades")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamScanResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ScanAttendance([FromBody] ExamScanDto dto)
@@ -208,7 +208,7 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpDelete("{examId:long}")]
     [ModulePermission("Exams And Homework", "ManageAssignments")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteExam(

@@ -60,7 +60,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     //   scope-less — scope it via PUT /videos/{id}/scopes afterward.
     [HttpPost]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.CreateVideoResponse>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -99,7 +99,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPost("{videoAssetId:long}/scopes")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.AppendScopesResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -130,7 +130,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPut("{videoAssetId:long}/scopes")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.ReplaceScopesResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -158,7 +158,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpDelete("{videoAssetId:long}/scopes/{scopeId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -189,7 +189,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpDelete("{videoAssetId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -227,7 +227,7 @@ public sealed class VideosController : ModuleSixApiBaseController
 
     [HttpPut("{videoAssetId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -250,7 +250,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpGet("{videoAssetId:long}")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -271,7 +271,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpGet("{videoAssetId:long}/overview")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoOverviewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -297,7 +297,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPatch("{videoAssetId:long}/status")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -324,7 +324,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpGet("teacher")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.TeacherVideoListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -350,7 +350,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpGet("{videoAssetId:long}/analytics")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoAnalyticsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -370,7 +370,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPut("{videoAssetId:long}/video-photo")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.VideoPhotoDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -400,7 +400,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPatch("{videoAssetId:long}/status/toggle")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Domain.Enums.VideoStatus>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -421,7 +421,7 @@ public sealed class VideosController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════
     [HttpPut("{videoAssetId:long}/units")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.AssignVideoUnitsResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

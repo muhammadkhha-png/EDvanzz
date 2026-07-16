@@ -39,7 +39,7 @@ public sealed class UploadController : ModuleSixApiBaseController
     [HttpPost]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(52_428_800)] // 50 MB batch — raises the ~28.6 MB Kestrel default for THIS action
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Upload.UploadedFileDto>>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
@@ -62,7 +62,7 @@ public sealed class UploadController : ModuleSixApiBaseController
     [HttpPut]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(52_428_800)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Upload.UploadedFileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -77,7 +77,7 @@ public sealed class UploadController : ModuleSixApiBaseController
 
     /// <summary>Deletes (detaches) the file identified by <c>fileId</c>. Idempotent. Ownership-guarded.</summary>
     [HttpDelete]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

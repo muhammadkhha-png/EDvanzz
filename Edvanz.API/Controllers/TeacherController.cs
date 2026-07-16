@@ -128,7 +128,7 @@ public class TeacherController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("initialize")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherProfileDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -193,7 +193,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("profile")]
     [HttpGet("{teacherId:long}/profile")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTeacherProfile([FromRoute] long? teacherId = null)
     {
@@ -275,7 +275,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("profile")]
     [HttpPut("{teacherId:long}/profile")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateTeacherProfile(
@@ -328,7 +328,7 @@ public class TeacherController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("by-code/{teacherCode}")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherPublicInfoDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetTeacherByCode([FromRoute] string teacherCode)
@@ -398,7 +398,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("configuration")]
     [HttpGet("{teacherId:long}/configuration")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherConfigurationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetConfiguration([FromRoute] long? teacherId = null)
     {
@@ -469,7 +469,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("configuration")]
     [HttpPut("{teacherId:long}/configuration")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherConfigurationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SaveConfiguration(
@@ -527,7 +527,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("subscription")]
     [HttpGet("{teacherId:long}/subscription")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Teacher.TeacherSubscriptionDto?>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetActiveSubscription([FromRoute] long? teacherId = null)
     {
         var id = await ResolveTeacherIdAsync(teacherId);
@@ -573,7 +573,7 @@ public class TeacherController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("subjects")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.IReadOnlyList<Edvanz.Application.Dtos.Teacher.SubjectDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAvailableSubjects()
     {
         var result = await _teacherService.GetAvailableSubjectsAsync();
@@ -621,7 +621,7 @@ public class TeacherController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("capacity-packages")]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.IReadOnlyList<Edvanz.Application.Dtos.Teacher.StudentCapacityPackageDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetCapacityPackages()
     {
         var result = await _teacherService.GetCapacityPackagesAsync();
@@ -691,7 +691,7 @@ public class TeacherController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("list")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Teacher.TeacherListItemDto>>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTeachers(
     [FromQuery] PaginatedRequest request,
     [FromQuery] AccountStatus? accountStatus = null,

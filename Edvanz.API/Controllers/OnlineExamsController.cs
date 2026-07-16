@@ -43,7 +43,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPost]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamDetailDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -69,7 +69,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPut("{onlineExamId:long}")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -90,7 +90,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet("{onlineExamId:long}")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamDetailDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -108,7 +108,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.OnlineExamListItemDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetList([FromQuery] OnlineExamListRequest request)
@@ -126,7 +126,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet("{onlineExamId:long}/overview")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamOverviewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -148,7 +148,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet("{onlineExamId:long}/scope-analysis")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.OnlineExamScopeAnalysisRowDto>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -167,7 +167,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet("{onlineExamId:long}/questions")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Domain.Interfaces.OnlineExamQuestionRow>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -186,7 +186,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.View</c> permission.</response>
     [HttpGet("{onlineExamId:long}/questions/overview")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionView)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamQuestionsOverviewDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -208,7 +208,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPost("{onlineExamId:long}/questions")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -232,7 +232,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPost("{onlineExamId:long}/questions/bulk")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -256,7 +256,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPut("{onlineExamId:long}/questions")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -284,7 +284,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPatch("{onlineExamId:long}/status")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -304,6 +304,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="401">Caller is not authenticated.</response>
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpDelete("{onlineExamId:long}")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
     [ProducesResponseType(typeof(object), StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -331,7 +332,7 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpPatch("{onlineExamId:long}/students/{teacherStudentId:long}/status")]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamStatsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]

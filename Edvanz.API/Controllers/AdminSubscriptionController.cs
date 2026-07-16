@@ -54,7 +54,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("activate")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Activate([FromBody] AdminActivateRequest request)
@@ -82,7 +82,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("extend")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Extend([FromBody] AdminExtendRequest request)
@@ -109,7 +109,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("end-date")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SetEndDate([FromBody] AdminSetEndDateRequest request)
@@ -136,7 +136,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("pending")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.AdminPendingQueueItemDto>>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPendingQueue(
         [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
@@ -160,7 +160,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("pending/{pendingPaymentId:long}/approve")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.ConfirmPaymentResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ApprovePending([FromRoute] long pendingPaymentId)
@@ -188,7 +188,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("pending/{pendingPaymentId:long}/reject")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
@@ -220,7 +220,7 @@ public class AdminSubscriptionController : ApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("packages/{packageId:long}/price")]
     [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdatePackagePrice(

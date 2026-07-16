@@ -56,7 +56,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpPost]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionAdd)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -82,7 +82,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Student not found, soft-deleted, or does not belong to this teacher; or teacher record not found.</response>
     [HttpGet("students/{studentId:long}")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewProfile)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentProfileDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -112,7 +112,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Student not found, soft-deleted, or not owned by this teacher.</response>
     [HttpGet("students/{studentId:long}/barcode.svg")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewProfile)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.StudentBarcodeSvgDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status304NotModified)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -193,7 +193,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="409">Optimistic concurrency conflict — record was modified by another request. Refresh and retry.</response>
     [HttpPut("students/{studentId:long}")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -226,7 +226,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("students")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -256,7 +256,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("counts")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.StudentCountsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -283,7 +283,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Student not found, already deleted, or not owned by this teacher; or teacher record not found.</response>
     [HttpDelete("students/{studentId:long}")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -310,7 +310,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">One or more IDs not found or not owned by this teacher; or teacher record not found.</response>
     [HttpPost("bulk-delete")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -339,7 +339,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("recycle-bin")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherStudent.RecycleBinStudentDto>>>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -370,7 +370,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Student not found or not owned by this teacher; or teacher record not found.</response>
     [HttpPost("recycle-bin/{studentId:long}/restore")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -398,7 +398,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">One or more IDs not found or not owned by this teacher; or teacher record not found.</response>
     [HttpPost("bulk-restore")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -426,7 +426,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Student not found in this teacher's recycle bin; or teacher record not found.</response>
     [HttpDelete("recycle-bin/{studentId:long}/permanent")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionDelete)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -456,7 +456,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpPost("bulk-import")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionImport)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.BulkImportResultDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -483,7 +483,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("assignment-chips")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.SessionAssignmentChipsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
@@ -515,7 +515,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// <response code="404">Teacher record not found for the authenticated user.</response>
     [HttpGet("students/overview")]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TenantStudentListDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
