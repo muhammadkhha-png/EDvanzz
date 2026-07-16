@@ -82,10 +82,11 @@ public sealed class CreateVideoRequest
     public Guid? VideoPhotoFileId { get; set; }
 
     /// <summary>
-    /// Optional PDF attachment — the <c>fileId</c> from <c>POST /api/upload</c> (category
-    /// <c>VideoAttachment</c>). Null = no attachment.
+    /// Optional attachments — <c>fileId</c>s from <c>POST /api/upload</c> (category
+    /// <c>VideoAttachment</c>). Null or empty = no attachments. A video holds at most
+    /// <c>VideoConstants.MaxAttachmentsPerVideo</c> attachments; duplicates are ignored.
     /// </summary>
-    public Guid? AttachmentFileId { get; set; }
+    public List<Guid>? AttachmentFileIds { get; set; }
 }
 
 /// <summary>
@@ -103,8 +104,8 @@ public sealed class CreateVideoResponse
     /// <summary>Stable gated read URL for the uploaded video photo, or null if none was provided.</summary>
     public string? VideoPhotoReadUrl { get; set; }
 
-    /// <summary>The uploaded attachment's DTO, or null if none was provided.</summary>
-    public VideoAttachmentDto? Attachment { get; set; }
+    /// <summary>The attached files' DTOs (each <c>Id</c> is its fileId). Empty when none were provided.</summary>
+    public List<VideoAttachmentDto> Attachments { get; set; } = new();
 
     /// <summary>Count of scope rows created. 0 if the video was created scope-less.</summary>
     public int ScopesAdded { get; set; }
@@ -193,14 +194,18 @@ public sealed class UpdateVideoRequest
     public Guid? VideoPhotoFileId { get; set; }
 
     /// <summary>
-    /// Optional attachment replacement — the <c>fileId</c> from <c>POST /api/upload</c>. Null =
-    /// leave the current attachment unchanged. Wins over <see cref="RemoveAttachment"/>.
+    /// Attachments replace-all — same null/empty/list semantics as <see cref="Scopes"/> and
+    /// <see cref="UnitIds"/>: null = leave the current attachments unchanged; empty list =
+    /// remove all; a list of <c>fileId</c>s = the exact new set (ids already on the video are
+    /// kept, missing ones are removed, new ones are attached). Wins over
+    /// <see cref="RemoveAttachment"/>.
     /// </summary>
-    public Guid? AttachmentFileId { get; set; }
+    public List<Guid>? AttachmentFileIds { get; set; }
 
     /// <summary>
-    /// True to remove the video's attachment without providing a replacement. Ignored if
-    /// <see cref="AttachmentFileId"/> is also set — the new file wins.
+    /// True to remove ALL the video's attachments without providing replacements — equivalent
+    /// to sending an empty <see cref="AttachmentFileIds"/> list. Ignored if
+    /// <see cref="AttachmentFileIds"/> is non-null.
     /// </summary>
     public bool RemoveAttachment { get; set; }
 }
@@ -240,8 +245,8 @@ public abstract class VideoBaseDto
     /// <summary>Stable gated URL of the current video photo, or null.</summary>
     public string? VideoPhotoUrl { get; set; }
 
-    /// <summary>Current attachment, or null if none. Its <c>Id</c> is the attachment's fileId.</summary>
-    public VideoAttachmentDto? Attachment { get; set; }
+    /// <summary>Current attachments (each <c>Id</c> is its fileId). Empty when the video has none.</summary>
+    public List<VideoAttachmentDto> Attachments { get; set; } = new();
 }
 
 /// <summary>
@@ -613,10 +618,10 @@ public sealed class StudentVideoListItemDto
     public string? VideoPhotoUrl { get; set; }
 
     /// <summary>
-    /// The video's attachment (e.g. a PDF handout), or null. <c>ReadUrl</c> is the stable gated
-    /// URL — same access rules as the video photo.
+    /// The video's attachments (e.g. PDF handouts). Empty when none. Each <c>ReadUrl</c> is the
+    /// stable gated URL — same access rules as the video photo.
     /// </summary>
-    public VideoAttachmentDto? Attachment { get; set; }
+    public List<VideoAttachmentDto> Attachments { get; set; } = new();
 }
 
 

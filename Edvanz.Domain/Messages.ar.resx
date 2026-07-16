@@ -1380,6 +1380,9 @@
   <data name="VideoPhotoReplaced" xml:space="preserve">
     <value>تم استبدال صورة الفيديو بنجاح</value>
   </data>
+  <data name="VideoAttachmentsLimitExceeded" xml:space="preserve">
+    <value>الفيديو ممكن يكون ليه ١٠ ملفات مرفقة كحد أقصى.</value>
+  </data>
   <data name="VideoPhotoInvalidType" xml:space="preserve">
     <value>صور الفيديو لازم تكون JPEG أو PNG بس</value>
   </data>

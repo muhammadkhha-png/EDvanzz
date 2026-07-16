@@ -68,7 +68,9 @@ category = VideoPhoto
 Keep the `fileId`, you will send it in step 3. You can upload more than one file in the same
 request (repeat the `files` field), you get one item per file in `data`.
 
-### Step 2 - Upload the PDF attachment
+### Step 2 - Upload the PDF attachments
+
+You can upload several in one request (repeat the `files` field) - each gets its own fileId.
 
 **Endpoint:** `POST /upload` (multipart/form-data)
 
@@ -76,6 +78,7 @@ request (repeat the `files` field), you get one item per file in `data`.
 
 ```
 files    = lesson-notes.pdf
+files    = homework.pdf
 category = VideoAttachment
 ```
 
@@ -93,7 +96,7 @@ category = VideoAttachment
   "description": "Intro lesson",
   "sourceUrl": "https://youtu.be/dQw4w9WgXcQ",
   "videoPhotoFileId": "4326581e-3f9d-480c-82ed-050cbc5cf84e",
-  "attachmentFileId": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
+  "attachmentFileIds": ["bd3af1f1-c8cb-45ba-96f9-7e62202467bc", "77aa1122-3344-5566-7788-99aabbccddee"],
   "scopes": [ { "scopeType": "Session", "ids": [38] } ],
   "exam": {
     "title": "Quick quiz",
@@ -112,7 +115,8 @@ category = VideoAttachment
 }
 ```
 
-`videoPhotoFileId`, `attachmentFileId` and the whole `exam` block are optional. The question
+`videoPhotoFileId`, `attachmentFileIds` and the whole `exam` block are optional. A video can
+hold up to 10 attachments (422 VideoAttachmentsLimitExceeded above that). The question
 `imageFileId` must be uploaded with category `VideoExamQuestionImage` (step like 1 but with that
 category).
 
@@ -126,13 +130,15 @@ category).
   "data": {
     "videoAssetId": 6,
     "videoPhotoReadUrl": "https://.../api/files/4326581e-3f9d-480c-82ed-050cbc5cf84e",
-    "attachment": {
-      "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
-      "fileName": "lesson-notes.pdf",
-      "contentType": "application/pdf",
-      "fileSizeBytes": 189,
-      "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc"
-    },
+    "attachments": [
+      {
+        "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
+        "fileName": "lesson-notes.pdf",
+        "contentType": "application/pdf",
+        "fileSizeBytes": 189,
+        "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc"
+      }
+    ],
     "scopesAdded": 1,
     "studentsInScope": 1,
     "examId": 4
@@ -168,13 +174,15 @@ videoPhotoFileId field), 409 FileAlreadyInUse (the file is already attached to a
         "hasOpened": false,
         "lastOpenedAt": null,
         "videoPhotoUrl": "https://.../api/files/4326581e-3f9d-480c-82ed-050cbc5cf84e",
-        "attachment": {
-          "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
-          "fileName": "lesson-notes.pdf",
-          "contentType": "application/pdf",
-          "fileSizeBytes": 189,
-          "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc"
-        }
+        "attachments": [
+          {
+            "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
+            "fileName": "lesson-notes.pdf",
+            "contentType": "application/pdf",
+            "fileSizeBytes": 189,
+            "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc"
+          }
+        ]
       }
     ],
     "page": 1,
@@ -185,8 +193,8 @@ videoPhotoFileId field), 409 FileAlreadyInUse (the file is already attached to a
 }
 ```
 
-`videoPhotoUrl` is for the card cover, `attachment.readUrl` is for the handout download. Both
-are null when the teacher did not upload them.
+`videoPhotoUrl` is for the card cover (null when none); `attachments` is the list of handouts
+(empty when none) - show a download row per item.
 
 ### Step 5 - The student displays the photo / opens the PDF
 
@@ -229,11 +237,11 @@ imgEl.src = URL.createObjectURL(await res.blob());
     "rowVersion": "AAAAAAAAF3k=",
     "videoPhotoFileId": "4326581e-3f9d-480c-82ed-050cbc5cf84e",
     "videoPhotoUrl": "https://.../api/files/4326581e-3f9d-480c-82ed-050cbc5cf84e",
-    "attachment": {
-      "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
-      "fileName": "lesson-notes.pdf",
-      "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc"
-    },
+    "attachments": [
+      { "id": "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
+        "fileName": "lesson-notes.pdf",
+        "readUrl": "https://.../api/files/bd3af1f1-c8cb-45ba-96f9-7e62202467bc" }
+    ],
     "exam": {
       "questions": [
         { "text": "Q1?", "imageFileId": "a5e6895d-...", "imageUrl": "https://.../api/files/a5e6895d-..." }
@@ -243,8 +251,8 @@ imgEl.src = URL.createObjectURL(await res.blob());
 }
 ```
 
-So: `videoPhotoFileId` is the current photo id, `attachment.id` is the current attachment id,
-and each exam question carries its `imageFileId`. Display with the urls, resend the ids.
+So: `videoPhotoFileId` is the current photo id, every item in `attachments` carries its own
+`id`, and each exam question carries its `imageFileId`. Display with the urls, resend the ids.
 
 ### Step 1 - Change the video photo
 
@@ -273,37 +281,49 @@ The old photo is released automatically and gets cleaned from storage by a backg
 old url stops working for students immediately. Sending the current photo id again is a no-op,
 it just returns 200 with the same url.
 
-### Step 2 - Change or remove the attachment
+### Step 2 - Change the attachments (replace-all list)
 
-The attachment is changed through the normal video update. Note: `PUT /videos/{id}` is a full
-update, you send the whole video body again with the `rowVersion` you got from
-`GET /videos/{id}` (send it back exactly as you received it).
+Attachments are changed through the normal video update. `attachmentFileIds` works like a
+replace-all set, same idea as `scopes`:
+
+- not sent (null) = leave the attachments as they are
+- `[]` = remove all attachments
+- `["id1", "id2"]` = this becomes the exact new set: ids that are already on the video stay,
+  ids you removed from the list are released, new ids get attached. Max 10.
+
+Note: `PUT /videos/{id}` is a full update, you send the whole video body again with the
+`rowVersion` you got from `GET /videos/{id}` (send it back exactly as you received it).
 
 **Endpoint:** `PUT /videos/{videoAssetId}` (application/json)
 
-**Payload (change):**
+**Payload (keep one existing + add one new):**
 
 ```json
 {
   "title": "Lesson 1",
   "sourceUrl": "https://youtu.be/dQw4w9WgXcQ",
   "rowVersion": "AAAAAAAAF3k=",
-  "attachmentFileId": "e0c11111-2222-3333-4444-555566667777"
+  "attachmentFileIds": [
+    "bd3af1f1-c8cb-45ba-96f9-7e62202467bc",
+    "e0c11111-2222-3344-5566-77889900aabb"
+  ]
 }
 ```
 
-**Payload (remove, no replacement):**
+**Payload (remove all):**
 
 ```json
 {
   "title": "Lesson 1",
   "sourceUrl": "https://youtu.be/dQw4w9WgXcQ",
   "rowVersion": "AAAAAAAAF3k=",
-  "removeAttachment": true
+  "attachmentFileIds": []
 }
 ```
 
-**Response (200):** the full video detail (`VideoDetailDto`) with the new `attachment` (or null).
+(`"removeAttachment": true` with no list does the same as the empty list.)
+
+**Response (200):** the full video detail with the final `attachments` list.
 A 409 here means somebody else edited the video in the meantime, re-GET and retry.
 
 ### Step 3 - Delete the video
@@ -544,7 +564,7 @@ All the error messages come localized (Accept-Language: en / ar).
 | file | read it from | field |
 |------|--------------|-------|
 | video photo | GET /videos/{id} | `videoPhotoFileId` |
-| video attachment | GET /videos/{id} | `attachment.id` |
+| video attachments | GET /videos/{id} | `attachments[].id` |
 | video exam question image | GET /videos/{id} | `exam.questions[].imageFileId` |
 | online exam question image | GET /online-exams/{id}/questions | `data[].imageFileId` |
 | fresh upload | POST /upload response | `data[].fileId` |

@@ -1417,6 +1417,9 @@
   <data name="VideoPhotoReplaced" xml:space="preserve">
     <value>Video photo replaced successfully</value>
   </data>
+  <data name="VideoAttachmentsLimitExceeded" xml:space="preserve">
+    <value>A video can have at most 10 attachments.</value>
+  </data>
   <data name="VideoPhotoInvalidType" xml:space="preserve">
     <value>Video photos must be JPEG or PNG</value>
   </data>

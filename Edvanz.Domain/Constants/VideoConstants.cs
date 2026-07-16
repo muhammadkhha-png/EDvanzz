@@ -81,6 +81,13 @@ public static class VideoConstants
     public const long AttachmentMaxSizeBytes = 25 * 1024 * 1024;
 
     /// <summary>
+    /// Maximum number of attachments a single video may hold (multi-attachment support,
+    /// 2026-07-16). Mirrors <c>UploadConstants.MaxFilesPerRequest</c> so one upload batch can
+    /// fill one video exactly.
+    /// </summary>
+    public const int MaxAttachmentsPerVideo = 10;
+
+    /// <summary>
     /// Maximum size of a single video photo (cover image) upload. 5 MB — proposed default;
     /// confirm with product before relying on this as a hard business rule.
     /// (Same caveat pattern as <see cref="AttachmentMaxSizeBytes"/> carried before
@@ -191,6 +198,7 @@ public static class VideoConstants
         public const string AttachmentNotFound    = "AttachmentNotFound";
         public const string AttachmentTooLarge    = "AttachmentTooLarge";
         public const string AttachmentInvalidType = "AttachmentInvalidType";
+        public const string AttachmentsLimitExceeded = "VideoAttachmentsLimitExceeded";
         // "Thumbnail" renamed to "VideoPhoto" app-wide — same messages, new terminology.
         public const string VideoPhotoUploaded    = "VideoPhotoUploaded";
         public const string VideoPhotoReplaced    = "VideoPhotoReplaced";

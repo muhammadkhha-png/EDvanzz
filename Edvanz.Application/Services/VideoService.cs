@@ -586,23 +586,36 @@ public sealed class VideoService : IVideoService
                 }
             }
 
-            // Step 10b — attachment reference. A new id attaches + detaches the old; RemoveAttachment
-            // (without a new id) detaches the current attachment. New id wins over RemoveAttachment.
-            if (request.AttachmentFileId is Guid newAttId)
+            // Step 10b — attachments replace-all, same null/empty/list semantics as Scopes and
+            // UnitIds: null = untouched; [] = remove all; [ids] = the exact new set (kept ids
+            // untouched, missing detached — GC reaps their blobs — new ones attached).
+            // RemoveAttachment=true with a null list also clears all (wire-compat alias).
+            if (request.AttachmentFileIds is not null)
             {
-                var currentAtt = (await _unitOfWork.FileObjectsRepo.GetVideoAttachmentsAsync(videoAssetId))
-                    .FirstOrDefault();
-                if (currentAtt?.PublicId != newAttId)
+                var desired = request.AttachmentFileIds.Distinct().ToList();
+                if (desired.Count > VideoConstants.MaxAttachmentsPerVideo)
+                {
+                    if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                    return Result<VideoDetailDto>.Failure(
+                        _localizer, VideoConstants.Messages.AttachmentsLimitExceeded, HttpStatusCode.UnprocessableEntity);
+                }
+
+                var current = await _unitOfWork.FileObjectsRepo.GetVideoAttachmentsAsync(videoAssetId);
+                var desiredSet = desired.ToHashSet();
+                var currentSet = current.Select(a => a.PublicId).ToHashSet();
+
+                foreach (var att in current.Where(a => !desiredSet.Contains(a.PublicId)))
+                    await _fileAccess.DetachAsync(att.Id);
+
+                foreach (Guid attId in desired.Where(id => !currentSet.Contains(id)))
                 {
                     var attach = await AttachFileAsync(
-                        newAttId, FileCategory.VideoAttachment, teacherId, actingUserId, videoAssetId);
+                        attId, FileCategory.VideoAttachment, teacherId, actingUserId, videoAssetId);
                     if (!attach.IsSuccess)
                     {
                         if (ownsTransaction) await _unitOfWork.RollbackAsync();
                         return Result<VideoDetailDto>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
                     }
-                    if (currentAtt is not null)
-                        await _fileAccess.DetachAsync(currentAtt.Id);
                 }
             }
             else if (request.RemoveAttachment)
@@ -661,12 +674,12 @@ public sealed class VideoService : IVideoService
             throw;
         }
         // All file changes are part of the committed transaction now — no post-commit blob work,
-        // so no partial-failure "warning" path. Resolve the final attachment for the response.
-        var currentAttachment = (await _unitOfWork.FileObjectsRepo
-            .GetVideoAttachmentsAsync(videoAssetId)).FirstOrDefault();
+        // so no partial-failure "warning" path. Resolve the final attachment set for the response.
+        var currentAttachments = await _unitOfWork.FileObjectsRepo
+            .GetVideoAttachmentsAsync(videoAssetId);
 
         var responseDto = MapToDetailDto(video);
-        responseDto.Attachment = currentAttachment is null ? null : ToAttachmentDto(currentAttachment);
+        responseDto.Attachments = currentAttachments.Select(ToAttachmentDto).ToList();
 
         // Mirror MapVideoBaseAsync — the update response is the edit screen's refresh, so it
         // carries the current photo's fileId + gated URL too.
@@ -785,8 +798,8 @@ public sealed class VideoService : IVideoService
     /// </summary>
     private async Task<TDto> MapVideoBaseAsync<TDto>(VideoAsset video) where TDto : VideoBaseDto, new()
     {
-        var attachment = (await _unitOfWork.FileObjectsRepo
-            .GetVideoAttachmentsAsync(video.Id)).FirstOrDefault();
+        var attachments = await _unitOfWork.FileObjectsRepo
+            .GetVideoAttachmentsAsync(video.Id);
 
         // The edit screen needs the current photo's fileId (to resend/keep it) and its
         // gated URL (to display it) — resolve the registry row to get the PublicId.
@@ -807,7 +820,7 @@ public sealed class VideoService : IVideoService
             RowVersion = video.RowVersion,
             VideoPhotoFileId = photo?.PublicId,
             VideoPhotoUrl = photo is null ? null : _fileAccess.BuildGatedUrl(photo.PublicId),
-            Attachment = attachment is null ? null : ToAttachmentDto(attachment),
+            Attachments = attachments.Select(ToAttachmentDto).ToList(),
         };
     }
 
@@ -946,11 +959,11 @@ public sealed class VideoService : IVideoService
             : (await _unitOfWork.FileObjectsRepo.GetByIdsAsync(photoIds)).ToDictionary(f => f.Id);
 
         var videoIds = rows.Select(r => r.Id).ToList();
-        var attachmentByVideo = videoIds.Count == 0
-            ? new Dictionary<long, Domain.Entities.FileObject>()
+        var attachmentsByVideo = videoIds.Count == 0
+            ? new Dictionary<long, List<Domain.Entities.FileObject>>()
             : (await _unitOfWork.FileObjectsRepo.GetVideoAttachmentsForVideosAsync(videoIds))
                 .GroupBy(f => f.VideoAssetId!.Value)
-                .ToDictionary(g => g.Key, g => g.First()); // one live attachment per video (oldest-first)
+                .ToDictionary(g => g.Key, g => g.ToList()); // all live attachments, oldest-first
 
         var items = rows.Select(r => new StudentVideoListItemDto
         {
@@ -966,7 +979,9 @@ public sealed class VideoService : IVideoService
             VideoPhotoUrl = r.VideoPhotoFileId is long pid && photosById.TryGetValue(pid, out var photo)
                 ? _fileAccess.BuildGatedUrl(photo.PublicId)
                 : null,
-            Attachment = attachmentByVideo.TryGetValue(r.Id, out var att) ? ToAttachmentDto(att) : null,
+            Attachments = attachmentsByVideo.TryGetValue(r.Id, out var atts)
+                ? atts.Select(ToAttachmentDto).ToList()
+                : new List<VideoAttachmentDto>(),
         }).ToList();
 
         var response = new PaginatedResponse<List<StudentVideoListItemDto>>
@@ -1768,7 +1783,7 @@ public sealed class VideoService : IVideoService
         int studentsInScope = 0;
         long? examId = null;
         Guid? videoPhotoPublicId = null;
-        VideoAttachmentDto? attachmentDto = null;
+        var attachmentDtos = new List<VideoAttachmentDto>();
         try
         {
             video = new VideoAsset
@@ -1803,17 +1818,29 @@ public sealed class VideoService : IVideoService
                 videoPhotoPublicId = attach.Data.PublicId;
             }
 
-            // Attachment reference (back-referenced to this video).
-            if (request.AttachmentFileId is Guid attId)
+            // Attachment references (back-referenced to this video). Duplicates ignored; the
+            // whole create rolls back if any single attach fails (all-or-nothing).
+            if (request.AttachmentFileIds is { Count: > 0 })
             {
-                var attach = await AttachFileAsync(
-                    attId, FileCategory.VideoAttachment, teacherId, actingUserId, video.Id);
-                if (!attach.IsSuccess)
+                var attachmentIds = request.AttachmentFileIds.Distinct().ToList();
+                if (attachmentIds.Count > VideoConstants.MaxAttachmentsPerVideo)
                 {
                     if (ownsTransaction) await _unitOfWork.RollbackAsync();
-                    return Result<CreateVideoResponse>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
+                    return Result<CreateVideoResponse>.Failure(
+                        _localizer, VideoConstants.Messages.AttachmentsLimitExceeded, HttpStatusCode.UnprocessableEntity);
                 }
-                attachmentDto = ToAttachmentDto(attach.Data!);
+
+                foreach (Guid attId in attachmentIds)
+                {
+                    var attach = await AttachFileAsync(
+                        attId, FileCategory.VideoAttachment, teacherId, actingUserId, video.Id);
+                    if (!attach.IsSuccess)
+                    {
+                        if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                        return Result<CreateVideoResponse>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
+                    }
+                    attachmentDtos.Add(ToAttachmentDto(attach.Data!));
+                }
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -1866,7 +1893,7 @@ public sealed class VideoService : IVideoService
                        VideoAssetId = video.Id,
                        VideoPhotoFileId = videoPhotoPublicId,
                        VideoPhotoReadUrl = videoPhotoPublicId is null ? null : _fileAccess.BuildGatedUrl(videoPhotoPublicId.Value),
-                       Attachment = attachmentDto,
+                       Attachments = attachmentDtos,
                        ScopesAdded = scopesAdded,
                        StudentsInScope = studentsInScope,
                        ExamId = examId,
