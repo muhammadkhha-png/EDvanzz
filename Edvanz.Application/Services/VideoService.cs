@@ -390,33 +390,6 @@ public sealed class VideoService : IVideoService
         return Result<bool>.Success(true, _localizer, VideoConstants.Messages.VideoStatusUpdated);
     }
 
-    /// <inheritdoc />
-    public async Task<Result<VideoStatus>> ToggleVideoStatusAsync(long teacherId, long videoAssetId)
-    {
-        // Reads current status, flips it, and reuses the exact same
-        // ExecuteUpdateAsync repo method SetVideoStatusAsync already backs —
-        // no new SQL, no duplicated concurrency handling. PublishDate is
-        // reset to null on toggle: an auto-flip has no meaningful "scheduled
-        // for X" concept the way an explicit PATCH does.
-        var video = await _unitOfWork.VideoAssetsRepo
-            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
-        if (video is null)
-            return Result<VideoStatus>.Failure(
-                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-        var newStatus = video.Status == VideoStatus.Published
-            ? VideoStatus.Draft
-            : VideoStatus.Published;
-
-        bool updated = await _unitOfWork.VideoAssetsRepo
-            .SetVideoStatusAsync(videoAssetId, teacherId, newStatus, publishDate: null);
-
-        if (!updated)
-            return Result<VideoStatus>.Failure(
-                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-        return Result<VideoStatus>.Success(newStatus, _localizer, VideoConstants.Messages.VideoStatusUpdated);
-    }
     public async Task<Result<VideoDetailDto>> UpdateVideoAsync(
        long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request)
     {

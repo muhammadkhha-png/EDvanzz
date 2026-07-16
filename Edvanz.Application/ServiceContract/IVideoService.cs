@@ -297,13 +297,6 @@ public interface IVideoService
     Task<Result<VideoOverviewDto>> GetVideoOverviewAsync(long teacherId, long videoAssetId);
 
     /// <summary>
-    /// Flips Draft↔Published with no request body — reads the current
-    /// status and sets the opposite. Resets PublishDate to null (an
-    /// auto-flip carries no "scheduled for" semantics). Distinct from
-    /// <see cref="SetVideoStatusAsync"/>, which sets an explicit target.
-    /// </summary>
-    Task<Result<VideoStatus>> ToggleVideoStatusAsync(long teacherId, long videoAssetId);
-    /// <summary>
     /// Replaces a video's unit links entirely (M:N) — the dedicated
     /// assign-to-unit endpoint, deliberately separate from
     /// <see cref="CreateVideoAsync"/> (unit assignment was intentionally

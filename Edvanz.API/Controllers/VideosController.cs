@@ -214,13 +214,16 @@ public sealed class VideosController : ModuleSixApiBaseController
     //   PUT /videos/{id}/scopes remains available for scope-only updates
     //   that don't want to resend the whole video form.
     //
-    //   Multipart, not JSON body: `request` form field carries the JSON
-    //   payload above (UpdateVideoRequest has nested arrays — UnitIds,
-    //   Scopes, Exam.Questions[].Options[] — which don't map cleanly to flat
-    //   form fields), plus an optional `attachment` file part. Attachment
-    //   blob I/O happens AFTER the field/scope/exam transaction commits — a
-    //   failed attachment swap does not roll back an otherwise-successful
-    //   edit; it comes back as this response's `Warning` field instead.
+    //   JSON body (UpdateVideoRequest) — NOT multipart. Files are referenced by
+    //   fileId only: `videoPhotoFileId` (cover) and `attachmentFileIds`
+    //   (replace-all set; or `removeAttachment: true` to clear) — both are
+    //   pre-uploaded via POST /api/upload and passed here as their opaque
+    //   fileId. Blob/registry work (attach-new, detach-old) happens AFTER the
+    //   field/scope/exam transaction commits — a failed file swap does not roll
+    //   back an otherwise-successful edit; it surfaces in this response's
+    //   `Warning` field instead. The response (VideoDetailDto) echoes the
+    //   current `videoPhotoFileId` and `attachments[].id` so the edit screen can
+    //   resend them on the next PUT.
     //
     // ══════════════════════════════════════════════════════════════════════
    
@@ -389,29 +392,6 @@ public sealed class VideosController : ModuleSixApiBaseController
 
     // Attachment download is gone — the attachment's stable gated URL (/api/files/{fileId}) is
     // returned in the video read/create responses and used directly.
-
-    // ══════════════════════════════════════════════════════════════════════
-    // GET VIDEO OVERVIEW
-    // ══════════════════════════════════════════════════════════════════════
-    // TOGGLE VIDEO STATUS — no body, flips Draft↔Published based on current
-    // value. Distinct from SetVideoStatus above (explicit target + optional
-    // scheduled PublishDate).
-    // PATCH /api/videos/{videoAssetId}/status/toggle
-    // ══════════════════════════════════════════════════════════════════════
-    [HttpPatch("{videoAssetId:long}/status/toggle")]
-    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Domain.Enums.VideoStatus>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ToggleVideoStatus([FromRoute] long videoAssetId)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _service.ToggleVideoStatusAsync(teacherId.Value, videoAssetId);
-        return ToResponse(result);
-    }
 
     // ══════════════════════════════════════════════════════════════════════
     // ASSIGN VIDEO TO UNIT(S) — replace-all, deliberately separate from
