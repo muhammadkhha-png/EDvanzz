@@ -130,16 +130,18 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkRequestAlreadyResolved", HttpStatusCode.Conflict);
 
         // ── Accept CONNECTS the account (Active); binding it to a student record is
-        // a SEPARATE step (BindStudentLinkAsync). TeacherStudentId is an optional
-        // "Accept & link" shortcut — when omitted the link is accepted UNBOUND
-        // (connected but Not linked, no data access) and can be linked later. ──
-        TeacherStudent? rosterStudent = null;
-        if (dto.TeacherStudentId.HasValue)
-        {
-            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, dto.TeacherStudentId.Value);
-            if (rosterStudent is null)
-                return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentNotFound", HttpStatusCode.NotFound);
+        // a SEPARATE step (BindStudentLinkAsync). TeacherStudentId or StudentCode is
+        // an optional "Accept & link" shortcut — when both are omitted the link is
+        // accepted UNBOUND (connected but Not linked, no data access) and can be
+        // linked later. A supplied target that does not resolve FAILS the accept —
+        // never silently downgrade an "Accept & link" into a plain accept. ──
+        var (rosterStudent, resolveFailure) =
+            await ResolveRosterTargetAsync(teacherId, link, dto.TeacherStudentId, dto.StudentCode);
+        if (resolveFailure is not null)
+            return resolveFailure;
 
+        if (rosterStudent is not null)
+        {
             // One student account per student record.
             bool alreadyClaimed = await _unitOfWork.Users.IsTeacherStudentActivelyLinkedAsync(rosterStudent.Id);
             if (alreadyClaimed)
@@ -183,23 +185,14 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
 
         // ── Resolve the target student record: explicit id wins, else by code ──
-        TeacherStudent? rosterStudent;
-        if (dto.TeacherStudentId.HasValue)
-        {
-            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, dto.TeacherStudentId.Value);
-        }
-        else if (!string.IsNullOrWhiteSpace(dto.StudentCode))
-        {
-            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByCodeAsync(
-                teacherId, dto.StudentCode.Trim().ToUpperInvariant());
-        }
-        else
-        {
-            return Result<LinkedStudentListItemDto>.Failure(_localizer, "BindTargetRequired", HttpStatusCode.BadRequest);
-        }
+        var (rosterStudent, resolveFailure) =
+            await ResolveRosterTargetAsync(teacherId, link, dto.TeacherStudentId, dto.StudentCode);
+        if (resolveFailure is not null)
+            return resolveFailure;
 
+        // Unlike accept, bind without a target is meaningless — reject it.
         if (rosterStudent is null)
-            return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentNotFound", HttpStatusCode.NotFound);
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "BindTargetRequired", HttpStatusCode.BadRequest);
 
         // Already pointed at this record → idempotent success (no notification).
         if (link.TeacherStudentId == rosterStudent.Id)
@@ -373,6 +366,55 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         if (pageSize < 1) pageSize = 20;
         if (pageSize > MaxPageSize) pageSize = MaxPageSize;
         return (page, pageSize);
+    }
+
+    /// <summary>
+    /// Resolves the "Accept &amp; link" / bind target student record from an explicit
+    /// id or a TEACHER-assigned roster code — shared by AcceptLinkRequestAsync and
+    /// BindStudentLinkAsync so the two contracts cannot drift. Returns:
+    /// (student, null) on success; (null, failure) when a target was supplied but
+    /// does not resolve; (null, null) when NEITHER id nor code was supplied — the
+    /// caller decides whether that is allowed (accept: unbound accept; bind: 400).
+    /// A code that instead matches the linked account's globally-unique
+    /// StudentAccountCode gets its own message — pasting the account code shown on
+    /// the link row where the roster code belongs is the known client mixup, and
+    /// the generic not-found reads as nonsense for a code the teacher can see.
+    /// </summary>
+    private async Task<(TeacherStudent? Student, Result<LinkedStudentListItemDto>? Failure)> ResolveRosterTargetAsync(
+        long teacherId, StudentTeacherLink link, long? teacherStudentId, string? studentCode)
+    {
+        TeacherStudent? rosterStudent;
+        if (teacherStudentId.HasValue)
+        {
+            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, teacherStudentId.Value);
+        }
+        else if (!string.IsNullOrWhiteSpace(studentCode))
+        {
+            string normalized = studentCode.Trim().ToUpperInvariant();
+            rosterStudent = await _unitOfWork.Users.GetActiveTeacherStudentByCodeAsync(teacherId, normalized);
+            if (rosterStudent is null)
+            {
+                // Account-code mixup check — one extra lookup, failure path only.
+                var studentUser = await _unitOfWork.Users.GetStudentUserByIdAsync(link.StudentUserId);
+                if (string.Equals(studentUser?.StudentAccountCode, normalized, StringComparison.OrdinalIgnoreCase))
+                    return (null, Result<LinkedStudentListItemDto>.Failure(
+                        _localizer, "StudentAccountCodeNotRosterCode", HttpStatusCode.BadRequest));
+
+                // Wrong CODE gets its own wording; the generic "selected student not
+                // found" below is for the id path, where the caller sent a picker id.
+                return (null, Result<LinkedStudentListItemDto>.Failure(
+                    _localizer, "TeacherStudentCodeNotFound", HttpStatusCode.NotFound));
+            }
+        }
+        else
+        {
+            return (null, null);
+        }
+
+        if (rosterStudent is null)
+            return (null, Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentNotFound", HttpStatusCode.NotFound));
+
+        return (rosterStudent, null);
     }
 
     /// <summary>

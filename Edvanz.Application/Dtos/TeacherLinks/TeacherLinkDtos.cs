@@ -72,19 +72,32 @@ public class RosterStudentSuggestionDto
 /// <summary>
 /// Accept-request body. Accepting only CONNECTS the account (LinkStatus = Active);
 /// binding it to a student record is a SEPARATE step (see BindStudentLinkDto and
-/// the /bind endpoint). <see cref="TeacherStudentId"/> is an optional convenience
-/// to link in the same call ("Accept &amp; link"): when supplied it is validated and
-/// bound atomically; when omitted the link is accepted UNBOUND — connected but Not
-/// linked, no data access — and can be linked later. Accepting never fails for a
-/// missing binding.
+/// the /bind endpoint). <see cref="TeacherStudentId"/> or <see cref="StudentCode"/>
+/// is an optional convenience to link in the same call ("Accept &amp; link"): when
+/// supplied it is validated and bound atomically — an id/code that does not resolve
+/// FAILS the accept (it never silently accepts unbound when the caller tried to
+/// link). When BOTH are omitted the link is accepted UNBOUND — connected but Not
+/// linked, no data access — and can be linked later.
+/// Unknown JSON fields are rejected (400) so a mistyped field cannot silently
+/// downgrade an "Accept &amp; link" into a plain accept.
 /// </summary>
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public class AcceptLinkRequestDto
 {
     /// <summary>
-    /// Optional student record to bind at accept time. Omit to accept without
-    /// linking (the account is connected but sees nothing until it is linked).
+    /// Optional student record to bind at accept time (takes precedence over the
+    /// code). Omit both to accept without linking (the account is connected but
+    /// sees nothing until it is linked).
     /// </summary>
     public long? TeacherStudentId { get; set; }
+
+    /// <summary>
+    /// Optional TEACHER-assigned roster student code (TeacherStudent.StudentCode,
+    /// e.g. "A12") to resolve the record from when no id is given. This is NOT the
+    /// student's account code (the 10-char studentAccountCode shown on link rows).
+    /// </summary>
+    [MaxLength(20)]
+    public string? StudentCode { get; set; }
 }
 
 /// <summary>
@@ -145,12 +158,17 @@ public class RemoveLinkedStudentsResultDto
 /// per record, and points the link at it. Powers "Link a student" (Not linked →
 /// Linked) and "Change linked student" (re-point). Unbinding has no body (/unbind).
 /// </summary>
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public class BindStudentLinkDto
 {
     /// <summary>Explicit student record to link to (takes precedence over the code).</summary>
     public long? TeacherStudentId { get; set; }
 
-    /// <summary>Teacher-assigned student code to resolve the record from, when no id is given.</summary>
+    /// <summary>
+    /// TEACHER-assigned roster student code (TeacherStudent.StudentCode, e.g. "A12")
+    /// to resolve the record from, when no id is given. This is NOT the student's
+    /// account code (the 10-char studentAccountCode shown on link rows).
+    /// </summary>
     [MaxLength(20)]
     public string? StudentCode { get; set; }
 }

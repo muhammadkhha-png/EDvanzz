@@ -249,11 +249,17 @@
   <data name="RosterStudentSelectionRequired" xml:space="preserve">
     <value>اختار الطلب ده بتاع أنهي طالب من طلابك قبل ما تقبله</value>
   </data>
+  <data name="TeacherStudentCodeNotFound" xml:space="preserve">
+    <value>كود الطالب ده غلط — مش موجود ضمن طلابك</value>
+  </data>
+  <data name="StudentAccountCodeNotRosterCode" xml:space="preserve">
+    <value>ده كود حساب الطالب مش كود الطالب عندك. اكتب كود طالب من قايمة طلابك (أو اختار الطالب) عشان تربطه</value>
+  </data>
   <data name="RosterStudentNotFound" xml:space="preserve">
     <value>سجل الطالب اللي اخترته مش موجود في حسابك</value>
   </data>
   <data name="RosterStudentAlreadyClaimed" xml:space="preserve">
-    <value>سجل الطالب ده مربوط بحساب طالب تاني بالفعل</value>
+    <value>الطالب ده مربوط بحساب طالب تاني بالفعل — لو عايز تربطه هنا، افصل الربط التاني الأول</value>
   </data>
   <data name="LinkedStudentsRemoved" xml:space="preserve">
     <value>تم إزالة الطلاب المحددين من قائمة طلابك المرتبطين</value>

@@ -398,19 +398,35 @@ credential flow on the student side (the PARENT Method B flow still uses it —
   ones to Unlinked) before creating it.
 - **Connection vs Link — SEPARATE axes (shipped 2026-07-13, commit `5d00efd`).**
   Accepting only CONNECTS the account (`LinkStatus.Active`); binding it to a
-  `TeacherStudent` (roster) record is a distinct, re-pointable step. `accept` with a
-  `teacherStudentId` links atomically ("Accept & link"); WITHOUT one it accepts
-  UNBOUND (`TeacherStudentId = null` — Active but **Not linked**: connected, sees
-  NOTHING, since every module joins through that FK). `POST {linkId}/bind`
-  {`teacherStudentId?` | `studentCode?`} links or re-points ("Change linked student");
-  `POST {linkId}/unbind` clears the binding yet stays Active. Both are `Student/Edit`,
-  return the updated `LinkedStudentListItemDto`, and re-run the one-account-per-record
-  guard. `IsLinked` (= `Active && TeacherStudentId != null`) is exposed on the teacher
-  `LinkedStudentListItemDto` AND the student `StudentDashboardTeacherDto` — distinct
-  from `Status`; do NOT add a `LinkStatus` member for it (the filtered-index literals
-  `[LinkStatus] IN (1,3)` are hand-synced). No migration (`TeacherStudentId` already
-  nullable). `IStudentLinkNotifier.NotifyLinkBindingChangedAsync(linked)` fires on
-  bind/unbind. Accept no longer auto-matches by the typed code — the client passes
+  `TeacherStudent` (roster) record is a distinct, re-pointable step. `accept` takes
+  {`teacherStudentId?` | `studentCode?`} exactly like `bind` (2026-07-16 — both go
+  through the shared `ResolveRosterTargetAsync`): a supplied target links atomically
+  ("Accept & link") and one that does NOT resolve **fails the accept** (it must never
+  silently downgrade to a plain accept — that was the "accept succeeded with a garbage
+  code" prod bug); with BOTH omitted it accepts UNBOUND (`TeacherStudentId = null` —
+  Active but **Not linked**: connected, sees NOTHING, since every module joins through
+  that FK). `POST {linkId}/bind` {`teacherStudentId?` | `studentCode?`} links or
+  re-points ("Change linked student"); `POST {linkId}/unbind` clears the binding yet
+  stays Active. Both are `Student/Edit`, return the updated `LinkedStudentListItemDto`,
+  and re-run the one-account-per-record guard. **Two DIFFERENT codes, never conflate:**
+  `studentCode` on these bodies is the TEACHER's roster code
+  (`TeacherStudent.StudentCode`, per-teacher unique, e.g. `A12`) — NOT the student's
+  globally-unique account code (`StudentUser.StudentAccountCode`, the 10-char
+  `studentAccountCode` on link rows). Passing the account code returns 400
+  `StudentAccountCodeNotRosterCode` (dedicated message; the generic
+  `RosterStudentNotFound` confused the frontend into reporting it as a bug). A wrong
+  CODE returns 404 `TeacherStudentCodeNotFound` ("Wrong student code was provided…");
+  `RosterStudentNotFound` is now only for a wrong `teacherStudentId`. Message TEXTS
+  avoid the word "roster" (user-unfriendly); the `Roster*` resx keys and
+  `rosterStudent*` DTO fields keep their names — shipped wire contract. Both DTOs
+  reject unknown JSON fields (`JsonUnmappedMemberHandling.Disallow`) so a typo'd field
+  400s instead of silently succeeding. `IsLinked` (= `Active && TeacherStudentId !=
+  null`) is exposed on the teacher `LinkedStudentListItemDto` AND the student
+  `StudentDashboardTeacherDto` — distinct from `Status`; do NOT add a `LinkStatus`
+  member for it (the filtered-index literals `[LinkStatus] IN (1,3)` are hand-synced).
+  No migration (`TeacherStudentId` already nullable).
+  `IStudentLinkNotifier.NotifyLinkBindingChangedAsync(linked)` fires on bind/unbind.
+  Accept never auto-matches by the request's typed code — the client passes
   `suggestedMatch.teacherStudentId` for one-tap "Accept & link".
 - **End-of-link audit**: `RespondedByUserId` records who accepted/rejected;
   `RemovedByUserId` records who ENDED the link (student on Unlinked/

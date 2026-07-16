@@ -262,16 +262,27 @@ builder.Configuration.AddEnvironmentVariables();
 // Key Vault is never contacted. Vault URI is non-secret, so it's just an app setting
 // ("KeyVault__Uri" in App Service). Key Vault secret names use "--" in place of ":"
 // (e.g. "AzureBlobStorage--ConnectionString" binds to AzureBlobStorage:ConnectionString).
-//if (!builder.Environment.IsDevelopment())
-//{
-//    var keyVaultUri = builder.Configuration["KeyVault:Uri"];
-//    if (!string.IsNullOrWhiteSpace(keyVaultUri))
-//    {
-//        builder.Configuration.AddAzureKeyVault(
-//            new Uri(keyVaultUri),
-//            new Azure.Identity.DefaultAzureCredential());
-//    }
-//}
+// A vault outage/misconfig must not crash-loop the container (the 18456 lesson): nothing
+// boot-critical lives in the vault — SQL/JWT come from App Service settings — so a load
+// failure degrades to "blob features unavailable" and is logged CRITICAL after Build.
+Exception? keyVaultLoadError = null;
+if (!builder.Environment.IsDevelopment())
+{
+    var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+    if (!string.IsNullOrWhiteSpace(keyVaultUri))
+    {
+        try
+        {
+            builder.Configuration.AddAzureKeyVault(
+                new Uri(keyVaultUri),
+                new Azure.Identity.DefaultAzureCredential());
+        }
+        catch (Exception ex)
+        {
+            keyVaultLoadError = ex;
+        }
+    }
+}
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
 //builder.Services.AddApplicationInsightsTelemetry();
 //var aiConnectionString =
@@ -360,6 +371,14 @@ var app = builder.Build();
         throw new InvalidOperationException(
             "No runtime database connection string configured (ConnectionStrings__con).");
     }
+}
+
+if (keyVaultLoadError is not null)
+{
+    app.Logger.LogCritical(keyVaultLoadError,
+        "Azure Key Vault configuration failed to load — booting WITHOUT vault-sourced secrets " +
+        "(AzureBlobStorage:ConnectionString). Blob-dependent features will fail until the vault " +
+        "is reachable (check the app's 'Key Vault Secrets User' role and KeyVault__Uri), then restart.");
 }
 
 // Demo/baseline seeding runs only outside Production (prod already holds its real
