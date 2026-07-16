@@ -66,8 +66,7 @@ public interface IVideoService
     /// <param name="thumbnail">Optional thumbnail image.</param>
     /// <param name="attachment">Optional PDF attachment.</param>
     Task<Result<CreateVideoResponse>> CreateVideoAsync(
-        long teacherId, long actingUserId, CreateVideoRequest request,
-        IFormFile? thumbnail, IFormFile? attachment);
+        long teacherId, long actingUserId, CreateVideoRequest request);
 
     /// <summary>
     /// Appends scope rows to an existing video. Idempotent on duplicates —
@@ -160,8 +159,7 @@ public interface IVideoService
     /// <param name="videoAssetId">Target video.</param>
     /// <param name="request">Update payload, including the concurrency token.</param>
     Task<Result<VideoDetailDto>> UpdateVideoAsync(
-         long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request,
-         IFormFile? attachment);
+         long teacherId, long actingUserId, long videoAssetId, UpdateVideoRequest request);
 
   
 
@@ -279,48 +277,14 @@ public interface IVideoService
     // ══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Uploads a file and attaches it to a video, owner-scoped. Rejects
-    /// files larger than <c>VideoConstants.AttachmentMaxSizeBytes</c> with
-    /// <c>AttachmentTooLarge</c> (422).
-    /// </summary>
-    Task<Result<VideoAttachmentDto>> UploadAttachmentAsync(
-        long teacherId, long actingUserId, long videoAssetId,
-        string fileName, string contentType, long fileSizeBytes, Stream content);
-
-    /// <summary>Lists every attachment for a video, each with a fresh SAS read URL.</summary>
-    Task<Result<List<VideoAttachmentDto>>> GetAttachmentsAsync(long teacherId, long videoAssetId);
-
-    /// <summary>
-    /// Generates a fresh, force-download SAS URL (Content-Disposition:
-    /// attachment) for one attachment, owner-scoped. The controller 302s to
-    /// this URL rather than returning it as JSON — the browser/HTTP client
-    /// follows the redirect straight to Blob Storage, so the API server
-    /// never streams the file bytes itself.
-    /// </summary>
-    Task<Result<string>> GetAttachmentDownloadUrlAsync(
-        long teacherId, long videoAssetId, long attachmentId);
-
-    /// <summary>
-    /// Deletes an attachment. Blob is deleted first, then the DB row — a
-    /// failed DB delete leaves an orphan blob rather than a DB row pointing
-    /// at a missing blob (cheaper failure mode to clean up).
-    /// </summary>
-    Task<Result<bool>> DeleteAttachmentAsync(
-        long teacherId, long videoAssetId, long attachmentId);
-
-    /// <summary>
-    /// Replaces the video's thumbnail (Phase 5). Confirmed ordering — upload
-    /// new blob → update DB reference → delete old blob only after the DB
-    /// write commits — so a failure at any step never loses the previously
-    /// live thumbnail. Opposite ordering from <see cref="DeleteAttachmentAsync"/>
-    /// deliberately: a replace must never lose the old asset; a delete must
-    /// never leave a DB row pointing at a blob the user asked to remove.
-    /// Rejects with <c>ThumbnailInvalidType</c>/<c>ThumbnailTooLarge</c> (422)
-    /// before any I/O.
+    /// Replaces the video's thumbnail by referencing an already-uploaded registry file
+    /// (<c>fileId</c> = FileObject.PublicId, category <c>VideoThumbnail</c>). Attaches the new file,
+    /// detaches the old (GC reaps its blob), and returns the stable gated URL. Idempotent if the
+    /// current thumbnail id is resent. Errors: <c>VideoNotFound</c> (404), <c>FileNotFound</c> (404),
+    /// <c>FileNotOwned</c> (403), <c>FileCategoryMismatch</c> (400), <c>FileAlreadyInUse</c> (409).
     /// </summary>
     Task<Result<ThumbnailDto>> ReplaceThumbnailAsync(
-        long teacherId, long videoAssetId, string fileName, string contentType,
-        long fileSizeBytes, Stream content);
+        long teacherId, long actingUserId, long videoAssetId, Guid thumbnailFileId);
     /// <summary>
     /// Pre-fill payload for the Edit screen — base fields + current Exam +
     /// current Scopes, everything needed to reconstruct the edit form in one

@@ -142,6 +142,8 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<ITutorModuleAccessService, TutorModuleAccessService>();
         services.AddScoped<SubscriptionReminderDispatcherJob>();
         services.AddScoped<PendingPaymentExpiryJob>();
+        // Central file-registry garbage collector (reaps Pending/Detached FileObjects — blob + row).
+        services.AddScoped<FileObjectGcJob>();
         // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
         //  Hangfire dispatcher + worker (Phase 6) ──
         // Daily fan-out + per-template materialization workers.

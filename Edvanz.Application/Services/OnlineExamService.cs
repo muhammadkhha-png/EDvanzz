@@ -17,15 +17,48 @@ public class OnlineExamService : IOnlineExamService
     private readonly IOnlineExamScopeResolver _scopeResolver;
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IOnlineExamGradingService _grading;
+    private readonly IFileAccessService _fileAccess;
 
     public OnlineExamService(
-        IUnitOfWork unitOfWork, IOnlineExamScopeResolver scopeResolver, IStringLocalizer<Messages> localizer, IOnlineExamGradingService grading)
+        IUnitOfWork unitOfWork, IOnlineExamScopeResolver scopeResolver, IStringLocalizer<Messages> localizer,
+        IOnlineExamGradingService grading, IFileAccessService fileAccess)
     {
         _unitOfWork = unitOfWork;
         _scopeResolver = scopeResolver;
         _localizer = localizer;
         _grading = grading;
+        _fileAccess = fileAccess;
+    }
 
+    /// <summary>
+    /// Resolves and attaches each question's optional image (by public id), setting the built
+    /// entity's <c>ImageFileId</c>. dto/entity lists are index-aligned. Returns a failure to
+    /// propagate, or null on success. Runs in the caller's transaction (no SaveChanges).
+    /// </summary>
+    private async Task<Result<bool>?> AttachQuestionImagesAsync(
+        List<CreateOnlineExamQuestionDto> dtos, List<OnlineExamQuestion> entities,
+        long teacherId, long actingUserId)
+    {
+        for (int i = 0; i < dtos.Count && i < entities.Count; i++)
+        {
+            if (dtos[i].ImageFileId is not Guid imageId)
+                continue;
+
+            var attach = await _fileAccess.ResolveForAttachAsync(
+                imageId, FileCategory.OnlineExamQuestionImage, actingUserId, teacherId);
+            if (!attach.IsSuccess)
+                return Result<bool>.Failure(attach.Message ?? string.Empty, attach.StatusCode);
+
+            entities[i].ImageFileId = attach.Data!.Id;
+        }
+        return null;
+    }
+
+    /// <summary>Populates <c>ImageUrl</c> on teacher question rows from their <c>ImageFileId</c>.</summary>
+    private async Task PopulateImageUrlsAsync(IReadOnlyList<OnlineExamQuestionRow> rows)
+    {
+        foreach (var row in rows)
+            row.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(row.ImageFileId);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -78,6 +111,14 @@ public class OnlineExamService : IOnlineExamService
             {
                 foreach (var q in questionEntities) q.OnlineExamId = exam.Id;
                 await _unitOfWork.OnlineExamsRepo.AddQuestionsRangeAsync(questionEntities);
+
+                var imgError = await AttachQuestionImagesAsync(
+                    request.Questions!, questionEntities, teacherId, actingUserId);
+                if (imgError is not null)
+                {
+                    if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                    return Result<OnlineExamDetailDto>.Failure(imgError.Message ?? string.Empty, imgError.StatusCode);
+                }
             }
 
             var scopeEntities = request.Scopes.Select(s => new OnlineExamScope
@@ -315,6 +356,7 @@ public class OnlineExamService : IOnlineExamService
             return Result<List<Domain.Interfaces.OnlineExamQuestionRow>>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
 
         var rows = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
+        await PopulateImageUrlsAsync(rows);
         return Result<List<Domain.Interfaces.OnlineExamQuestionRow>>.Success(rows.ToList(), _localizer);
     }
 
@@ -354,8 +396,28 @@ public class OnlineExamService : IOnlineExamService
         var entities = BuildQuestionEntities(request);
         foreach (var q in entities) q.OnlineExamId = onlineExamId;
 
-        await _unitOfWork.OnlineExamsRepo.AddQuestionsRangeAsync(entities);
-        await _unitOfWork.SaveChangesAsync();
+        bool ownsAdd = !_unitOfWork.HasActiveTransaction;
+        if (ownsAdd) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await _unitOfWork.OnlineExamsRepo.AddQuestionsRangeAsync(entities);
+
+            // actingUserId 0 → owner check fails, tenant check (file.TeacherId == teacherId) authorizes.
+            var imgError = await AttachQuestionImagesAsync(request, entities, teacherId, actingUserId: 0);
+            if (imgError is not null)
+            {
+                if (ownsAdd) await _unitOfWork.RollbackAsync();
+                return imgError;
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsAdd) await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsAdd) await _unitOfWork.RollbackAsync();
+            throw;
+        }
 
         return Result<bool>.Success(true, _localizer, OnlineExamConstants.Messages.Updated);
     }
@@ -383,7 +445,19 @@ public class OnlineExamService : IOnlineExamService
 
         try
         {
+            // Detach the old questions' images (GC reaps blobs) before replacing.
+            foreach (long oldImageId in await _unitOfWork.OnlineExamsRepo.GetQuestionImageFileIdsAsync(onlineExamId))
+                await _fileAccess.DetachAsync(oldImageId);
+
             await _unitOfWork.OnlineExamsRepo.ReplaceQuestionsAsync(onlineExamId, entities);
+
+            var imgError = await AttachQuestionImagesAsync(request.Questions, entities, teacherId, actingUserId: 0);
+            if (imgError is not null)
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                return imgError;
+            }
+
             await _unitOfWork.SaveChangesAsync();
             if (ownsTransaction) await _unitOfWork.CommitAsync();
         }
@@ -474,6 +548,10 @@ public class OnlineExamService : IOnlineExamService
 
         try
         {
+            // Detach the exam's question images (GC reaps blobs) before the graph purge.
+            foreach (long imageId in await _unitOfWork.OnlineExamsRepo.GetQuestionImageFileIdsAsync(onlineExamId))
+                await _fileAccess.DetachAsync(imageId);
+
             // Report graph first, then exam graph — full §3.7 order.
             await _unitOfWork.StudentOnlineExamReportsRepo.PurgeReportsForExamAsync(onlineExamId);
             await _unitOfWork.OnlineExamsRepo.PurgeExamGraphAsync(onlineExamId);

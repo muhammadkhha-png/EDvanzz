@@ -59,23 +59,19 @@ public sealed class VideosController : ModuleSixApiBaseController
     //   (provider, externalId). If Scopes is omitted, the video is created
     //   scope-less — scope it via PUT /videos/{id}/scopes afterward.
     [HttpPost]
-    [Consumes("multipart/form-data")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
     [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> CreateVideo(
-       [FromForm] CreateVideoRequest request,
-       IFormFile? thumbnail,
-       IFormFile? attachment)
+    public async Task<IActionResult> CreateVideo([FromBody] CreateVideoRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _service.CreateVideoAsync(
-            teacherId.Value, GetActingUserId(), request, thumbnail, attachment);
+        var result = await _service.CreateVideoAsync(teacherId.Value, GetActingUserId(), request);
         return ToResponse(result);
     }
 
@@ -230,7 +226,6 @@ public sealed class VideosController : ModuleSixApiBaseController
    
 
     [HttpPut("{videoAssetId:long}")]
-    [Consumes("multipart/form-data")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
@@ -240,16 +235,13 @@ public sealed class VideosController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UpdateVideo(
-        [FromRoute] long videoAssetId, [FromForm] UpdateVideoRequest request, IFormFile? attachment)
+        [FromRoute] long videoAssetId, [FromBody] UpdateVideoRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        // ModelState validation ([Required] on Title/SourceUrl/RowVersion,
-        // etc.) runs automatically here — [ApiController] validates bound
-        // complex types, same as CreateVideo's [FromForm] CreateVideoRequest.
         var result = await _service.UpdateVideoAsync(
-            teacherId.Value, GetActingUserId(), videoAssetId, request, attachment);
+            teacherId.Value, GetActingUserId(), videoAssetId, request);
         return ToResponse(result);
     }
     // ══════════════════════════════════════════════════════════════════════
@@ -377,52 +369,26 @@ public sealed class VideosController : ModuleSixApiBaseController
     // PUT /api/videos/{videoAssetId}/thumbnail
     // ══════════════════════════════════════════════════════════════════════
     [HttpPut("{videoAssetId:long}/thumbnail")]
-    [Consumes("multipart/form-data")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ReplaceThumbnail(
-        [FromRoute] long videoAssetId,  IFormFile thumbnail)
+        [FromRoute] long videoAssetId, [FromBody] ReplaceThumbnailRequest request)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        await using var stream = thumbnail.OpenReadStream();
         var result = await _service.ReplaceThumbnailAsync(
-            teacherId.Value, videoAssetId, thumbnail.FileName, thumbnail.ContentType,
-            thumbnail.Length, stream);
+            teacherId.Value, GetActingUserId(), videoAssetId, request.ThumbnailFileId);
         return ToResponse(result);
     }
 
-
-  
-    // ══════════════════════════════════════════════════════════════════════
-    // DOWNLOAD ATTACHMENT — 302 redirect to a fresh, force-download SAS URL.
-    // Teacher-side only for now; add the mirror endpoint in
-    // StudentVideosController if students need direct download access too.
-    // GET /api/videos/{videoAssetId}/attachments/{attachmentId}/download
-    // ══════════════════════════════════════════════════════════════════════
-    [HttpGet("{videoAssetId:long}/attachments/{attachmentId:long}/download")]
-    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
-    [ProducesResponseType(StatusCodes.Status302Found)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DownloadAttachment(
-        [FromRoute] long videoAssetId, [FromRoute] long attachmentId)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _service.GetAttachmentDownloadUrlAsync(
-            teacherId.Value, videoAssetId, attachmentId);
-        if (!result.IsSuccess) return ToResponse(result);
-
-        return Redirect(result.Data!);
-    }
+    // Attachment download is gone — the attachment's stable gated URL (/api/files/{fileId}) is
+    // returned in the video read/create responses and used directly.
 
     // ══════════════════════════════════════════════════════════════════════
     // GET VIDEO OVERVIEW

@@ -1498,6 +1498,24 @@
   <data name="UploadFileNotOwned" xml:space="preserve">
     <value>تقدر تعدّل أو تمسح الملفات اللي إنت رفعتها بس.</value>
   </data>
+  <data name="FileInvalidCategory" xml:space="preserve">
+    <value>نوع الملف ناقص أو مش معروف.</value>
+  </data>
+  <data name="FileCategoryNotUploadable" xml:space="preserve">
+    <value>النوع ده من الملفات مش بيترفع من هنا.</value>
+  </data>
+  <data name="FileNotFound" xml:space="preserve">
+    <value>الملف مش موجود.</value>
+  </data>
+  <data name="FileNotOwned" xml:space="preserve">
+    <value>تقدر تستخدم الملفات اللي إنت رفعتها بس.</value>
+  </data>
+  <data name="FileCategoryMismatch" xml:space="preserve">
+    <value>الملف ده مش مناسب للخانة دي.</value>
+  </data>
+  <data name="FileAlreadyInUse" xml:space="preserve">
+    <value>الملف ده متربط بعنصر تاني بالفعل.</value>
+  </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->

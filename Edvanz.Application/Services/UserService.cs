@@ -14,6 +14,7 @@ using Edvanz.Domain.ServiceContract;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -45,6 +46,7 @@ namespace Edvanz.Application.Services
         private readonly ITeacherService teacherService;
         private readonly IStudentUserService studentService;
         private readonly IParentUserService parentUserService;
+        private readonly IFileStorageService _fileStorage;
 
         /// <summary>
         /// Initializes a new instance of UserService with required dependencies.
@@ -57,7 +59,8 @@ namespace Edvanz.Application.Services
             IStringLocalizer<Messages> localizer,
             IOtpService otpService,
             IPasswordService passwordService,
-            IUnitOfWork unitOfWork,ICurrentUserService _currentUserService,ITeacherService teacherService,IStudentUserService studentService ,IParentUserService parentUserService)
+            IUnitOfWork unitOfWork,ICurrentUserService _currentUserService,ITeacherService teacherService,IStudentUserService studentService ,IParentUserService parentUserService,
+            IFileStorageService fileStorage)
         {
             _localizer = localizer;
             _otpService = otpService;
@@ -67,6 +70,7 @@ namespace Edvanz.Application.Services
             this.teacherService = teacherService;
             this.studentService = studentService;
             this.parentUserService = parentUserService;
+            _fileStorage = fileStorage;
         }
 
         /// <inheritdoc />
@@ -111,15 +115,6 @@ namespace Edvanz.Application.Services
 
             var hashedPass = _passwordService.HashPassword(user.password);
 
-            byte[]? imageBytes = null;
-
-            if (user.idImage != null)
-            {
-                using var ms = new MemoryStream();
-                await user.idImage.CopyToAsync(ms);
-                imageBytes = ms.ToArray();
-            }
-
             var addedUser = new User
             {
                 CreateAt = DateTime.UtcNow,
@@ -128,7 +123,6 @@ namespace Edvanz.Application.Services
                 FullName = user.fullName,
                 Username = user.username,
                 PhoneNumber = user.phoneNumber,
-                IdImage = imageBytes,
                 IsActive = true,
                 PasswordHashed = hashedPass,
                 UserType = user.userType
@@ -141,6 +135,38 @@ namespace Edvanz.Application.Services
                 await _unitOfWork.Users.AddAsync(addedUser);
 
                 await _unitOfWork.SaveChangesAsync();
+
+                // National-ID image (optional) — stored server-side in the private uploads container
+                // and recorded in the central registry, since sign-up has no pre-account JWT to
+                // authorize a separate /api/upload. Access = owner + SuperAdmin via the gated endpoint.
+                if (user.idImage is not null)
+                {
+                    string ext = Path.GetExtension(user.idImage.FileName);
+                    string blobPath = $"files/{addedUser.Id}/{Guid.NewGuid():N}{ext}";
+                    await using (var stream = user.idImage.OpenReadStream())
+                    {
+                        await _fileStorage.UploadAsync(blobPath, stream, user.idImage.ContentType);
+                    }
+
+                    var idFile = new FileObject
+                    {
+                        PublicId = Guid.NewGuid(),
+                        OwnerUserId = addedUser.Id,
+                        TeacherId = null,
+                        Category = FileCategory.NationalIdImage,
+                        Status = FileStatus.Attached,
+                        BlobPath = blobPath,
+                        ContentType = user.idImage.ContentType,
+                        SizeBytes = user.idImage.Length,
+                        OriginalName = Path.GetFileName(user.idImage.FileName) ?? string.Empty,
+                        CreateAt = DateTime.UtcNow,
+                    };
+                    await _unitOfWork.FileObjectsRepo.AddAsync(idFile);
+                    await _unitOfWork.SaveChangesAsync();
+
+                    addedUser.IdImageFileId = idFile.Id;
+                    await _unitOfWork.SaveChangesAsync();
+                }
 
                 switch (user.userType)
                 {

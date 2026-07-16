@@ -975,38 +975,8 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     // ATTACHMENTS (Track F / §5)
     // ══════════════════════════════════════════════════════════════════════
 
-    /// <inheritdoc />
-    public async Task AddAttachmentAsync(VideoAttachment attachment)
-    {
-        await _context.VideoAttachments.AddAsync(attachment);
-    }
-
-    /// <inheritdoc />
-    public async Task<VideoAttachment?> GetAttachmentByIdAsync(
-        long attachmentId, long videoAssetId, long teacherId)
-    {
-        return await _context.VideoAttachments
-            .FirstOrDefaultAsync(a =>
-                a.Id == attachmentId && a.VideoAssetId == videoAssetId && a.TeacherId == teacherId);
-    }
-
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<VideoAttachment>> GetAttachmentsForVideoAsync(
-        long videoAssetId, long teacherId)
-    {
-        return await _context.VideoAttachments
-            .Where(a => a.VideoAssetId == videoAssetId && a.TeacherId == teacherId)
-            .OrderByDescending(a => a.CreateAt)
-            .AsNoTracking()
-            .ToListAsync();
-    }
-
-    /// <inheritdoc />
-    public async Task DeleteAttachmentAsync(VideoAttachment attachment)
-    {
-        _context.VideoAttachments.Remove(attachment);
-        await Task.CompletedTask;
-    }
+    // Attachments are now FileObjects (central registry) filtered by VideoAssetId + category —
+    // see IFileObjectRepo.GetVideoAttachmentsAsync. The old VideoAttachment table is gone.
 
     // ══════════════════════════════════════════════════════════════════════
     // UNIT LINKS — WRITE/READ PATH (M:N, Phase 1 VideoAssetUnit join table)
@@ -1054,12 +1024,14 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         };
     }
     /// <inheritdoc />
-    public async Task SetThumbnailBlobPathAsync(long videoAssetId, string blobPath)
+    public async Task<IReadOnlyList<long>> GetExamQuestionImageFileIdsAsync(long videoAssetId)
     {
-        await _context.VideoAssets
-            .Where(v => v.Id == videoAssetId)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.ThumbnailBlobPath, blobPath));
+        return await _context.VideoExamQuestions
+            .Where(q => q.Exam.VideoAssetId == videoAssetId && q.ImageFileId != null)
+            .Select(q => q.ImageFileId!.Value)
+            .ToListAsync();
     }
+
     /// <inheritdoc />
     public async Task AddExamAsync(VideoExam exam)
     {
@@ -1073,15 +1045,6 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .ExecuteDeleteAsync();
     }
 
-    /// <inheritdoc />
-    public async Task<List<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId)
-    {
-        return await _context.VideoAttachments
-            .Where(a => a.VideoAssetId == videoAssetId)
-            .OrderByDescending(a => a.CreateAt)
-            .AsNoTracking()
-            .ToListAsync();
-    }
     /// <inheritdoc />
     public async Task<VideoExam?> GetExamWithQuestionsAsync(long videoAssetId, long teacherId)
     {

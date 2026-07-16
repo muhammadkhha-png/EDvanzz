@@ -3,6 +3,9 @@ using Edvanz.Application.Dtos.Upload;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
+using Edvanz.Domain.Entities;
+using Edvanz.Domain.Enums;
+using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Localization;
 using System.Net;
@@ -10,21 +13,22 @@ using System.Net;
 namespace Edvanz.Application.Services;
 
 /// <summary>
-/// Generic file-upload service (images + PDF → permanent public blob URLs).
-/// Stateless — no DB record; the caller stores the returned URL. Upload is open to
-/// any authenticated user; replace and delete are ownership-guarded via the
-/// <c>{userId}/</c> blob-path prefix (SuperAdmin may manage any). See §3.3 / BUG-12:
-/// identity is always the JWT caller, never a body/route id.
+/// Generic file-upload service. Proxies bytes to the private uploads container and records each in
+/// the central registry (<see cref="FileObject"/>, Status = Pending), returning the opaque file id
+/// + gated URL. See <see cref="IFileUploadService"/>. Ownership is enforced on
+/// <c>FileObject.OwnerUserId</c> (SuperAdmin may manage any); identity is always the JWT caller.
 /// </summary>
 public sealed class FileUploadService : IFileUploadService
 {
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _fileStorage;
+    private readonly IFileAccessService _fileAccess;
     private readonly IStringLocalizer<Edvanz.Domain.Resources.Messages> _localizer;
 
     /// <summary>
-    /// Maps an allowed content type to the extension used in the blob name. The
-    /// extension is taken from the validated content type — never the client
-    /// filename — so nothing user-controlled reaches the blob path.
+    /// Maps an allowed content type to the blob-name extension. The extension is taken from the
+    /// validated content type — never the client filename — so nothing user-controlled reaches the
+    /// blob path.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> ExtensionByContentType =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -41,16 +45,25 @@ public sealed class FileUploadService : IFileUploadService
         };
 
     public FileUploadService(
+        IUnitOfWork unitOfWork,
         IFileStorageService fileStorage,
+        IFileAccessService fileAccess,
         IStringLocalizer<Edvanz.Domain.Resources.Messages> localizer)
     {
+        _unitOfWork = unitOfWork;
         _fileStorage = fileStorage;
+        _fileAccess = fileAccess;
         _localizer = localizer;
     }
 
     /// <inheritdoc />
-    public async Task<Result<List<UploadedFileDto>>> UploadFilesAsync(long userId, IReadOnlyList<IFormFile> files)
+    public async Task<Result<List<UploadedFileDto>>> UploadFilesAsync(
+        long userId, long? teacherId, FileCategory category, IReadOnlyList<IFormFile> files)
     {
+        if (!FileConstants.UploadableCategories.Contains(category))
+            return Result<List<UploadedFileDto>>.Failure(
+                _localizer, FileConstants.Messages.CategoryNotUploadable, HttpStatusCode.BadRequest);
+
         if (files is null || files.Count == 0)
             return Result<List<UploadedFileDto>>.Failure(
                 _localizer, UploadConstants.Messages.NoFiles, HttpStatusCode.UnprocessableEntity);
@@ -59,8 +72,7 @@ public sealed class FileUploadService : IFileUploadService
             return Result<List<UploadedFileDto>>.Failure(
                 _localizer, UploadConstants.Messages.TooManyFiles, HttpStatusCode.UnprocessableEntity);
 
-        // Validate the WHOLE batch before uploading anything, so a single bad
-        // file never leaves a partial set of blobs behind.
+        // Validate the WHOLE batch before uploading anything.
         foreach (var file in files)
         {
             string? error = ValidateFile(file);
@@ -72,65 +84,63 @@ public sealed class FileUploadService : IFileUploadService
         var results = new List<UploadedFileDto>(files.Count);
         foreach (var file in files)
         {
-            string url = await UploadOneAsync(userId, file);
-            results.Add(ToDto(url, file));
+            var registered = await UploadOneAsync(userId, teacherId, category, file);
+            results.Add(registered);
         }
+
+        await _unitOfWork.SaveChangesAsync();
 
         return Result<List<UploadedFileDto>>.Success(
             results, _localizer, "Success", HttpStatusCode.Created);
     }
 
     /// <inheritdoc />
-    public async Task<Result<UploadedFileDto>> ReplaceFileAsync(long userId, string? role, string url, IFormFile file)
+    public async Task<Result<UploadedFileDto>> ReplaceFileAsync(
+        long userId, string? role, Guid fileId, IFormFile file)
     {
-        string? oldPath = _fileStorage.ResolvePublicBlobPath(url);
-        if (oldPath is null)
+        var old = await _unitOfWork.FileObjectsRepo.GetByPublicIdAsync(fileId, tracked: true);
+        if (old is null)
             return Result<UploadedFileDto>.Failure(
-                _localizer, UploadConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
+                _localizer, FileConstants.Messages.NotFound, HttpStatusCode.NotFound);
 
-        if (!OwnsOrAdmin(userId, role, oldPath))
+        if (!OwnsOrAdmin(userId, role, old))
             return Result<UploadedFileDto>.Failure(
-                _localizer, UploadConstants.Messages.NotOwned, HttpStatusCode.Forbidden);
+                _localizer, FileConstants.Messages.NotOwned, HttpStatusCode.Forbidden);
 
         string? error = ValidateFile(file);
         if (error is not null)
             return Result<UploadedFileDto>.Failure(
                 _localizer, error, HttpStatusCode.UnprocessableEntity);
 
-        // Upload the NEW blob first — a replace must never lose the old, live
-        // asset if the new upload fails (same ordering as ReplaceThumbnailAsync).
-        string newUrl = await UploadOneAsync(userId, file);
+        // Upload the NEW file first — a replace must never lose the old, live asset if the new
+        // upload fails. The old registry row is detached (GC reaps its blob).
+        var registered = await UploadOneAsync(userId, old.TeacherId, old.Category, file);
+        old.Status = FileStatus.Detached;
+        old.VideoAssetId = null;
+        await _unitOfWork.FileObjectsRepo.UpdateAsync(old);
+        await _unitOfWork.SaveChangesAsync();
 
-        // Best-effort delete of the old blob. If it fails the old blob is
-        // orphaned (non-fatal) — the new file is already live and returned.
-        try
-        {
-            await _fileStorage.DeletePublicAsync(oldPath);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"[FileUploadService] ReplaceFileAsync: new blob uploaded but failed to delete " +
-                $"old blob '{oldPath}': {ex.Message}");
-        }
-
-        return Result<UploadedFileDto>.Success(
-            ToDto(newUrl, file), _localizer, "Success", HttpStatusCode.OK);
+        return Result<UploadedFileDto>.Success(registered, _localizer, "Success", HttpStatusCode.OK);
     }
 
     /// <inheritdoc />
-    public async Task<Result<bool>> DeleteFileAsync(long userId, string? role, string url)
+    public async Task<Result<bool>> DeleteFileAsync(long userId, string? role, Guid fileId)
     {
-        string? path = _fileStorage.ResolvePublicBlobPath(url);
-        if (path is null)
+        var file = await _unitOfWork.FileObjectsRepo.GetByPublicIdAsync(fileId, tracked: true);
+        if (file is null)
             return Result<bool>.Failure(
-                _localizer, UploadConstants.Messages.InvalidUrl, HttpStatusCode.BadRequest);
+                _localizer, FileConstants.Messages.NotFound, HttpStatusCode.NotFound);
 
-        if (!OwnsOrAdmin(userId, role, path))
+        if (!OwnsOrAdmin(userId, role, file))
             return Result<bool>.Failure(
-                _localizer, UploadConstants.Messages.NotOwned, HttpStatusCode.Forbidden);
+                _localizer, FileConstants.Messages.NotOwned, HttpStatusCode.Forbidden);
 
-        await _fileStorage.DeletePublicAsync(path); // idempotent (no-op if already gone)
+        // Idempotent — detaching an already-detached file is a no-op; the GC reaps the blob.
+        file.Status = FileStatus.Detached;
+        file.VideoAssetId = null;
+        await _unitOfWork.FileObjectsRepo.UpdateAsync(file);
+        await _unitOfWork.SaveChangesAsync();
+
         return Result<bool>.Success(true, _localizer, "Success", HttpStatusCode.OK);
     }
 
@@ -153,31 +163,53 @@ public sealed class FileUploadService : IFileUploadService
         return null;
     }
 
-    private async Task<string> UploadOneAsync(long userId, IFormFile file)
+    /// <summary>
+    /// Uploads one file to the private container and stages its <see cref="FileObject"/> row
+    /// (Status = Pending). The caller commits (batched SaveChanges). Returns the descriptor.
+    /// </summary>
+    private async Task<UploadedFileDto> UploadOneAsync(
+        long userId, long? teacherId, FileCategory category, IFormFile file)
     {
         string ext = ExtensionByContentType.TryGetValue(file.ContentType, out var mapped)
             ? mapped
             : string.Empty;
-        string blobPath = $"{userId}/{Guid.NewGuid():N}{ext}";
 
-        await using var stream = file.OpenReadStream();
-        return await _fileStorage.UploadPublicAsync(blobPath, stream, file.ContentType);
+        // Tenant-scoped, non-guessable path. Uses the teacher tenant when known, else the uploader.
+        string scope = (teacherId ?? userId).ToString();
+        string blobPath = $"files/{scope}/{Guid.NewGuid():N}{ext}";
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await _fileStorage.UploadAsync(blobPath, stream, file.ContentType);
+        }
+
+        var fileObject = new FileObject
+        {
+            PublicId = Guid.NewGuid(),
+            OwnerUserId = userId,
+            TeacherId = teacherId,
+            Category = category,
+            Status = FileStatus.Pending,
+            BlobPath = blobPath,
+            ContentType = file.ContentType,
+            SizeBytes = file.Length,
+            OriginalName = Path.GetFileName(file.FileName) ?? string.Empty,
+            CreateAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.FileObjectsRepo.AddAsync(fileObject);
+
+        return new UploadedFileDto
+        {
+            FileId = fileObject.PublicId,
+            Url = _fileAccess.BuildGatedUrl(fileObject.PublicId),
+            OriginalName = fileObject.OriginalName,
+            Size = fileObject.SizeBytes,
+            MimeType = fileObject.ContentType,
+        };
     }
 
-    private static UploadedFileDto ToDto(string url, IFormFile file) => new()
-    {
-        Url = url,
-        OriginalName = Path.GetFileName(file.FileName),
-        Size = file.Length,
-        MimeType = file.ContentType,
-    };
-
-    /// <summary>
-    /// True when the caller uploaded the file (blob path is under their
-    /// <c>{userId}/</c> prefix) or is a SuperAdmin. The trailing slash prevents
-    /// id-prefix collisions (e.g. user 1 vs user 12).
-    /// </summary>
-    private static bool OwnsOrAdmin(long userId, string? role, string blobPath) =>
-        blobPath.StartsWith($"{userId}/", StringComparison.Ordinal)
-        || string.Equals(role, "SuperAdmin", StringComparison.Ordinal);
+    /// <summary>True when the caller uploaded the file or is a SuperAdmin.</summary>
+    private static bool OwnsOrAdmin(long userId, string? role, FileObject file) =>
+        file.OwnerUserId == userId || string.Equals(role, "SuperAdmin", StringComparison.Ordinal);
 }

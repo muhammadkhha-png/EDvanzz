@@ -121,6 +121,7 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 QuestionType = q.QuestionType,
                 Degree = q.Degree,
                 SortOrder = q.SortOrder,
+                ImageFileId = q.ImageFileId,
                 Options = q.Options
                     .OrderBy(o => o.SortOrder)
                     .Select(o => new OnlineExamQuestionOptionRow
@@ -150,6 +151,7 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 QuestionType = q.QuestionType,
                 Degree = q.Degree,
                 SortOrder = q.SortOrder,
+                ImageFileId = q.ImageFileId,
                 Options = q.Options
                     .OrderBy(o => o.SortOrder)
                     .Select(o => new StudentOnlineExamQuestionOptionRow
@@ -182,6 +184,33 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 .AnyAsync(g => g.Id == targetId && g.TeacherId == teacherId),
             _ => false,
         };
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetQuestionImageFileIdsAsync(long onlineExamId)
+    {
+        return await _context.OnlineExamQuestions
+            .Where(q => q.OnlineExamId == onlineExamId && q.ImageFileId != null)
+            .Select(q => q.ImageFileId!.Value)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsQuestionImageAssignedToStudentAsync(
+        long fileObjectId, long teacherId, long teacherStudentId)
+    {
+        // The image belongs to exactly one question → one exam (single-valued attach).
+        long? examId = await _context.OnlineExamQuestions
+            .Where(q => q.ImageFileId == fileObjectId && q.OnlineExam.TeacherId == teacherId)
+            .Select(q => (long?)q.OnlineExamId)
+            .FirstOrDefaultAsync();
+
+        if (examId is null)
+            return false;
+
+        // Live assigned-set membership — composed, never materialized (BR-VCM-01).
+        return await BuildAssignedStudentIdsQuery(examId.Value, teacherId)
+            .AnyAsync(id => id == teacherStudentId);
     }
 
     /// <inheritdoc />

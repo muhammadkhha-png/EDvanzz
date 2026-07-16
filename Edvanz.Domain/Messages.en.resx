@@ -1454,6 +1454,24 @@
   <data name="UploadFileNotOwned" xml:space="preserve">
     <value>You can only modify or delete files you uploaded.</value>
   </data>
+  <data name="FileInvalidCategory" xml:space="preserve">
+    <value>The file category is missing or not recognized.</value>
+  </data>
+  <data name="FileCategoryNotUploadable" xml:space="preserve">
+    <value>Files of this type cannot be uploaded through this endpoint.</value>
+  </data>
+  <data name="FileNotFound" xml:space="preserve">
+    <value>The file was not found.</value>
+  </data>
+  <data name="FileNotOwned" xml:space="preserve">
+    <value>You can only use files you uploaded.</value>
+  </data>
+  <data name="FileCategoryMismatch" xml:space="preserve">
+    <value>This file is not the right kind of file for this field.</value>
+  </data>
+  <data name="FileAlreadyInUse" xml:space="preserve">
+    <value>This file is already attached to another item.</value>
+  </data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->
   <!-- ═══════════════════════════════════════════════════════════════ -->

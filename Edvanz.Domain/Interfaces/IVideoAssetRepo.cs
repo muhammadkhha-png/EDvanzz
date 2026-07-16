@@ -444,25 +444,9 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// </summary>
     Task DeleteAllVideosForTeacherAsync(long teacherId);
 
-    // ══════════════════════════════════════════════════════════════════════
-    // ATTACHMENTS (Track F / §5) — blob lifecycle owned by IFileStorageService
-    // ══════════════════════════════════════════════════════════════════════
+    // Attachments and thumbnails are now central-registry FileObjects (referenced by
+    // VideoAsset.ThumbnailFileId / FileObject.VideoAssetId). See IFileObjectRepo.
 
-    /// <summary>Queues an INSERT for a new attachment row. Caller calls SaveChanges.</summary>
-    Task AddAttachmentAsync(VideoAttachment attachment);
-
-    /// <summary>
-    /// Fetches an attachment by id, scoped to the video and teacher.
-    /// Returns <c>null</c> if it doesn't exist or belongs to a different
-    /// video/teacher.
-    /// </summary>
-    Task<VideoAttachment?> GetAttachmentByIdAsync(long attachmentId, long videoAssetId, long teacherId);
-
-    /// <summary>Lists every attachment for a video, newest first.</summary>
-    Task<IReadOnlyList<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId, long teacherId);
-
-    /// <summary>Hard-deletes a single attachment row (blob deleted separately by the service).</summary>
-    Task DeleteAttachmentAsync(VideoAttachment attachment);
     Task ReplaceUnitLinksAsync(
     long videoAssetId,
     IEnumerable<long> unitIds);
@@ -481,13 +465,6 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// </summary>
     Task AddExamAsync(VideoExam exam);
     /// <summary>
-    /// Sets <c>ThumbnailBlobPath</c> on a video after a successful blob upload
-    /// (Phase 3 create saga). Single <c>ExecuteUpdateAsync</c> round trip — same
-    /// pattern as <see cref="SetVideoStatusAsync"/>; no transaction needed for a
-    /// one-column update once the row already exists.
-    /// </summary>
-    Task SetThumbnailBlobPathAsync(long videoAssetId, string blobPath);
-    /// <summary>
     /// Hard-deletes a video's entire exam tree (single ExecuteDeleteAsync on
     /// VideoExams — questions/options cascade at the DB level via their
     /// Cascade FKs). Used by the replace-all exam edit in UpdateVideoAsync.
@@ -496,11 +473,10 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     Task DeleteExamForVideoAsync(long videoAssetId);
 
     /// <summary>
-    /// Returns all attachment rows for a video, newest first. Product model
-    /// is one attachment per video, but the schema doesn't enforce that —
-    /// caller takes the first row.
+    /// The non-null <c>ImageFileId</c>s of every question in a video's exam — the registry files to
+    /// detach when the exam is replaced or the video is deleted. Empty if none.
     /// </summary>
-    Task<List<VideoAttachment>> GetAttachmentsForVideoAsync(long videoAssetId);
+    Task<IReadOnlyList<long>> GetExamQuestionImageFileIdsAsync(long videoAssetId);
     /// <summary>
     /// Fetches a video's exam with questions and options eagerly loaded, in
     /// SortOrder. Returns null if the video has no exam. AsNoTracking — used

@@ -18,7 +18,13 @@ public class User: BaseEntity
     // Phone is optional (nullable). Uniqueness is enforced by a FILTERED unique index
     // (UX_Users_PhoneNumber WHERE PhoneNumber IS NOT NULL) so multiple phone-less users are allowed.
     public string? PhoneNumber { get; set; }
-    public byte[]? IdImage { get; set; }
+
+    /// <summary>
+    /// FK to the national-ID image's <see cref="FileObject"/> in the central file registry, or
+    /// null. References <c>FileObject.Id</c>; served through the gated endpoint (owner + SuperAdmin
+    /// only). Replaces the former inline <c>IdImage</c> varbinary column.
+    /// </summary>
+    public long? IdImageFileId { get; set; }
     public bool? IsActive { get; set; } = true;
     [ForeignKey(nameof(CreateByUser))]
     public long? CreateByUserId { get; set; }

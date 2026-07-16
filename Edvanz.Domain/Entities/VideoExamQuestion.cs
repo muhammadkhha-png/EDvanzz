@@ -18,6 +18,13 @@ public class VideoExamQuestion : BaseEntity
 
     public VideoExamQuestionType QuestionType { get; set; }
 
+    /// <summary>
+    /// Optional FK to an image <see cref="FileObject"/> (registry) shown with the question.
+    /// References <c>FileObject.Id</c>; gated read URL rebuilt from its <c>PublicId</c>.
+    /// Teacher/assistant-scoped access.
+    /// </summary>
+    public long? ImageFileId { get; set; }
+
     /// <summary>Display order within the exam, 0-based.</summary>
     public int SortOrder { get; set; }
 
