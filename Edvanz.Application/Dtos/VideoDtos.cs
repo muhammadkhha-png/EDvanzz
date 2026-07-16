@@ -35,6 +35,7 @@ namespace Edvanz.Application.Dtos.VideoContentManagement;
 /// upstream provider. Provider validation is documented as a known limitation
 /// in the spec — Flutter's player surfaces "video not found" on first play.
 /// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)] // typo'd/stale field → 400, never silently ignored (§7.2b precedent; caught live: 'attachmentFileId' singular was dropped and the video created without its attachment)
 public sealed class CreateVideoRequest
 {
     /// <summary>
@@ -160,6 +161,7 @@ public sealed class CreateVideoResponse
 /// that doesn't want to resend the whole video form) — both routes share one
 /// code path.
 /// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)] // typo'd/stale field → 400, never silently ignored
 public sealed class UpdateVideoRequest
 {
     [Required]
@@ -435,6 +437,7 @@ public sealed class VideoAttachmentDto
 }
 
 /// <summary>Request body for <c>PUT /api/videos/{id}/video-photo</c> — the uploaded file's id.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ReplaceVideoPhotoRequest
 {
     /// <summary>The video photo's <c>fileId</c> (FileObject.PublicId) from <c>POST /api/upload</c>.</summary>
