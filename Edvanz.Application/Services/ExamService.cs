@@ -184,6 +184,17 @@ public class ExamService : IExamService
             await _unitOfWork.ExamHomeworkRepo.AddObligationsRangeAsync(obligations);
 
             await _unitOfWork.SaveChangesAsync();
+
+            // For DuringSession exams, back-fill each occurrence's obligations from attendance already
+            // recorded on its linked SessionOccurrence — INSIDE the transaction (strict) so the exam is
+            // either fully in sync with the class or not created at all (no post-commit sticky half-state).
+            // Live updates thereafter flow from AttendanceService via IExamAttendanceSyncService.
+            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
+                foreach (var p in plans)
+                    if (p.SessionOccurrenceId.HasValue)
+                        await _examAttendanceSync.BackfillExamOccurrenceAsync(
+                            teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
+
             await _unitOfWork.CommitAsync();
         }
         catch (DbUpdateException)
@@ -191,18 +202,11 @@ public class ExamService : IExamService
             await _unitOfWork.RollbackAsync();
             return Result<ExamCreatedDto>.Failure(_localizer, "DatabaseConflict", HttpStatusCode.Conflict);
         }
-
-        // Phase 5: for DuringSession exams, back-fill each occurrence's obligations from attendance
-        // already recorded on its linked SessionOccurrence (best-effort — the sync swallows errors).
-        // Live updates thereafter flow from AttendanceService via IExamAttendanceSyncService.
-        if (dto.DeliveryType == ExamDeliveryType.DuringSession)
+        catch
         {
-            foreach (var p in plans)
-            {
-                if (p.SessionOccurrenceId.HasValue)
-                    await _examAttendanceSync.BackfillExamOccurrenceAsync(
-                        teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
-            }
+            // A back-fill failure rolls the whole exam back rather than shipping a half-synced one.
+            await _unitOfWork.RollbackAsync();
+            throw;
         }
 
         var response = new ExamCreatedDto
@@ -355,6 +359,14 @@ public class ExamService : IExamService
                 await _unitOfWork.ExamHomeworkRepo.AddOccurrencesRangeAsync(occurrences);
                 await _unitOfWork.ExamHomeworkRepo.AddObligationsRangeAsync(obligations);
                 await _unitOfWork.SaveChangesAsync();
+
+                // DuringSession: back-fill each new occurrence's obligations from attendance already
+                // recorded on its linked SessionOccurrence — INSIDE the transaction (strict), same as create.
+                if (dto.DeliveryType == ExamDeliveryType.DuringSession)
+                    foreach (var p in plans)
+                        if (p.SessionOccurrenceId.HasValue)
+                            await _examAttendanceSync.BackfillExamOccurrenceAsync(teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
+
                 await _unitOfWork.CommitAsync();
             }
             catch (DbUpdateException)
@@ -362,13 +374,12 @@ public class ExamService : IExamService
                 await _unitOfWork.RollbackAsync();
                 return FailView("DatabaseConflict", HttpStatusCode.Conflict);
             }
-
-            // DuringSession: back-fill each new occurrence's obligations from attendance already
-            // recorded on its linked SessionOccurrence (best-effort — same as create).
-            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
-                foreach (var p in plans)
-                    if (p.SessionOccurrenceId.HasValue)
-                        await _examAttendanceSync.BackfillExamOccurrenceAsync(teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
+            catch
+            {
+                // A back-fill failure rolls the whole exam back rather than shipping a half-synced one.
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
         }
         else
         {
@@ -388,6 +399,13 @@ public class ExamService : IExamService
             var update = await _examHomework.UpdateTemplateAsync(teacherId, actingUserId, examId, templateEdit);
             if (!update.IsSuccess)
                 return FailView(update.Code ?? "ExamNotFound", update.StatusCode);
+
+            // Keep each occurrence's grade snapshot in step with an edited max/pass score. Grade bounds
+            // are always editable, but this metadata path — unlike a structural rebuild (:327-328) —
+            // doesn't re-materialize the snapshots, so grade validation / pass-fail would otherwise keep
+            // using the stale MaxGradeSnapshot/PassingThresholdSnapshot.
+            await _unitOfWork.ExamHomeworkRepo.UpdateExamGradeSnapshotsAsync(
+                teacherId, examId, dto.MaxGrade, dto.SuccessScore);
         }
 
         // ── Return the refreshed opened-exam view under an explicit "updated" code ──
@@ -431,8 +449,10 @@ public class ExamService : IExamService
         long teacherId, int upcomingPage, int pastPage, int pageSize)
     {
         int safeSize = pageSize is < 1 or > 100 ? 20 : pageSize;
-        int safeUpcoming = upcomingPage < 1 ? 1 : upcomingPage;
-        int safePast = pastPage < 1 ? 1 : pastPage;
+        // Upper-clamp the page too: an unbounded page makes (page-1)*pageSize overflow int → a
+        // negative SQL OFFSET → deterministic 500. 1,000,000 pages is far beyond any real use.
+        int safeUpcoming = Math.Clamp(upcomingPage, 1, 1_000_000);
+        int safePast = Math.Clamp(pastPage, 1, 1_000_000);
 
         DateTime today = _timeZoneService.GetTeacherLocalDate(teacherId);
 
@@ -574,6 +594,12 @@ public class ExamService : IExamService
     public async Task<Result<ExamSessionRosterDto>> GetExamSessionRosterAsync(
         long teacherId, long examId, long sessionId, int page, int pageSize, string? search)
     {
+        // Exam-surface guard (mirror GetExamViewAsync): a Homework template must 404 here so this
+        // exams-only endpoint can never surface homework obligations.
+        var template = await _unitOfWork.ExamHomeworkRepo.GetTemplateByIdAndTeacherAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<ExamSessionRosterDto>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
         var occurrences = await _unitOfWork.ExamHomeworkRepo.GetExamOccurrencesByTemplateAsync(teacherId, examId);
         if (occurrences.Count == 0)
             return Result<ExamSessionRosterDto>.Failure(_localizer, "ExamNotFound", HttpStatusCode.NotFound);
@@ -582,7 +608,7 @@ public class ExamService : IExamService
         if (occ is null)
             return Result<ExamSessionRosterDto>.Failure(_localizer, "SessionNotInExam", HttpStatusCode.NotFound);
 
-        int safePage = page < 1 ? 1 : page;
+        int safePage = Math.Clamp(page, 1, 1_000_000); // upper-clamp: avoid (page-1)*pageSize int overflow → 500
         int safeSize = pageSize is < 1 or > 200 ? 50 : pageSize;
 
         var (rows, totalCount) = await _unitOfWork.ExamHomeworkRepo.GetTrackingViewPagedAsync(
@@ -1071,7 +1097,9 @@ public class ExamService : IExamService
             if (examDate is null)
                 return Invalid("ExamDateRequired");
             separateDate = examDate.Value.Date;
-            if (separateDate < DateTime.UtcNow.Date)
+            // Teacher-local (Africa/Cairo) "today", consistent with the rest of the app (payments,
+            // attendance, the exam home split) — UtcNow.Date would be off by up to a day near midnight.
+            if (separateDate < _timeZoneService.GetTeacherLocalDate(teacherId))
                 return Invalid("AssignmentDateInPast");
         }
 

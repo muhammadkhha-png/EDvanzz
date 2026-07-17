@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Edvanz.Application.Dtos.Exams;
 
 /// <summary>
@@ -25,7 +27,9 @@ public class GradeItemDto
     /// </summary>
     public decimal? Grade { get; set; }
 
-    /// <summary>Concurrency token from the last read of this student's row (base64 is also accepted by binding).</summary>
+    /// <summary>Concurrency token from the last read of this student's row (base64 is also accepted by binding).
+    /// Required — omitting it would otherwise bind to null and surface as a misleading 409 conflict.</summary>
+    [Required]
     public byte[] RowVersion { get; set; } = null!;
 }
 

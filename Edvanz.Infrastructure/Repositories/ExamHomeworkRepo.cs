@@ -1291,6 +1291,42 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<int> RevertExamAttendanceForUnmarkedAsync(
+        long teacherId, long occurrenceId, IReadOnlyCollection<long> markedStudentIds,
+        DateTime utcNow, long actingUserId)
+    {
+        var marked = markedStudentIds as ICollection<long> ?? markedStudentIds.ToList();
+
+        // Only attendance-derived statuses are reverted; Pending (already unmarked) and homework
+        // statuses are left alone. An empty "marked" set (every record removed) correctly reverts all.
+        var query = _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.OccurrenceId == occurrenceId
+                     && !marked.Contains(o.TeacherStudentId)
+                     && (o.Status == ObligationStatus.Attended
+                      || o.Status == ObligationStatus.AttendedWithGrade
+                      || o.Status == ObligationStatus.DidNotAttend));
+
+        return await query.ExecuteUpdateAsync(setters => setters
+            .SetProperty(o => o.Status, ObligationStatus.Pending)
+            .SetProperty(o => o.GradeValue, (decimal?)null)
+            .SetProperty(o => o.IsGradeEntered, false)
+            .SetProperty(o => o.LastUpdatedByUserId, (long?)actingUserId)
+            .SetProperty(o => o.UpdatedAt, utcNow));
+    }
+
+    /// <inheritdoc />
+    public async Task UpdateExamGradeSnapshotsAsync(
+        long teacherId, long templateId, decimal maxGrade, decimal passingThreshold)
+    {
+        await _context.AssignmentOccurrences
+            .Where(o => o.TeacherId == teacherId && o.TemplateId == templateId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(o => o.MaxGradeSnapshot, (decimal?)maxGrade)
+                .SetProperty(o => o.PassingThresholdSnapshot, (decimal?)passingThreshold));
+    }
+
+    /// <inheritdoc />
     public async Task<Dictionary<long, DateTime?>> GetNextOrLastOccurrenceDatesAsync(
         IEnumerable<long> templateIds, DateTime today)
     {

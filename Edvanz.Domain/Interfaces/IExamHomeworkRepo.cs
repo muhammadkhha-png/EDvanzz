@@ -707,6 +707,25 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<int> SetExamAttendanceByOccurrenceAsync(
         long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds,
         ObligationStatus newStatus, bool clearGrade, bool skipGraded, DateTime utcNow, long actingUserId);
+
+    /// <summary>
+    /// Reverts an exam occurrence's attendance-derived obligations (Attended / AttendedWithGrade /
+    /// DidNotAttend) back to <c>Pending</c> (grade cleared) for every student NOT in
+    /// <paramref name="markedStudentIds"/> — i.e. students whose backing session attendance record was
+    /// deleted or re-marked away. <c>Pending</c> rows and homework statuses are never touched. Used by
+    /// the attendance→exam reconcile so a during-session exam can't keep a stale mark. Returns rows affected.
+    /// </summary>
+    Task<int> RevertExamAttendanceForUnmarkedAsync(
+        long teacherId, long occurrenceId, IReadOnlyCollection<long> markedStudentIds,
+        DateTime utcNow, long actingUserId);
+
+    /// <summary>
+    /// Sets the per-occurrence grade snapshots (<c>MaxGradeSnapshot</c> / <c>PassingThresholdSnapshot</c>)
+    /// on every occurrence of an exam template to the given bounds. Called when an exam's max/pass score
+    /// is edited on the metadata path so grade validation and pass/fail stay in step with the template.
+    /// </summary>
+    Task UpdateExamGradeSnapshotsAsync(
+        long teacherId, long templateId, decimal maxGrade, decimal passingThreshold);
     /// <summary>
     /// Student-facing, paged: offline-exam occurrences (AssignmentType.Exam) the given student
     /// has an obligation for under this teacher, joined to its template for display fields.

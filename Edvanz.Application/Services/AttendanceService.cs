@@ -598,8 +598,11 @@ public class AttendanceService : IAttendanceService
                         dto.SessionId, session.SessionName, date);
 
                 // Exams: keep during-session exam obligations in sync with this session attendance.
+                // Target the occurrence the record LANDED on (mt.RecordOccurrenceId) — for a
+                // cross-session mark that is the student's home occurrence (== occurrence.Id for a
+                // same-session mark), which is where the during-session exam is anchored.
                 await _examAttendanceSync.SyncFromSessionOccurrenceAsync(
-                    dto.TeacherId, occurrence.Id, dto.TeacherStudentId, attendanceStatus,
+                    dto.TeacherId, mt.RecordOccurrenceId, dto.TeacherStudentId, attendanceStatus,
                     dto.RecordedByUserId ?? dto.TeacherId);
             }
 
@@ -859,12 +862,15 @@ public class AttendanceService : IAttendanceService
                         .ToList());
             }
 
-            // Exams: sync all bulk-marked students into any during-session exam on this occurrence.
+            // Exams: reconcile any during-session exam on the occurrences that ACTUALLY received a mark
+            // (post-commit, best-effort). Reconciling from the persisted records — rather than pushing
+            // the full requested id list — means students skipped this bulk (already marked, no active
+            // assignment, cross-session, etc.) keep their real session status in the exam too.
             if (ownsTransaction)
             {
-                await _examAttendanceSync.SyncManyFromSessionOccurrenceAsync(
-                    dto.TeacherId, occurrence.Id, dto.TeacherStudentIds, dto.Status,
-                    dto.RecordedByUserId ?? dto.TeacherId);
+                foreach (var affectedOccurrenceId in affectedOccurrences.Select(o => o.Id).Distinct())
+                    await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                        dto.TeacherId, affectedOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
             }
 
             var resultDto = new BulkMarkAttendanceResultDto
@@ -1107,6 +1113,13 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
+            // Exams: reconcile any during-session exam on this occurrence (post-commit, best-effort).
+            // Releasing a held student as Present must reach the exam obligation (was left Pending →
+            // ungradable); a discard leaves them Pending, which reconcile confirms as a no-op.
+            if (ownsTransaction)
+                await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                    dto.TeacherId, occurrence.Id, dto.RecordedByUserId ?? dto.TeacherId);
+
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
             {
                 Record = dto.MarkAsPresent
@@ -1248,6 +1261,12 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
+            // Exams: reconcile any during-session exam on this occurrence from the edited attendance
+            // (post-commit, best-effort). A Present↔Absent edit now propagates to the exam obligation.
+            if (ownsTransaction && record.SessionOccurrenceId.HasValue)
+                await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                    dto.TeacherId, record.SessionOccurrenceId.Value, dto.EditedByUserId ?? dto.TeacherId);
+
             var resultDto = MapToRecordDto(record,
                 record.StudentName ?? "Unknown",
                 record.StudentCode ?? "");
@@ -1365,6 +1384,12 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
+            // Exams: reconcile any during-session exam on the occurrence this record landed on
+            // (post-commit, best-effort), so a newly added present/absent mark reaches the exam.
+            if (ownsTransaction)
+                await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                    dto.TeacherId, mt.RecordOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
+
             var resultDto = MapToRecordDto(record, student.StudentName, student.StudentCode);
             return Result<AttendanceRecordDto>.Success(
                 resultDto, _localizer, AttendanceConstants.Messages.AttendanceAddedSuccess);
@@ -1421,6 +1446,12 @@ public class AttendanceService : IAttendanceService
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
+
+            // Exams: reconcile any during-session exam on this occurrence (post-commit, best-effort).
+            // The record is now gone, so a student whose only mark was deleted reverts to Pending.
+            if (ownsTransaction && record.SessionOccurrenceId.HasValue)
+                await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                    dto.TeacherId, record.SessionOccurrenceId.Value, dto.TeacherId);
 
             return Result<bool>.Success(
                 true, _localizer, AttendanceConstants.Messages.AttendanceRecordDeletedSuccess);
@@ -2006,6 +2037,10 @@ public class AttendanceService : IAttendanceService
             int conflictCount = 0;
             int failedCount = 0;
 
+            // Occurrences that received a NEW mark this sync — reconciled into any during-session exam
+            // after commit (the nested MarkAttendanceAsync calls below skip their own exam sync).
+            var affectedOccurrenceIds = new HashSet<long>();
+
             foreach (var entry in dto.Entries)
             {
                 // Get or validate occurrence
@@ -2063,6 +2098,7 @@ public class AttendanceService : IAttendanceService
                 }
 
                 // No existing record — create via normal mark logic
+                affectedOccurrenceIds.Add(occurrence.Id);
                 var markDto = new MarkAttendanceDto
                 {
                     TeacherId = dto.TeacherId,
@@ -2144,6 +2180,14 @@ public class AttendanceService : IAttendanceService
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
+
+            // Exams: reconcile any during-session exam on the occurrences that received offline marks
+            // (post-commit, best-effort) — closes the nested-transaction gap where the inner mark's own
+            // exam sync was skipped.
+            if (ownsTransaction)
+                foreach (var affectedOccurrenceId in affectedOccurrenceIds)
+                    await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                        dto.TeacherId, affectedOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
 
             return Result<SyncResultDto>.Success(
                 result, _localizer, AttendanceConstants.Messages.SyncCompleted);

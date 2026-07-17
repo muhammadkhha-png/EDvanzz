@@ -6,10 +6,11 @@ using Microsoft.Extensions.Logging;
 namespace Edvanz.Application.Services;
 
 /// <summary>
-/// Implements the attendance→exam sync. Uses atomic <c>ExecuteUpdate</c> writes and swallows its own
-/// errors so it can never destabilize the attendance flow that calls it (mirrors the notifier's
-/// self-contained-safe contract). Grades are preserved on "present" (already-graded rows are skipped)
-/// and cleared on "absent".
+/// Implements the attendance→exam sync. Uses atomic <c>ExecuteUpdate</c> writes. The runtime sync/
+/// reconcile methods swallow their own errors so they can never destabilize the attendance flow that
+/// calls them (mirrors the notifier's self-contained-safe contract); <see cref="BackfillExamOccurrenceAsync"/>
+/// is strict and throws (it runs inside the exam create/update transaction). Grades are preserved on
+/// "present" (already-graded rows are skipped) and cleared on "absent".
 /// </summary>
 public class ExamAttendanceSyncService : IExamAttendanceSyncService
 {
@@ -64,11 +65,15 @@ public class ExamAttendanceSyncService : IExamAttendanceSyncService
     }
 
     /// <inheritdoc />
-    public async Task BackfillExamOccurrenceAsync(
-        long teacherId, long examOccurrenceId, long sessionOccurrenceId, long actingUserId)
+    public async Task ReconcileExamsForSessionOccurrenceAsync(
+        long teacherId, long sessionOccurrenceId, long actingUserId)
     {
         try
         {
+            var examOccurrenceIds = await _unitOfWork.ExamHomeworkRepo
+                .GetExamOccurrenceIdsBySessionOccurrenceAsync(teacherId, sessionOccurrenceId);
+            if (examOccurrenceIds.Count == 0) return; // no during-session exam anchored here — nothing to do.
+
             var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(sessionOccurrenceId);
 
             var present = records
@@ -80,24 +85,67 @@ public class ExamAttendanceSyncService : IExamAttendanceSyncService
                 .Where(r => r.Status == AttendanceStatus.Absent && r.TeacherStudentId.HasValue)
                 .Select(r => r.TeacherStudentId!.Value).Distinct().ToList();
 
+            // Students still carrying a present/absent record. Anyone previously synced from this
+            // occurrence but NOT in this set (their record was deleted or the class was re-marked)
+            // is reverted to Pending below, so the exam can never keep a stale mark.
+            var marked = present.Concat(absent).Distinct().ToList();
+
             DateTime utcNow = DateTime.UtcNow;
+            foreach (var examOccurrenceId in examOccurrenceIds)
+            {
+                if (present.Count > 0)
+                    await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
+                        teacherId, examOccurrenceId, present,
+                        ObligationStatus.Attended, clearGrade: false, skipGraded: true, utcNow, actingUserId);
 
-            if (present.Count > 0)
-                await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
-                    teacherId, examOccurrenceId, present,
-                    ObligationStatus.Attended, clearGrade: false, skipGraded: true, utcNow, actingUserId);
+                if (absent.Count > 0)
+                    await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
+                        teacherId, examOccurrenceId, absent,
+                        ObligationStatus.DidNotAttend, clearGrade: true, skipGraded: false, utcNow, actingUserId);
 
-            if (absent.Count > 0)
-                await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
-                    teacherId, examOccurrenceId, absent,
-                    ObligationStatus.DidNotAttend, clearGrade: true, skipGraded: false, utcNow, actingUserId);
+                // Revert obligations whose backing attendance record is gone (present/absent set no
+                // longer contains them) back to unmarked — only touches attendance-derived statuses.
+                await _unitOfWork.ExamHomeworkRepo.RevertExamAttendanceForUnmarkedAsync(
+                    teacherId, examOccurrenceId, marked, utcNow, actingUserId);
+            }
         }
         catch (Exception ex)
         {
+            // Best-effort: an exam-sync failure must never break the attendance write that triggered it.
             _logger.LogError(ex,
-                "Exam attendance back-fill failed for teacher {TeacherId}, exam occurrence {OccurrenceId}",
-                teacherId, examOccurrenceId);
+                "Exam attendance reconcile failed for teacher {TeacherId}, sessionOccurrence {SessionOccurrenceId}",
+                teacherId, sessionOccurrenceId);
         }
+    }
+
+    /// <inheritdoc />
+    public async Task BackfillExamOccurrenceAsync(
+        long teacherId, long examOccurrenceId, long sessionOccurrenceId, long actingUserId)
+    {
+        // Strict (no try/catch): runs inside the exam create/update transaction, so a failure must
+        // propagate and roll the exam back rather than silently ship a half-synced exam.
+        var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(sessionOccurrenceId);
+
+        var present = records
+            .Where(r => (r.Status == AttendanceStatus.Present || r.Status == AttendanceStatus.CrossSessionPresent)
+                        && r.TeacherStudentId.HasValue)
+            .Select(r => r.TeacherStudentId!.Value).Distinct().ToList();
+
+        var absent = records
+            .Where(r => r.Status == AttendanceStatus.Absent && r.TeacherStudentId.HasValue)
+            .Select(r => r.TeacherStudentId!.Value).Distinct().ToList();
+
+        DateTime utcNow = DateTime.UtcNow;
+
+        if (present.Count > 0)
+            await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
+                teacherId, examOccurrenceId, present,
+                ObligationStatus.Attended, clearGrade: false, skipGraded: true, utcNow, actingUserId);
+
+        if (absent.Count > 0)
+            await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
+                teacherId, examOccurrenceId, absent,
+                ObligationStatus.DidNotAttend, clearGrade: true, skipGraded: false, utcNow, actingUserId);
     }
 
     /// <summary>Maps a session attendance status to the exam obligation change to apply, or null for no change.</summary>
