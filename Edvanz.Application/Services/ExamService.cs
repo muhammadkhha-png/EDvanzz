@@ -1248,7 +1248,7 @@ public class ExamService : IExamService
 
         // Every explicitly-listed student must belong to one of the target sessions.
         if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
-            return Invalid("StudentNotInSession");
+            return Invalid("StudentsNotInSession");
 
         if (plans.Count == 0)
             return Invalid("SessionHasNoStudents");

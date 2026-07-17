@@ -219,7 +219,7 @@
   <data name="LinkNotFound" xml:space="preserve">
     <value>No active link found between your account and this teacher</value>
   </data>
-  <data name="StudentNameRequired" xml:space="preserve">
+  <data name="StudentLinkNameRequired" xml:space="preserve">
     <value>Please enter your name so the teacher can recognize your request</value>
   </data>
   <data name="LinkRequestCreated" xml:space="preserve">
@@ -1143,7 +1143,7 @@
   <data name="AmbiguousStudentInExam" xml:space="preserve">
     <value>This student has more than one entry in the exam; specify the session</value>
   </data>
-  <data name="StudentNotInSession" xml:space="preserve">
+  <data name="StudentsNotInSession" xml:space="preserve">
     <value>One or more selected students do not belong to the selected session</value>
   </data>
   <data name="SessionHasNoStudents" xml:space="preserve">
@@ -1431,9 +1431,6 @@
   </data>
   <data name="ConcurrencyConflict" xml:space="preserve">
     <value>This video was changed by someone else while you were editing. Please refresh and try again</value>
-  </data>
-  <data name="VideoPhotoTooLarge" xml:space="preserve">
-    <value>This video photo is too large.</value>
   </data>
   <data name="VideoPhotoUploaded" xml:space="preserve">
     <value>Video photo uploaded successfully</value>

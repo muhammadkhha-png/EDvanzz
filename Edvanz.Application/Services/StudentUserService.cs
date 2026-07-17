@@ -189,7 +189,7 @@ public class StudentUserService : IStudentUserService
 
         // ── 3. Validate the student-typed name (the teacher identifies the request by it) ──
         if (string.IsNullOrWhiteSpace(dto.StudentName))
-            return Result<StudentDashboardTeacherDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
+            return Result<StudentDashboardTeacherDto>.Failure(_localizer, "StudentLinkNameRequired", HttpStatusCode.BadRequest);
 
         // ── 4. One live row per (student, teacher): reject if already pending/linked ──
         var liveLink = await _unitOfWork.Users.GetLiveStudentTeacherLinkAsync(studentUserId, teacher.Id);

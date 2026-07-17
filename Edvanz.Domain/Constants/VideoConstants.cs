@@ -75,26 +75,11 @@ public static class VideoConstants
     public const int CompletionThresholdPercent = 90;
 
     /// <summary>
-    /// Maximum size of a single video attachment upload (Track F / §5).
-    /// 25 MB — ratified business rule.
-    /// </summary>
-    public const long AttachmentMaxSizeBytes = 25 * 1024 * 1024;
-
-    /// <summary>
     /// Maximum number of attachments a single video may hold (multi-attachment support,
     /// 2026-07-16). Mirrors <c>UploadConstants.MaxFilesPerRequest</c> so one upload batch can
     /// fill one video exactly.
     /// </summary>
     public const int MaxAttachmentsPerVideo = 10;
-
-    /// <summary>
-    /// Maximum size of a single video photo (cover image) upload. 5 MB — proposed default;
-    /// confirm with product before relying on this as a hard business rule.
-    /// (Same caveat pattern as <see cref="AttachmentMaxSizeBytes"/> carried before
-    /// ratification.) Renamed from ThumbnailMaxSizeBytes — "thumbnail" is now "video photo"
-    /// across the application.
-    /// </summary>
-    public const long VideoPhotoMaxSizeBytes = 5 * 1024 * 1024;
 
     /// <summary>Allowed content types for video photo (cover image) uploads.</summary>
     public static readonly string[] AllowedVideoPhotoContentTypes = { "image/jpeg", "image/png" };
@@ -180,7 +165,6 @@ public static class VideoConstants
         public const string NoActiveSession              = "NoActiveSession";
         public const string NotVideoOwner                = "NotVideoOwner";
         public const string ScopeNotFound                = "ScopeNotFound";
-        public const string MixedScopeTypesNotAllowed    = "MixedScopeTypesNotAllowed";
 
         // ── Track C / G-UNIT ─────────────────────────────────────────────────
         public const string VideoUnitCreated  = "VideoUnitCreated";
@@ -188,22 +172,12 @@ public static class VideoConstants
         public const string VideoUnitDeleted  = "VideoUnitDeleted";
         public const string VideoUnitNotFound = "VideoUnitNotFound";
 
-        // ── Unit Scope (collection-level Target Scope, final decision) ───────
-        public const string UnitScopesAssigned = "UnitScopesAssigned";
-        public const string UnitScopesReplaced = "UnitScopesReplaced";
-
         // ── Track F / §5 Attachments ─────────────────────────────────────────
-        public const string AttachmentUploaded    = "AttachmentUploaded";
-        public const string AttachmentDeleted     = "AttachmentDeleted";
-        public const string AttachmentNotFound    = "AttachmentNotFound";
-        public const string AttachmentTooLarge    = "AttachmentTooLarge";
-        public const string AttachmentInvalidType = "AttachmentInvalidType";
         public const string AttachmentsLimitExceeded = "VideoAttachmentsLimitExceeded";
         // "Thumbnail" renamed to "VideoPhoto" app-wide — same messages, new terminology.
         public const string VideoPhotoUploaded    = "VideoPhotoUploaded";
         public const string VideoPhotoReplaced    = "VideoPhotoReplaced";
         public const string VideoPhotoInvalidType = "VideoPhotoInvalidType";
-        public const string VideoPhotoTooLarge    = "VideoPhotoTooLarge";
         public const string VideoPhotoNotFound    = "VideoPhotoNotFound";
 
         // ── Phase 3 — multipart create request shape ──────────────────────────

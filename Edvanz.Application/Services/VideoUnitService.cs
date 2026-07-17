@@ -216,7 +216,7 @@ public sealed class VideoUnitService : IVideoUnitService
         var unit = await _unitOfWork.VideoUnitsRepo.GetUnitWithScopesAsync(unitId, teacherId);
         if (unit is null)
             return Result<VideoUnitResponse>.Failure(
-                _localizer[VideoConstants.Messages.VideoUnitNotFound],
+                _localizer, VideoConstants.Messages.VideoUnitNotFound,
                 HttpStatusCode.NotFound);
 
         var response = new VideoUnitResponse

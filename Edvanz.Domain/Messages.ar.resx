@@ -219,7 +219,7 @@
   <data name="LinkNotFound" xml:space="preserve">
     <value>مفيش ربط نشط بين حسابك والمعلم ده</value>
   </data>
-  <data name="StudentNameRequired" xml:space="preserve">
+  <data name="StudentLinkNameRequired" xml:space="preserve">
     <value>من فضلك اكتب اسمك عشان المعلم يقدر يتعرف على طلبك</value>
   </data>
   <data name="LinkRequestCreated" xml:space="preserve">
@@ -1143,7 +1143,7 @@
   <data name="AmbiguousStudentInExam" xml:space="preserve">
     <value>الطالب ده ليه أكتر من إدخال في الامتحان؛ حدد السيشن</value>
   </data>
-  <data name="StudentNotInSession" xml:space="preserve">
+  <data name="StudentsNotInSession" xml:space="preserve">
     <value>فيه طالب أو أكتر مش موجود في السيشن المختارة</value>
   </data>
   <data name="SessionHasNoStudents" xml:space="preserve">
@@ -1347,9 +1347,6 @@
   <data name="LastScopeCannotBeRemoved" xml:space="preserve">
     <value>مينفعش تشيل آخر جهة وصول. لو عايز تلغي الفيديو، احذفه</value>
   </data>
-  <data name="MixedScopeTypesNotAllowed" xml:space="preserve">
-    <value>لازم جهات الوصول كلها تكون من نفس النوع — طلاب، جروبات، أو سيشنز. مينفعش تخلطهم</value>
-  </data>
   <data name="NoActiveSession" xml:space="preserve">
     <value>مفيش جلسة مشاهدة شغالة على الجهاز ده</value>
   </data>
@@ -1371,27 +1368,6 @@
   <data name="VideoUnitNotFound" xml:space="preserve">
     <value>مقدرناش نلاقي الوحدة دي. ممكن تكون اتحذفت</value>
   </data>
-  <data name="UnitScopesAssigned" xml:space="preserve">
-    <value>تم تحديث صلاحيات الوصول للمجموعة</value>
-  </data>
-  <data name="UnitScopesReplaced" xml:space="preserve">
-    <value>تم استبدال صلاحيات الوصول للمجموعة</value>
-  </data>
-  <data name="AttachmentUploaded" xml:space="preserve">
-    <value>تم رفع الملف بنجاح</value>
-  </data>
-  <data name="AttachmentDeleted" xml:space="preserve">
-    <value>تم حذف الملف بنجاح</value>
-  </data>
-  <data name="AttachmentNotFound" xml:space="preserve">
-    <value>مقدرناش نلاقي الملف ده. ممكن يكون اتحذف</value>
-  </data>
-  <data name="AttachmentTooLarge" xml:space="preserve">
-    <value>الملف ده كبير أوي. من فضلك ارفع ملف أصغر</value>
-  </data>
-  <data name="AttachmentInvalidType" xml:space="preserve">
-    <value>الملفات المرفقة لازم تكون PDF بس</value>
-  </data>
   <data name="VideoPhotoUploaded" xml:space="preserve">
     <value>تم رفع صورة الفيديو بنجاح</value>
   </data>
@@ -1403,9 +1379,6 @@
   </data>
   <data name="VideoPhotoInvalidType" xml:space="preserve">
     <value>صور الفيديو لازم تكون JPEG أو PNG بس</value>
-  </data>
-  <data name="VideoPhotoTooLarge" xml:space="preserve">
-    <value>صورة الفيديو دي كبيرة أوي. من فضلك ارفع صورة أصغر</value>
   </data>
   <data name="VideoPhotoNotFound" xml:space="preserve">
     <value>مقدرناش نلاقي صورة للفيديو ده</value>
@@ -1492,9 +1465,6 @@
   <data name="ConcurrencyConflict" xml:space="preserve">
     <value>حد تاني عدّل الفيديو ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
   </data>
-  <data name="ThumbnailTooLarge" xml:space="preserve">
-    <value>الصورة المصغرة دي كبيرة أوي.</value>
-</data>
 <data name="ExamTitleRequired" xml:space="preserve"><value>الامتحان محتاج عنوان</value></data>
   <data name="ExamMustHaveQuestions" xml:space="preserve"><value>الامتحان لازم يكون فيه سؤال واحد على الأقل</value></data>
   <data name="ExamQuestionTextRequired" xml:space="preserve"><value>كل سؤال لازم يكون ليه نص</value></data>
