@@ -14,11 +14,14 @@ public interface IPaymentScreenService
 {
     /// <summary>
     /// Screen: SessionPaymentCollectedByMonth. Paginated ledger of collected payments for the
-    /// given month (1-12) + year. Reuses <c>IPaymentRepo.GetTransactionsByDateRangePagedAsync</c>.
+    /// selected month. DASH-1: <paramref name="month"/> accepts EITHER the unified <c>"YYYY-MM"</c>
+    /// string (same value <c>tracking</c>/<c>students</c> take) OR the legacy integer month string
+    /// (1-12) paired with <paramref name="year"/>; both omitted → the teacher's current local
+    /// (Africa/Cairo) month/year. Reuses <c>IPaymentRepo.GetTransactionsByDateRangePagedAsync</c>.
     /// Returns 422 for an invalid month/year.
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
-        long teacherId, int month, int year, int page, int limit);
+        long teacherId, string? month, int? year, int page, int limit);
 
     /// <summary>
     /// Screen: AssistantWallet. Wallet card + paginated recent collections for one assistant.
@@ -46,10 +49,13 @@ public interface IPaymentScreenService
 
     /// <summary>
     /// Screen: SessionPaymentCollectedByYear. Per-student month-by-month collection matrix for a
-    /// year, paginated over students. Reuses <c>GetYearlyCollectionsPagedAsync</c>. 422 on bad year.
+    /// year, paginated over students. DASH-1: the year is derived from EITHER the unified
+    /// <c>"YYYY-MM"</c> <paramref name="month"/> selector (its year component) OR the legacy
+    /// <paramref name="year"/> integer; both omitted → the teacher's current local (Africa/Cairo)
+    /// year. Reuses <c>GetYearlyCollectionsPagedAsync</c>. 422 on bad month/year.
     /// </summary>
     Task<Result<YearlyCollectionsResponse>> GetYearlyCollectionsAsync(
-        long teacherId, int year, int page, int limit);
+        long teacherId, string? month, int? year, int page, int limit);
 
     /// <summary>
     /// Screen: CollectPaymentSession. Resolves a student by QR/code/name → student + amount owed

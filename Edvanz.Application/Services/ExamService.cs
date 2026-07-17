@@ -792,7 +792,18 @@ public class ExamService : IExamService
             AllSucceeded = results.All(r => r.Success),
             Items = results,
         };
-        return Result<BatchGradeResultDto>.Success(payload, _localizer, "GradesSaved");
+
+        // OEX-1: the envelope must reflect the BATCH outcome instead of blindly claiming "Grades saved"
+        // when every (or some) row was rejected. Mirrors ATT-5's bulk-attendance convention
+        // (AttendanceService.BulkMarkAttendanceAsync): this stays a Result.Success — the `data` shape
+        // (updatedCount/allSucceeded/items[]) is a fixed frontend contract and Result.Failure would drop
+        // it — and only the message/code changes; the client reads the per-student Items[] for specifics.
+        // Nothing saved → "none"; some saved & some rejected → "partial"; all saved → keep "GradesSaved".
+        string batchMessageKey =
+            payload.UpdatedCount == 0 ? "NoGradesSaved"
+            : payload.AllSucceeded    ? "GradesSaved"
+                                      : "GradesPartiallySaved";
+        return Result<BatchGradeResultDto>.Success(payload, _localizer, batchMessageKey);
     }
 
     /// <inheritdoc />
@@ -1102,8 +1113,11 @@ public class ExamService : IExamService
             separateDate = examDate.Value.Date;
             // Teacher-local (Africa/Cairo) "today", consistent with the rest of the app (payments,
             // attendance, the exam home split) — UtcNow.Date would be off by up to a day near midnight.
+            // OEX-2: use the exam-worded key ("Exam date must be today or a future date") — NOT the shared
+            // AssignmentDateInPast, whose "Assignment date…" text is load-bearing for assignments/homework.
+            // Create and update both flow through this one pipeline, so both surface the corrected wording.
             if (separateDate < _timeZoneService.GetTeacherLocalDate(teacherId))
-                return Invalid("AssignmentDateInPast");
+                return Invalid("ExamDateInPast");
         }
 
         // ── Recipient: EITHER sessions OR groups (groups expand server-side) ──

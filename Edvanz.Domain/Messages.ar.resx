@@ -1766,4 +1766,19 @@
   <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
     <value>المحفظة اتعدّلت في نفس الوقت من طلب تاني. حاول تاني.</value>
   </data>
+  <data name="OnlineExam.StudentStatusBlocked" xml:space="preserve">
+    <value>تم حظر الطالب</value>
+  </data>
+  <data name="OnlineExam.StudentStatusUnblocked" xml:space="preserve">
+    <value>تم رفع الحظر عن الطالب</value>
+  </data>
+  <data name="NoGradesSaved" xml:space="preserve">
+    <value>مفيش أي درجات اتحفظت. بُص على نتيجة كل طالب عشان التفاصيل.</value>
+  </data>
+  <data name="GradesPartiallySaved" xml:space="preserve">
+    <value>اتحفظت بعض الدرجات، والباقي اتعدّى. بُص على نتيجة كل طالب عشان التفاصيل.</value>
+  </data>
+  <data name="ExamDateInPast" xml:space="preserve">
+    <value>تاريخ الامتحان لازم يكون النهاردة أو في المستقبل</value>
+  </data>
 </root>

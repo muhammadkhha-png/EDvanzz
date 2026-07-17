@@ -595,7 +595,10 @@ public class OnlineExamService : IOnlineExamService
             throw;
         }
 
-        return Result<bool>.Success(true, _localizer, OnlineExamConstants.Messages.Deleted, HttpStatusCode.NoContent);
+        // OE-2 — return the standard 200 envelope ({success,code,message,data}) like every other
+        // module delete, instead of a 204 empty body (default statusCode = HttpStatusCode.OK).
+        // Deletion logic above is unchanged.
+        return Result<bool>.Success(true, _localizer, OnlineExamConstants.Messages.Deleted);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -773,6 +776,14 @@ public class OnlineExamService : IOnlineExamService
         decimal totalGrade = questions.Sum(q => q.Degree);
 
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
-        return Result<OnlineExamStatsDto>.Success(stats, _localizer, OnlineExamConstants.Messages.Updated);
+
+        // OE-1 — return a message reflecting the ACTUAL action (block vs unblock), not the
+        // generic "Exam updated" that described an exam-metadata edit. request.Status is
+        // guaranteed to be Blocked or InProgress here (validated above); InProgress is the
+        // unblock path — the status enum has no separate "Active" member.
+        string statusKey = request.Status == StudentOnlineExamStatus.Blocked
+            ? OnlineExamConstants.Messages.StudentStatusBlocked
+            : OnlineExamConstants.Messages.StudentStatusUnblocked;
+        return Result<OnlineExamStatsDto>.Success(stats, _localizer, statusKey);
     }
 }

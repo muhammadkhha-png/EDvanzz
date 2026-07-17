@@ -49,6 +49,14 @@ public static class OnlineExamConstants
         public const string NotInScope = "OnlineExam.NotInScope";
         public const string AlreadySubmitted = "OnlineExam.AlreadySubmitted";
         public const string StudentBlocked = "OnlineExam.StudentBlocked";
+
+        // OE-1 — teacher-facing results of the T5s manual student-status action. Distinct from
+        // the student-facing <see cref="StudentBlocked"/> ("You have been blocked…"): here the
+        // teacher is the audience, so the copy describes the action they just performed. The
+        // status enum has no separate "Active" member — InProgress is the unblock path.
+        public const string StudentStatusBlocked = "OnlineExam.StudentStatusBlocked";
+        public const string StudentStatusUnblocked = "OnlineExam.StudentStatusUnblocked";
+
         public const string ReportNotFound = "OnlineExam.ReportNotFound";
         public const string InvalidOptionSelection = "OnlineExam.InvalidOptionSelection";
         public const string ManualStatusNotAllowed = "OnlineExam.ManualStatusNotAllowed";

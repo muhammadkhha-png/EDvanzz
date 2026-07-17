@@ -44,6 +44,8 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // Screen: SessionPaymentCollectedByMonth
     // GET /api/v1/payments/collections?month=&year=&page=&limit=
     // Paginated ledger of collected payments for a month + year.
+    // DASH-1: `month` accepts the unified "YYYY-MM" string (same as tracking/students) OR the
+    //   legacy integer month (1-12) + separate `year`. Both optional → current local month/year.
     // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory.
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collections")]
@@ -54,8 +56,8 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetCollectionsByMonth(
-        [FromQuery] int month,
-        [FromQuery] int year,
+        [FromQuery] string? month,
+        [FromQuery] int? year,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20)
     {
@@ -146,7 +148,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: SessionPaymentCollectedByYear
-    // GET /api/v1/payments/collections/yearly?year=&page=&limit=
+    // GET /api/v1/payments/collections/yearly?month=&year=&page=&limit=
+    // DASH-1: a yearly view needs only the YEAR — derived from the unified "YYYY-MM" `month`
+    //   string (its year) OR the legacy integer `year`. Both optional → current local year.
     // AUTH: Teacher (module) OR Assistant with Payment.ViewHistory.
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collections/yearly")]
@@ -157,7 +161,8 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> GetYearlyCollections(
-        [FromQuery] int year,
+        [FromQuery] string? month,
+        [FromQuery] int? year,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20)
     {
@@ -165,7 +170,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetYearlyCollectionsAsync(
-            teacherId.Value, year, page, limit);
+            teacherId.Value, month, year, page, limit);
         return ToResponse(result);
     }
 

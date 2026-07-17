@@ -299,14 +299,13 @@ public sealed class OnlineExamsController : ModuleSixApiBaseController
 
     /// <summary>T14 — Hard-deletes the exam and its full graph (leaf-first: answers → options → questions → scopes → exam).</summary>
     /// <param name="onlineExamId">The exam to delete.</param>
-    /// <response code="204">Exam deleted.</response>
+    /// <response code="200">Exam deleted (standard success envelope — OE-2; was a 204 empty body).</response>
     /// <response code="404">Exam not found or not owned by the caller's tenant.</response>
     /// <response code="401">Caller is not authenticated.</response>
     /// <response code="403">Caller lacks the <c>OnlineExam.ManageExams</c> permission.</response>
     [HttpDelete("{onlineExamId:long}")]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ModulePermission(OnlineExamConstants.ModuleName, OnlineExamConstants.PermissionManageExams)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]

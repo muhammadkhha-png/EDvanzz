@@ -1733,4 +1733,37 @@
   <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
     <value>The wallet was updated at the same time by another request. Please try again.</value>
   </data>
+  <data name="VideoUpdated" xml:space="preserve">
+    <value>Video updated successfully</value>
+  </data>
+  <data name="VideoStatusUpdated" xml:space="preserve">
+    <value>Video status updated</value>
+  </data>
+  <data name="VideoUnitCreated" xml:space="preserve">
+    <value>Unit created successfully</value>
+  </data>
+  <data name="VideoUnitUpdated" xml:space="preserve">
+    <value>Unit updated successfully</value>
+  </data>
+  <data name="VideoUnitDeleted" xml:space="preserve">
+    <value>Unit deleted successfully</value>
+  </data>
+  <data name="VideoUnitNotFound" xml:space="preserve">
+    <value>We couldn't find this unit. It may have been deleted</value>
+  </data>
+  <data name="OnlineExam.StudentStatusBlocked" xml:space="preserve">
+    <value>Student blocked</value>
+  </data>
+  <data name="OnlineExam.StudentStatusUnblocked" xml:space="preserve">
+    <value>Student unblocked</value>
+  </data>
+  <data name="NoGradesSaved" xml:space="preserve">
+    <value>No grades were saved. See the per-student results for details.</value>
+  </data>
+  <data name="GradesPartiallySaved" xml:space="preserve">
+    <value>Some grades were saved; the rest were skipped. See the per-student results for details.</value>
+  </data>
+  <data name="ExamDateInPast" xml:space="preserve">
+    <value>Exam date must be today or a future date</value>
+  </data>
 </root>

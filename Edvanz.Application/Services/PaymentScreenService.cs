@@ -60,19 +60,20 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
-        long teacherId, int month, int year, int page, int limit)
+        long teacherId, string? month, int? year, int page, int limit)
     {
-        if (month < 1 || month > 12)
+        // DASH-1: accept the SAME unified "YYYY-MM" month selector tracking/students take, while
+        // still honouring the legacy ?month=<int 1-12>&year=<int> form; default to the teacher's
+        // current local (Africa/Cairo) month/year when nothing is supplied (no more screen-load 422).
+        var errorKey = ResolveCollectionsMonthYear(
+            teacherId, month, year, out int resolvedYear, out int resolvedMonth);
+        if (errorKey is not null)
             return Result<CollectionsByMonthResponse>.Failure(
-                _localizer, PaymentConstants.Messages.PaymentInvalidMonthInteger,
-                HttpStatusCode.UnprocessableEntity);
-        if (year < 2000 || year > 2100)
-            return Result<CollectionsByMonthResponse>.Failure(
-                _localizer, PaymentConstants.Messages.PaymentInvalidYear, HttpStatusCode.UnprocessableEntity);
+                _localizer, errorKey, HttpStatusCode.UnprocessableEntity);
 
         (page, limit) = NormalizePaging(page, limit);
 
-        var startDate = new DateTime(year, month, 1);
+        var startDate = new DateTime(resolvedYear, resolvedMonth, 1);
         var endDate = startDate.AddMonths(1).AddDays(-1);
 
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
@@ -101,8 +102,8 @@ public class PaymentScreenService : IPaymentScreenService
 
         var response = new CollectionsByMonthResponse
         {
-            Month = month,
-            Year = year,
+            Month = resolvedMonth,
+            Year = resolvedYear,
             MonthLabel = startDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
             Page = page,
             Limit = limit,
@@ -315,15 +316,20 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<YearlyCollectionsResponse>> GetYearlyCollectionsAsync(
-        long teacherId, int year, int page, int limit)
+        long teacherId, string? month, int? year, int page, int limit)
     {
-        if (year < 2000 || year > 2100)
+        // DASH-1: a yearly view only needs the YEAR — derive it from the unified "YYYY-MM" selector
+        // (take its year component) OR the legacy ?year=<int>, defaulting to the teacher's current
+        // local year when omitted. The month component (if any) is genuinely irrelevant here and is
+        // neither used nor validated — a malformed month must not 422 a year-only screen.
+        var errorKey = ResolveCollectionsYear(teacherId, month, year, out int resolvedYear);
+        if (errorKey is not null)
             return Result<YearlyCollectionsResponse>.Failure(
-                _localizer, PaymentConstants.Messages.PaymentInvalidYear, HttpStatusCode.UnprocessableEntity);
+                _localizer, errorKey, HttpStatusCode.UnprocessableEntity);
 
         (page, limit) = NormalizePaging(page, limit);
-        var yearStart = new DateTime(year, 1, 1);
-        var yearEnd = new DateTime(year, 12, 31);
+        var yearStart = new DateTime(resolvedYear, 1, 1);
+        var yearEnd = new DateTime(resolvedYear, 12, 31);
 
         var (rows, total) = await _unitOfWork.PaymentsRepo
             .GetYearlyCollectionsPagedAsync(teacherId, yearStart, yearEnd, page, limit);
@@ -362,7 +368,7 @@ public class PaymentScreenService : IPaymentScreenService
 
         var response = new YearlyCollectionsResponse
         {
-            Year = year,
+            Year = resolvedYear,
             Page = page,
             Limit = limit,
             TotalItems = total,
@@ -747,6 +753,90 @@ public class PaymentScreenService : IPaymentScreenService
             return true;
         }
         return TryParseYearMonth(month, out year, out mon);
+    }
+
+    /// <summary>
+    /// DASH-1: unifies the month selector for the collections screens (<c>collections</c> and
+    /// <c>collections/yearly</c>) so the SAME value that drives <c>tracking</c>/<c>students</c> works
+    /// here too. Resolution order:
+    /// <list type="number">
+    ///   <item>A unified <c>"YYYY-MM"</c> <paramref name="month"/> (reuses <see cref="TryParseYearMonth"/>)
+    ///         is self-contained — it supplies BOTH year and month and takes precedence over a
+    ///         separate <paramref name="year"/>; malformed → <c>PaymentInvalidMonthFormat</c>.</item>
+    ///   <item>Otherwise the LEGACY form: a separate <paramref name="year"/> (validated when supplied
+    ///         → <c>PaymentInvalidYear</c>) and an integer <paramref name="month"/> string 1-12
+    ///         (validated when supplied → <c>PaymentInvalidMonthInteger</c>).</item>
+    ///   <item>Anything omitted defaults to the teacher's current local (Africa/Cairo) month/year.</item>
+    /// </list>
+    /// Returns <c>null</c> on success (with <paramref name="resolvedYear"/>/<paramref name="resolvedMonth"/>
+    /// set); otherwise the stable localization key to fail the request with (HTTP 422).
+    /// </summary>
+    private string? ResolveCollectionsMonthYear(
+        long teacherId, string? month, int? year, out int resolvedYear, out int resolvedMonth)
+    {
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        resolvedYear = today.Year;
+        resolvedMonth = today.Month;
+
+        // (1) Unified "YYYY-MM" selector — self-contained, wins over a separate ?year=.
+        if (!string.IsNullOrWhiteSpace(month) && month.Contains('-'))
+        {
+            if (!TryParseYearMonth(month, out resolvedYear, out resolvedMonth))
+                return PaymentConstants.Messages.PaymentInvalidMonthFormat;
+            return null;
+        }
+
+        // (2a) Legacy ?year=<int> — validate only when supplied.
+        if (year.HasValue)
+        {
+            if (year.Value < 2000 || year.Value > 2100)
+                return PaymentConstants.Messages.PaymentInvalidYear;
+            resolvedYear = year.Value;
+        }
+
+        // (2b) Legacy ?month=<int 1-12> — validate only when supplied.
+        if (!string.IsNullOrWhiteSpace(month))
+        {
+            if (!int.TryParse(month.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out resolvedMonth)
+                || resolvedMonth < 1 || resolvedMonth > 12)
+                return PaymentConstants.Messages.PaymentInvalidMonthInteger;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// DASH-1: resolves ONLY the year for the yearly-collections view. A unified <c>"YYYY-MM"</c>
+    /// <paramref name="month"/> contributes just its YEAR component — its month is NOT validated
+    /// (a year-only screen must never 422 on a malformed month); otherwise the legacy
+    /// <c>?year=&lt;int&gt;</c> is used (a legacy integer <c>?month=</c> is ignored); otherwise the
+    /// teacher's current local (Africa/Cairo) year. Returns <c>null</c> on success (with
+    /// <paramref name="resolvedYear"/> set), else the stable localization key to fail with (HTTP 422).
+    /// </summary>
+    private string? ResolveCollectionsYear(long teacherId, string? month, int? year, out int resolvedYear)
+    {
+        resolvedYear = _timeZoneService.GetTeacherLocalDate(teacherId).Year;
+
+        // (1) Unified "YYYY-MM" — take only its YEAR; the month component is ignored (not validated).
+        if (!string.IsNullOrWhiteSpace(month) && month.Contains('-'))
+        {
+            var yearPart = month.Trim().Split('-')[0];
+            if (!int.TryParse(yearPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out resolvedYear)
+                || resolvedYear < 2000 || resolvedYear > 2100)
+                return PaymentConstants.Messages.PaymentInvalidMonthFormat;
+            return null;
+        }
+
+        // (2) Legacy ?year=<int> — validated only when supplied. A legacy integer ?month= is
+        // irrelevant to a yearly view and is intentionally ignored.
+        if (year.HasValue)
+        {
+            if (year.Value < 2000 || year.Value > 2100)
+                return PaymentConstants.Messages.PaymentInvalidYear;
+            resolvedYear = year.Value;
+        }
+
+        return null;
     }
 
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
