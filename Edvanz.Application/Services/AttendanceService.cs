@@ -597,13 +597,13 @@ public class AttendanceService : IAttendanceService
                         dto.TeacherId, dto.TeacherStudentId,
                         dto.SessionId, session.SessionName, date);
 
-                // Exams: keep during-session exam obligations in sync with this session attendance.
-                // Target the occurrence the record LANDED on (mt.RecordOccurrenceId) — for a
-                // cross-session mark that is the student's home occurrence (== occurrence.Id for a
-                // same-session mark), which is where the during-session exam is anchored.
-                await _examAttendanceSync.SyncFromSessionOccurrenceAsync(
-                    dto.TeacherId, mt.RecordOccurrenceId, dto.TeacherStudentId, attendanceStatus,
-                    dto.RecordedByUserId ?? dto.TeacherId);
+                // Exams: reconcile any during-session exam on the occurrence the record LANDED on
+                // (mt.RecordOccurrenceId — the student's home occurrence for a cross-session mark, ==
+                // occurrence.Id for a same-session mark). Reconcile (not a blind push) so a student
+                // assigned to the class after the exam was created auto-joins it on their first mark
+                // (dynamic roster), consistent with the bulk/edit/add/delete/offline paths.
+                await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                    dto.TeacherId, mt.RecordOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
             }
 
             result.Record = MapToRecordDto(record, student.StudentName, student.StudentCode);

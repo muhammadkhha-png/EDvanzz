@@ -1,29 +1,17 @@
-using Edvanz.Domain.Enums;
-
 namespace Edvanz.Application.ServiceContract;
 
 /// <summary>
 /// Keeps during-session exam obligations in sync with the session's attendance. Called by the
-/// Attendance module after attendance is recorded/changed, and by the Exams module at create/edit
-/// time to back-fill an exam from attendance already taken. The runtime sync methods
-/// (<see cref="SyncFromSessionOccurrenceAsync"/>, <see cref="SyncManyFromSessionOccurrenceAsync"/>,
-/// <see cref="ReconcileExamsForSessionOccurrenceAsync"/>) are best-effort — a sync failure must never
-/// break attendance marking. <see cref="BackfillExamOccurrenceAsync"/> is the exception: it runs
-/// inside the exam create/update transaction and THROWS so a failure rolls the exam back rather than
-/// shipping a half-synced exam.
+/// Attendance module after attendance is recorded/changed (via
+/// <see cref="ReconcileExamsForSessionOccurrenceAsync"/> — the single runtime primitive, used by
+/// every mark/edit/add/delete/bulk/offline/hold-release path), and by the Exams module at create/edit
+/// time to back-fill an exam from attendance already taken. The reconcile is best-effort — a sync
+/// failure must never break attendance marking. <see cref="BackfillExamOccurrenceAsync"/> is the
+/// exception: it runs inside the exam create/update transaction and THROWS so a failure rolls the exam
+/// back rather than shipping a half-synced exam.
 /// </summary>
 public interface IExamAttendanceSyncService
 {
-    /// <summary>Sync one student's attendance into any during-session exam linked to the occurrence.</summary>
-    Task SyncFromSessionOccurrenceAsync(
-        long teacherId, long sessionOccurrenceId, long teacherStudentId,
-        AttendanceStatus status, long actingUserId);
-
-    /// <summary>Bulk variant — sync many students who were marked with the same status.</summary>
-    Task SyncManyFromSessionOccurrenceAsync(
-        long teacherId, long sessionOccurrenceId, IReadOnlyCollection<long> teacherStudentIds,
-        AttendanceStatus status, long actingUserId);
-
     /// <summary>
     /// Reconcile every during-session exam anchored to <paramref name="sessionOccurrenceId"/> against
     /// the occurrence's CURRENT attendance records — the robust, idempotent primitive for any attendance

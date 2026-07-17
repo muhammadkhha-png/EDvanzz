@@ -24,47 +24,6 @@ public class ExamAttendanceSyncService : IExamAttendanceSyncService
     }
 
     /// <inheritdoc />
-    public Task SyncFromSessionOccurrenceAsync(
-        long teacherId, long sessionOccurrenceId, long teacherStudentId,
-        AttendanceStatus status, long actingUserId)
-        => SyncManyFromSessionOccurrenceAsync(
-            teacherId, sessionOccurrenceId, new[] { teacherStudentId }, status, actingUserId);
-
-    /// <inheritdoc />
-    public async Task SyncManyFromSessionOccurrenceAsync(
-        long teacherId, long sessionOccurrenceId, IReadOnlyCollection<long> teacherStudentIds,
-        AttendanceStatus status, long actingUserId)
-    {
-        if (teacherStudentIds is null || teacherStudentIds.Count == 0) return;
-
-        var mapped = MapStatus(status);
-        if (mapped is null) return; // Held / unmapped — no exam change.
-        var (newStatus, clearGrade, skipGraded) = mapped.Value;
-
-        try
-        {
-            var occurrenceIds = await _unitOfWork.ExamHomeworkRepo
-                .GetExamOccurrenceIdsBySessionOccurrenceAsync(teacherId, sessionOccurrenceId);
-            if (occurrenceIds.Count == 0) return;
-
-            DateTime utcNow = DateTime.UtcNow;
-            foreach (var occurrenceId in occurrenceIds)
-            {
-                await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
-                    teacherId, occurrenceId, teacherStudentIds,
-                    newStatus, clearGrade, skipGraded, utcNow, actingUserId);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Best-effort: an exam-sync failure must never break attendance marking.
-            _logger.LogError(ex,
-                "Exam attendance sync failed for teacher {TeacherId}, sessionOccurrence {SessionOccurrenceId}",
-                teacherId, sessionOccurrenceId);
-        }
-    }
-
-    /// <inheritdoc />
     public async Task ReconcileExamsForSessionOccurrenceAsync(
         long teacherId, long sessionOccurrenceId, long actingUserId)
     {
@@ -157,15 +116,4 @@ public class ExamAttendanceSyncService : IExamAttendanceSyncService
                 teacherId, examOccurrenceId, absent,
                 ObligationStatus.DidNotAttend, clearGrade: true, skipGraded: false, utcNow, actingUserId);
     }
-
-    /// <summary>Maps a session attendance status to the exam obligation change to apply, or null for no change.</summary>
-    private static (ObligationStatus NewStatus, bool ClearGrade, bool SkipGraded)? MapStatus(AttendanceStatus status) =>
-        status switch
-        {
-            AttendanceStatus.Present or AttendanceStatus.CrossSessionPresent
-                => (ObligationStatus.Attended, false, true),   // present: don't disturb already-graded rows
-            AttendanceStatus.Absent
-                => (ObligationStatus.DidNotAttend, true, false), // absent: clear any grade
-            _ => null,                                           // Held / other: no exam change
-        };
 }
