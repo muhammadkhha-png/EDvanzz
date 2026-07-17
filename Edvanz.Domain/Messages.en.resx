@@ -706,7 +706,7 @@
     <value>A duplicate payment was detected for this student.</value>
   </data>
   <data name="PaymentAlreadyPaid" xml:space="preserve">
-    <value>This student has already paid for the current period. Do you want to proceed?</value>
+    <value>This student is already fully paid up, including up to one month in advance. There is nothing more to collect right now.</value>
   </data>
   <data name="PaymentSameDayWarning" xml:space="preserve">
     <value>This student already has a payment recorded today. Do you want to add another?</value>
@@ -1684,5 +1684,53 @@
   </data>
   <data name="FreeTierLimitInvalid" xml:space="preserve">
     <value>The free-tier limit must be between 0 and 10000</value>
+  </data>
+  <data name="PaymentAmountNegative" xml:space="preserve">
+    <value>Payment amount cannot be negative.</value>
+  </data>
+  <data name="PaymentCustomAmountInvalid" xml:space="preserve">
+    <value>Custom payment amount must be greater than zero.</value>
+  </data>
+  <data name="PaymentSyncCompleted" xml:space="preserve">
+    <value>Offline payment records synced successfully.</value>
+  </data>
+  <data name="PaymentSyncConflictsDetected" xml:space="preserve">
+    <value>Payment sync completed with conflicts. Please review and resolve.</value>
+  </data>
+  <data name="PaymentInvalidMonthInteger" xml:space="preserve">
+    <value>Invalid month; expected an integer 1-12.</value>
+  </data>
+  <data name="PaymentInvalidMonthFormat" xml:space="preserve">
+    <value>Invalid month; expected the format YYYY-MM.</value>
+  </data>
+  <data name="PaymentInvalidYear" xml:space="preserve">
+    <value>Invalid year.</value>
+  </data>
+  <data name="PaymentInvalidCollectFilter" xml:space="preserve">
+    <value>Invalid filter; expected all, assigned, or unassigned.</value>
+  </data>
+  <data name="PaymentInvalidStatusFilter" xml:space="preserve">
+    <value>Invalid status; expected paid, partial, prorated, or unpaid.</value>
+  </data>
+  <data name="PaymentLookupCriteriaRequired" xml:space="preserve">
+    <value>Provide a QR code, student code, or name to look up.</value>
+  </data>
+  <data name="PaymentLookupStudentNotFound" xml:space="preserve">
+    <value>No student found for the given QR code, student code, or name.</value>
+  </data>
+  <data name="PaymentNoStudentsSelected" xml:space="preserve">
+    <value>No students selected.</value>
+  </data>
+  <data name="PaymentSubmitBatchEmpty" xml:space="preserve">
+    <value>No students to submit.</value>
+  </data>
+  <data name="PaymentWithdrawAmountInvalid" xml:space="preserve">
+    <value>Withdrawal amount must be greater than zero.</value>
+  </data>
+  <data name="PaymentWalletInsufficientBalance" xml:space="preserve">
+    <value>Insufficient wallet balance.</value>
+  </data>
+  <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
+    <value>The wallet was updated at the same time by another request. Please try again.</value>
   </data>
 </root>

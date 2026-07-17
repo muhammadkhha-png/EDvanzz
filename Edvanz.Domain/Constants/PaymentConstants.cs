@@ -115,6 +115,28 @@ public static class PaymentConstants
         public const string PaymentBatchEmpty = "PaymentBatchEmpty";                        // NEW — see flag below
         // Custom Amount
         public const string CustomAmountSetSuccess = "CustomAmountSetSuccess";
+        public const string PaymentCustomAmountInvalid = "PaymentCustomAmountInvalid"; // PAY-4 — reject <= 0
+
+        // Amount validation (edit)
+        public const string PaymentAmountNegative = "PaymentAmountNegative";           // PAY-3 — reject negative edit
+
+        // Offline Sync — payment domain (PAY-7; SyncCompleted/SyncConflictsDetected are attendance-worded)
+        public const string PaymentSyncCompleted = "PaymentSyncCompleted";
+        public const string PaymentSyncConflictsDetected = "PaymentSyncConflictsDetected";
+
+        // Screen (api/v1) validation envelopes (PAY-5) — localized message + stable code
+        public const string PaymentInvalidMonthInteger = "PaymentInvalidMonthInteger";
+        public const string PaymentInvalidMonthFormat = "PaymentInvalidMonthFormat";
+        public const string PaymentInvalidYear = "PaymentInvalidYear";
+        public const string PaymentInvalidCollectFilter = "PaymentInvalidCollectFilter";
+        public const string PaymentInvalidStatusFilter = "PaymentInvalidStatusFilter";
+        public const string PaymentLookupCriteriaRequired = "PaymentLookupCriteriaRequired";
+        public const string PaymentLookupStudentNotFound = "PaymentLookupStudentNotFound";
+        public const string PaymentNoStudentsSelected = "PaymentNoStudentsSelected";
+        public const string PaymentSubmitBatchEmpty = "PaymentSubmitBatchEmpty";
+        public const string PaymentWithdrawAmountInvalid = "PaymentWithdrawAmountInvalid";
+        public const string PaymentWalletInsufficientBalance = "PaymentWalletInsufficientBalance";
+        public const string PaymentWalletConcurrencyConflict = "PaymentWalletConcurrencyConflict";
 
         // Unpaid Overview
         public const string UnpaidStudentsLoaded = "UnpaidStudentsLoaded";

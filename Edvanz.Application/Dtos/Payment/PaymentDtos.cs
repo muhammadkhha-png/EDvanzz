@@ -29,8 +29,13 @@ public class CollectPaymentDto
     /// </summary>
     public bool DuplicateConfirmed { get; set; } = false;
     /// <summary>
-    /// Whether the user has confirmed payment for already-paid period.
-    /// REQ-PAY-026: Warning before allowing payment for fully-paid period.
+    /// Whether the user has confirmed payment for an already-paid period.
+    /// REQ-PAY-026: Warning before allowing payment for a fully-paid period.
+    /// PAY-9 / INERT BY DESIGN: the monthly engine already accepts up to one month in advance, and
+    /// paying beyond that is a hard 422 (<c>PaymentAmountExceedsAdvanceLimit</c>) — so once a student
+    /// is "already paid" there is genuinely nothing left to collect and no override is possible. The
+    /// flag is kept for wire-compat and the concurrency-retry path; the already-paid message is
+    /// worded as a terminal statement (not a "proceed?" prompt) to match.
     /// </summary>
     public bool AlreadyPaidConfirmed { get; set; } = false;
     /// <summary>

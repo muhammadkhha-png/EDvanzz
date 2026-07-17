@@ -291,6 +291,9 @@ public class PaymentService : IPaymentService
             decimal totalTargetedDue = 0m;
             int periodsNewlyPaid = 0;
             PaymentPeriod? firstTouched = null;
+            // PAY-1: capture how much cash landed on each period so we can record a per-period
+            // settlement ledger below (enables reversing the exact set of periods this cash cleared).
+            var appliedSlices = new List<(PaymentPeriod Period, decimal Amount)>();
 
             foreach (var p in payablePeriods)
             {
@@ -306,6 +309,7 @@ public class PaymentService : IPaymentService
                 totalApplied += apply;
                 totalTargetedDue += remaining;
                 firstTouched ??= p;
+                appliedSlices.Add((p, apply));
 
                 p.PaymentStatus = p.AmountPaid >= p.AmountDue
                     ? PaymentStatus.Paid
@@ -363,6 +367,22 @@ public class PaymentService : IPaymentService
             };
 
             await _unitOfWork.PaymentsRepo.AddAsync(transaction);
+
+            // 9b. PAY-1: record one allocation per settled period. The transaction reference (nav)
+            // lets EF fix up the FK on SaveChanges even though its Id is not yet generated. A later
+            // refund/edit reverses these exact periods instead of only the denormalized first one.
+            if (appliedSlices.Count > 0)
+            {
+                var allocations = appliedSlices.Select(s => new PaymentTransactionAllocation
+                {
+                    PaymentTransaction = transaction,
+                    PaymentPeriodId = s.Period.Id,
+                    TeacherId = dto.TeacherId,
+                    AmountApplied = s.Amount,
+                    CreateAt = now
+                }).ToList();
+                await _unitOfWork.PaymentsRepo.AddPaymentTransactionAllocationsRangeAsync(allocations);
+            }
 
             // 10. Update student payment counter (totals + count of months newly cleared) with retry.
             await UpdatePaymentCounterAfterCollectionAsync(
@@ -523,6 +543,12 @@ public class PaymentService : IPaymentService
             return Result<PaymentTransactionDto>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentNotFound, HttpStatusCode.NotFound);
 
+        // PAY-3: a paid amount can never be negative (a negative "payment" corrupts collected-cash
+        // figures and period balances). Zero stays valid — a full revert edits the amount to 0.
+        if (dto.NewAmount.HasValue && dto.NewAmount.Value < 0m)
+            return Result<PaymentTransactionDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentAmountNegative, HttpStatusCode.UnprocessableEntity);
+
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
@@ -559,22 +585,20 @@ public class PaymentService : IPaymentService
 
             await _unitOfWork.PaymentsRepo.UpdateAsync(transaction);
 
-            // Update period and counter if amount changed
-            if (amountDiff != 0 && transaction.PaymentPeriodId.HasValue)
-            {
-                var period = await _unitOfWork.PaymentsRepo
-                    .GetPaymentPeriodByIdAsync(transaction.PaymentPeriodId.Value);
-                if (period is not null)
-                {
-                    period.AmountPaid += amountDiff;
-                    period.PaymentStatus = period.AmountPaid >= period.AmountDue
-                        ? PaymentStatus.Paid
-                        : period.AmountPaid > 0
-                            ? PaymentStatus.PartiallyPaid
-                            : PaymentStatus.Unpaid;
-                    await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
-                }
+            // Adjust the settled periods to match the new amount (PAY-1). A cascade payment can have
+            // settled several periods, so the delta is applied across the EXACT set it touched:
+            // reducing un-funds the most-advanced months first (LIFO); increasing cascades the surplus
+            // forward onto the next unpaid months. (Legacy transactions with no ledger fall back to the
+            // single denormalized period inside the helper.) Counter/wallet move by the cash delta only.
+            if (amountDiff < 0)
+                await ReversePeriodAllocationsAsync(transaction, -amountDiff);
+            else if (amountDiff > 0)
+                await ApplyForwardAllocationsAsync(
+                    transaction, amountDiff, _timeZoneService.GetTeacherLocalDate(dto.TeacherId));
 
+            // Update counter + wallet if amount changed.
+            if (amountDiff != 0)
+            {
                 if (transaction.TeacherStudentId.HasValue)
                 {
                     var counter = await _unitOfWork.PaymentsRepo
@@ -645,23 +669,12 @@ public class PaymentService : IPaymentService
             transaction.DeletedAt = DateTime.UtcNow;
             await _unitOfWork.PaymentsRepo.UpdateAsync(transaction);
 
-            // Reverse period and counter impact
-            if (transaction.PaymentPeriodId.HasValue)
-            {
-                var period = await _unitOfWork.PaymentsRepo
-                    .GetPaymentPeriodByIdAsync(transaction.PaymentPeriodId.Value);
-                if (period is not null)
-                {
-                    period.AmountPaid -= transaction.AmountPaid;
-                    if (period.AmountPaid < 0) period.AmountPaid = 0;
-                    period.PaymentStatus = period.AmountPaid >= period.AmountDue
-                        ? PaymentStatus.Paid
-                        : period.AmountPaid > 0
-                            ? PaymentStatus.PartiallyPaid
-                            : PaymentStatus.Unpaid;
-                    await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
-                }
-            }
+            // Reverse the EXACT set of periods this payment settled (PAY-1). A cascade collection can
+            // have cleared several months while the transaction stores only the first period id;
+            // reversing that one alone would leave the later months reading Paid with no backing cash.
+            // Counter/wallet (below) reverse the full cash amount independently, so a purged period
+            // never distorts the totals.
+            await ReversePeriodAllocationsAsync(transaction, transaction.AmountPaid);
 
             if (transaction.TeacherStudentId.HasValue)
             {
@@ -822,6 +835,14 @@ public class PaymentService : IPaymentService
     /// <inheritdoc />
     public async Task<Result<bool>> SetCustomAmountAsync(SetCustomAmountDto dto)
     {
+        // PAY-4: a custom price must be positive. A negative/zero amount would drive negative dues
+        // and negative expected revenue on the next assignment or period regeneration. Null is
+        // allowed — it clears the override and reverts the student to the session default.
+        if (dto.CustomAmount.HasValue && dto.CustomAmount.Value <= 0m)
+            return Result<bool>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentCustomAmountInvalid,
+                HttpStatusCode.UnprocessableEntity);
+
         var counter = await _unitOfWork.PaymentsRepo
             .GetPaymentCounterAsync(dto.TeacherId, dto.TeacherStudentId);
         if (counter is null)
@@ -1043,10 +1064,12 @@ public class PaymentService : IPaymentService
         decimal withdrawAmount = amount ?? wallet.CurrentBalance;
         if (withdrawAmount <= 0m)
             return Result<WalletWithdrawalResult>.Failure(
-                "Withdrawal amount must be greater than zero.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentWithdrawAmountInvalid,
+                HttpStatusCode.UnprocessableEntity);
         if (withdrawAmount > wallet.CurrentBalance)
             return Result<WalletWithdrawalResult>.Failure(
-                "Insufficient wallet balance.", HttpStatusCode.Conflict);
+                _localizer, PaymentConstants.Messages.PaymentWalletInsufficientBalance,
+                HttpStatusCode.Conflict);
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -1092,7 +1115,8 @@ public class PaymentService : IPaymentService
             if (ownsTransaction)
                 await _unitOfWork.RollbackAsync();
             return Result<WalletWithdrawalResult>.Failure(
-                "Wallet was updated concurrently; please retry.", HttpStatusCode.Conflict);
+                _localizer, PaymentConstants.Messages.PaymentWalletConcurrencyConflict,
+                HttpStatusCode.Conflict);
         }
         catch
         {
@@ -1348,7 +1372,8 @@ public class PaymentService : IPaymentService
     {
         var summaryResult = await GetDepartureSummaryAsync(dto.TeacherId, dto.TeacherStudentId);
         if (!summaryResult.IsSuccess)
-            return Result<StudentDepartureDto>.Failure(summaryResult.Message!, summaryResult.StatusCode);
+            // PAY-8: preserve the stable Code (e.g. DepartureStudentNotAssigned) — the string overload drops it.
+            return Result<StudentDepartureDto>.Failure(summaryResult);
 
         var summary = summaryResult.Data!;
         decimal finalAmount = dto.OverrideAmount ?? summary.FinalAmount;
@@ -1531,7 +1556,8 @@ public class PaymentService : IPaymentService
             dto.TeacherId, dto.TeacherStudentId,
             dto.SourceSessionId, dto.DestinationSessionId);
         if (!summaryResult.IsSuccess)
-            return Result<SessionTransferEventDto>.Failure(summaryResult.Message!, summaryResult.StatusCode);
+            // PAY-8: preserve the stable Code (e.g. TransferDestinationSessionNotFound).
+            return Result<SessionTransferEventDto>.Failure(summaryResult);
 
         var summary = summaryResult.Data!;
 
@@ -1649,9 +1675,11 @@ public class PaymentService : IPaymentService
                 result.SyncedCount++;
         }
 
+        // PAY-7: payment-domain messages (SyncCompleted/SyncConflictsDetected are attendance-worded —
+        // "Offline attendance records synced successfully" — a shared key that misdescribes a payment sync).
         var messageKey = result.ConflictCount > 0
-            ? PaymentConstants.Messages.SyncConflictsDetected
-            : PaymentConstants.Messages.SyncCompleted;
+            ? PaymentConstants.Messages.PaymentSyncConflictsDetected
+            : PaymentConstants.Messages.PaymentSyncCompleted;
 
         return Result<PaymentSyncResultDto>.Success(result, _localizer, messageKey);
     }
@@ -2036,6 +2064,198 @@ public class PaymentService : IPaymentService
     // ══════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// PAY-1: reverses <paramref name="amountToReverse"/> of a transaction's settled cash from the
+    /// EXACT periods it cleared, newest period first (LIFO), keeping the per-period ledger and the
+    /// period states coherent. Each reversed slice is deducted from its period's AmountPaid (clamped
+    /// ≥ 0), the period status recomputed, and the allocation reduced — fully-consumed allocation
+    /// rows are removed. For legacy transactions with no ledger (collected before PAY-1), falls back
+    /// to reversing against the single denormalized <see cref="PaymentTransaction.PaymentPeriodId"/>.
+    /// The caller owns counter/wallet reversal (driven by the cash amount, not the ledger).
+    /// </summary>
+    private async Task ReversePeriodAllocationsAsync(PaymentTransaction transaction, decimal amountToReverse)
+    {
+        if (amountToReverse <= 0m) return;
+
+        var allocations = await _unitOfWork.PaymentsRepo.GetAllocationsByTransactionAsync(transaction.Id);
+        if (allocations.Count == 0)
+        {
+            // Legacy fallback — the best achievable without per-period settlement data.
+            await ReverseSinglePeriodAsync(transaction.PaymentPeriodId, amountToReverse);
+            return;
+        }
+
+        decimal remaining = amountToReverse;
+        var consumed = new List<PaymentTransactionAllocation>();
+        foreach (var alloc in allocations
+            .OrderByDescending(a => a.PaymentPeriod?.PeriodStart ?? DateTime.MinValue))
+        {
+            if (remaining <= 0m) break;
+            decimal take = Math.Min(alloc.AmountApplied, remaining);
+            if (take <= 0m) continue;
+
+            var period = alloc.PaymentPeriod;
+            if (period is not null)
+            {
+                period.AmountPaid -= take;
+                if (period.AmountPaid < 0m) period.AmountPaid = 0m;
+                period.PaymentStatus = RecomputePeriodStatus(period);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
+            }
+
+            alloc.AmountApplied -= take;
+            remaining -= take;
+            if (alloc.AmountApplied <= 0m) consumed.Add(alloc);
+        }
+
+        if (consumed.Count > 0)
+            await _unitOfWork.PaymentsRepo.RemovePaymentTransactionAllocationsAsync(consumed);
+    }
+
+    /// <summary>
+    /// Legacy reversal path (no allocation ledger): deduct the amount from the transaction's single
+    /// denormalized period and recompute its status.
+    /// </summary>
+    private async Task ReverseSinglePeriodAsync(long? paymentPeriodId, decimal amountToReverse)
+    {
+        if (paymentPeriodId is null || amountToReverse <= 0m) return;
+        var period = await _unitOfWork.PaymentsRepo.GetPaymentPeriodByIdAsync(paymentPeriodId.Value);
+        if (period is null) return;
+
+        period.AmountPaid -= amountToReverse;
+        if (period.AmountPaid < 0m) period.AmountPaid = 0m;
+        period.PaymentStatus = RecomputePeriodStatus(period);
+        await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
+    }
+
+    /// <summary>
+    /// PAY-1: applies additional cash (an amount increase on edit) forward across the student's
+    /// still-unpaid periods, oldest first — exactly like the collection cascade — extending the
+    /// transaction's allocation ledger. A period the transaction already funds is topped up on its
+    /// existing allocation row; a newly-reached period gets a fresh one. Monthly caps each month at
+    /// its remaining due; per-session fills its single period. Any surplus beyond the payable window
+    /// stays as unattributed cash (the transaction's AmountPaid still reflects it), matching the
+    /// legacy edit's tolerance of an over-target amount. Falls back to topping up the single
+    /// denormalized period when the student/session context is gone (purged/hard-deleted).
+    /// </summary>
+    private async Task ApplyForwardAllocationsAsync(
+        PaymentTransaction transaction, decimal surplus, DateTime localDate)
+    {
+        if (surplus <= 0m) return;
+
+        if (transaction.TeacherStudentId is null || transaction.SessionId is null)
+        {
+            await TopUpSinglePeriodAsync(transaction, surplus);
+            return;
+        }
+
+        long teacherId = transaction.TeacherId;
+        long studentId = transaction.TeacherStudentId.Value;
+        long sessionId = transaction.SessionId.Value;
+
+        var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+        bool isMonthly = session?.PaymentType == PaymentType.Monthly;
+
+        List<PaymentPeriod> payablePeriods;
+        if (isMonthly)
+        {
+            var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
+            var advanceCapEnd = currentMonthStart.AddMonths(2).AddDays(-1);
+            payablePeriods = await _unitOfWork.PaymentsRepo
+                .GetUnpaidPeriodsThroughAsync(teacherId, studentId, sessionId, advanceCapEnd);
+        }
+        else
+        {
+            var earliest = await _unitOfWork.PaymentsRepo
+                .GetEarliestUnpaidPeriodAsync(teacherId, studentId, sessionId);
+            payablePeriods = earliest is null
+                ? new List<PaymentPeriod>()
+                : new List<PaymentPeriod> { earliest };
+        }
+
+        // Existing allocations keyed by period, so a top-up increments the same row instead of
+        // inserting a duplicate (guarded by UX_PTA_Transaction_Period). Tracked fetches share EF's
+        // identity map, so an overlapping period is the SAME instance as the payable one below.
+        var existing = (await _unitOfWork.PaymentsRepo.GetAllocationsByTransactionAsync(transaction.Id))
+            .Where(a => a.PaymentPeriodId.HasValue)
+            .ToDictionary(a => a.PaymentPeriodId!.Value);
+
+        decimal amountLeft = surplus;
+        var newAllocations = new List<PaymentTransactionAllocation>();
+        foreach (var p in payablePeriods)
+        {
+            if (amountLeft <= 0m) break;
+            decimal remaining = p.AmountDue - p.AmountPaid;
+            if (remaining <= 0m) continue;
+
+            decimal apply = isMonthly ? Math.Min(amountLeft, remaining) : amountLeft;
+            p.AmountPaid += apply;
+            amountLeft -= apply;
+            p.PaymentStatus = RecomputePeriodStatus(p);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+
+            if (existing.TryGetValue(p.Id, out var alloc))
+                alloc.AmountApplied += apply; // tracked → auto-detected on save
+            else
+                newAllocations.Add(new PaymentTransactionAllocation
+                {
+                    PaymentTransaction = transaction,
+                    PaymentPeriodId = p.Id,
+                    TeacherId = teacherId,
+                    AmountApplied = apply,
+                    CreateAt = DateTime.UtcNow
+                });
+        }
+
+        if (newAllocations.Count > 0)
+            await _unitOfWork.PaymentsRepo.AddPaymentTransactionAllocationsRangeAsync(newAllocations);
+    }
+
+    /// <summary>
+    /// Forward-application fallback (no live student/session): add the surplus onto the transaction's
+    /// single denormalized period and its allocation row (created if absent).
+    /// </summary>
+    private async Task TopUpSinglePeriodAsync(PaymentTransaction transaction, decimal surplus)
+    {
+        if (transaction.PaymentPeriodId is null || surplus <= 0m) return;
+        var period = await _unitOfWork.PaymentsRepo
+            .GetPaymentPeriodByIdAsync(transaction.PaymentPeriodId.Value);
+        if (period is null) return;
+
+        period.AmountPaid += surplus;
+        period.PaymentStatus = RecomputePeriodStatus(period);
+        await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
+
+        var existing = (await _unitOfWork.PaymentsRepo.GetAllocationsByTransactionAsync(transaction.Id))
+            .FirstOrDefault(a => a.PaymentPeriodId == period.Id);
+        if (existing is not null)
+            existing.AmountApplied += surplus;
+        else
+            await _unitOfWork.PaymentsRepo.AddPaymentTransactionAllocationsRangeAsync(
+                new[]
+                {
+                    new PaymentTransactionAllocation
+                    {
+                        PaymentTransaction = transaction,
+                        PaymentPeriodId = period.Id,
+                        TeacherId = transaction.TeacherId,
+                        AmountApplied = surplus,
+                        CreateAt = DateTime.UtcNow
+                    }
+                });
+    }
+
+    /// <summary>
+    /// Derives a period's status from its paid-vs-due amounts: fully covered → Paid, some cash →
+    /// PartiallyPaid, none → Unpaid.
+    /// </summary>
+    private static PaymentStatus RecomputePeriodStatus(PaymentPeriod period) =>
+        period.AmountPaid >= period.AmountDue
+            ? PaymentStatus.Paid
+            : period.AmountPaid > 0m
+                ? PaymentStatus.PartiallyPaid
+                : PaymentStatus.Unpaid;
 
     private async Task UpdatePaymentCounterAfterCollectionAsync(
         long teacherId, long teacherStudentId, decimal amount,

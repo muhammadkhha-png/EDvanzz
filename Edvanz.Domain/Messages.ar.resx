@@ -706,7 +706,7 @@
     <value>تم اكتشاف دفعة مكررة للطالب ده.</value>
   </data>
   <data name="PaymentAlreadyPaid" xml:space="preserve">
-    <value>الطالب ده دفع الفترة الحالية بالفعل. عايز تكمل؟</value>
+    <value>الطالب ده خالص بالكامل، بما فيه لحد شهر مقدّم. مفيش مبلغ تاني ينفع يتحصّل دلوقتي.</value>
   </data>
   <data name="PaymentSameDayWarning" xml:space="preserve">
     <value>الطالب ده عنده دفعة النهارده بالفعل. عايز تضيف واحدة تانية؟</value>
@@ -1717,5 +1717,53 @@
   </data>
   <data name="FreeTierLimitInvalid" xml:space="preserve">
     <value>الحد المجاني لازم يكون بين 0 و10000</value>
+  </data>
+  <data name="PaymentAmountNegative" xml:space="preserve">
+    <value>مبلغ الدفع ماينفعش يكون بالسالب.</value>
+  </data>
+  <data name="PaymentCustomAmountInvalid" xml:space="preserve">
+    <value>المبلغ المخصص لازم يكون أكبر من صفر.</value>
+  </data>
+  <data name="PaymentSyncCompleted" xml:space="preserve">
+    <value>تمت مزامنة سجلات الدفع المحلية بنجاح.</value>
+  </data>
+  <data name="PaymentSyncConflictsDetected" xml:space="preserve">
+    <value>تمت مزامنة المدفوعات مع وجود تعارضات. برجاء المراجعة والحل.</value>
+  </data>
+  <data name="PaymentInvalidMonthInteger" xml:space="preserve">
+    <value>الشهر غير صالح؛ لازم يكون رقم من 1 لـ 12.</value>
+  </data>
+  <data name="PaymentInvalidMonthFormat" xml:space="preserve">
+    <value>الشهر غير صالح؛ الصيغة المطلوبة YYYY-MM.</value>
+  </data>
+  <data name="PaymentInvalidYear" xml:space="preserve">
+    <value>السنة غير صالحة.</value>
+  </data>
+  <data name="PaymentInvalidCollectFilter" xml:space="preserve">
+    <value>الفلتر غير صالح؛ المتاح: all أو assigned أو unassigned.</value>
+  </data>
+  <data name="PaymentInvalidStatusFilter" xml:space="preserve">
+    <value>الحالة غير صالحة؛ المتاح: paid أو partial أو prorated أو unpaid.</value>
+  </data>
+  <data name="PaymentLookupCriteriaRequired" xml:space="preserve">
+    <value>ادخل كود QR أو كود الطالب أو الاسم عشان تدوّر.</value>
+  </data>
+  <data name="PaymentLookupStudentNotFound" xml:space="preserve">
+    <value>مفيش طالب مطابق للكود أو الاسم اللي دخلته.</value>
+  </data>
+  <data name="PaymentNoStudentsSelected" xml:space="preserve">
+    <value>مفيش طلاب متحددين.</value>
+  </data>
+  <data name="PaymentSubmitBatchEmpty" xml:space="preserve">
+    <value>مفيش طلاب للإرسال.</value>
+  </data>
+  <data name="PaymentWithdrawAmountInvalid" xml:space="preserve">
+    <value>مبلغ السحب لازم يكون أكبر من صفر.</value>
+  </data>
+  <data name="PaymentWalletInsufficientBalance" xml:space="preserve">
+    <value>رصيد المحفظة مش كفاية.</value>
+  </data>
+  <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
+    <value>المحفظة اتعدّلت في نفس الوقت من طلب تاني. حاول تاني.</value>
   </data>
 </root>

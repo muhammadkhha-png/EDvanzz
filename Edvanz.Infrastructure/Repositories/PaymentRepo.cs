@@ -547,6 +547,38 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     // ══════════════════════════════════════════════
+    // PAYMENT TRANSACTION ALLOCATION LEDGER (PAY-1)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task AddPaymentTransactionAllocationsRangeAsync(
+        IEnumerable<PaymentTransactionAllocation> allocations)
+    {
+        await _context.PaymentTransactionAllocations.AddRangeAsync(allocations);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<PaymentTransactionAllocation>> GetAllocationsByTransactionAsync(
+        long transactionId)
+    {
+        // TRACKED (no AsNoTracking) + eager PaymentPeriod so the caller can reverse each period's
+        // AmountPaid in place. Oldest-first ordering lets a partial reversal walk newest-first (LIFO).
+        return await _context.PaymentTransactionAllocations
+            .Include(a => a.PaymentPeriod)
+            .Where(a => a.PaymentTransactionId == transactionId)
+            .OrderBy(a => a.PaymentPeriod!.PeriodStart)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task RemovePaymentTransactionAllocationsAsync(
+        IEnumerable<PaymentTransactionAllocation> allocations)
+    {
+        _context.PaymentTransactionAllocations.RemoveRange(allocations);
+        await Task.CompletedTask;
+    }
+
+    // ══════════════════════════════════════════════
     // STUDENT PAYMENT COUNTER QUERIES
     // ══════════════════════════════════════════════
 

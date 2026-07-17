@@ -249,6 +249,29 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task UpdatePaymentPeriodAsync(PaymentPeriod period);
 
     // ══════════════════════════════════════════════
+    // PAYMENT TRANSACTION ALLOCATION LEDGER (PAY-1)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Adds per-period settlement rows for a transaction (one per period a cascade collection
+    /// cleared). Allocations may reference a not-yet-persisted transaction via the navigation
+    /// property; EF fixes up the FK on save.
+    /// </summary>
+    Task AddPaymentTransactionAllocationsRangeAsync(IEnumerable<PaymentTransactionAllocation> allocations);
+
+    /// <summary>
+    /// Returns the settlement ledger for a transaction, TRACKED and with each allocation's
+    /// <see cref="PaymentPeriod"/> eagerly loaded (also tracked), so a caller can reverse each
+    /// period's amount in place. Ordered by the period's start date (oldest first).
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransactionAllocation>> GetAllocationsByTransactionAsync(long transactionId);
+
+    /// <summary>
+    /// Removes fully-consumed allocation rows (a slice whose amount has been entirely reversed).
+    /// </summary>
+    Task RemovePaymentTransactionAllocationsAsync(IEnumerable<PaymentTransactionAllocation> allocations);
+
+    // ══════════════════════════════════════════════
     // STUDENT PAYMENT COUNTER QUERIES
     // ══════════════════════════════════════════════
 

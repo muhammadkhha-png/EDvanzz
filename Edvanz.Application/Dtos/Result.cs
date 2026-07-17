@@ -93,5 +93,22 @@ namespace Edvanz.Application.Dtos
                 StatusCode = statusCode
             };
         }
+
+        /// <summary>
+        /// Propagates a failure surfaced by a helper of a different generic type, PRESERVING its
+        /// <see cref="Message"/>, <see cref="Code"/> and <see cref="StatusCode"/>. Use this instead of
+        /// re-wrapping via the plain-string overload, which would drop the stable <see cref="Code"/>
+        /// the client branches on (see PAY-8 / CC-5).
+        /// </summary>
+        public static Result<T> Failure<TOther>(Result<TOther> source)
+        {
+            return new Result<T>
+            {
+                IsSuccess = false,
+                Message = source.Message,
+                Code = source.Code,
+                StatusCode = source.StatusCode
+            };
+        }
     }
 }

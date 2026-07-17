@@ -5348,3 +5348,67 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    CREATE TABLE [PaymentTransactionAllocations] (
+        [Id] bigint NOT NULL IDENTITY,
+        [TeacherId] bigint NOT NULL,
+        [PaymentTransactionId] bigint NOT NULL,
+        [PaymentPeriodId] bigint NULL,
+        [AmountApplied] decimal(10,2) NOT NULL,
+        [CreateAt] datetime2 NOT NULL,
+        CONSTRAINT [PK_PaymentTransactionAllocations] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_PaymentTransactionAllocations_PaymentPeriods_PaymentPeriodId] FOREIGN KEY ([PaymentPeriodId]) REFERENCES [PaymentPeriods] ([Id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_PaymentTransactionAllocations_PaymentTransactions_PaymentTransactionId] FOREIGN KEY ([PaymentTransactionId]) REFERENCES [PaymentTransactions] ([Id]),
+        CONSTRAINT [FK_PaymentTransactionAllocations_Teachers_TeacherId] FOREIGN KEY ([TeacherId]) REFERENCES [Teachers] ([Id])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    CREATE INDEX [IX_PaymentTransactionAllocations_TeacherId] ON [PaymentTransactionAllocations] ([TeacherId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    CREATE INDEX [IX_PTA_PaymentPeriodId] ON [PaymentTransactionAllocations] ([PaymentPeriodId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    CREATE INDEX [IX_PTA_PaymentTransactionId] ON [PaymentTransactionAllocations] ([PaymentTransactionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [UX_PTA_Transaction_Period] ON [PaymentTransactionAllocations] ([PaymentTransactionId], [PaymentPeriodId]) WHERE [PaymentPeriodId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717190441_PaymentTransactionAllocationLedger'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260717190441_PaymentTransactionAllocationLedger', N'10.0.9');
+END;
+
+COMMIT;
+GO
+

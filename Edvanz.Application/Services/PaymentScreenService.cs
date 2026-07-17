@@ -62,14 +62,13 @@ public class PaymentScreenService : IPaymentScreenService
     public async Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, int month, int year, int page, int limit)
     {
-        // NOTE(localization): validation messages are plain strings for now; they are
-        // converted to Messages_en/ar.resx keys in the Phase-1 localization pass.
         if (month < 1 || month > 12)
             return Result<CollectionsByMonthResponse>.Failure(
-                "Invalid month; expected an integer 1-12.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthInteger,
+                HttpStatusCode.UnprocessableEntity);
         if (year < 2000 || year > 2100)
             return Result<CollectionsByMonthResponse>.Failure(
-                "Invalid year.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidYear, HttpStatusCode.UnprocessableEntity);
 
         (page, limit) = NormalizePaging(page, limit);
 
@@ -124,7 +123,7 @@ public class PaymentScreenService : IPaymentScreenService
         var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
         if (wallet is null)
             return Result<AssistantWalletScreenResponse>.Failure(
-                "Assistant wallet not found.", HttpStatusCode.NotFound);
+                _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
 
         (page, limit) = NormalizePaging(page, limit);
 
@@ -214,7 +213,8 @@ public class PaymentScreenService : IPaymentScreenService
         filter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
         if (filter != "all" && filter != "assigned" && filter != "unassigned")
             return Result<CollectStudentsResponse>.Failure(
-                "Invalid filter; expected all | assigned | unassigned.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidCollectFilter,
+                HttpStatusCode.UnprocessableEntity);
 
         (page, limit) = NormalizePaging(page, limit);
 
@@ -254,14 +254,17 @@ public class PaymentScreenService : IPaymentScreenService
     public async Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
         long teacherId, string? month, string? status, int page, int limit)
     {
-        if (!TryParseYearMonth(month, out int year, out int mon))
+        // PAY-2: default to the teacher's current local month when omitted (only 422 on malformed).
+        if (!TryResolveMonth(teacherId, month, out int year, out int mon))
             return Result<StudentsByStatusResponse>.Failure(
-                "Invalid month; expected YYYY-MM.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
+                HttpStatusCode.UnprocessableEntity);
 
         status = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
         if (status != "paid" && status != "partial" && status != "prorated" && status != "unpaid")
             return Result<StudentsByStatusResponse>.Failure(
-                "Invalid status; expected paid | partial | prorated | unpaid.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidStatusFilter,
+                HttpStatusCode.UnprocessableEntity);
         (page, limit) = NormalizePaging(page, limit);
         var monthStart = new DateTime(year, mon, 1);
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
@@ -316,7 +319,7 @@ public class PaymentScreenService : IPaymentScreenService
     {
         if (year < 2000 || year > 2100)
             return Result<YearlyCollectionsResponse>.Failure(
-                "Invalid year.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidYear, HttpStatusCode.UnprocessableEntity);
 
         (page, limit) = NormalizePaging(page, limit);
         var yearStart = new DateTime(year, 1, 1);
@@ -377,13 +380,14 @@ public class PaymentScreenService : IPaymentScreenService
     {
         if (string.IsNullOrWhiteSpace(qr) && string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name))
             return Result<CollectLookupResponse>.Failure(
-                "Provide a qr, code, or name to look up.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentLookupCriteriaRequired,
+                HttpStatusCode.UnprocessableEntity);
 
         var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(
             teacherId, qr, code, name, CurrentMonthEnd(teacherId));
         if (row is null)
             return Result<CollectLookupResponse>.Failure(
-                "No student found for the given QR/code/name.", HttpStatusCode.NotFound);
+                _localizer, PaymentConstants.Messages.PaymentLookupStudentNotFound, HttpStatusCode.NotFound);
 
         var response = new CollectLookupResponse
         {
@@ -406,9 +410,12 @@ public class PaymentScreenService : IPaymentScreenService
     /// <inheritdoc />
     public async Task<Result<TrackingResponse>> GetTrackingAsync(long teacherId, string? month)
     {
-        if (!TryParseYearMonth(month, out int year, out int mon))
+        // PAY-2: the main tracking-screen load carries no month by default → use the teacher's
+        // current local month (only 422 when a month is provided but malformed).
+        if (!TryResolveMonth(teacherId, month, out int year, out int mon))
             return Result<TrackingResponse>.Failure(
-                "Invalid month; expected YYYY-MM.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
+                HttpStatusCode.UnprocessableEntity);
 
         var monthStart = new DateTime(year, mon, 1);
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
@@ -521,7 +528,8 @@ public class PaymentScreenService : IPaymentScreenService
     {
         if (studentIds is null || studentIds.Count == 0)
             return Result<MarkPaidResponse>.Failure(
-                "No students selected.", HttpStatusCode.UnprocessableEntity);
+                _localizer, PaymentConstants.Messages.PaymentNoStudentsSelected,
+                HttpStatusCode.UnprocessableEntity);
 
         // Idempotent replay: return the stored result instead of re-collecting.
         var stored = await _idempotency.GetStoredResultAsync("mark-paid", teacherId, idempotencyKey);
@@ -607,7 +615,7 @@ public class PaymentScreenService : IPaymentScreenService
     {
         if (students is null || students.Count == 0)
             return Result<SubmitCollectionResponse>.Failure(
-                "Empty batch — no students to submit.", HttpStatusCode.Conflict);
+                _localizer, PaymentConstants.Messages.PaymentSubmitBatchEmpty, HttpStatusCode.Conflict);
 
         var stored = await _idempotency.GetStoredResultAsync("submit", teacherId, idempotencyKey);
         if (stored is not null)
@@ -618,10 +626,19 @@ public class PaymentScreenService : IPaymentScreenService
         var results = new List<SubmitCollectionResultDto>(students.Count);
         int submitted = 0;
         decimal totalCollected = 0m;
+        // PAY-6: a studentId repeated in the batch must NOT be collected twice — mark repeats failed
+        // (mark-paid dedupes with .Distinct(); submit carries per-item amounts, so report per item).
+        var seen = new HashSet<long>();
 
         foreach (var item in students)
         {
             string idStr = item.StudentId.ToString(CultureInfo.InvariantCulture);
+
+            if (!seen.Add(item.StudentId))
+            {
+                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "failed", Reason = "Duplicate student in this batch." });
+                continue;
+            }
 
             if (item.Amount <= 0m)
             {
@@ -691,7 +708,9 @@ public class PaymentScreenService : IPaymentScreenService
 
         var result = await _paymentService.WithdrawFromWalletAsync(teacherId, assistantId, amount, actingUserId);
         if (!result.IsSuccess || result.Data is null)
-            return Result<WalletWithdrawResponse>.Failure(result.Message ?? "Withdrawal failed.", result.StatusCode);
+            // PAY-5: propagate the underlying localized message + stable code (now set by
+            // WithdrawFromWalletAsync) instead of dropping them behind a hardcoded English string.
+            return Result<WalletWithdrawResponse>.Failure(result);
 
         var r = result.Data;
         var response = new WalletWithdrawResponse
@@ -711,6 +730,24 @@ public class PaymentScreenService : IPaymentScreenService
     /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>
     private static string FormatTime(TimeSpan t) =>
         new DateTime(1, 1, 1).Add(t).ToString("h:mm tt", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Resolves the "YYYY-MM" month selector, DEFAULTING to the teacher's current local
+    /// (Africa/Cairo) month when it is omitted (PAY-2) — matching the documented "screens with no
+    /// explicit month use the teacher's current local month" contract (§7.4). Returns false ONLY
+    /// when a value is provided but malformed/out of range.
+    /// </summary>
+    private bool TryResolveMonth(long teacherId, string? month, out int year, out int mon)
+    {
+        if (string.IsNullOrWhiteSpace(month))
+        {
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            year = today.Year;
+            mon = today.Month;
+            return true;
+        }
+        return TryParseYearMonth(month, out year, out mon);
+    }
 
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
     private static bool TryParseYearMonth(string? value, out int year, out int month)

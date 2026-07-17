@@ -245,4 +245,10 @@ public class PaymentTransaction : BaseEntity
 
     // Navigation property
     public ICollection<PaymentEditLog> EditLogs { get; set; } = new List<PaymentEditLog>();
+
+    /// <summary>
+    /// Per-period settlement ledger (PAY-1). One row per <see cref="PaymentPeriod"/> this cash event
+    /// settled — enables reversing the exact set of periods a cascade collection cleared.
+    /// </summary>
+    public ICollection<PaymentTransactionAllocation> Allocations { get; set; } = new List<PaymentTransactionAllocation>();
 }

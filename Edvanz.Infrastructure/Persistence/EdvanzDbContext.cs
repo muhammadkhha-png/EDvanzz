@@ -61,6 +61,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
     // ─── Payment Module (Module 4) ───
     public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
+    public DbSet<PaymentTransactionAllocation> PaymentTransactionAllocations { get; set; }
     public DbSet<PaymentPeriod> PaymentPeriods { get; set; }
     public DbSet<StudentPaymentCounter> StudentPaymentCounters { get; set; }
     public DbSet<AssistantWallet> AssistantWallets { get; set; }
@@ -1614,6 +1615,58 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(t => t.StudentSessionAssignmentId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region PaymentTransactionAllocation (PAY-1: per-period settlement ledger)
+        modelBuilder.Entity<PaymentTransactionAllocation>(entity =>
+        {
+            entity.ToTable("PaymentTransactionAllocations");
+
+            entity.Property(a => a.AmountApplied).HasColumnType("decimal(10,2)");
+
+            // ── INDEXES ──
+
+            // Reverse a transaction: load all its allocations.
+            entity.HasIndex(a => a.PaymentTransactionId)
+                .HasDatabaseName("IX_PTA_PaymentTransactionId");
+
+            // Period lookup (and the CASCADE parent side).
+            entity.HasIndex(a => a.PaymentPeriodId)
+                .HasDatabaseName("IX_PTA_PaymentPeriodId");
+
+            // At most one live allocation per (transaction, period) — cascade top-ups increment the
+            // existing row instead of inserting a duplicate. Filtered so a null period (should never
+            // persist, but defensive) never trips the unique constraint.
+            entity.HasIndex(a => new { a.PaymentTransactionId, a.PaymentPeriodId })
+                .IsUnique()
+                .HasFilter("[PaymentPeriodId] IS NOT NULL")
+                .HasDatabaseName("UX_PTA_Transaction_Period");
+
+            // ── FOREIGN KEYS ──
+
+            // Teacher FK: NoAction — all payment data deleted with teacher account. Nav-less: this
+            // internal ledger is only ever reached via its transaction/period, never queried by
+            // teacher directly, so no Teacher navigation is carried.
+            entity.HasOne<Teacher>()
+                .WithMany()
+                .HasForeignKey(a => a.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Transaction FK: NoAction — transactions are only soft-deleted; reversal removes the
+            // allocation rows explicitly, so no DB cascade is needed (and it keeps the table to a
+            // single cascade FK, avoiding SQL Server's multiple-cascade-path restriction).
+            entity.HasOne(a => a.PaymentTransaction)
+                .WithMany(t => t.Allocations)
+                .HasForeignKey(a => a.PaymentTransactionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Period FK: CASCADE — periods are hard-deleted on student purge; their allocations
+            // (slices of a now-gone obligation) go with them.
+            entity.HasOne(a => a.PaymentPeriod)
+                .WithMany()
+                .HasForeignKey(a => a.PaymentPeriodId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
         #endregion
 
