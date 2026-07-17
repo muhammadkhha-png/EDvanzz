@@ -670,6 +670,24 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         return consecutive;
     }
 
+    public async Task<(int TotalOccurrences, int TotalPresent, int TotalAbsences)> GetCounterAggregatesAsync(
+        long teacherStudentId)
+    {
+        // Three cheap indexed COUNTs over the student's non-Held records — the source of truth for the
+        // counter totals. Present + CrossSessionPresent count as "present"; Absent as "absent".
+        // TotalOccurrences is counted independently (all non-Held) so it stays correct even if a new
+        // non-Held status is ever added. Not a hot path (edit/delete only), so 3 round-trips is fine.
+        var nonHeld = _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId == teacherStudentId && r.Status != AttendanceStatus.Held);
+
+        int totalOccurrences = await nonHeld.CountAsync();
+        int totalPresent = await nonHeld.CountAsync(r => r.Status == AttendanceStatus.Present
+            || r.Status == AttendanceStatus.CrossSessionPresent);
+        int totalAbsences = await nonHeld.CountAsync(r => r.Status == AttendanceStatus.Absent);
+
+        return (totalOccurrences, totalPresent, totalAbsences);
+    }
+
     /// <inheritdoc />
     public async Task DeleteAbsenceCounterAsync(StudentAbsenceCounter counter)
     {

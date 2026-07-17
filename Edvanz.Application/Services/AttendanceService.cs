@@ -1366,18 +1366,17 @@ public class AttendanceService : IAttendanceService
             record.LastEditedByUserId = dto.EditedByUserId;
             await _unitOfWork.AttendanceRepo.UpdateAttendanceRecordAsync(record);
 
-            // ATT-9: flush the status change BEFORE recomputing the counter. RecalculateAbsenceCounterAfterEdit
-            // recomputes ConsecutiveAbsences from a DB query (RecalculateConsecutiveAbsencesAsync) that can't
-            // see un-flushed changes; without this the streak was computed from the record's OLD status and
-            // came back stale by one operation (converging only on a later write).
+            // ATT-9: flush the status change BEFORE recomputing the counter. RecalculateAbsenceCounterFromRecordsAsync
+            // recomputes the totals + streak from DB queries that can't see un-flushed changes; without this the
+            // counter would be computed from the record's OLD status and come back stale by one operation.
             await _unitOfWork.SaveChangesAsync();
 
-            // Recalculate absence counter (now reads the just-persisted status)
+            // Recalculate absence counter from records (now reads the just-persisted status).
+            // Full recompute — not a ±1 adjustment — so the totals can't drift (see the method doc).
             if (record.TeacherStudentId.HasValue)
             {
-                await RecalculateAbsenceCounterAfterEdit(
-                    dto.TeacherId, record.TeacherStudentId.Value,
-                    previousStatus, newStatus);
+                await RecalculateAbsenceCounterFromRecordsAsync(
+                    dto.TeacherId, record.TeacherStudentId.Value);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -1581,12 +1580,12 @@ public class AttendanceService : IAttendanceService
             await _unitOfWork.SaveChangesAsync();
 
             // ATT-9: recompute the absence counter from the now-current records (was stale by one op —
-            // consecutiveAbsences read the pre-delete state).
+            // consecutiveAbsences read the pre-delete state). Full records-based recompute also heals
+            // any pre-existing Total* drift for this student.
             if (deletedStudentId.HasValue)
             {
-                await RecalculateAbsenceCounterAfterEdit(
-                    dto.TeacherId, deletedStudentId.Value,
-                    deletedStatus, null);
+                await RecalculateAbsenceCounterFromRecordsAsync(
+                    dto.TeacherId, deletedStudentId.Value);
             }
 
             // ATT-1: recompute the occurrence's status now that a record was removed. Delete was the ONE
@@ -2641,34 +2640,34 @@ public class AttendanceService : IAttendanceService
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
     }
 
-    private async Task RecalculateAbsenceCounterAfterEdit(
-        long teacherId, long teacherStudentId,
-        AttendanceStatus previousStatus, AttendanceStatus? newStatus)
+    /// <summary>
+    /// Recomputes the student's absence-counter totals (TotalOccurrences / TotalPresent /
+    /// TotalAbsences) and the consecutive-absence streak as a pure aggregate of their non-Held
+    /// attendance records — the single source of truth. Called by the edit and delete paths AFTER the
+    /// record change is flushed (ATT-9), so the counter can never drift from the records.
+    ///
+    /// Replaces the previous ±1 transition maintenance, which silently skewed the totals for the
+    /// transitions it did not enumerate — e.g. a CrossSessionPresent record edited to Absent (left
+    /// TotalPresent too high), or a Held record deleted (wrongly decremented TotalOccurrences). That
+    /// was the pre-existing StudentAbsenceCounter drift (a student reading &gt;100% attendance).
+    ///
+    /// The append paths (mark / bulk / add) increment correctly for a fresh record, so recomputing
+    /// here on every non-append write keeps the whole counter consistent AND self-heals any historical
+    /// skew on the student's next edit/delete. Last* fields keep their existing maintenance (untouched
+    /// here, matching the previous behaviour). No-op when the counter row is absent.
+    /// </summary>
+    private async Task RecalculateAbsenceCounterFromRecordsAsync(long teacherId, long teacherStudentId)
     {
         var counter = await _unitOfWork.AttendanceRepo
             .GetAbsenceCounterAsync(teacherId, teacherStudentId);
         if (counter is null) return;
 
-        if (previousStatus == AttendanceStatus.Absent && newStatus == AttendanceStatus.Present)
-        {
-            counter.TotalAbsences = Math.Max(0, counter.TotalAbsences - 1);
-            counter.TotalPresent++;
-        }
-        else if (previousStatus == AttendanceStatus.Present && newStatus == AttendanceStatus.Absent)
-        {
-            counter.TotalPresent = Math.Max(0, counter.TotalPresent - 1);
-            counter.TotalAbsences++;
-        }
-        else if (newStatus is null) // Deletion
-        {
-            counter.TotalOccurrences = Math.Max(0, counter.TotalOccurrences - 1);
-            if (previousStatus == AttendanceStatus.Absent)
-                counter.TotalAbsences = Math.Max(0, counter.TotalAbsences - 1);
-            else if (previousStatus == AttendanceStatus.Present
-                || previousStatus == AttendanceStatus.CrossSessionPresent)
-                counter.TotalPresent = Math.Max(0, counter.TotalPresent - 1);
-        }
+        var (totalOccurrences, totalPresent, totalAbsences) = await _unitOfWork.AttendanceRepo
+            .GetCounterAggregatesAsync(teacherStudentId);
 
+        counter.TotalOccurrences = totalOccurrences;
+        counter.TotalPresent = totalPresent;
+        counter.TotalAbsences = totalAbsences;
         counter.ConsecutiveAbsences = await _unitOfWork.AttendanceRepo
             .RecalculateConsecutiveAbsencesAsync(teacherStudentId);
 

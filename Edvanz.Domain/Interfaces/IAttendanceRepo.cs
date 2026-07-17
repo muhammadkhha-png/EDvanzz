@@ -428,6 +428,17 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<int> RecalculateConsecutiveAbsencesAsync(long teacherStudentId);
 
     /// <summary>
+    /// Computes the student's absence-counter totals directly from their attendance records
+    /// (the single source of truth) in one query, excluding Held: TotalOccurrences = all non-Held
+    /// records, TotalPresent = Present + CrossSessionPresent, TotalAbsences = Absent. Used to
+    /// recompute the counter on edit/delete so the totals can never drift from the records (the old
+    /// ±1 transition maintenance skewed them for cases it didn't enumerate). Returns (0,0,0) when the
+    /// student has no records; by construction TotalOccurrences == TotalPresent + TotalAbsences.
+    /// </summary>
+    Task<(int TotalOccurrences, int TotalPresent, int TotalAbsences)> GetCounterAggregatesAsync(
+        long teacherStudentId);
+
+    /// <summary>
     /// Deletes absence counter for a student.
     /// </summary>
     Task DeleteAbsenceCounterAsync(StudentAbsenceCounter counter);
