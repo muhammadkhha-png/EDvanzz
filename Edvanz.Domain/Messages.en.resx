@@ -1075,7 +1075,7 @@
     <value>Success score cannot be greater than the exam's maximum grade</value>
   </data>
   <data name="ExamHasResultsCannotRestructure" xml:space="preserve">
-    <value>This exam already has attendance or grades — you can't change its date, sessions, or type. Edit the name and scores only, or delete and recreate it.</value>
+    <value>This exam already has attendance or grades, so you can't change its sessions, groups, occurrence dates, or exam date. You can still edit the name, notes, and scores — otherwise create a new exam.</value>
   </data>
   <data name="ExamRequiresSession" xml:space="preserve">
     <value>An exam must be assigned to at least one session</value>
@@ -1121,6 +1121,9 @@
   </data>
   <data name="SessionHasNoStudents" xml:space="preserve">
     <value>The selected session has no students to assign the exam to</value>
+  </data>
+  <data name="SessionHasNoStudentsNamed" xml:space="preserve">
+    <value>Session '{0}' has no students, so the exam can't be created for it. Assign students to it or remove it from the exam.</value>
   </data>
   <data name="ExamDeleted" xml:space="preserve">
     <value>Exam deleted successfully</value>

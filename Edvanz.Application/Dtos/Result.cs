@@ -63,6 +63,25 @@ namespace Edvanz.Application.Dtos
             };
         }
 
+        /// <summary>
+        /// Failure with a formatted, localized message (e.g. a message that names the offending
+        /// entity). Keeps the stable <see cref="Code"/> = <paramref name="messageKey"/> for the client.
+        /// </summary>
+        public static Result<T> Failure(
+            IStringLocalizer localizer,
+            string messageKey,
+            object?[] args,
+            HttpStatusCode statusCode = HttpStatusCode.BadRequest)
+        {
+            return new Result<T>
+            {
+                IsSuccess = false,
+                Message = localizer[messageKey, args],
+                Code = messageKey,
+                StatusCode = statusCode
+            };
+        }
+
         public static Result<T> Failure(
             string message,
             HttpStatusCode statusCode = HttpStatusCode.BadRequest)

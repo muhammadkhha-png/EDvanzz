@@ -1065,7 +1065,9 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         if (idList.Count == 0) return new Dictionary<long, OccurrenceCompletionSummary>();
 
         var rows = await _context.StudentAssignmentObligations
-            .Where(o => idList.Contains(o.OccurrenceId))
+            // Skip soft-deleted students so these home-card counts match the opened-exam roster
+            // (which INNER-JOINs TeacherStudent and drops them) — B3.
+            .Where(o => idList.Contains(o.OccurrenceId) && !o.TeacherStudent.IsDeleted)
             .GroupBy(o => o.OccurrenceId)
             .Select(g => new OccurrenceCompletionSummary
             {
@@ -1324,6 +1326,41 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(o => o.MaxGradeSnapshot, (decimal?)maxGrade)
                 .SetProperty(o => o.PassingThresholdSnapshot, (decimal?)passingThreshold));
+    }
+
+    /// <inheritdoc />
+    public async Task EnsureExamObligationsExistAsync(
+        long teacherId, long occurrenceId, IReadOnlyCollection<long> studentIds,
+        ObligationStatus status, DateTime utcNow, long actingUserId)
+    {
+        if (studentIds.Count == 0) return;
+
+        // Tenant + existence guard: only materialize into the teacher's own occurrence.
+        bool ownsOccurrence = await _context.AssignmentOccurrences
+            .AnyAsync(o => o.Id == occurrenceId && o.TeacherId == teacherId);
+        if (!ownsOccurrence) return;
+
+        var existing = await _context.StudentAssignmentObligations
+            .Where(o => o.OccurrenceId == occurrenceId && studentIds.Contains(o.TeacherStudentId))
+            .Select(o => o.TeacherStudentId)
+            .ToListAsync();
+        var missing = studentIds.Except(existing).ToList();
+        if (missing.Count == 0) return;
+
+        var rows = missing.Select(sid => new StudentAssignmentObligation
+        {
+            OccurrenceId = occurrenceId,
+            TeacherId = teacherId,
+            TeacherStudentId = sid,
+            Status = status,
+            IsGradeEntered = false,
+            MarkedByScan = false,
+            LastUpdatedByUserId = actingUserId,
+            UpdatedAt = utcNow,
+            CreateAt = utcNow,
+        });
+        await _context.StudentAssignmentObligations.AddRangeAsync(rows);
+        await _context.SaveChangesAsync();
     }
 
     /// <inheritdoc />

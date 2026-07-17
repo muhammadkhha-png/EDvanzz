@@ -89,7 +89,7 @@ public class ExamService : IExamService
             teacherId, dto.DeliveryType, dto.ExamDate, dto.SessionOccurrences,
             dto.SessionIds, dto.GroupIds, dto.StudentIds);
         if (build.ErrorKey is not null)
-            return Fail(build.ErrorKey, build.ErrorStatus);
+            return Fail(build.ErrorKey, build.ErrorStatus, build.ErrorArgs);
 
         bool hasGroups = build.HasGroups;
         List<long> groupIds = build.GroupIds;
@@ -252,14 +252,13 @@ public class ExamService : IExamService
             teacherId, dto.DeliveryType, dto.ExamDate, dto.SessionOccurrences,
             dto.SessionIds, dto.GroupIds, dto.StudentIds);
         if (build.ErrorKey is not null)
-            return FailView(build.ErrorKey, build.ErrorStatus);
+            return FailView(build.ErrorKey, build.ErrorStatus, build.ErrorArgs);
 
         bool hasGroups = build.HasGroups;
         List<long> groupIds = build.GroupIds;
         List<SessionPlan> plans = build.Plans;
 
         var newSessionIds = plans.Select(p => p.SessionId).ToHashSet();
-        var newStudentIds = plans.SelectMany(p => p.StudentIds).ToHashSet();
 
         // ── Load the CURRENT structure + whether any attendance/grade has been recorded ──
         var (currentOccurrences, _) = await _unitOfWork.ExamHomeworkRepo
@@ -272,15 +271,14 @@ public class ExamService : IExamService
         foreach (var occ in currentOccurrences.Where(o => o.SessionId.HasValue))
             currentAnchors[occ.SessionId!.Value] = (occ.DueDate.Date, occ.SessionOccurrenceId);
 
-        var currentStudentIds = new HashSet<long>();
         bool hasResults = false;
         foreach (var occ in currentOccurrences)
         {
             var obs = await _unitOfWork.ExamHomeworkRepo.GetObligationsByOccurrenceAsync(teacherId, occ.Id);
-            foreach (var ob in obs)
+            if (obs.Any(ob => ob.Status != ObligationStatus.Pending || ob.IsGradeEntered))
             {
-                currentStudentIds.Add(ob.TeacherStudentId);
-                if (ob.Status != ObligationStatus.Pending || ob.IsGradeEntered) hasResults = true;
+                hasResults = true;
+                break;
             }
         }
 
@@ -289,13 +287,16 @@ public class ExamService : IExamService
                               || anchor.Date != p.DueDate.Date
                               || anchor.SessionOccurrenceId != p.SessionOccurrenceId);
 
+        // ── A2: only the PROTECTED fields lock a results-bearing exam — the delivery type, the
+        // per-session occurrence date picks / separate-time exam date, and the sessions/groups
+        // assigned. Name, notes and grade bounds stay editable; the student roster is NOT protected
+        // (it mirrors the class, so a student enrolling in / leaving the class never blocks an edit).
         bool structuralChange =
             dto.DeliveryType != template.ExamDeliveryType ||
             anchorsChanged ||
-            !newSessionIds.SetEquals(currentSessionIds) ||
-            !newStudentIds.SetEquals(currentStudentIds);
+            !newSessionIds.SetEquals(currentSessionIds);
 
-        // ── Policy: never restructure an exam that already has attendance or grades ──
+        // ── Policy: those protected fields can't change once attendance/grades exist ──
         if (structuralChange && hasResults)
             return FailView("ExamHasResultsCannotRestructure", HttpStatusCode.Conflict);
 
@@ -973,11 +974,13 @@ public class ExamService : IExamService
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    private Result<ExamCreatedDto> Fail(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
-        Result<ExamCreatedDto>.Failure(_localizer, key, status);
+    private Result<ExamCreatedDto> Fail(string key, HttpStatusCode status = HttpStatusCode.BadRequest, object?[]? args = null) =>
+        args is null ? Result<ExamCreatedDto>.Failure(_localizer, key, status)
+                     : Result<ExamCreatedDto>.Failure(_localizer, key, args, status);
 
-    private Result<ExamViewDto> FailView(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
-        Result<ExamViewDto>.Failure(_localizer, key, status);
+    private Result<ExamViewDto> FailView(string key, HttpStatusCode status = HttpStatusCode.BadRequest, object?[]? args = null) =>
+        args is null ? Result<ExamViewDto>.Failure(_localizer, key, status)
+                     : Result<ExamViewDto>.Failure(_localizer, key, args, status);
 
     private static BatchGradeItemResultDto FailItem(long teacherStudentId, string code) =>
         new() { TeacherStudentId = teacherStudentId, Success = false, Code = code };
@@ -1110,6 +1113,7 @@ public class ExamService : IExamService
             return Invalid("SelectEitherSessionsOrGroups");
 
         var resolvedGroupIds = new List<long>();
+        var sessionNames = new Dictionary<long, string>();   // A3: name a student-less session in the error
         List<long> targetSessionIds;
         if (hasGroups)
         {
@@ -1122,6 +1126,7 @@ public class ExamService : IExamService
             }
             var groupSessions = await _unitOfWork.SessionsRepo
                 .GetSessionsByGroupIdsAsync(teacherId, resolvedGroupIds);
+            foreach (var s in groupSessions) sessionNames[s.Id] = s.SessionName;
             targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
         }
         else
@@ -1132,22 +1137,22 @@ public class ExamService : IExamService
                 var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
                 if (session is null)
                     return Invalid("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
+                sessionNames[sid] = session.SessionName;
             }
         }
 
         if (targetSessionIds.Count == 0)
             return Invalid("ExamRequiresSession");
 
-        // DuringSession: the anchors must cover EXACTLY the resolved sessions — every selected
-        // session (and every member session of a selected group) needs its picked occurrence.
+        // DuringSession: an anchor for a session that isn't part of the exam is a client error.
+        // (Coverage is enforced per NON-EMPTY session inside the loop; a student-less session is
+        //  rejected by name below and needs no anchor — A3.)
         if (deliveryType == ExamDeliveryType.DuringSession)
         {
             var targetSet = targetSessionIds.ToHashSet();
             foreach (var anchoredSessionId in occurrenceBySession.Keys)
                 if (!targetSet.Contains(anchoredSessionId))
                     return Invalid("SessionOccurrenceForUnselectedSession");
-            if (occurrenceBySession.Count != targetSet.Count)
-                return Invalid("SessionOccurrenceRequired");
         }
 
         // ── Per-session materialization plan ─────────────────────────────────
@@ -1158,18 +1163,33 @@ public class ExamService : IExamService
         var matchedFilterStudents = new HashSet<long>();
 
         var plans = new List<SessionPlan>();
+        var emptySessionNames = new List<string>();   // A3: sessions selected but with no assigned students
+
         foreach (var sessionId in targetSessionIds)
         {
+            var sessionStudentSet = (await _unitOfWork.PaymentsRepo
+                .GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
+
+            // A3: a selected session (or a group member) with NO assigned students can't carry an exam —
+            // collect its name and fail by name below rather than silently dropping it. It needs no anchor.
+            if (sessionStudentSet.Count == 0)
+            {
+                emptySessionNames.Add(sessionNames.GetValueOrDefault(sessionId, $"#{sessionId}"));
+                continue;
+            }
+
             DateTime dueDate;
             long? sessionOccurrenceId = null;
 
             if (deliveryType == ExamDeliveryType.DuringSession)
             {
-                // The picked occurrence must exist, be the teacher's, and belong to THIS session.
-                // Its (possibly past) date becomes the session's exam date; the class's recorded
-                // attendance back-fills the exam after commit.
+                // Only a non-empty session needs a picked occurrence: it must exist, be the teacher's,
+                // and belong to THIS session. Its (possibly past) date becomes the exam date; the class's
+                // recorded attendance back-fills the exam after commit.
+                if (!occurrenceBySession.TryGetValue(sessionId, out var pickedOccurrenceId))
+                    return Invalid("SessionOccurrenceRequired");
                 var occ = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceByIdAndTeacherAsync(occurrenceBySession[sessionId], teacherId);
+                    .GetOccurrenceByIdAndTeacherAsync(pickedOccurrenceId, teacherId);
                 if (occ is null || occ.SessionId != sessionId)
                     return Invalid("SessionOccurrenceNotFound", HttpStatusCode.NotFound);
                 dueDate = occ.OccurrenceDate.Date;
@@ -1179,9 +1199,6 @@ public class ExamService : IExamService
             {
                 dueDate = separateDate;
             }
-
-            var sessionStudentSet = (await _unitOfWork.PaymentsRepo
-                .GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
 
             List<long> planStudentIds;
             if (studentFilter is not null)
@@ -1195,7 +1212,7 @@ public class ExamService : IExamService
             }
 
             if (planStudentIds.Count == 0)
-                continue;   // skip an empty session (common when expanding a group)
+                continue;   // this session HAS students but the explicit subset excludes them all — skip it
 
             plans.Add(new SessionPlan
             {
@@ -1205,6 +1222,15 @@ public class ExamService : IExamService
                 StudentIds = planStudentIds,
             });
         }
+
+        // A3: any student-less selected session fails the whole create/update, named so the teacher
+        // can remove it or assign students.
+        if (emptySessionNames.Count > 0)
+            return new SessionPlanBuild
+            {
+                ErrorKey = "SessionHasNoStudentsNamed",
+                ErrorArgs = new object?[] { string.Join(", ", emptySessionNames) },
+            };
 
         // Every explicitly-listed student must belong to one of the target sessions.
         if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
@@ -1221,6 +1247,7 @@ public class ExamService : IExamService
     {
         public string? ErrorKey { get; init; }
         public HttpStatusCode ErrorStatus { get; init; } = HttpStatusCode.BadRequest;
+        public object?[]? ErrorArgs { get; init; }   // formatting args for a named error (e.g. A3 session name)
         public bool HasGroups { get; init; }
         public List<long> GroupIds { get; init; } = new();
         public List<SessionPlan> Plans { get; init; } = new();

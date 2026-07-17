@@ -94,14 +94,24 @@ public class ExamAttendanceSyncService : IExamAttendanceSyncService
             foreach (var examOccurrenceId in examOccurrenceIds)
             {
                 if (present.Count > 0)
+                {
                     await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
                         teacherId, examOccurrenceId, present,
                         ObligationStatus.Attended, clearGrade: false, skipGraded: true, utcNow, actingUserId);
+                    // Dynamic roster: a student assigned to the class AFTER the exam was created gets an
+                    // exam row the moment their attendance is taken (SetExam only touches existing rows).
+                    await _unitOfWork.ExamHomeworkRepo.EnsureExamObligationsExistAsync(
+                        teacherId, examOccurrenceId, present, ObligationStatus.Attended, utcNow, actingUserId);
+                }
 
                 if (absent.Count > 0)
+                {
                     await _unitOfWork.ExamHomeworkRepo.SetExamAttendanceByOccurrenceAsync(
                         teacherId, examOccurrenceId, absent,
                         ObligationStatus.DidNotAttend, clearGrade: true, skipGraded: false, utcNow, actingUserId);
+                    await _unitOfWork.ExamHomeworkRepo.EnsureExamObligationsExistAsync(
+                        teacherId, examOccurrenceId, absent, ObligationStatus.DidNotAttend, utcNow, actingUserId);
+                }
 
                 // Revert obligations whose backing attendance record is gone (present/absent set no
                 // longer contains them) back to unmarked — only touches attendance-derived statuses.

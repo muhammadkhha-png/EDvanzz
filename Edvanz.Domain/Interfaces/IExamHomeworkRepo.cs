@@ -726,6 +726,17 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// </summary>
     Task UpdateExamGradeSnapshotsAsync(
         long teacherId, long templateId, decimal maxGrade, decimal passingThreshold);
+
+    /// <summary>
+    /// Inserts a during-session exam obligation (at <paramref name="status"/>) for any student in
+    /// <paramref name="studentIds"/> who doesn't already have one on the occurrence. Lets a student
+    /// assigned to the class AFTER the exam was created auto-join it once their attendance is taken
+    /// (the "mirror the class" dynamic roster). No-op for students who already have a row; tenant-guarded
+    /// on the occurrence.
+    /// </summary>
+    Task EnsureExamObligationsExistAsync(
+        long teacherId, long occurrenceId, IReadOnlyCollection<long> studentIds,
+        ObligationStatus status, DateTime utcNow, long actingUserId);
     /// <summary>
     /// Student-facing, paged: offline-exam occurrences (AssignmentType.Exam) the given student
     /// has an obligation for under this teacher, joined to its template for display fields.

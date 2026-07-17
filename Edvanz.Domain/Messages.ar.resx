@@ -1075,7 +1075,7 @@
     <value>درجة النجاح ما ينفعش تكون أكبر من الدرجة العظمى للامتحان</value>
   </data>
   <data name="ExamHasResultsCannotRestructure" xml:space="preserve">
-    <value>الامتحان ده اتسجّل فيه حضور أو درجات — مش هتقدر تغيّر تاريخه أو المجموعات أو نوعه. عدّل الاسم والدرجات بس، أو امسحه واعمله من جديد.</value>
+    <value>الامتحان ده اتسجّل فيه حضور أو درجات، فمش هتقدر تغيّر السيشنز أو المجموعات أو تواريخ الحصص أو تاريخ الامتحان. تقدر تعدّل الاسم والملاحظات والدرجات بس — أو اعمل امتحان جديد.</value>
   </data>
   <data name="ExamRequiresSession" xml:space="preserve">
     <value>لازم تحدد على الأقل سيشن واحدة للامتحان</value>
@@ -1121,6 +1121,9 @@
   </data>
   <data name="SessionHasNoStudents" xml:space="preserve">
     <value>السيشن المختارة مافيهاش طلاب علشان نضيفلهم الامتحان</value>
+  </data>
+  <data name="SessionHasNoStudentsNamed" xml:space="preserve">
+    <value>الحصة '{0}' مافيهاش طلاب، فمش هينفع تعمل امتحان ليها. ضيف طلاب للحصة أو شيلها من الامتحان.</value>
   </data>
   <data name="ExamDeleted" xml:space="preserve">
     <value>الامتحان اتمسح نهائيًا بكل درجاته وحضوره</value>
