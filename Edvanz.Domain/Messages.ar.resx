@@ -672,6 +672,27 @@
   <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
     <value>فيه سجل حضور موجود أصلاً للطالب ده في الحصة دي. مش مسموح بتسجيل حضور مكرر.</value>
   </data>
+  <data name="AttendanceStatusRequired" xml:space="preserve">
+    <value>لازم تحدد حالة الحضور: حاضر ولا غايب.</value>
+  </data>
+  <data name="AttendanceOccurrenceDateRequired" xml:space="preserve">
+    <value>لازم تحدد تاريخ الحصة.</value>
+  </data>
+  <data name="AttendanceBulkMarkedPartial" xml:space="preserve">
+    <value>اتسجل الحضور لبعض الطلبة المختارين، والباقي اتعدّى. بُص على نتيجة كل طالب عشان التفاصيل.</value>
+  </data>
+  <data name="AttendanceCrossSessionCannotBeAbsent" xml:space="preserve">
+    <value>الطالب الزائر (من حصة تانية) مينفعش يتسجل غايب في الحصة دي.</value>
+  </data>
+  <data name="AttendanceReportStudentRequired" xml:space="preserve">
+    <value>نوع التقرير ده محتاج طالب. ابعت teacherStudentId.</value>
+  </data>
+  <data name="AttendanceReportSessionRequired" xml:space="preserve">
+    <value>نوع التقرير ده محتاج حصة. ابعت sessionId.</value>
+  </data>
+  <data name="AttendanceReportSessionGroupRequired" xml:space="preserve">
+    <value>نوع التقرير ده محتاج مجموعة حصص. ابعت sessionGroupId.</value>
+  </data>
   <data name="PaymentCollectedSuccess" xml:space="preserve">
     <value>تم تحصيل المبلغ بنجاح.</value>
   </data>

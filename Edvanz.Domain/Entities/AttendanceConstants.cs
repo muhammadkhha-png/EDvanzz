@@ -129,6 +129,31 @@ public static class AttendanceConstants
         /// FIX H1: Duplicate attendance record detected via Edit Attendance add path.
         /// </summary>
         public const string AttendanceDuplicateRecordExists = "AttendanceDuplicateRecordExists";
+
+        // ══════════════════════════════════════════════
+        // SECTION-3 FIX — NEW MESSAGE KEYS (ATT-2/3/5/6/7)
+        // ══════════════════════════════════════════════
+
+        /// <summary>ATT-2: Required attendance status was omitted (nullable enum ⇒ detectable — CC-6).</summary>
+        public const string AttendanceStatusRequired = "AttendanceStatusRequired";
+
+        /// <summary>ATT-6: Required occurrence date was omitted on the add-record path (CC-6).</summary>
+        public const string AttendanceOccurrenceDateRequired = "AttendanceOccurrenceDateRequired";
+
+        /// <summary>ATT-5: mark-bulk recorded only some students; others were skipped (see per-student results).</summary>
+        public const string AttendanceBulkMarkedPartial = "AttendanceBulkMarkedPartial";
+
+        /// <summary>ATT-5: per-student skip reason — a cross-session visitor cannot be marked Absent here.</summary>
+        public const string AttendanceCrossSessionCannotBeAbsent = "AttendanceCrossSessionCannotBeAbsent";
+
+        /// <summary>ATT-7: report type requires a student id (SingleStudentAbsence).</summary>
+        public const string AttendanceReportStudentRequired = "AttendanceReportStudentRequired";
+
+        /// <summary>ATT-7: report type requires a session id (SessionAbsence / SessionAttendanceHistory / LinkedSessionsAttendance).</summary>
+        public const string AttendanceReportSessionRequired = "AttendanceReportSessionRequired";
+
+        /// <summary>ATT-7: report type requires a session group id (SessionGroupAttendance).</summary>
+        public const string AttendanceReportSessionGroupRequired = "AttendanceReportSessionGroupRequired";
     }
 
     // ══════════════════════════════════════════════

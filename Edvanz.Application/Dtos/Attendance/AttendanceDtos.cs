@@ -65,11 +65,12 @@ public class MarkAttendanceDto
     public long TeacherStudentId { get; set; }
 
     /// <summary>
-    /// The attendance status to record.
-    /// REQ-ATT-006: Present or Absent.
+    /// The attendance status to record. REQ-ATT-006: Present or Absent only.
+    /// NULLABLE ON PURPOSE (ATT-2 / CC-6): a non-nullable enum defaults to <c>Absent</c> (0), so an
+    /// omitted status would silently write a harmful Absent. Keeping it nullable lets the service
+    /// detect omission and reject it with a clear 400 (<c>AttendanceStatusRequired</c>) instead.
     /// </summary>
-    [Required]
-    public AttendanceStatus Status { get; set; }
+    public AttendanceStatus? Status { get; set; }
 
     /// <summary>
     /// Which method was used. REQ-ATT-006.
@@ -114,9 +115,11 @@ public class BulkMarkAttendanceDto
     [Required]
     public List<long> TeacherStudentIds { get; set; } = new();
 
-    /// <summary>The status to apply to all selected students.</summary>
-    [Required]
-    public AttendanceStatus Status { get; set; }
+    /// <summary>
+    /// The status to apply to all selected students. NULLABLE ON PURPOSE (ATT-2 / CC-6) — see
+    /// <see cref="MarkAttendanceDto.Status"/>; the service rejects a missing status with a clear 400.
+    /// </summary>
+    public AttendanceStatus? Status { get; set; }
 
     /// <summary>The method used (typically MultiSelect).</summary>
     [Required]
@@ -148,9 +151,11 @@ public class EditAttendanceDto
     [Required]
     public long AttendanceRecordId { get; set; }
 
-    /// <summary>The new status to apply.</summary>
-    [Required]
-    public AttendanceStatus NewStatus { get; set; }
+    /// <summary>
+    /// The new status to apply. NULLABLE ON PURPOSE (ATT-2/ATT-3 / CC-6) — see
+    /// <see cref="MarkAttendanceDto.Status"/>; the service rejects a missing/out-of-range status.
+    /// </summary>
+    public AttendanceStatus? NewStatus { get; set; }
 
     /// <summary>Optional reason for the edit (audit trail).</summary>
     public string? EditReason { get; set; }
@@ -178,13 +183,19 @@ public class AddAttendanceRecordDto
     [Required]
     public long TeacherStudentId { get; set; }
 
-    /// <summary>The occurrence date to add the record for.</summary>
-    [Required]
-    public DateTime OccurrenceDate { get; set; }
+    /// <summary>
+    /// The occurrence date to add the record for. NULLABLE ON PURPOSE (ATT-6 / CC-6): a non-nullable
+    /// DateTime defaults to <c>0001-01-01</c>, which the service then reads as "no scheduled occurrence"
+    /// and rejects with a misleading message. Keeping it nullable lets the service reject a missing
+    /// date with a clear 400 (<c>AttendanceOccurrenceDateRequired</c>).
+    /// </summary>
+    public DateTime? OccurrenceDate { get; set; }
 
-    /// <summary>The status to record.</summary>
-    [Required]
-    public AttendanceStatus Status { get; set; }
+    /// <summary>
+    /// The status to record. NULLABLE ON PURPOSE (ATT-2/ATT-3 / CC-6) — see
+    /// <see cref="MarkAttendanceDto.Status"/>; the service rejects a missing/out-of-range status.
+    /// </summary>
+    public AttendanceStatus? Status { get; set; }
 
     /// <summary>Who is adding the record.</summary>
     public long? RecordedByUserId { get; set; }
@@ -681,6 +692,35 @@ public class BulkMarkAttendanceResultDto
 
     /// <summary>Total absent after this operation. REQ-ATT-056.</summary>
     public int TotalAbsent { get; set; }
+
+    /// <summary>
+    /// ATT-5: Per-student outcome for every DISTINCT student id submitted — so the client can
+    /// reconcile a multi-select instead of trusting a top-level "all marked" message. One entry per
+    /// deduped id (ATT-4 collapses repeated ids); mirrors the per-entry contract of <c>/sync</c>.
+    /// </summary>
+    public List<BulkMarkStudentResultDto> Results { get; set; } = new();
+}
+
+/// <summary>
+/// ATT-5: The outcome of a single student within a <c>mark-bulk</c> batch. <see cref="Success"/> is
+/// true when the student was marked; otherwise <see cref="Code"/>/<see cref="Reason"/> explain why the
+/// student was skipped (already marked, not assigned, cross-session not linked, before enrollment, …).
+/// </summary>
+public class BulkMarkStudentResultDto
+{
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>True when a record was created for this student in this batch.</summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// Stable, language-independent reason code when skipped (e.g. <c>AttendanceDuplicateDetected</c>,
+    /// <c>AttendanceStudentNotAssigned</c>); null on success.
+    /// </summary>
+    public string? Code { get; set; }
+
+    /// <summary>Localized human-readable reason when skipped; null on success.</summary>
+    public string? Reason { get; set; }
 }
 
 /// <summary>

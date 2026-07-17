@@ -550,7 +550,7 @@
     <value>Attendance recorded for all selected students</value>
   </data>
   <data name="AttendanceDuplicateDetected" xml:space="preserve">
-    <value>This student has already been marked as present for this session occurrence</value>
+    <value>This student has already been marked for this session occurrence</value>
   </data>
   <data name="AttendanceAbsenceAlertPending" xml:space="preserve">
     <value>This student was absent in previous sessions. Please confirm to proceed</value>
@@ -671,6 +671,27 @@
   </data>
   <data name="AttendanceDuplicateRecordExists" xml:space="preserve">
     <value>An attendance record already exists for this student on this session occurrence. Duplicate records are not permitted.</value>
+  </data>
+  <data name="AttendanceStatusRequired" xml:space="preserve">
+    <value>Attendance status is required. Specify Present or Absent.</value>
+  </data>
+  <data name="AttendanceOccurrenceDateRequired" xml:space="preserve">
+    <value>The occurrence date is required.</value>
+  </data>
+  <data name="AttendanceBulkMarkedPartial" xml:space="preserve">
+    <value>Attendance was recorded for some of the selected students; the rest were skipped. See the per-student results for details.</value>
+  </data>
+  <data name="AttendanceCrossSessionCannotBeAbsent" xml:space="preserve">
+    <value>A visiting (cross-session) student can't be marked absent in this session.</value>
+  </data>
+  <data name="AttendanceReportStudentRequired" xml:space="preserve">
+    <value>This report type requires a student. Provide a teacherStudentId.</value>
+  </data>
+  <data name="AttendanceReportSessionRequired" xml:space="preserve">
+    <value>This report type requires a session. Provide a sessionId.</value>
+  </data>
+  <data name="AttendanceReportSessionGroupRequired" xml:space="preserve">
+    <value>This report type requires a session group. Provide a sessionGroupId.</value>
   </data>
   <data name="PaymentCollectedSuccess" xml:space="preserve">
     <value>Payment collected successfully.</value>
