@@ -1509,6 +1509,14 @@ public class AttendanceService : IAttendanceService
 
             await _unitOfWork.AttendanceRepo.AddAttendanceRecordAsync(record);
 
+            // ATT-9 (add path): flush the new record BEFORE updating the counter, so the streak
+            // recompute inside UpdateAbsenceCounterForAddedRecord (RecalculateConsecutiveAbsencesAsync,
+            // a DB query that can't see un-flushed changes) counts the record just added. Without this
+            // flush, /add returned consecutiveAbsences one short — computed from the pre-insert state —
+            // until the student's next counter write healed it. (The Total*/Last* maintenance in that
+            // method is unaffected: it increments the counter in memory regardless of flush order.)
+            await _unitOfWork.SaveChangesAsync();
+
             await UpdateAbsenceCounterForAddedRecord(dto.TeacherId, dto.TeacherStudentId,
                 addStatus, mt.RecordOccurrenceDate.Date, session.SessionName, dto.SessionId);
 
