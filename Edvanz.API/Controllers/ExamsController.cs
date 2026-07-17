@@ -48,10 +48,11 @@ public class ExamsController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // UPDATE EXAM — edit metadata (name, notes, grade bounds, date)
+    // UPDATE EXAM — resubmit of the create fields
     // PUT /api/exams/{examId}
-    // Recipients (sessions/students) are managed via the assignment-template
-    // scope/student endpoints; this edits the exam's own fields only. Homework
+    // Metadata (name, notes, grade bounds) always editable; structural fields
+    // (delivery type, per-session occurrence picks / separate date, sessions/
+    // groups/students) rebuild the exam and 409 once results exist. Homework
     // templates 404 here (this surface owns exams only).
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPut("{examId:long}")]
@@ -72,7 +73,8 @@ public class ExamsController : ModuleSixApiBaseController
     // ══════════════════════════════════════════════════════════════════════════
     // SESSION EXAM-DATE PICKER (during-session)
     // GET /api/exams/session-dates?sessionId=&year=&month=
-    // Returns the session's scheduled occurrences in the month, to pick the exam date from.
+    // Returns the session's scheduled occurrences in the month. Called once PER resolved
+    // session: the picked sessionOccurrenceId goes into create/update sessionOccurrences[].
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("session-dates")]
     [ModulePermission("Exams And Homework", "View")]

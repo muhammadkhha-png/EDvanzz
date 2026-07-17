@@ -80,112 +80,20 @@ public class ExamService : IExamService
         if (dto.SuccessScore > dto.MaxGrade)
             return Fail("SuccessScoreExceedsMax");
 
-        if (dto.ExamDate is null)
-            return Fail("ExamDateRequired");
-
-        // Recipient is EITHER sessions OR groups (leave the other null/empty). Groups expand to sessions below.
-        bool hasSessions = dto.SessionIds is { Count: > 0 };
-        bool hasGroups = dto.GroupIds is { Count: > 0 };
-        if (hasSessions == hasGroups)
-            return Fail("SelectEitherSessionsOrGroups");
-
         DateTime utcNow = DateTime.UtcNow;
-        DateTime today = utcNow.Date;
 
-        DateTime examDate = dto.ExamDate.Value.Date;
-        if (dto.DeliveryType == ExamDeliveryType.SeparateTime && examDate < today)
-            return Fail("AssignmentDateInPast");
+        // ── 2. Dates + recipient + per-session plan (single pipeline shared with update) ──
+        // DuringSession anchors EVERY resolved session to its own picked class occurrence
+        // (dto.SessionOccurrences); SeparateTime applies the single dto.ExamDate to all.
+        var build = await BuildSessionPlansAsync(
+            teacherId, dto.DeliveryType, dto.ExamDate, dto.SessionOccurrences,
+            dto.SessionIds, dto.GroupIds, dto.StudentIds);
+        if (build.ErrorKey is not null)
+            return Fail(build.ErrorKey, build.ErrorStatus);
 
-        // ── 2. Resolve the recipient into the set of target sessions ─────────
-        var groupIds = new List<long>();
-        List<long> targetSessionIds;
-        if (hasGroups)
-        {
-            groupIds = dto.GroupIds!.Distinct().ToList();
-            foreach (var gid in groupIds)
-            {
-                var group = await _unitOfWork.SessionsRepo.GetGroupByIdAndTeacherAsync(gid, teacherId);
-                if (group is null)
-                    return Fail("GroupNotFoundOrForeign", HttpStatusCode.NotFound);
-            }
-            var groupSessions = await _unitOfWork.SessionsRepo
-                .GetSessionsByGroupIdsAsync(teacherId, groupIds);
-            targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
-        }
-        else
-        {
-            targetSessionIds = dto.SessionIds!.Distinct().ToList();
-            foreach (var sid in targetSessionIds)
-            {
-                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
-                if (session is null)
-                    return Fail("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
-            }
-        }
-
-        if (targetSessionIds.Count == 0)
-            return Fail("ExamRequiresSession");
-
-        // Optional global student subset, validated against the union of the target sessions.
-        HashSet<long>? studentFilter = dto.StudentIds is { Count: > 0 }
-            ? dto.StudentIds.Distinct().ToHashSet()
-            : null;
-        var matchedFilterStudents = new HashSet<long>();
-
-        // ── 2b. Build a per-session materialization plan ─────────────────────
-        var plans = new List<SessionPlan>();
-        foreach (var sessionId in targetSessionIds)
-        {
-            DateTime dueDate;
-            long? sessionOccurrenceId = null;
-
-            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
-            {
-                // One date for the exam: each targeted session must have a scheduled class that day.
-                var occ = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceBySessionAndDateAsync(sessionId, examDate);
-                if (occ is null)
-                    return Fail("SessionOccurrenceNotFoundForDate", HttpStatusCode.NotFound);
-                dueDate = occ.OccurrenceDate.Date;
-                sessionOccurrenceId = occ.Id;
-            }
-            else
-            {
-                dueDate = examDate;
-            }
-
-            var sessionStudentSet = (await _unitOfWork.PaymentsRepo
-                .GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
-
-            List<long> studentIds;
-            if (studentFilter is not null)
-            {
-                studentIds = sessionStudentSet.Where(studentFilter.Contains).ToList();
-                foreach (var id in studentIds) matchedFilterStudents.Add(id);
-            }
-            else
-            {
-                studentIds = sessionStudentSet.ToList();
-            }
-
-            if (studentIds.Count == 0)
-                continue;   // skip an empty session (common when expanding a group)
-
-            plans.Add(new SessionPlan
-            {
-                SessionId = sessionId,
-                DueDate = dueDate,
-                SessionOccurrenceId = sessionOccurrenceId,
-                StudentIds = studentIds,
-            });
-        }
-
-        // Every explicitly-listed student must belong to one of the target sessions.
-        if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
-            return Fail("StudentNotInSession");
-
-        if (plans.Count == 0)
-            return Fail("SessionHasNoStudents");
+        bool hasGroups = build.HasGroups;
+        List<long> groupIds = build.GroupIds;
+        List<SessionPlan> plans = build.Plans;
 
         // ── 3. Build the entity graph: template → session scopes → per-session occurrences → obligations ──
         var template = new AssignmentTemplate
@@ -333,77 +241,18 @@ public class ExamService : IExamService
         if (dto.MaxGrade <= 0m) return FailView("ExamRequiresMaxGrade");
         if (dto.SuccessScore < 0m) return FailView("PassingThresholdOutOfRange");
         if (dto.SuccessScore > dto.MaxGrade) return FailView("SuccessScoreExceedsMax");
-        if (dto.ExamDate is null) return FailView("ExamDateRequired");
-
-        bool hasSessions = dto.SessionIds is { Count: > 0 };
-        bool hasGroups = dto.GroupIds is { Count: > 0 };
-        if (hasSessions == hasGroups) return FailView("SelectEitherSessionsOrGroups");
-
         DateTime utcNow = DateTime.UtcNow;
-        DateTime today = utcNow.Date;
-        DateTime examDate = dto.ExamDate.Value.Date;
-        if (dto.DeliveryType == ExamDeliveryType.SeparateTime && examDate < today)
-            return FailView("AssignmentDateInPast");
 
-        // ── Resolve the recipient into the set of target sessions (validate ownership) ──
-        var groupIds = new List<long>();
-        List<long> targetSessionIds;
-        if (hasGroups)
-        {
-            groupIds = dto.GroupIds!.Distinct().ToList();
-            foreach (var gid in groupIds)
-            {
-                var group = await _unitOfWork.SessionsRepo.GetGroupByIdAndTeacherAsync(gid, teacherId);
-                if (group is null) return FailView("GroupNotFoundOrForeign", HttpStatusCode.NotFound);
-            }
-            var groupSessions = await _unitOfWork.SessionsRepo.GetSessionsByGroupIdsAsync(teacherId, groupIds);
-            targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
-        }
-        else
-        {
-            targetSessionIds = dto.SessionIds!.Distinct().ToList();
-            foreach (var sid in targetSessionIds)
-            {
-                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
-                if (session is null) return FailView("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
-            }
-        }
-        if (targetSessionIds.Count == 0) return FailView("ExamRequiresSession");
+        // ── Dates + recipient + per-session plan (single pipeline shared with create) ──
+        var build = await BuildSessionPlansAsync(
+            teacherId, dto.DeliveryType, dto.ExamDate, dto.SessionOccurrences,
+            dto.SessionIds, dto.GroupIds, dto.StudentIds);
+        if (build.ErrorKey is not null)
+            return FailView(build.ErrorKey, build.ErrorStatus);
 
-        HashSet<long>? studentFilter = dto.StudentIds is { Count: > 0 }
-            ? dto.StudentIds.Distinct().ToHashSet() : null;
-        var matchedFilterStudents = new HashSet<long>();
-
-        // ── Build the per-session materialization plan for the NEW selection ──
-        var plans = new List<SessionPlan>();
-        foreach (var sessionId in targetSessionIds)
-        {
-            DateTime dueDate;
-            long? sessionOccurrenceId = null;
-            if (dto.DeliveryType == ExamDeliveryType.DuringSession)
-            {
-                var occ = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndDateAsync(sessionId, examDate);
-                if (occ is null) return FailView("SessionOccurrenceNotFoundForDate", HttpStatusCode.NotFound);
-                dueDate = occ.OccurrenceDate.Date;
-                sessionOccurrenceId = occ.Id;
-            }
-            else dueDate = examDate;
-
-            var sessionStudentSet = (await _unitOfWork.PaymentsRepo.GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
-            List<long> studentIds;
-            if (studentFilter is not null)
-            {
-                studentIds = sessionStudentSet.Where(studentFilter.Contains).ToList();
-                foreach (var id in studentIds) matchedFilterStudents.Add(id);
-            }
-            else studentIds = sessionStudentSet.ToList();
-
-            if (studentIds.Count == 0) continue;
-            plans.Add(new SessionPlan { SessionId = sessionId, DueDate = dueDate, SessionOccurrenceId = sessionOccurrenceId, StudentIds = studentIds });
-        }
-        if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
-            return FailView("StudentNotInSession");
-        if (plans.Count == 0) return FailView("SessionHasNoStudents");
+        bool hasGroups = build.HasGroups;
+        List<long> groupIds = build.GroupIds;
+        List<SessionPlan> plans = build.Plans;
 
         var newSessionIds = plans.Select(p => p.SessionId).ToHashSet();
         var newStudentIds = plans.SelectMany(p => p.StudentIds).ToHashSet();
@@ -412,7 +261,13 @@ public class ExamService : IExamService
         var (currentOccurrences, _) = await _unitOfWork.ExamHomeworkRepo
             .GetOccurrencesByTemplatePagedAsync(teacherId, examId, 1, 1000);
         var currentSessionIds = currentOccurrences.Where(o => o.SessionId.HasValue).Select(o => o.SessionId!.Value).ToHashSet();
-        DateTime? currentDate = currentOccurrences.Count > 0 ? currentOccurrences.Min(o => o.DueDate).Date : (DateTime?)null;
+
+        // Current per-session anchors — an exam holds exactly one occurrence per session by
+        // construction, each with its own date (and linked class occurrence when DuringSession).
+        var currentAnchors = new Dictionary<long, (DateTime Date, long? SessionOccurrenceId)>();
+        foreach (var occ in currentOccurrences.Where(o => o.SessionId.HasValue))
+            currentAnchors[occ.SessionId!.Value] = (occ.DueDate.Date, occ.SessionOccurrenceId);
+
         var currentStudentIds = new HashSet<long>();
         bool hasResults = false;
         foreach (var occ in currentOccurrences)
@@ -425,9 +280,14 @@ public class ExamService : IExamService
             }
         }
 
+        bool anchorsChanged = plans.Count != currentAnchors.Count
+            || plans.Any(p => !currentAnchors.TryGetValue(p.SessionId, out var anchor)
+                              || anchor.Date != p.DueDate.Date
+                              || anchor.SessionOccurrenceId != p.SessionOccurrenceId);
+
         bool structuralChange =
             dto.DeliveryType != template.ExamDeliveryType ||
-            currentDate is null || currentDate.Value != examDate ||
+            anchorsChanged ||
             !newSessionIds.SetEquals(currentSessionIds) ||
             !newStudentIds.SetEquals(currentStudentIds);
 
@@ -513,11 +373,14 @@ public class ExamService : IExamService
         else
         {
             // Metadata-only (no structural/date change): reuse the shared, tested template edit.
+            // AssignmentDate stays null — this branch is only reached when every per-session
+            // anchor is unchanged, and sending a date would trip the legacy past-date guard on
+            // exams whose (perfectly valid) dates have already passed.
             var templateEdit = new UpdateAssignmentTemplateDto
             {
                 Name = dto.Name.Trim(),
                 Notes = dto.Notes,
-                AssignmentDate = examDate,
+                AssignmentDate = null,
                 MaxGrade = dto.MaxGrade,
                 PassingThreshold = dto.SuccessScore,
                 RowVersion = template.RowVersion
@@ -1157,6 +1020,182 @@ public class ExamService : IExamService
         // Re-envelope with the exams-surface code (200 + body: the frontend branches on
         // `code`, which a legacy-style 204 cannot carry).
         return Result<bool>.Success(true, _localizer, "ExamDeleted");
+    }
+
+    /// <summary>
+    /// Shared create/update request pipeline (single-sourced so the two surfaces can never drift):
+    /// validates the delivery-type date contract, resolves the recipient (sessions XOR groups,
+    /// groups expanding to their member sessions) into owned target sessions, and materializes one
+    /// <see cref="SessionPlan"/> per session that has students. DuringSession anchors EVERY
+    /// resolved session — group members included — to its own picked class occurrence from
+    /// <paramref name="sessionOccurrences"/> (the original per-session design, restored after the
+    /// single-examDate regression); SeparateTime applies the single <paramref name="examDate"/>
+    /// (today or future) to all. A non-null <c>ErrorKey</c> means validation failed and the caller
+    /// returns it verbatim.
+    /// </summary>
+    private async Task<SessionPlanBuild> BuildSessionPlansAsync(
+        long teacherId,
+        ExamDeliveryType deliveryType,
+        DateTime? examDate,
+        List<ExamSessionOccurrenceDto>? sessionOccurrences,
+        List<long>? sessionIds,
+        List<long>? groupIds,
+        List<long>? studentIds)
+    {
+        static SessionPlanBuild Invalid(string key, HttpStatusCode status = HttpStatusCode.BadRequest) =>
+            new() { ErrorKey = key, ErrorStatus = status };
+
+        // ── Delivery-type date contract ──────────────────────────────────────
+        var occurrenceBySession = new Dictionary<long, long>();
+        DateTime separateDate = default;
+        if (deliveryType == ExamDeliveryType.DuringSession)
+        {
+            // Per-session anchors ONLY: each resolved session picks its own class occurrence.
+            if (examDate is not null)
+                return Invalid("ExamDateOnlyForSeparateTime");
+            if (sessionOccurrences is not { Count: > 0 })
+                return Invalid("SessionOccurrenceRequired");
+            foreach (var entry in sessionOccurrences)
+            {
+                if (entry.SessionId is null || entry.SessionOccurrenceId is null)
+                    return Invalid("SessionOccurrenceRequired");
+                if (!occurrenceBySession.TryAdd(entry.SessionId.Value, entry.SessionOccurrenceId.Value))
+                    return Invalid("DuplicateSessionInExam");
+            }
+        }
+        else
+        {
+            // Single standalone date ONLY (today or future).
+            if (sessionOccurrences is { Count: > 0 })
+                return Invalid("SessionOccurrencesOnlyForDuringSession");
+            if (examDate is null)
+                return Invalid("ExamDateRequired");
+            separateDate = examDate.Value.Date;
+            if (separateDate < DateTime.UtcNow.Date)
+                return Invalid("AssignmentDateInPast");
+        }
+
+        // ── Recipient: EITHER sessions OR groups (groups expand server-side) ──
+        bool hasSessions = sessionIds is { Count: > 0 };
+        bool hasGroups = groupIds is { Count: > 0 };
+        if (hasSessions == hasGroups)
+            return Invalid("SelectEitherSessionsOrGroups");
+
+        var resolvedGroupIds = new List<long>();
+        List<long> targetSessionIds;
+        if (hasGroups)
+        {
+            resolvedGroupIds = groupIds!.Distinct().ToList();
+            foreach (var gid in resolvedGroupIds)
+            {
+                var group = await _unitOfWork.SessionsRepo.GetGroupByIdAndTeacherAsync(gid, teacherId);
+                if (group is null)
+                    return Invalid("GroupNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+            var groupSessions = await _unitOfWork.SessionsRepo
+                .GetSessionsByGroupIdsAsync(teacherId, resolvedGroupIds);
+            targetSessionIds = groupSessions.Select(s => s.Id).Distinct().ToList();
+        }
+        else
+        {
+            targetSessionIds = sessionIds!.Distinct().ToList();
+            foreach (var sid in targetSessionIds)
+            {
+                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, teacherId);
+                if (session is null)
+                    return Invalid("SessionNotFoundOrForeign", HttpStatusCode.NotFound);
+            }
+        }
+
+        if (targetSessionIds.Count == 0)
+            return Invalid("ExamRequiresSession");
+
+        // DuringSession: the anchors must cover EXACTLY the resolved sessions — every selected
+        // session (and every member session of a selected group) needs its picked occurrence.
+        if (deliveryType == ExamDeliveryType.DuringSession)
+        {
+            var targetSet = targetSessionIds.ToHashSet();
+            foreach (var anchoredSessionId in occurrenceBySession.Keys)
+                if (!targetSet.Contains(anchoredSessionId))
+                    return Invalid("SessionOccurrenceForUnselectedSession");
+            if (occurrenceBySession.Count != targetSet.Count)
+                return Invalid("SessionOccurrenceRequired");
+        }
+
+        // ── Per-session materialization plan ─────────────────────────────────
+        // Optional global student subset, validated against the union of the target sessions.
+        HashSet<long>? studentFilter = studentIds is { Count: > 0 }
+            ? studentIds.Distinct().ToHashSet()
+            : null;
+        var matchedFilterStudents = new HashSet<long>();
+
+        var plans = new List<SessionPlan>();
+        foreach (var sessionId in targetSessionIds)
+        {
+            DateTime dueDate;
+            long? sessionOccurrenceId = null;
+
+            if (deliveryType == ExamDeliveryType.DuringSession)
+            {
+                // The picked occurrence must exist, be the teacher's, and belong to THIS session.
+                // Its (possibly past) date becomes the session's exam date; the class's recorded
+                // attendance back-fills the exam after commit.
+                var occ = await _unitOfWork.AttendanceRepo
+                    .GetOccurrenceByIdAndTeacherAsync(occurrenceBySession[sessionId], teacherId);
+                if (occ is null || occ.SessionId != sessionId)
+                    return Invalid("SessionOccurrenceNotFound", HttpStatusCode.NotFound);
+                dueDate = occ.OccurrenceDate.Date;
+                sessionOccurrenceId = occ.Id;
+            }
+            else
+            {
+                dueDate = separateDate;
+            }
+
+            var sessionStudentSet = (await _unitOfWork.PaymentsRepo
+                .GetStudentIdsBySessionAsync(teacherId, sessionId)).ToHashSet();
+
+            List<long> planStudentIds;
+            if (studentFilter is not null)
+            {
+                planStudentIds = sessionStudentSet.Where(studentFilter.Contains).ToList();
+                foreach (var id in planStudentIds) matchedFilterStudents.Add(id);
+            }
+            else
+            {
+                planStudentIds = sessionStudentSet.ToList();
+            }
+
+            if (planStudentIds.Count == 0)
+                continue;   // skip an empty session (common when expanding a group)
+
+            plans.Add(new SessionPlan
+            {
+                SessionId = sessionId,
+                DueDate = dueDate,
+                SessionOccurrenceId = sessionOccurrenceId,
+                StudentIds = planStudentIds,
+            });
+        }
+
+        // Every explicitly-listed student must belong to one of the target sessions.
+        if (studentFilter is not null && matchedFilterStudents.Count != studentFilter.Count)
+            return Invalid("StudentNotInSession");
+
+        if (plans.Count == 0)
+            return Invalid("SessionHasNoStudents");
+
+        return new SessionPlanBuild { HasGroups = hasGroups, GroupIds = resolvedGroupIds, Plans = plans };
+    }
+
+    /// <summary>Outcome of <see cref="BuildSessionPlansAsync"/> — either an error key or the materialization plan.</summary>
+    private sealed class SessionPlanBuild
+    {
+        public string? ErrorKey { get; init; }
+        public HttpStatusCode ErrorStatus { get; init; } = HttpStatusCode.BadRequest;
+        public bool HasGroups { get; init; }
+        public List<long> GroupIds { get; init; } = new();
+        public List<SessionPlan> Plans { get; init; } = new();
     }
 
     /// <summary>Internal per-session materialization plan (mutated with the built occurrence).</summary>

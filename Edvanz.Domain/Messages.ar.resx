@@ -1104,6 +1104,15 @@
   <data name="SessionOccurrenceNotFoundForDate" xml:space="preserve">
     <value>واحدة من السيشنز المختارة مفيش عندها حصة في تاريخ الامتحان</value>
   </data>
+  <data name="ExamDateOnlyForSeparateTime" xml:space="preserve">
+    <value>الامتحان اللي جوه السيشن بيتحدد لكل سيشن لوحدها — اختار تاريخ الحصة لكل سيشن بدل تاريخ واحد للامتحان</value>
+  </data>
+  <data name="SessionOccurrencesOnlyForDuringSession" xml:space="preserve">
+    <value>تواريخ الحصص لكل سيشن بتكون للامتحان اللي جوه السيشن بس — امتحان الوقت المنفصل ليه تاريخ واحد</value>
+  </data>
+  <data name="SessionOccurrenceForUnselectedSession" xml:space="preserve">
+    <value>اتبعت تاريخ حصة لسيشن مش من سيشنز الامتحان</value>
+  </data>
   <data name="AmbiguousStudentInExam" xml:space="preserve">
     <value>الطالب ده ليه أكتر من إدخال في الامتحان؛ حدد السيشن</value>
   </data>

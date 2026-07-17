@@ -8,6 +8,8 @@ namespace Edvanz.Application.Dtos.Exams;
 /// English — there is no separate bilingual name. Every exam is anchored to one or more sessions;
 /// the recipient "Groups"/"Students" picks in the UI resolve to the per-session entries below
 /// (a group → its sessions; a specific student → their session with that student in StudentIds).
+/// Dates depend on the delivery type: DuringSession = one picked class occurrence PER resolved
+/// session in <see cref="SessionOccurrences"/>; SeparateTime = the single <see cref="ExamDate"/>.
 /// </summary>
 public class CreateExamDto
 {
@@ -28,11 +30,19 @@ public class CreateExamDto
     public decimal SuccessScore { get; set; }
 
     /// <summary>
-    /// The single exam date, applied to every resolved session. Required.
-    /// SeparateTime: the exam's own date (today or future). DuringSession: the date whose scheduled
-    /// class (per session) the exam is taken in — each targeted session must have a class that day.
+    /// SeparateTime ONLY: the exam's own single date (today or future), applied to every resolved
+    /// session. Must be omitted for DuringSession, which anchors each session to its own picked
+    /// class occurrence in <see cref="SessionOccurrences"/> instead.
     /// </summary>
     public DateTime? ExamDate { get; set; }
+
+    /// <summary>
+    /// DuringSession ONLY: the picked class occurrence of EVERY resolved session — exactly one
+    /// entry per selected session, or per member session of the selected groups (the picked
+    /// occurrences may fall on different dates across sessions). Pick each session's occurrence
+    /// from <c>GET /api/exams/session-dates</c>. Must be omitted for SeparateTime.
+    /// </summary>
+    public List<ExamSessionOccurrenceDto>? SessionOccurrences { get; set; }
 
     /// <summary>
     /// Recipient by sessions — the session ids. Provide EITHER <see cref="SessionIds"/> OR
@@ -48,6 +58,25 @@ public class CreateExamDto
 
     /// <summary>Optional global student subset across the resolved sessions; null/empty = every student.</summary>
     public List<long>? StudentIds { get; set; }
+}
+
+/// <summary>
+/// One during-session exam anchor: a targeted session and the scheduled class occurrence the exam
+/// is taken in (its date becomes that session's exam date and its attendance drives the exam).
+/// Used by <see cref="CreateExamDto.SessionOccurrences"/> / <see cref="UpdateExamDto.SessionOccurrences"/>.
+/// </summary>
+public class ExamSessionOccurrenceDto
+{
+    /// <summary>The session id — must be one of the exam's resolved sessions (selected directly or via a group).</summary>
+    [Required]
+    public long? SessionId { get; set; }
+
+    /// <summary>
+    /// The picked class occurrence of that session (from <c>GET /api/exams/session-dates</c>).
+    /// Must belong to the session; may be in the past (attendance is back-filled from the class).
+    /// </summary>
+    [Required]
+    public long? SessionOccurrenceId { get; set; }
 }
 
 /// <summary>
@@ -76,8 +105,14 @@ public class UpdateExamDto
     /// <summary>Passing / success score (0 ≤ value ≤ MaxGrade).</summary>
     public decimal SuccessScore { get; set; }
 
-    /// <summary>The single exam date, applied to every resolved session. Required. Structural.</summary>
+    /// <summary>SeparateTime ONLY: the exam's own single date (today or future). Structural.</summary>
     public DateTime? ExamDate { get; set; }
+
+    /// <summary>
+    /// DuringSession ONLY: the picked class occurrence of EVERY resolved session (one entry per
+    /// selected session or per member session of the selected groups). Structural.
+    /// </summary>
+    public List<ExamSessionOccurrenceDto>? SessionOccurrences { get; set; }
 
     /// <summary>Recipient by sessions — provide EITHER this OR <see cref="GroupIds"/>. Structural.</summary>
     public List<long>? SessionIds { get; set; }

@@ -1104,6 +1104,15 @@
   <data name="SessionOccurrenceNotFoundForDate" xml:space="preserve">
     <value>One of the selected sessions has no scheduled class on the exam date</value>
   </data>
+  <data name="ExamDateOnlyForSeparateTime" xml:space="preserve">
+    <value>A during-session exam is scheduled per session — pick each session's class date instead of one exam date</value>
+  </data>
+  <data name="SessionOccurrencesOnlyForDuringSession" xml:space="preserve">
+    <value>Per-session class dates apply only to a during-session exam — a separate-time exam takes one exam date</value>
+  </data>
+  <data name="SessionOccurrenceForUnselectedSession" xml:space="preserve">
+    <value>A class date was sent for a session that is not part of the exam</value>
+  </data>
   <data name="AmbiguousStudentInExam" xml:space="preserve">
     <value>This student has more than one entry in the exam; specify the session</value>
   </data>

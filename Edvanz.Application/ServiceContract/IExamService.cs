@@ -12,17 +12,20 @@ namespace Edvanz.Application.ServiceContract;
 public interface IExamService
 {
     /// <summary>
-    /// Creates an offline exam. Builds ONE occurrence per anchored session — DuringSession links a
-    /// scheduled <c>SessionOccurrence</c> (its date + attendance drive the exam); SeparateTime uses
-    /// its own date — and creates a Pending obligation for each session's students.
+    /// Creates an offline exam. Builds ONE occurrence per anchored session — DuringSession links
+    /// EACH resolved session (group members included) to its own picked scheduled
+    /// <c>SessionOccurrence</c> (its date + attendance drive the exam); SeparateTime applies the
+    /// single exam date — and creates a Pending obligation for each session's students.
     /// </summary>
     Task<Result<ExamCreatedDto>> CreateExamAsync(long teacherId, long actingUserId, CreateExamDto dto);
 
     /// <summary>
-    /// Edits an existing exam's metadata — name, notes, max/success score, and (for a non-recurring
-    /// exam) its date — delegating persistence to the shared assignment-template update flow. Scoped
-    /// to exam templates (<c>AssignmentType.Exam</c>); homework returns <c>ExamNotFound</c>. Recipients
-    /// (sessions/students) are NOT edited here. Returns the refreshed opened-exam view.
+    /// Edits an existing exam. Metadata (name, notes, grade bounds) is always editable; STRUCTURAL
+    /// fields (delivery type, the per-session occurrence picks / separate date, and the assigned
+    /// sessions/groups/students) rebuild the exam graph and are rejected once any attendance or
+    /// grade exists (<c>ExamHasResultsCannotRestructure</c>). Scoped to exam templates
+    /// (<c>AssignmentType.Exam</c>); homework returns <c>ExamNotFound</c>. Returns the refreshed
+    /// opened-exam view.
     /// </summary>
     Task<Result<ExamViewDto>> UpdateExamAsync(long teacherId, long actingUserId, long examId, UpdateExamDto dto);
 

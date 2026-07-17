@@ -1,4 +1,4 @@
-# Exams API — Plain-English Guide (v1.2)
+# Exams API — Plain-English Guide (v1.3)
 
 A simple explanation of every `/api/exams` endpoint and what each parameter does.
 Pairs with the OpenAPI file (`exams-openapi.json`).
@@ -20,16 +20,29 @@ Pairs with the OpenAPI file (`exams-openapi.json`).
   student's grade. If someone else changed the row in the meantime, you get **409** — reload and retry.
 - **Batch calls (grades & attendance) can partly fail but still return 200** — always check
   `data.allSucceeded` and each `data.items[].success` / `.code`.
-- **What's new in v1.2:** create takes **sessionIds or groupIds** + one **examDate**; **home is
-  paginated** and shows each exam's scope; **grades/attendance are keyed by `teacherStudentId`**
-  (grades also take `examId`).
+- **What's new in v1.3:** a **DuringSession** exam is dated **per session** again — every resolved
+  session (including each member session of a selected group) sends its own picked class occurrence
+  in `sessionOccurrences: [{ sessionId, sessionOccurrenceId }]`; the single `examDate` now belongs
+  to **SeparateTime only**. Same shape on `PUT /api/exams/{examId}`.
+- **From v1.2 (unchanged):** create takes **sessionIds or groupIds**; **home is paginated** and
+  shows each exam's scope; **grades/attendance are keyed by `teacherStudentId`** (grades also
+  take `examId`).
 
 ---
 
 ## 1. Create an exam — `POST /api/exams`
 
-Creates a new exam for **either sessions or groups**, on **one date**. Groups are expanded to their
-member sessions on the server. One occurrence is made per resolved session, one row per student.
+Creates a new exam for **either sessions or groups**. Groups are expanded to their member sessions
+on the server. One occurrence is made per resolved session, one row per student.
+
+**How dates work (depends on `deliveryType`):**
+- `DuringSession` — **each resolved session picks its own class occurrence** in
+  `sessionOccurrences`: exactly one entry per selected session, and per member session of every
+  selected group. Fetch each session's occurrences from `GET /api/exams/session-dates` (§2). Do
+  **not** send `examDate`. A picked class may be in the past — its recorded attendance back-fills
+  the exam automatically.
+- `SeparateTime` — one standalone `examDate` (today or future) for the whole exam. Do **not** send
+  `sessionOccurrences`.
 
 **Body fields:**
 - `name` *(required)* — the exam name. One name, Arabic or English. Max 200 characters.
@@ -37,33 +50,49 @@ member sessions on the server. One occurrence is made per resolved session, one 
 - `deliveryType` *(required)* — `DuringSession` or `SeparateTime` (see top).
 - `maxGrade` *(required)* — full mark, > 0.
 - `successScore` *(required)* — passing mark, between 0 and `maxGrade`.
-- `examDate` *(required)* — **one date for the whole exam.** SeparateTime: the exam's own date (today or future). DuringSession: each targeted session must have a scheduled class on that date.
+- `examDate` *(SeparateTime only)* — the exam's own date, today or future.
+- `sessionOccurrences` *(DuringSession only)* — `[{ sessionId, sessionOccurrenceId }]`: the picked
+  class of EVERY resolved session (the picks may fall on different dates per session).
 - `sessionIds` *(one of these)* — recipient by sessions.
 - `groupIds` *(one of these)* — recipient by groups; each expands to its member sessions. **Send EITHER `sessionIds` OR `groupIds`** (leave the other null/empty).
 - `studentIds` *(optional)* — a global subset of students across the resolved sessions; omit = all.
 
 ```jsonc
-// by sessions:
+// during-session, by sessions — each session anchors to its own picked class:
+{ "name": "امتحان الوحدة الأولى", "deliveryType": "DuringSession", "maxGrade": 30, "successScore": 15,
+  "sessionIds": [36, 37],
+  "sessionOccurrences": [ { "sessionId": 36, "sessionOccurrenceId": 410 },
+                          { "sessionId": 37, "sessionOccurrenceId": 498 } ] }
+// during-session, by group — one entry per member session of the group:
+{ "name": "Quiz 3", "deliveryType": "DuringSession", "maxGrade": 10, "successScore": 5,
+  "groupIds": [2],
+  "sessionOccurrences": [ { "sessionId": 36, "sessionOccurrenceId": 410 },
+                          { "sessionId": 37, "sessionOccurrenceId": 498 } ] }
+// separate-time — one standalone date:
 { "name": "Midterm", "deliveryType": "SeparateTime", "maxGrade": 80, "successScore": 40,
   "examDate": "2026-07-20", "sessionIds": [36, 37] }
-// by groups:
-{ "name": "Unit Exam", "deliveryType": "SeparateTime", "maxGrade": 100, "successScore": 50,
-  "examDate": "2026-07-21", "groupIds": [2] }
 ```
 
 **Returns (201):** the new `examId`, and per resolved session its `occurrenceId` + assigned count.
 
-**Common error codes:** `SelectEitherSessionsOrGroups`, `ExamDateRequired`, `SuccessScoreExceedsMax`,
-`ExamRequiresMaxGrade`, `AssignmentDateInPast`, `StudentNotInSession`, `SessionHasNoStudents`;
-404: `SessionNotFoundOrForeign`, `GroupNotFoundOrForeign`, `SessionOccurrenceNotFoundForDate`
-(a during-session target has no class on `examDate`).
+**Common error codes:** `SelectEitherSessionsOrGroups`, `SuccessScoreExceedsMax`,
+`ExamRequiresMaxGrade`, `StudentNotInSession`, `SessionHasNoStudents`;
+404: `SessionNotFoundOrForeign`, `GroupNotFoundOrForeign`.
+During-session: `SessionOccurrenceRequired` (missing `sessionOccurrences`, or a resolved session
+without an entry), `DuplicateSessionInExam` (a session listed twice),
+`SessionOccurrenceForUnselectedSession` (an entry for a session outside the exam),
+`ExamDateOnlyForSeparateTime` (sent `examDate`), 404 `SessionOccurrenceNotFound` (the picked class
+doesn't exist or belongs to another session).
+Separate-time: `ExamDateRequired`, `AssignmentDateInPast`,
+`SessionOccurrencesOnlyForDuringSession` (sent `sessionOccurrences`).
 
 ---
 
 ## 2. Pick a class date — `GET /api/exams/session-dates`
 
-Helper for **DuringSession**: lists the class dates in a month so the teacher can see which dates
-have a class (then send that date as `examDate`).
+Helper for **DuringSession**: lists one session's class dates in a month. Call it **once per
+resolved session** (for a group: once per member session) and put each picked
+`sessionOccurrenceId` into the create/update `sessionOccurrences` array.
 
 **Query parameters:** `sessionId` *(req)*, `year` *(req)*, `month` *(req, 1–12)*.
 **Returns:** `{ sessionOccurrenceId, date, status }[]`. Here `status` is the **class meeting's** state
@@ -181,7 +210,7 @@ The normal app home/attendance dashboard, now exam-aware. `date` *(optional)*. S
 
 ## The typical flow
 
-1. **Create** → `POST /api/exams` (sessions or groups + one date; use `GET /session-dates` to find during-session dates).
+1. **Create** → `POST /api/exams` (sessions or groups; during-session: pick each resolved session's class via `GET /session-dates` and send `sessionOccurrences`; separate-time: one `examDate`).
 2. **Exam home** → `GET /api/exams/home` (paginated upcoming/past, with scope on each card).
 3. **Open exam** → `GET /api/exams/{examId}` (`attendanceTaken`/`gradesTaken` decide Take vs Edit).
 4. **Separate-time:** attendance → `PUT /api/exams/attendance` or scan → `POST /api/exams/attendance/scan`. **During-session:** attendance comes from the class (read-only).

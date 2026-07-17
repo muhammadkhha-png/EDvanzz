@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Edvanz — Exams Module API",
-    "version": "1.2",
-    "description": "Offline **Exams** endpoints (`/api/exams/*`) plus the exam-related extension of the attendance dashboard.\n\n**Auth:** every endpoint requires a Teacher/Assistant Bearer JWT (`Authorization: Bearer <token>`). `teacherId` is taken from the token — never sent in the body.\n\n**Envelope:** every response is `{ success, code, message, data }`. `code` is a stable, language-independent string you branch on; `message` is localized (Accept-Language: `en` | `ar`).\n\n**Batch endpoints** (grades, attendance) return HTTP **200** even when some rows are invalid — check `data.allSucceeded` and each `data.items[].success` / `data.items[].code`. A concurrency conflict fails the whole batch with **409**.\n\n**Delivery types:** `DuringSession` (exam taken inside a scheduled session occurrence — attendance is synced from that session and is **read-only** in the exam) vs `SeparateTime` (its own date — attendance is taken in the exam via `/attendance` or `/attendance/scan`).\n\n**v1.1 additions:** send `grade: null` on `PUT /api/exams/grades` to **clear** an entered grade (the student reverts to `Attended`, attendance kept); opened-exam sessions carry **`attendanceTaken`/`gradesTaken`** (drive the *Take* vs *Edit* labels) and the exam carries **`distinctStudentCount`**; each home card carries **`totalStudents`** and **`pendingCount`**.\n\n**v1.2 additions:** create takes `sessionIds` **or** `groupIds` (id-lists, the other null/empty) plus a single `examDate` — groups expand to their member sessions server-side. `GET /api/exams/home` is **paginated** (`upcomingPage`/`pastPage`/`pageSize`) and each card carries `selectionMode` + `assignedSessions[]` + `assignedGroups[]` (groups expanded to inner sessions). Grade/attendance write endpoints are keyed by **`teacherStudentId`** (grades also take a top-level `examId`) instead of `obligationId`; responses still include `obligationId`.\n"
+    "version": "1.3",
+    "description": "Offline **Exams** endpoints (`/api/exams/*`) plus the exam-related extension of the attendance dashboard.\n\n**Auth:** every endpoint requires a Teacher/Assistant Bearer JWT (`Authorization: Bearer <token>`). `teacherId` is taken from the token — never sent in the body.\n\n**Envelope:** every response is `{ success, code, message, data }`. `code` is a stable, language-independent string you branch on; `message` is localized (Accept-Language: `en` | `ar`).\n\n**Batch endpoints** (grades, attendance) return HTTP **200** even when some rows are invalid — check `data.allSucceeded` and each `data.items[].success` / `data.items[].code`. A concurrency conflict fails the whole batch with **409**.\n\n**Delivery types:** `DuringSession` (exam taken inside a scheduled session occurrence — attendance is synced from that session and is **read-only** in the exam) vs `SeparateTime` (its own date — attendance is taken in the exam via `/attendance` or `/attendance/scan`).\n\n**v1.1 additions:** send `grade: null` on `PUT /api/exams/grades` to **clear** an entered grade (the student reverts to `Attended`, attendance kept); opened-exam sessions carry **`attendanceTaken`/`gradesTaken`** (drive the *Take* vs *Edit* labels) and the exam carries **`distinctStudentCount`**; each home card carries **`totalStudents`** and **`pendingCount`**.\n\n**v1.2 additions:** create takes `sessionIds` **or** `groupIds` (id-lists, the other null/empty) plus a single `examDate` — groups expand to their member sessions server-side. `GET /api/exams/home` is **paginated** (`upcomingPage`/`pastPage`/`pageSize`) and each card carries `selectionMode` + `assignedSessions[]` + `assignedGroups[]` (groups expanded to inner sessions). Grade/attendance write endpoints are keyed by **`teacherStudentId`** (grades also take a top-level `examId`) instead of `obligationId`; responses still include `obligationId`.\n\n**v1.3 changes:** a `DuringSession` exam is dated **per session** — send `sessionOccurrences: [{sessionId, sessionOccurrenceId}]` with exactly one entry per resolved session (including every member session of a selected group; pick ids from `GET /api/exams/session-dates`, called once per session). The single `examDate` now belongs to `SeparateTime` only. Sending the wrong field for the delivery type is rejected (`ExamDateOnlyForSeparateTime` / `SessionOccurrencesOnlyForDuringSession`).\n"
   },
   "servers": [
     {
@@ -34,7 +34,7 @@
           "Exams"
         ],
         "summary": "Create an offline exam",
-        "description": "Creates an exam for **sessions OR groups** — send `sessionIds` or `groupIds` (the other null/empty); groups expand to their member sessions server-side. One occurrence is materialized per resolved session. A single `examDate` applies to the whole exam: `SeparateTime` uses it as the exam date (today or future); `DuringSession` resolves each session's scheduled class on that date (every targeted session must have a class that day). `studentIds` optionally narrows to a global subset. The selection mode (sessions vs groups) is remembered and surfaced on the home screen.\n",
+        "description": "Creates an exam for **sessions OR groups** — send `sessionIds` or `groupIds` (the other null/empty); groups expand to their member sessions server-side. One occurrence is materialized per resolved session.\n\nDates depend on `deliveryType`: **DuringSession** anchors EVERY resolved session (group members included) to its own picked class occurrence — `sessionOccurrences: [{sessionId, sessionOccurrenceId}]`, exactly one entry per session, ids from `GET /api/exams/session-dates`; a picked class may be past (its attendance back-fills the exam); do not send `examDate`. **SeparateTime** takes the single `examDate` (today or future); do not send `sessionOccurrences`.\n\n`studentIds` optionally narrows to a global subset. The selection mode (sessions vs groups) is remembered and surfaced on the home screen.\n",
         "requestBody": {
           "required": true,
           "content": {
@@ -72,15 +72,47 @@
                   }
                 },
                 "duringSession": {
-                  "summary": "During-session (one date; each session's class on it)",
+                  "summary": "During-session, by sessions (each session picks its own class occurrence)",
                   "value": {
                     "name": "Weekly Quiz",
                     "deliveryType": "DuringSession",
                     "maxGrade": 50,
                     "successScore": 25,
-                    "examDate": "2026-07-12",
                     "sessionIds": [
-                      36
+                      36,
+                      37
+                    ],
+                    "sessionOccurrences": [
+                      {
+                        "sessionId": 36,
+                        "sessionOccurrenceId": 410
+                      },
+                      {
+                        "sessionId": 37,
+                        "sessionOccurrenceId": 498
+                      }
+                    ]
+                  }
+                },
+                "duringSessionByGroup": {
+                  "summary": "During-session, by group (one entry per member session of the group)",
+                  "value": {
+                    "name": "Quiz 3",
+                    "deliveryType": "DuringSession",
+                    "maxGrade": 10,
+                    "successScore": 5,
+                    "groupIds": [
+                      2
+                    ],
+                    "sessionOccurrences": [
+                      {
+                        "sessionId": 36,
+                        "sessionOccurrenceId": 410
+                      },
+                      {
+                        "sessionId": 37,
+                        "sessionOccurrenceId": 498
+                      }
                     ]
                   }
                 },
@@ -170,7 +202,42 @@
                     "value": {
                       "success": false,
                       "code": "ExamDateRequired",
-                      "message": "An exam date is required"
+                      "message": "An exam date is required for a separate-time exam"
+                    }
+                  },
+                  "SessionOccurrenceRequired": {
+                    "value": {
+                      "success": false,
+                      "code": "SessionOccurrenceRequired",
+                      "message": "A session date must be selected for a during-session exam"
+                    }
+                  },
+                  "DuplicateSessionInExam": {
+                    "value": {
+                      "success": false,
+                      "code": "DuplicateSessionInExam",
+                      "message": "The same session was selected more than once for this exam"
+                    }
+                  },
+                  "SessionOccurrenceForUnselectedSession": {
+                    "value": {
+                      "success": false,
+                      "code": "SessionOccurrenceForUnselectedSession",
+                      "message": "A class date was sent for a session that is not part of the exam"
+                    }
+                  },
+                  "ExamDateOnlyForSeparateTime": {
+                    "value": {
+                      "success": false,
+                      "code": "ExamDateOnlyForSeparateTime",
+                      "message": "A during-session exam is scheduled per session — pick each session's class date instead of one exam date"
+                    }
+                  },
+                  "SessionOccurrencesOnlyForDuringSession": {
+                    "value": {
+                      "success": false,
+                      "code": "SessionOccurrencesOnlyForDuringSession",
+                      "message": "Per-session class dates apply only to a during-session exam — a separate-time exam takes one exam date"
                     }
                   },
                   "SuccessScoreExceedsMax": {
@@ -234,11 +301,11 @@
                       "message": "The selected group was not found or does not belong to you"
                     }
                   },
-                  "SessionOccurrenceNotFoundForDate": {
+                  "SessionOccurrenceNotFound": {
                     "value": {
                       "success": false,
-                      "code": "SessionOccurrenceNotFoundForDate",
-                      "message": "One of the selected sessions has no scheduled class on the exam date"
+                      "code": "SessionOccurrenceNotFound",
+                      "message": "The selected session date was not found or does not belong to the session"
                     }
                   }
                 }
@@ -1215,8 +1282,7 @@
           "name",
           "deliveryType",
           "maxGrade",
-          "successScore",
-          "examDate"
+          "successScore"
         ],
         "properties": {
           "name": {
@@ -1242,7 +1308,16 @@
           "examDate": {
             "type": "string",
             "format": "date",
-            "description": "Single exam date for the whole exam. SeparateTime: today or future. DuringSession: each session must have a class that day."
+            "nullable": true,
+            "description": "SeparateTime ONLY (required for it): the exam's own single date, today or future. Must be omitted for DuringSession."
+          },
+          "sessionOccurrences": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "$ref": "#/components/schemas/ExamSessionOccurrence"
+            },
+            "description": "DuringSession ONLY (required for it): the picked class occurrence of EVERY resolved session — exactly one entry per selected session, and per member session of every selected group (picks may fall on different dates). Must be omitted for SeparateTime."
           },
           "sessionIds": {
             "type": "array",
@@ -1270,6 +1345,25 @@
               "format": "int64"
             },
             "description": "Optional global student subset across the resolved sessions; omit = all"
+          }
+        }
+      },
+      "ExamSessionOccurrence": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "sessionOccurrenceId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "One of the exam's resolved sessions (selected directly or via a group)."
+          },
+          "sessionOccurrenceId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "That session's picked class occurrence (from GET /api/exams/session-dates). Must belong to the session; may be in the past — the class's recorded attendance back-fills the exam."
           }
         }
       },

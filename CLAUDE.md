@@ -590,6 +590,24 @@ aggregates also defensively exclude `TeacherStudentId == null` periods.
 **Aggregates exclude orphans.** Any period-summing query that feeds a total must ignore
 `TeacherStudentId == null` rows.
 
+### 7.5 Offline Exams (`/api/exams`) — during-session dates are PER SESSION (restored 2026-07-17)
+
+Create/update contract (v1.3 — `docs/exams-api-guide.md`, `docs/exams-openapi.{json,yaml}`):
+recipient stays `sessionIds` XOR `groupIds`, but a **DuringSession** exam anchors EVERY resolved
+session — including each member session of a selected group — to its own picked class occurrence
+via `sessionOccurrences: [{sessionId, sessionOccurrenceId}]` (ids from
+`GET /api/exams/session-dates`, called once per session; the entries must cover the resolved
+session set exactly; a pick may be in the past — the class's attendance back-fills the exam).
+The single `examDate` belongs to **SeparateTime only**. Sending the wrong date field for the
+delivery type is a 400 (`ExamDateOnlyForSeparateTime` / `SessionOccurrencesOnlyForDuringSession`).
+Create and update validate through ONE shared pipeline (`ExamService.BuildSessionPlansAsync`) —
+extend it, never fork it back into the two methods. **History (do not reintroduce):** the
+original per-session design (`479a2e2`) was replaced with a single global `examDate` in
+`2bc840b`; that was a regression (its commit message says "frontend-requested" — it wasn't the
+planned design). Restored 2026-07-17 while keeping `2bc840b`'s keepers (groups recipient, home
+pagination/scope, `teacherStudentId` write keys). PUT `/api/exams/{examId}` mirrors create;
+structural edits still 409 once results exist (`ExamHasResultsCannotRestructure`).
+
 ---
 
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
