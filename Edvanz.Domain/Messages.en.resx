@@ -450,6 +450,12 @@
   <data name="SessionOccurrenceNotEditable" xml:space="preserve">
     <value>The occurrence type cannot be changed because this session has student assignments or membership links. Remove them first to change the occurrence type</value>
   </data>
+  <data name="SessionScheduleLockedByLink" xml:space="preserve">
+    <value>You can't change this session's schedule while it's linked with {0}. Remove the link first, then change the schedule</value>
+  </data>
+  <data name="SessionIdRequired" xml:space="preserve">
+    <value>A valid session id is required</value>
+  </data>
   <data name="SessionSelectedDaysRequired" xml:space="preserve">
     <value>Please select at least one day of the week for this session</value>
   </data>

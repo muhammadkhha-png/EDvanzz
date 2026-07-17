@@ -50,6 +50,23 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetReferencedSessionOccurrenceIdsAsync(
+        IEnumerable<long> sessionOccurrenceIds)
+    {
+        var ids = sessionOccurrenceIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return Array.Empty<long>();
+
+        // Include soft-deleted (refunded) transactions: their SessionOccurrenceId is still a live FK,
+        // so the occurrence must be preserved to keep the audit linkage intact.
+        return await _context.PaymentTransactions
+            .Where(t => t.SessionOccurrenceId.HasValue && ids.Contains(t.SessionOccurrenceId.Value))
+            .Select(t => t.SessionOccurrenceId!.Value)
+            .Distinct()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)>
         GetStudentPaymentHistoryPagedAsync(
             long teacherId, long teacherStudentId,

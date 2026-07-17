@@ -89,6 +89,18 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task DeleteOccurrencesByIdsAsync(IEnumerable<long> occurrenceIds)
+    {
+        var ids = occurrenceIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return;
+
+        await _context.SessionOccurrences
+            .Where(o => ids.Contains(o.Id))
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<SessionOccurrence>> GetOccurrencesBySessionAndDateRangeAsync(
         long sessionId, DateTime startDate, DateTime endDate)
     {

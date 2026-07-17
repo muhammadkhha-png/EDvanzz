@@ -694,6 +694,14 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<IReadOnlyList<long>> GetExamOccurrenceIdsBySessionOccurrenceAsync(long teacherId, long sessionOccurrenceId);
 
     /// <summary>
+    /// From a candidate set of <c>SessionOccurrence</c> ids, returns the subset referenced by any exam
+    /// <c>AssignmentOccurrence</c> (its DuringSession anchor). Consumed by the Attendance module before it
+    /// rebuilds a session's occurrences on a recurrence edit (SES-1) so exam-anchored occurrences are
+    /// preserved rather than SET NULL. Returns an empty list for an empty input.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetReferencedSessionOccurrenceIdsAsync(IEnumerable<long> sessionOccurrenceIds);
+
+    /// <summary>
     /// Exam occurrences due on a given date (during-session and separate-time), for the home dashboard's
     /// "today's exams" section and the "this session is an exam" flag.
     /// </summary>

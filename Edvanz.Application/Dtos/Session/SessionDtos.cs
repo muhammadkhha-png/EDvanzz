@@ -27,6 +27,9 @@ public class CreateSessionDto
     /// If provided, used as-is (manual entry per REQ-SES-002).
     /// REQ-SES-003: Supports Arabic and English.
     /// </summary>
+    // SES-3: matches the Sessions.SessionName nvarchar(200) column so an over-length value returns a
+    // field-named 400 instead of a DB-truncation 409 "DatabaseConflict".
+    [MaxLength(200, ErrorMessage = "Session name must be at most 200 characters.")]
     public string? SessionName { get; set; }
 
     /// <summary>
@@ -105,7 +108,9 @@ public class UpdateSessionDto
     /// <summary>
     /// Updated session name. REQ-SES-005: Editable at any time.
     /// </summary>
+    // SES-3: matches the Sessions.SessionName nvarchar(200) column (clean 400 over a truncation 409).
     [Required]
+    [MaxLength(200, ErrorMessage = "Session name must be at most 200 characters.")]
     public string SessionName { get; set; } = null!;
 
     /// <summary>
@@ -188,7 +193,9 @@ public class CreateSessionGroupDto
     /// <summary>
     /// Group name. REQ-SES-025: Supports Arabic and English.
     /// </summary>
+    // SES-3: matches the SessionGroups.GroupName nvarchar(200) column (clean 400 over a truncation 409).
     [Required]
+    [MaxLength(200, ErrorMessage = "Group name must be at most 200 characters.")]
     public string GroupName { get; set; } = null!;
 }
 
@@ -201,7 +208,9 @@ public class RenameSessionGroupDto
     /// <summary>
     /// New group name.
     /// </summary>
+    // SES-3: matches the SessionGroups.GroupName nvarchar(200) column (clean 400 over a truncation 409).
     [Required]
+    [MaxLength(200, ErrorMessage = "Group name must be at most 200 characters.")]
     public string GroupName { get; set; } = null!;
 }
 

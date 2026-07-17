@@ -124,9 +124,9 @@ public class SessionService : ISessionService
             return Result<SessionDto>.Failure(_localizer, "SessionNameDuplicate", HttpStatusCode.Conflict);
 
         // 4. Validate occurrence type configuration
-        var occurrenceError = ValidateOccurrenceConfiguration(dto.OccurrenceType, dto.SelectedDays, dto.MonthlyDayOfMonth);
-        if (occurrenceError is not null)
-            return Result<SessionDto>.Failure(occurrenceError, HttpStatusCode.BadRequest);
+        var occurrenceErrorKey = ValidateOccurrenceConfiguration(dto.OccurrenceType, dto.SelectedDays, dto.MonthlyDayOfMonth);
+        if (occurrenceErrorKey is not null)
+            return Result<SessionDto>.Failure(_localizer, occurrenceErrorKey, HttpStatusCode.BadRequest);
 
         // 5. Validate date range (REQ-SES-014)
         if (dto.EndDate <= dto.StartDate)
@@ -195,20 +195,33 @@ public class SessionService : ISessionService
         if (nameExists)
             return Result<SessionDto>.Failure(_localizer, "SessionNameDuplicate", HttpStatusCode.Conflict);
 
-        // 3. Validate occurrence type change restriction (REQ-SES-009)
-        bool occurrenceChanged = session.OccurrenceType != dto.OccurrenceType
-                              || session.SelectedDays != FormatSelectedDays(dto.SelectedDays);
-        if (occurrenceChanged)
+        // 3. Detect a schedule-pattern change (occurrence type, selected days, or monthly day) — the part
+        //    of the recurrence that REMAPS occurrence dates. REQ-SES-009.
+        byte? newMonthlyDay = dto.OccurrenceType == OccurrenceType.Monthly ? dto.MonthlyDayOfMonth : null;
+        bool schedulePatternChanged = session.OccurrenceType != dto.OccurrenceType
+                                   || session.SelectedDays != FormatSelectedDays(dto.SelectedDays)
+                                   || session.MonthlyDayOfMonth != newMonthlyDay;
+
+        // SES-1: the schedule pattern may be changed even when the session has enrolled students — the
+        // occurrences are rebuilt transactionally below. It is blocked ONLY while a membership link
+        // exists: BR-SES-003 requires linked sessions to keep the same occurrence type and day count, and
+        // they share a cross-session slot alignment that a remap would desync. Tell the tutor which
+        // session(s) to unlink first (clear, actionable message — replaces the old students-or-links lock).
+        if (schedulePatternChanged)
         {
-            bool hasConstraints = await _unitOfWork.SessionsRepo.HasStudentsOrLinksAsync(sessionId);
-            if (hasConstraints)
-                return Result<SessionDto>.Failure(_localizer, "SessionOccurrenceNotEditable", HttpStatusCode.BadRequest);
+            var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
+            if (linkedSessions.Count > 0)
+            {
+                string linkedNames = string.Join(", ", linkedSessions.Select(s => s.SessionName));
+                return Result<SessionDto>.Failure(
+                    _localizer, "SessionScheduleLockedByLink", new object?[] { linkedNames }, HttpStatusCode.BadRequest);
+            }
         }
 
-        // 4. Validate occurrence configuration
-        var occurrenceError = ValidateOccurrenceConfiguration(dto.OccurrenceType, dto.SelectedDays, dto.MonthlyDayOfMonth);
-        if (occurrenceError is not null)
-            return Result<SessionDto>.Failure(occurrenceError, HttpStatusCode.BadRequest);
+        // 4. Validate occurrence configuration (SES-5: returns the stable message key)
+        var occurrenceErrorKey = ValidateOccurrenceConfiguration(dto.OccurrenceType, dto.SelectedDays, dto.MonthlyDayOfMonth);
+        if (occurrenceErrorKey is not null)
+            return Result<SessionDto>.Failure(_localizer, occurrenceErrorKey, HttpStatusCode.BadRequest);
 
         // 5. Validate date range (REQ-SES-014)
         if (dto.EndDate <= dto.StartDate)
@@ -222,34 +235,52 @@ public class SessionService : ISessionService
                 return Result<SessionDto>.Failure(_localizer, "SessionGroupNotFound", HttpStatusCode.NotFound);
         }
 
-        // ── Track whether date range or recurrence changed for attendance regeneration ──
-        bool datesOrRecurrenceChanged = occurrenceChanged
+        // ── Track whether the recurrence or its date window changed → occurrences must be rebuilt ──
+        bool datesOrRecurrenceChanged = schedulePatternChanged
             || session.StartDate != dto.StartDate
-            || session.EndDate != dto.EndDate
-            || session.MonthlyDayOfMonth != dto.MonthlyDayOfMonth;
+            || session.EndDate != dto.EndDate;
 
-        // 7. Apply updates
-        session.SessionName = trimmedName;
-        session.OccurrenceType = dto.OccurrenceType;
-        session.SelectedDays = FormatSelectedDays(dto.SelectedDays);
-        session.MonthlyDayOfMonth = dto.OccurrenceType == OccurrenceType.Monthly ? dto.MonthlyDayOfMonth : null;
-        session.PaymentType = dto.PaymentType;
-        session.SessionAmount = dto.SessionAmount;
-        session.StartDate = dto.StartDate;
-        session.EndDate = dto.EndDate;
-        session.StartTime = dto.StartTime;
-        session.DurationMinutes = dto.DurationMinutes;
-        session.SessionGroupId = dto.SessionGroupId;
+        // SES-1: the session mutation AND the occurrence rebuild must be one atomic unit. Previously the
+        // session row was committed first and occurrence regeneration ran un-transacted afterwards, so a
+        // slot-key collision left the session's day pattern out of sync with its generated occurrences
+        // (a 409 that had already persisted the change).
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
-        await _unitOfWork.SessionsRepo.UpdateAsync(session);
-        await _unitOfWork.SaveChangesAsync();
-
-        // ── ATTENDANCE INTEGRATION: Regenerate occurrences if dates/recurrence changed ──
-        // GenerateOccurrencesAsync is additive — only creates new dates that don't already exist.
-        // Existing occurrences (and their attendance records) are preserved.
-        if (datesOrRecurrenceChanged)
+        try
         {
-            await _attendanceService.GenerateOccurrencesAsync(teacherId, sessionId);
+            // 7. Apply updates
+            session.SessionName = trimmedName;
+            session.OccurrenceType = dto.OccurrenceType;
+            session.SelectedDays = FormatSelectedDays(dto.SelectedDays);
+            session.MonthlyDayOfMonth = newMonthlyDay;
+            session.PaymentType = dto.PaymentType;
+            session.SessionAmount = dto.SessionAmount;
+            session.StartDate = dto.StartDate;
+            session.EndDate = dto.EndDate;
+            session.StartTime = dto.StartTime;
+            session.DurationMinutes = dto.DurationMinutes;
+            session.SessionGroupId = dto.SessionGroupId;
+
+            await _unitOfWork.SessionsRepo.UpdateAsync(session);
+            await _unitOfWork.SaveChangesAsync();
+
+            // ── ATTENDANCE INTEGRATION: Rebuild occurrences to match the new pattern ──
+            // RegenerateOccurrencesAsync reconciles (drops pure-placeholder occurrences, re-materializes
+            // the new pattern) while preserving every occurrence that carries attendance/exam/payment
+            // history — and never violates the slot-key unique index. Runs on THIS transaction.
+            if (datesOrRecurrenceChanged)
+                await _attendanceService.RegenerateOccurrencesAsync(teacherId, sessionId);
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
         }
 
         var resultDto = await BuildSessionDtoAsync(session);
@@ -571,6 +602,12 @@ public class SessionService : ISessionService
     /// <inheritdoc />
     public async Task<Result<bool>> CreateLinkAsync(CreateSessionLinkDto dto)
     {
+        // SES-4: [Required] is a no-op on a non-nullable long, so an omitted sessionIdA/sessionIdB binds
+        // to 0. Reject the missing id up front with a field-named 400 instead of looking up session 0 and
+        // returning a misleading 404 "Session not found".
+        if (dto.SessionIdA <= 0 || dto.SessionIdB <= 0)
+            return Result<bool>.Failure(_localizer, "SessionIdRequired", HttpStatusCode.BadRequest);
+
         // 1. Validate both sessions exist and belong to the teacher
         if (dto.SessionIdA == dto.SessionIdB)
             return Result<bool>.Failure(_localizer, "SessionLinkSameSession", HttpStatusCode.BadRequest);
@@ -646,6 +683,11 @@ public class SessionService : ISessionService
     /// <inheritdoc />
     public async Task<Result<AssignStudentsResultDto>> AssignStudentsAsync(AssignStudentsToSessionDto dto)
     {
+        // SES-4: reject an omitted/zero sessionId (a non-nullable long defaults to 0) with a clear 400
+        // instead of looking up session 0 and returning a misleading 404 "Session not found".
+        if (dto.SessionId <= 0)
+            return Result<AssignStudentsResultDto>.Failure(_localizer, "SessionIdRequired", HttpStatusCode.BadRequest);
+
         // 1. Validate session exists and belongs to teacher
         var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId, dto.TeacherId);
         if (session is null)
@@ -685,9 +727,16 @@ public class SessionService : ISessionService
                         NewSessionName = session.SessionName
                     });
                 }
+                else if (student.SessionId.HasValue && student.SessionId.Value == dto.SessionId)
+                {
+                    // SES-2: the student is already assigned to THIS exact session → idempotent no-op.
+                    // Re-running the attendance/payment materialization hooks would regenerate downstream
+                    // periods for a student that never moved, so skip them and do not count the student.
+                    continue;
+                }
                 else
                 {
-                    // Assign directly — student has no current session or is already in this session
+                    // Assign directly — student has no current session
                     student.SessionId = dto.SessionId;
                     await _unitOfWork.Students.UpdateAsync(student);
 
@@ -834,10 +883,13 @@ public class SessionService : ISessionService
 
     /// <summary>
     /// Validates the occurrence type configuration (selected days for Weekly/BiWeekly,
-    /// monthly day for Monthly). Returns a localized error message if invalid, null if valid.
+    /// monthly day for Monthly). Returns the stable message KEY of the first violation, or null if valid.
+    /// SES-5: returning the key (not a pre-localized string) lets the caller use the
+    /// <c>Result.Failure(localizer, key)</c> overload so both <c>Code</c> and <c>Message</c> are populated
+    /// (the string overload leaves <c>Code</c> null).
     /// REQ-SES-007/008: Occurrence type rules.
     /// </summary>
-    private string? ValidateOccurrenceConfiguration(
+    private static string? ValidateOccurrenceConfiguration(
         OccurrenceType occurrenceType,
         List<int>? selectedDays,
         byte? monthlyDayOfMonth)
@@ -848,30 +900,30 @@ public class SessionService : ISessionService
             case OccurrenceType.BiWeekly:
                 // REQ-SES-008: At least one day required, max 7
                 if (selectedDays is null || selectedDays.Count == 0)
-                    return _localizer["SessionSelectedDaysRequired"];
+                    return "SessionSelectedDaysRequired";
 
                 if (selectedDays.Count > MaxSelectedDays)
-                    return _localizer["SessionSelectedDaysTooMany"];
+                    return "SessionSelectedDaysTooMany";
 
                 // Validate each day index is 0-6
                 if (selectedDays.Any(d => !ValidDayIndices.Contains(d)))
-                    return _localizer["SessionSelectedDaysInvalid"];
+                    return "SessionSelectedDaysInvalid";
 
                 // Check for duplicate day indices
                 if (selectedDays.Distinct().Count() != selectedDays.Count)
-                    return _localizer["SessionSelectedDaysDuplicate"];
+                    return "SessionSelectedDaysDuplicate";
 
                 break;
 
             case OccurrenceType.Monthly:
                 // Monthly requires a day-of-month
                 if (!monthlyDayOfMonth.HasValue || monthlyDayOfMonth.Value < 1 || monthlyDayOfMonth.Value > 31)
-                    return _localizer["SessionMonthlyDayRequired"];
+                    return "SessionMonthlyDayRequired";
 
                 break;
 
             default:
-                return _localizer["SessionOccurrenceTypeInvalid"];
+                return "SessionOccurrenceTypeInvalid";
         }
 
         return null;

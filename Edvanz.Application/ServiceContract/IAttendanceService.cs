@@ -36,6 +36,19 @@ public interface IAttendanceService
     /// </summary>
     Task<Result<int>> GenerateOccurrencesAsync(long teacherId, long sessionId);
 
+    /// <summary>
+    /// Rebuilds a session's occurrences after its recurrence (occurrence type, selected days,
+    /// monthly day, or date range) was edited — the additive <see cref="GenerateOccurrencesAsync"/>
+    /// path cannot handle a remap because stale placeholder occurrences collide with the new pattern on
+    /// the (SessionId, WeekStartDate, DayPositionIndex) unique index (SES-1). Deletes only pure-placeholder
+    /// occurrences (no attendance record, exam anchor, or per-session payment reference) and re-materializes
+    /// the new pattern, preserving every history-bearing occurrence and never violating the slot-key index.
+    ///
+    /// MUST be called inside the caller's transaction (it only calls SaveChanges — it does not open,
+    /// commit, or roll back a transaction) so the session mutation and this rebuild are atomic.
+    /// </summary>
+    Task<Result<int>> RegenerateOccurrencesAsync(long teacherId, long sessionId);
+
     // ══════════════════════════════════════════════
     // ATTENDANCE DASHBOARD (REQ-ATT-049 through 052)
     // ══════════════════════════════════════════════

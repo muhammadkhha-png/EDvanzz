@@ -31,6 +31,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<PaymentTransaction?> GetTransactionByIdAndTeacherAsync(long transactionId, long teacherId);
 
     /// <summary>
+    /// From a candidate set of <c>SessionOccurrence</c> ids, returns the subset referenced by any
+    /// <c>PaymentTransaction</c> (its per-session billing anchor). Consumed by the Attendance module
+    /// before it rebuilds a session's occurrences on a recurrence edit (SES-1) so payment-anchored
+    /// occurrences are preserved rather than SET NULL. Returns an empty list for an empty input.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetReferencedSessionOccurrenceIdsAsync(IEnumerable<long> sessionOccurrenceIds);
+
+    /// <summary>
     /// Gets a paginated list of payment transactions for a student across all sessions.
     /// REQ-PAY-052: Student payment history with period grouping.
     /// </summary>

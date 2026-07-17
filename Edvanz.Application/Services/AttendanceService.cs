@@ -119,6 +119,86 @@ public class AttendanceService : IAttendanceService
         return Result<int>.Success(newOccurrences.Count, _localizer, AttendanceConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<int>> RegenerateOccurrencesAsync(long teacherId, long sessionId)
+    {
+        // The session has already been mutated to the new recurrence by the caller (SessionService) —
+        // read it back so ComputeOccurrenceKeys reflects the new pattern.
+        var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+        if (session is null)
+            return Result<int>.Failure(_localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
+
+        var keys = _occurrenceGenerator.ComputeOccurrenceKeys(session);
+        var existing = await _unitOfWork.AttendanceRepo.GetOccurrencesBySessionAsync(sessionId);
+
+        // Fresh session (create path also flows here when nothing exists yet): plain additive insert.
+        if (existing.Count == 0)
+        {
+            var fresh = keys.Select(k => BuildOccurrence(teacherId, sessionId, k)).ToList();
+            if (fresh.Count > 0)
+            {
+                await _unitOfWork.AttendanceRepo.AddOccurrencesRangeAsync(fresh);
+                await _unitOfWork.SaveChangesAsync();
+            }
+            return Result<int>.Success(fresh.Count, _localizer, AttendanceConstants.Messages.Success);
+        }
+
+        var existingIds = existing.Select(o => o.Id).ToList();
+
+        // "Protected" = occurrences that carry real history and must survive a reschedule. Deleting them
+        // would SET NULL the referencing row (attendance record / during-session exam anchor / per-session
+        // payment), corrupting those modules — so they are kept exactly as-is (including their slot keys).
+        var protectedIds = new HashSet<long>(
+            (await _unitOfWork.AttendanceRepo.CountRecordsByOccurrenceBatchAsync(existingIds)).Keys);
+        protectedIds.UnionWith(await _unitOfWork.ExamHomeworkRepo.GetReferencedSessionOccurrenceIdsAsync(existingIds));
+        protectedIds.UnionWith(await _unitOfWork.PaymentsRepo.GetReferencedSessionOccurrenceIdsAsync(existingIds));
+
+        // Phase 1 — drop every pure-placeholder occurrence so the schedule can be rebuilt from the new
+        // pattern without the old (WeekStartDate, DayPositionIndex) slots colliding with the new ones.
+        var deletableIds = existingIds.Where(id => !protectedIds.Contains(id)).ToList();
+        if (deletableIds.Count > 0)
+            await _unitOfWork.AttendanceRepo.DeleteOccurrencesByIdsAsync(deletableIds);
+
+        // Phase 2 — re-materialize the new pattern, skipping any date or slot still held by a surviving
+        // protected occurrence (recorded history keeps its slot; the unique index is never violated).
+        var survivors = existing.Where(o => protectedIds.Contains(o.Id)).ToList();
+        var occupiedDates = new HashSet<DateTime>(survivors.Select(o => o.OccurrenceDate));
+        var occupiedSlots = new HashSet<(DateTime WeekStartDate, int DayPositionIndex)>(
+            survivors.Select(o => (o.WeekStartDate, o.DayPositionIndex)));
+
+        var toInsert = keys
+            .Where(k => !occupiedDates.Contains(k.Date)
+                     && !occupiedSlots.Contains((k.WeekStartDate, k.DayPositionIndex)))
+            .Select(k => BuildOccurrence(teacherId, sessionId, k))
+            .ToList();
+
+        if (toInsert.Count > 0)
+            await _unitOfWork.AttendanceRepo.AddOccurrencesRangeAsync(toInsert);
+
+        // Single SaveChanges flushes the Phase-2 inserts (Phase-1 executed as a set-based DELETE already);
+        // both run on the caller's transaction, so the whole rebuild commits or rolls back atomically.
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<int>.Success(toInsert.Count, _localizer, AttendanceConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// Builds a Pending <see cref="SessionOccurrence"/> from a computed slot key. Shared by the
+    /// generate and regenerate paths so the row shape stays identical.
+    /// </summary>
+    private static SessionOccurrence BuildOccurrence(
+        long teacherId, long sessionId, (DateTime Date, DateTime WeekStartDate, int DayPositionIndex) key)
+        => new SessionOccurrence
+        {
+            TeacherId = teacherId,
+            SessionId = sessionId,
+            OccurrenceDate = key.Date,
+            WeekStartDate = key.WeekStartDate,
+            DayPositionIndex = key.DayPositionIndex,
+            Status = OccurrenceStatus.Pending,
+            CreateAt = DateTime.UtcNow
+        };
+
     // ══════════════════════════════════════════════
     // ATTENDANCE DASHBOARD
     // ══════════════════════════════════════════════

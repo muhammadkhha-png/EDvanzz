@@ -143,6 +143,15 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task DeleteOccurrencesBySessionAsync(long sessionId);
 
     /// <summary>
+    /// Hard-deletes the specified occurrences by id (set-based DELETE, runs on the caller's transaction).
+    /// Used when a session's recurrence is edited and its schedule is rebuilt (SES-1). ONLY
+    /// pure-placeholder occurrences must be passed — any referencing row (attendance / exam anchor /
+    /// per-session payment) would have its FK SET NULL, so history-bearing occurrences must be excluded
+    /// by the caller. No-op for an empty set.
+    /// </summary>
+    Task DeleteOccurrencesByIdsAsync(IEnumerable<long> occurrenceIds);
+
+    /// <summary>
     /// Retrieves occurrences for a session within a date range, ordered by date ascending.
     /// REQ-ATT-079: Month-by-month loading for student timeline.
     /// REQ-ATT-040: Report generation for specific date ranges.

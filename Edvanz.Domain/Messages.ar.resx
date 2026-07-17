@@ -450,6 +450,12 @@
   <data name="SessionOccurrenceNotEditable" xml:space="preserve">
     <value>مينفعش تغيّر نوع التكرار لأن الحصة دي فيها طلاب مسجلين أو روابط عضوية. شيلهم الأول عشان تقدر تغيّر نوع التكرار</value>
   </data>
+  <data name="SessionScheduleLockedByLink" xml:space="preserve">
+    <value>مينفعش تغيّر مواعيد الحصة دي وهي مربوطة بـ {0}. شيل الربط الأول وبعدين غيّر المواعيد</value>
+  </data>
+  <data name="SessionIdRequired" xml:space="preserve">
+    <value>لازم تبعت رقم حصة صحيح</value>
+  </data>
   <data name="SessionSelectedDaysRequired" xml:space="preserve">
     <value>من فضلك اختار يوم واحد على الأقل في الأسبوع للحصة دي</value>
   </data>

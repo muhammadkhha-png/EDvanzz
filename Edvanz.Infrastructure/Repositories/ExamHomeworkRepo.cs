@@ -1260,6 +1260,21 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetReferencedSessionOccurrenceIdsAsync(
+        IEnumerable<long> sessionOccurrenceIds)
+    {
+        var ids = sessionOccurrenceIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return Array.Empty<long>();
+
+        return await _context.AssignmentOccurrences
+            .Where(o => o.SessionOccurrenceId.HasValue && ids.Contains(o.SessionOccurrenceId.Value))
+            .Select(o => o.SessionOccurrenceId!.Value)
+            .Distinct()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<int> SetExamAttendanceByOccurrenceAsync(
         long teacherId, long occurrenceId, IEnumerable<long> teacherStudentIds,
         ObligationStatus newStatus, bool clearGrade, bool skipGraded, DateTime utcNow, long actingUserId)
