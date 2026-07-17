@@ -1396,6 +1396,12 @@
 <data name="ParentPhoneAlreadyExists" xml:space="preserve">
   <value>This parent phone number is already registered.</value>
 </data>
+<data name="StudentPhoneInvalidFormat" xml:space="preserve">
+  <value>Invalid student phone number. Enter a valid 11-digit Egyptian mobile number (e.g. 01012345678).</value>
+</data>
+<data name="ParentPhoneInvalidFormat" xml:space="preserve">
+  <value>Invalid parent phone number. Enter a valid 11-digit Egyptian mobile number (e.g. 01012345678).</value>
+</data>
 <data name="PhoneAlreadyExists" xml:space="preserve">
   <value>This phone number is already registered.</value>
 </data>

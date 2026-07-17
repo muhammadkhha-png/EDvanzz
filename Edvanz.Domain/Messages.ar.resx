@@ -1456,6 +1456,12 @@
 <data name="ParentPhoneAlreadyExists" xml:space="preserve">
   <value>رقم تليفون ولي الأمر ده متسجّل قبل كده.</value>
 </data>
+<data name="StudentPhoneInvalidFormat" xml:space="preserve">
+  <value>رقم تليفون الطالب غير صحيح. لازم يكون رقم موبايل مصري صحيح مكوّن من 11 رقم (مثال: 01012345678).</value>
+</data>
+<data name="ParentPhoneInvalidFormat" xml:space="preserve">
+  <value>رقم تليفون ولي الأمر غير صحيح. لازم يكون رقم موبايل مصري صحيح مكوّن من 11 رقم (مثال: 01012345678).</value>
+</data>
 <data name="PhoneAlreadyExists" xml:space="preserve">
   <value>رقم التليفون ده متسجّل قبل كده.</value>
 </data>

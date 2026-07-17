@@ -10,6 +10,9 @@ using Microsoft.Extensions.Localization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+// STU-3: reuse the centralized Egyptian-mobile validator so roster phones follow the SAME
+// rule enforced at sign-up (UserService.PhoneNumberValidator). Mirrors AuthService's usage.
+using static Edvanz.Application.Services.UserService;
 
 namespace Edvanz.Application.Services;
 
@@ -88,6 +91,13 @@ public class TeacherStudentService : ITeacherStudentService
         if (string.IsNullOrWhiteSpace(dto.StudentName))
             return Result<TeacherStudentDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
 
+        // 2b. STU-3: Validate phone-number format (Egyptian mobile) when provided — same rule as
+        // sign-up. Both fields are optional, so only a non-blank value is checked. Blocks malformed
+        // numbers from entering the roster and later feeding the WhatsApp/SMS parent-notifications.
+        var phoneError = ValidatePhoneNumbers(dto.StudentPhoneNumber, dto.ParentPhoneNumber);
+        if (phoneError is not null)
+            return Result<TeacherStudentDto>.Failure(_localizer, phoneError, HttpStatusCode.BadRequest);
+
         // 3. Check student capacity limit
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         if (activeCount >= teacher.StudentCapacity)
@@ -134,14 +144,20 @@ public class TeacherStudentService : ITeacherStudentService
         // 6. Generate barcode (REQ-STU-047: encodes the student code)
         string barcode = studentCode; // Barcode data = student code per REQ-STU-047
 
-        // 6b. Resolve the optional session assignment. A null id → unassigned; a non-null id
-        // that does not resolve to a session owned by this teacher is ignored (unassigned).
-        // Only a valid, owned session is assigned — and it must go through the attendance/payment
-        // integration hooks below, otherwise the student never appears on the attendance roster
-        // (the roster is driven by StudentSessionAssignments, not TeacherStudent.SessionId).
+        // 6b. Resolve the optional session assignment. A null id → unassigned. STU-2: a non-null id
+        // that does not resolve to a session owned by this teacher is now a clean 404 (previously it
+        // was silently dropped and the student created unassigned, so the teacher wrongly believed
+        // the assignment succeeded). This mirrors UpdateStudentAsync. Only a valid, owned session is
+        // assigned — and it must go through the attendance/payment integration hooks below, otherwise
+        // the student never appears on the attendance roster (the roster is driven by
+        // StudentSessionAssignments, not TeacherStudent.SessionId).
         Session? assignSession = null;
         if (dto.SessionId.HasValue)
+        {
             assignSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(dto.SessionId.Value, teacherId);
+            if (assignSession is null)
+                return Result<TeacherStudentDto>.Failure(_localizer, "SessionNotFound", HttpStatusCode.NotFound);
+        }
 
         // 7. Create the entity
         var student = new TeacherStudent
@@ -222,10 +238,28 @@ public class TeacherStudentService : ITeacherStudentService
         if (string.IsNullOrWhiteSpace(dto.StudentName))
             return Result<TeacherStudentDto>.Failure(_localizer, "StudentNameRequired", HttpStatusCode.BadRequest);
 
-        // 3. Handle student code update (if code is provided)
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        // 2b. STU-3: Validate phone-number format (Egyptian mobile) when provided — same rule as
+        // create and sign-up. Both fields are optional, so only a non-blank value is checked.
+        var phoneError = ValidatePhoneNumbers(dto.StudentPhoneNumber, dto.ParentPhoneNumber);
+        if (phoneError is not null)
+            return Result<TeacherStudentDto>.Failure(_localizer, phoneError, HttpStatusCode.BadRequest);
 
-        if (config?.StudentCodeGenerationMode == GenerationMode.Manual && !string.IsNullOrWhiteSpace(dto.StudentCode))
+        // 3. Handle student code update. STU-1: behave consistently with create/bulk-import —
+        //    - Auto mode: a manually supplied code is REJECTED (previously it was silently ignored,
+        //      so the caller wrongly believed the code changed). A blank code is a no-op.
+        //    - Manual mode: a supplied code is validated for format + uniqueness and applied; a blank
+        //      code leaves the existing code unchanged (an edit that simply doesn't touch the code).
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
+
+        if (!isManualMode)
+        {
+            // Auto mode: reject any supplied code; leave the immutable auto-code untouched otherwise
+            // (REQ-STU-048 spirit: auto-codes are immutable).
+            if (!string.IsNullOrWhiteSpace(dto.StudentCode))
+                return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeNotAllowedAuto", HttpStatusCode.BadRequest);
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.StudentCode))
         {
             // Validate format
             var codeValidation = ValidateStudentCodeFormat(dto.StudentCode);
@@ -242,7 +276,6 @@ public class TeacherStudentService : ITeacherStudentService
 
             student.StudentCode = normalizedCode;
         }
-        // If auto-generate mode, student code is NOT editable (REQ-STU-048 spirit: immutable auto-codes)
 
         // Resolve the target session assignment. On an explicit single edit, a supplied id that
         // does not resolve to a session owned by this teacher is a clear error (unlike bulk import,
@@ -688,9 +721,27 @@ public class TeacherStudentService : ITeacherStudentService
                 continue;
             }
 
-            // Reject phone numbers already claimed by an earlier row in this batch before they
-            // reach the DB, where the unique index would otherwise abort the whole transaction.
+            // Normalize phones once, then validate FORMAT (STU-3) before the uniqueness/dedup check —
+            // a malformed number is a more fundamental problem than a duplicate, and validating here
+            // keeps bulk import consistent with single create/update and sign-up.
             string? rowStudentPhone = NormalizePhone(row.StudentPhoneNumber);
+            string? rowParentPhone = NormalizePhone(row.ParentPhoneNumber);
+
+            var rowPhoneError = ValidatePhoneNumbers(rowStudentPhone, rowParentPhone);
+            if (rowPhoneError is not null)
+            {
+                result.Failures.Add(new BulkImportFailureDto
+                {
+                    RowNumber = rowNumber,
+                    StudentName = row.StudentName,
+                    StudentCode = row.StudentCode,
+                    Reason = _localizer[rowPhoneError]
+                });
+                continue;
+            }
+
+            // Reject student phone numbers already claimed by an earlier row in this batch before
+            // they reach the DB, where the unique index would otherwise abort the whole transaction.
             if (rowStudentPhone is not null && !usedStudentPhones.Add(rowStudentPhone))
             {
                 result.Failures.Add(new BulkImportFailureDto
@@ -702,7 +753,6 @@ public class TeacherStudentService : ITeacherStudentService
                 });
                 continue;
             }
-            string? rowParentPhone = NormalizePhone(row.ParentPhoneNumber);
 
             // Row-level session id wins; the envelope id is the default for rows that omit it.
             var rowSession = await ResolveOwnedSessionAsync(row.SessionId ?? dto.SessionId);
@@ -712,7 +762,22 @@ public class TeacherStudentService : ITeacherStudentService
 
             if (!string.IsNullOrWhiteSpace(row.StudentCode))
             {
-                // Code was provided in the import row — validate it regardless of mode
+                // STU-1: a manually supplied code is only accepted in Manual mode. In Auto mode the
+                // code is system-generated and cannot be entered manually — reject the row (consistent
+                // with single create/update) instead of silently applying the supplied code.
+                if (!isManualMode)
+                {
+                    result.Failures.Add(new BulkImportFailureDto
+                    {
+                        RowNumber = rowNumber,
+                        StudentName = row.StudentName,
+                        StudentCode = row.StudentCode,
+                        Reason = _localizer["StudentCodeNotAllowedAuto"]
+                    });
+                    continue;
+                }
+
+                // Manual mode: the code was provided in the import row — validate its format.
                 // REQ-STU-CODE-006: Format validation for bulk import codes
                 var codeValidation = ValidateStudentCodeFormat(row.StudentCode);
                 if (codeValidation is not null)
@@ -1114,6 +1179,27 @@ public class TeacherStudentService : ITeacherStudentService
     /// </summary>
     private static string? NormalizePhone(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// STU-3: Validates the optional student/parent phone numbers against the Egyptian-mobile rule
+    /// enforced at sign-up (<see cref="UserService.PhoneNumberValidator"/>: 11 digits, 010/011/012/015).
+    /// Both fields are optional, so a null/blank value is skipped; a supplied value must be well-formed.
+    /// Returns the localized-message KEY for the first invalid number (student checked before parent),
+    /// or null when both numbers are absent or valid. Shared by create, update, and bulk import so all
+    /// three roster-entry paths reject the same malformed input consistently.
+    /// </summary>
+    private static string? ValidatePhoneNumbers(string? studentPhone, string? parentPhone)
+    {
+        if (!string.IsNullOrWhiteSpace(studentPhone)
+            && !PhoneNumberValidator.IsValidEgyptianMobile(studentPhone.Trim()))
+            return "StudentPhoneInvalidFormat";
+
+        if (!string.IsNullOrWhiteSpace(parentPhone)
+            && !PhoneNumberValidator.IsValidEgyptianMobile(parentPhone.Trim()))
+            return "ParentPhoneInvalidFormat";
+
+        return null;
+    }
 
     /// <summary>
     /// Detects a SQL Server unique-key violation (2601/2627) on the TeacherStudent phone
