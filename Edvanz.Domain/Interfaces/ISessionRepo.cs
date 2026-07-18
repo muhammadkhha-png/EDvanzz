@@ -203,6 +203,13 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// Used to populate the assigned-session badge on the student list without an N+1.
     /// </summary>
     Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long teacherId, IEnumerable<long> sessionIds);
+
+    /// <summary>
+    /// Returns an Id→GroupName map for the given session-group Ids, scoped to the teacher.
+    /// Mirrors <see cref="GetSessionNamesByIdsAsync"/>; used by the video allowed-scope-targets
+    /// picker to label the groups a video's units cover.
+    /// </summary>
+    Task<IReadOnlyDictionary<long, string>> GetGroupNamesByIdsAsync(long teacherId, IEnumerable<long> groupIds);
     /// <summary>
     /// Returns a compact session summary (name, occurrence type, payment type, amount)
     /// for a single session scoped to the teacher, or null if not found / not owned.

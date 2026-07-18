@@ -1368,6 +1368,18 @@
   <data name="VideoUnitNotFound" xml:space="preserve">
     <value>مقدرناش نلاقي الوحدة دي. ممكن تكون اتحذفت</value>
   </data>
+  <data name="VideoMustBelongToUnit" xml:space="preserve">
+    <value>الفيديو '{0}' لازم يكون ضمن وحدة واحدة على الأقل. ضيفه لوحدة قبل الحفظ.</value>
+  </data>
+  <data name="VideoScopeExceedsUnitScope" xml:space="preserve">
+    <value>الفيديو '{0}' متعيّن على حصص ({1}) مش موجودة في الوحدة بتاعته. ضيفها للوحدة أو شيلها من صلاحية الفيديو.</value>
+  </data>
+  <data name="UnitScopeChangeUncoversVideos" xml:space="preserve">
+    <value>التغيير ده هيشيل حصص لسه مستخدمة في الفيديوهات دي: {0}. عدّل الفيديوهات دي الأول قبل ما تغيّر حصص الوحدة.</value>
+  </data>
+  <data name="UnitDeleteWouldOrphanVideos" xml:space="preserve">
+    <value>الوحدة دي لسه فيها الفيديوهات دي: {0}. انقلها لوحدة تانية (أو احذفها) قبل ما تحذف الوحدة دي.</value>
+  </data>
   <data name="VideoPhotoUploaded" xml:space="preserve">
     <value>تم رفع صورة الفيديو بنجاح</value>
   </data>
@@ -1799,5 +1811,8 @@
   </data>
   <data name="VideoQuizAttemptNotFound" xml:space="preserve">
     <value>لسه محلتش الاختبار ده.</value>
+  </data>
+  <data name="ChildEnrollmentRemoved" xml:space="preserve">
+    <value>سجل تسجيل ابنك/بنتك عند المدرس ده اتشال. كلم المدرس</value>
   </data>
 </root>

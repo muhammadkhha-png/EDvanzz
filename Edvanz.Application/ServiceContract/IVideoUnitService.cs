@@ -35,4 +35,33 @@ public interface IVideoUnitService
         GetVideosInUnitAsync(long teacherId, long unitId, TeacherVideoListRequest request);
     public Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId);
 
+    /// <summary>
+    /// Appends session/group targets to a unit's scope (idempotent on duplicates).
+    /// Append only grows coverage, so it never uncovers a member video.
+    /// </summary>
+    Task<Result<AppendUnitScopesResponse>> AppendUnitScopesAsync(
+        long teacherId, long actingUserId, long unitId, AssignUnitScopesRequest request);
+
+    /// <summary>
+    /// Replaces a unit's entire scope. Because this can SHRINK coverage, it is
+    /// rejected (409) if the new set would leave any member video targeting
+    /// sessions the unit no longer covers — the response names those videos.
+    /// </summary>
+    Task<Result<ReplaceUnitScopesResponse>> ReplaceUnitScopesAsync(
+        long teacherId, long actingUserId, long unitId, AssignUnitScopesRequest request);
+
+    /// <summary>
+    /// Removes a single scope row from a unit. Rejected (409) if removing it would
+    /// leave a member video uncovered (the response names those videos).
+    /// </summary>
+    Task<Result<bool>> RemoveUnitScopeAsync(long teacherId, long unitId, long scopeId);
+
+    /// <summary>
+    /// Returns the sessions/groups a video may be scoped to, derived from the target
+    /// scope of its units — powers the video-scope picker. Pass <paramref name="videoId"/>
+    /// (edit screen) or a set of <paramref name="unitIds"/> (create screen).
+    /// </summary>
+    Task<Result<AllowedScopeTargetsDto>> GetAllowedScopeTargetsAsync(
+        long teacherId, IReadOnlyCollection<long>? unitIds, long? videoId);
+
 }

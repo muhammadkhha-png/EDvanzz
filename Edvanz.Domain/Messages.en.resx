@@ -1748,6 +1748,18 @@
   <data name="VideoUnitNotFound" xml:space="preserve">
     <value>We couldn't find this unit. It may have been deleted</value>
   </data>
+  <data name="VideoMustBelongToUnit" xml:space="preserve">
+    <value>The video '{0}' must belong to at least one unit. Add it to a unit before saving.</value>
+  </data>
+  <data name="VideoScopeExceedsUnitScope" xml:space="preserve">
+    <value>The video '{0}' targets session(s) {1}, which its unit doesn't include. Add them to the unit, or remove them from the video's access.</value>
+  </data>
+  <data name="UnitScopeChangeUncoversVideos" xml:space="preserve">
+    <value>This change would remove session(s) still used by these video(s): {0}. Update those videos first, then change the unit's sessions.</value>
+  </data>
+  <data name="UnitDeleteWouldOrphanVideos" xml:space="preserve">
+    <value>This unit still holds these video(s): {0}. Move them to another unit (or delete them) before deleting this unit.</value>
+  </data>
   <data name="OnlineExam.StudentStatusBlocked" xml:space="preserve">
     <value>Student blocked</value>
   </data>
@@ -1811,5 +1823,8 @@
   </data>
   <data name="VideoQuizAttemptNotFound" xml:space="preserve">
     <value>You haven't taken this quiz yet.</value>
+  </data>
+  <data name="ChildEnrollmentRemoved" xml:space="preserve">
+    <value>This child's enrollment record with this teacher was removed. Please contact the teacher</value>
   </data>
 </root>

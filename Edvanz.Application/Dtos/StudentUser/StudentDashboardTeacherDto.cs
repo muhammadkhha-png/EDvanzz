@@ -10,6 +10,16 @@
 public class StudentDashboardTeacherDto
 {
     /// <summary>
+    /// The Teacher's numeric id (<c>Teacher.Id</c>). This is the value the
+    /// student-facing content routes take as their <c>{teacherId}</c> route
+    /// segment — e.g. <c>GET /api/videos/student/teachers/{teacherId}/units</c>,
+    /// attendance, payments, exams. It is NOT the <c>User.Id</c> and NOT the
+    /// <see cref="TeacherCode"/>; use this (never <see cref="LinkId"/>) when the
+    /// frontend needs to select a specific linked teacher's data.
+    /// </summary>
+    public long TeacherId { get; set; }
+
+    /// <summary>
     /// The StudentTeacherLink Id — used for unlink operations.
     /// </summary>
     public long LinkId { get; set; }
@@ -87,4 +97,14 @@ public class StudentDashboardTeacherDto
     /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
     /// </summary>
     public bool VisibilityExamDefault { get; set; }
+
+    /// <summary>
+    /// Whether this teacher allows the student to see the Videos module.
+    /// </summary>
+    public bool VisibilityVideo { get; set; }
+
+    /// <summary>
+    /// Default online-exam visibility for this teacher (default: visible).
+    /// </summary>
+    public bool VisibilityOnlineExamDefault { get; set; }
 }

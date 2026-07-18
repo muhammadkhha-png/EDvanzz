@@ -495,6 +495,7 @@ public class StudentUserService : IStudentUserService
 
         return new StudentDashboardTeacherDto
         {
+            TeacherId = teacherId,
             LinkId = link.Id,
             Status = link.LinkStatus.ToString(),
             RequestedAt = link.RequestedAt,
@@ -508,7 +509,9 @@ public class StudentUserService : IStudentUserService
             VisibilityAttendance = config?.StudentVisibilityAttendance ?? true,
             VisibilityPayment = config?.StudentVisibilityPayment ?? true,
             VisibilityHomework = config?.StudentVisibilityHomework ?? true,
-            VisibilityExamDefault = config?.StudentVisibilityExamDefault ?? false
+            VisibilityExamDefault = config?.StudentVisibilityExamDefault ?? false,
+            VisibilityVideo = config?.StudentVisibilityVideo ?? true,
+            VisibilityOnlineExamDefault = config?.StudentVisibilityOnlineExamDefault ?? true
         };
     }
 

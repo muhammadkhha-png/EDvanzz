@@ -66,6 +66,14 @@ public sealed class OnlineExamTakeScreenDto
     public DateTime EndDateTime { get; set; }
 
     public decimal ExamDegree { get; set; }
+
+    /// <summary>
+    /// The caller's attempt status — <c>InProgress</c> / <c>Passed</c> / <c>Failed</c> /
+    /// <c>Blocked</c> — or null when the student has never touched this exam. Lets the app
+    /// render a blocked/finalized state on re-entry instead of discovering it at submit.
+    /// </summary>
+    public string? StudentStatus { get; set; }
+
     public List<StudentOnlineExamQuestionRow> Questions { get; set; } = new();
 }
 
@@ -124,4 +132,12 @@ public sealed class OnlineExamStatsDto
     public int NotAnswered { get; set; }
     public int Correct { get; set; }
     public int Wrong { get; set; }
+
+    /// <summary>
+    /// The report status these stats belong to — <c>InProgress</c> / <c>Passed</c> /
+    /// <c>Failed</c> / <c>Blocked</c> — so a result read is distinguishable from
+    /// not-attempted and a blocked attempt is visible on every stats surface. Null only
+    /// on paths that carry no report (kept nullable for wire back-compat).
+    /// </summary>
+    public string? Status { get; set; }
 }

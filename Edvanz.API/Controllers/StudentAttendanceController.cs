@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using Edvanz.Domain.Resources;
+using Microsoft.Extensions.Localization;
+using System.Net;
 using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.Attendance;
 using Edvanz.Application.IservicesContract;
@@ -34,15 +36,17 @@ public sealed class StudentAttendanceController : ApiBaseController
     private readonly IAttendanceService _attendanceService;
     private readonly ICurrentUserService _currentUser;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IStringLocalizer<Messages> _localizer;
 
     public StudentAttendanceController(
         IAttendanceService attendanceService,
         ICurrentUserService currentUser,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
     {
         _attendanceService = attendanceService;
         _currentUser = currentUser;
         _unitOfWork = unitOfWork;
+        _localizer = localizer;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -122,13 +126,13 @@ public sealed class StudentAttendanceController : ApiBaseController
     }
 
     private IActionResult NotFoundError(string message) =>
-        new ObjectResult(new { success = false, message })
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
         {
             StatusCode = (int)HttpStatusCode.NotFound,
         };
 
     private IActionResult ForbiddenError(string message) =>
-        new ObjectResult(new { success = false, message })
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
         {
             StatusCode = (int)HttpStatusCode.Forbidden,
         };

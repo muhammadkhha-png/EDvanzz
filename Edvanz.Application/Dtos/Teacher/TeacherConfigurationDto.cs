@@ -35,6 +35,7 @@ public class TeacherConfigurationDto
     public bool StudentVisibilityPayment { get; set; }
     public bool StudentVisibilityHomework { get; set; }
     public bool StudentVisibilityExamDefault { get; set; }
+    public bool StudentVisibilityVideo { get; set; }
 
     // ─── AAM-FR-04.9 ───
     public bool ParentVisibilityAttendance { get; set; }

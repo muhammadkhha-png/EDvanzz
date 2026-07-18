@@ -202,4 +202,26 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
         return await _context.VideoUnitScopes
             .CountAsync(s => s.VideoUnitId == unitId);
     }
+
+    /// <inheritdoc />
+    public async Task<List<VideoUnitScope>> GetScopeRowsForUnitsAsync(IEnumerable<long> unitIds)
+    {
+        var ids = unitIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new List<VideoUnitScope>();
+
+        return await _context.VideoUnitScopes
+            .AsNoTracking()
+            .Where(s => ids.Contains(s.VideoUnitId))
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<List<long>> GetVideoIdsInUnitAsync(long unitId)
+    {
+        return await _context.VideoAssetUnits
+            .Where(au => au.UnitId == unitId)
+            .Select(au => au.VideoAssetId)
+            .ToListAsync();
+    }
 }
