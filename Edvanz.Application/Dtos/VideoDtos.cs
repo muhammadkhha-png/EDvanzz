@@ -97,10 +97,13 @@ public sealed class CreateVideoRequest
     public int? DurationSeconds { get; set; }
 
     /// <summary>
-    /// Optional unit links created with the video (M:N). Null or empty = no unit links; link
-    /// later via <c>PUT /videos/{id}/units</c>. Units must belong to the calling teacher.
+    /// The unit(s) this video belongs to (M:N). REQUIRED and non-empty — a video must
+    /// live inside at least one unit, and its scope must stay within those units' scope
+    /// (containment). Units must belong to the calling teacher.
     /// </summary>
-    public List<long>? UnitIds { get; set; }
+    [Required]
+    [MinLength(1)]
+    public List<long> UnitIds { get; set; } = new();
 
     /// <summary>
     /// Optional video photo (cover image) — the opaque <c>fileId</c> (FileObject.PublicId)
@@ -178,9 +181,11 @@ public sealed class UpdateVideoRequest
 
     /// <summary>
     /// Replaces the video's unit links (M:N). <c>null</c> = leave unit links
-    /// unchanged; empty list = unlink from all units. This distinction is
-    /// load-bearing — the service treats null and empty-list differently.
+    /// unchanged. If provided it must be non-empty (min 1) — a video must stay in
+    /// at least one unit, so "unlink from all" ([]) is rejected (400). The new
+    /// units must still cover the video's scope, else 409/422.
     /// </summary>
+    [MinLength(1)]
     public List<long>? UnitIds { get; set; }
 
     /// <summary>
@@ -310,6 +315,17 @@ public sealed class VideoDetailDto : VideoBaseDto
     /// <summary>Current scopes, grouped by type. Same shape used to
     /// create/replace scopes — resend this verbatim (edited) to update them.</summary>
     public List<CreateVideoScopeDto>? Scopes { get; set; }
+
+    /// <summary>The ids of the unit(s) this video belongs to (M:N). Resend as
+    /// <c>unitIds</c> on the update to change unit membership.</summary>
+    public List<long> UnitIds { get; set; } = new();
+
+    /// <summary>
+    /// The sessions/groups this video MAY be scoped to — the union of its units'
+    /// scope (groups expanded to sessions, with display names). Populates the
+    /// scope picker directly, so the Edit screen needs no separate call.
+    /// </summary>
+    public AllowedScopeTargetsDto AllowedScopeTargets { get; set; } = new();
 }
 
 /// <summary>
@@ -944,27 +960,11 @@ public sealed class VideoUnitResponse
     public string? Description { get; set; }
 
     /// <summary>
-    /// The unit's scope rows. Each carries its own <see cref="UnitScopeItemDto.Id"/>
-    /// so a client can target a single row for
-    /// <c>DELETE /api/video-units/{unitId}/scopes/{scopeId}</c>.
+    /// The unit's scope rows (the sessions/groups the unit targets). Edit them with
+    /// <c>PUT /api/video-units/{unitId}/scopes</c> (send the full desired set — an
+    /// empty list clears the scope).
     /// </summary>
-    public List<UnitScopeItemDto> Scopes { get; set; } = new();
-}
-
-/// <summary>
-/// One scope row on a unit, as returned by <c>GET /api/video-units/{unitId}</c>.
-/// Same target fields as <see cref="VideoScopeInputDto"/> plus the row <see cref="Id"/>
-/// (needed to delete a single scope).
-/// </summary>
-public sealed class UnitScopeItemDto
-{
-    public long Id { get; set; }
-
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public VideoScopeType ScopeType { get; set; }
-
-    public long? SessionId { get; set; }
-    public long? SessionGroupId { get; set; }
+    public List<VideoScopeInputDto> Scopes { get; set; } = new();
 }
 
 /// <summary>

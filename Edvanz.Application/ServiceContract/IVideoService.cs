@@ -16,7 +16,6 @@ namespace Edvanz.Application.ServiceContract;
 ///   <item>1 — POST /api/videos                        → <see cref="CreateVideoAsync"/></item>
 ///   <item>2 — POST /api/videos/{id}/scopes            → <see cref="AppendScopesAsync"/></item>
 ///   <item>3 — PUT  /api/videos/{id}/scopes            → <see cref="ReplaceScopesAsync"/></item>
-///   <item>4 — DELETE /api/videos/{id}/scopes/{scopeId} → <see cref="RemoveScopeAsync"/></item>
 ///   <item>5 — DELETE /api/videos/{id}                 → <see cref="DeleteVideoAsync"/></item>
 ///   <item>6 — GET  /api/videos/teacher                → <see cref="GetTeacherVideosAsync"/></item>
 ///   <item>7 — GET  /api/videos/student                → <see cref="GetStudentVideosAsync"/></item>
@@ -87,18 +86,6 @@ public interface IVideoService
     /// </summary>
     Task<Result<ReplaceScopesResponse>> ReplaceScopesAsync(
         long teacherId, long actingUserId, long videoAssetId, AssignScopesRequest request);
-
-    /// <summary>
-    /// Removes a single scope row. Refuses with
-    /// <see cref="Domain.Constants.VideoConstants.Messages.LastScopeCannotBeRemoved"/>
-    /// when this would leave the video with zero scope rows — the teacher
-    /// should hard-delete the video instead.
-    ///
-    /// Spec endpoint #4 (Q3 decision: keep both PUT-replace and
-    /// DELETE-single).
-    /// </summary>
-    Task<Result<bool>> RemoveScopeAsync(
-        long teacherId, long videoAssetId, long scopeId);
 
     /// <summary>
     /// Hard-deletes a video. Inside a single transaction:
@@ -312,15 +299,6 @@ public interface IVideoService
     /// </summary>
     Task<Result<VideoOverviewDto>> GetVideoOverviewAsync(long teacherId, long videoAssetId);
 
-    /// <summary>
-    /// Replaces a video's unit links entirely (M:N) — the dedicated
-    /// assign-to-unit endpoint, deliberately separate from
-    /// <see cref="CreateVideoAsync"/> (unit assignment was intentionally
-    /// removed from create). Shares its unit-ownership validation and
-    /// <c>ReplaceUnitLinksAsync</c> call with <see cref="UpdateVideoAsync"/>'s
-    /// own <c>UnitIds</c> handling — one code path for both.
-    /// </summary>
-    Task<Result<AssignVideoUnitsResponse>> AssignVideoToUnitsAsync(
-        long teacherId, long videoAssetId, AssignVideoUnitsRequest request);
-
+    // Unit membership is set through CreateVideoAsync / UpdateVideoAsync (`unitIds`) —
+    // a video always belongs to >=1 unit, so there is no separate assign-to-units method.
 }

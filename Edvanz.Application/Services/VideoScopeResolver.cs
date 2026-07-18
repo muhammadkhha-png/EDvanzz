@@ -89,33 +89,4 @@ public sealed class VideoScopeResolver : IVideoScopeResolver
         return ids;
     }
 
-    /// <inheritdoc />
-    public async Task<HashSet<long>> ResolveFromPersistedUnitScopesAsync(
-        long teacherId, IEnumerable<VideoUnitScope> scopes)
-    {
-        var ids = new HashSet<long>();
-
-        foreach (var s in scopes)
-        {
-            IReadOnlyList<long> resolved = s.ScopeType switch
-            {
-             
-                VideoScopeType.Session when s.SessionId.HasValue
-                    => await _unitOfWork.PaymentsRepo
-                        .GetStudentIdsBySessionAsync(teacherId, s.SessionId.Value),
-
-                VideoScopeType.SessionGroup when s.SessionGroupId.HasValue
-                    => await _unitOfWork.PaymentsRepo
-                        .GetStudentIdsByGroupAsync(teacherId, s.SessionGroupId.Value),
-
-                _ => Array.Empty<long>(),
-            };
-
-            foreach (var id in resolved)
-                ids.Add(id);
-        }
-
-        return ids;
-    }
-
 }

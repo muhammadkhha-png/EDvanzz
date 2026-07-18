@@ -369,6 +369,10 @@ options.AddPolicy(SpaCors, policy =>
           .AllowCredentials());                     // omit if you don't use cookies
 });
 
+// Idle-session sliding: per-user throttle marker cache (in-process, short TTL) used by
+// SessionActivitySlidingMiddleware to keep the refresh-token deadline write off the hot path.
+builder.Services.AddMemoryCache();
+
 var app = builder.Build();
 
 
@@ -611,6 +615,12 @@ app.UseAuthentication();
 // is populated, and before UseAuthorization so PermissionHandler and
 // ActiveSubscriptionHandler see the resolved snapshot on HttpContext.Items.
 app.UseMiddleware<SecurityStampValidationMiddleware>();
+
+// Idle-session enforcement: slide the caller's refresh-token idle deadline forward on every
+// authenticated request (throttled). Runs AFTER the security-stamp check so an invalidated
+// token never extends a session, and BEFORE UseAuthorization (any authenticated call counts
+// as activity, even one that is ultimately 403'd). See SessionActivitySlidingMiddleware.
+app.UseMiddleware<SessionActivitySlidingMiddleware>();
 app.UseAuthorization();
 
 // ── Hangfire dashboard — MUST be after UseAuthentication + UseAuthorization ──

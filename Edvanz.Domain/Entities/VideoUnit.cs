@@ -7,21 +7,20 @@ namespace Edvanz.Domain.Entities;
 /// Named container that groups a teacher's videos (G-UNIT / Module 14
 /// Track C).
 ///
-/// FINAL DECISION (supersedes the earlier "purely organizational" design):
-/// a <see cref="VideoUnit"/> carries its own Target Scope
-/// (<see cref="Scopes"/>), in addition to each video's own
-/// <see cref="VideoScope"/>. A student is authorized to access a video the
-/// moment EITHER scope resolves them. See
-/// <c>IVideoAssetRepo.IsStudentInVideoScopeAsync</c> for the union check and
-/// <see cref="VideoUnitScope"/> for the scope-row shape.
+/// DESIGN (boundary model): a <see cref="VideoUnit"/> carries its own Target
+/// Scope (<see cref="Scopes"/>) that acts as the BOUNDARY for its videos — a
+/// video's own <see cref="VideoScope"/> must stay within the union of its
+/// units' scopes (enforced on every video-scope write). Unit scope is NOT a
+/// separate grant: student visibility is decided purely by the video's own
+/// <see cref="VideoScope"/> (which the boundary guarantees sits inside the
+/// unit). See <see cref="VideoUnitScope"/> for the scope-row shape.
 ///
-/// Optional relationship: Video↔Unit is M:N via <see cref="VideoAssetUnit"/> —
-/// "loose" videos with no unit link rows are valid; their access is governed
-/// solely by their own <see cref="VideoScope"/> rows (no unit scope applies).
-/// Deleting a unit does not delete or orphan its videos; the service layer
-/// removes the unit's <see cref="VideoAssetUnit"/> rows, so videos simply
-/// become loose again for that unit — and, once loose, stop being covered by
-/// the (now-deleted) unit's scope entirely.
+/// Relationship: Video↔Unit is M:N via <see cref="VideoAssetUnit"/>. Every
+/// video must belong to at least one unit (enforced on create/update). A unit
+/// cannot be deleted, nor its scope shrunk, while that would leave a member
+/// video without a unit or targeting sessions the unit no longer covers (409);
+/// otherwise the service layer removes the unit's <see cref="VideoAssetUnit"/>
+/// rows on delete.
 ///
 /// Soft-delete via <see cref="DeletedAt"/>, same convention as
 /// <c>Teacher</c>/<c>StudentUser</c>/<c>ParentUser</c> — unlike
@@ -62,9 +61,10 @@ public class VideoUnit : BaseEntity
     public ICollection<VideoAssetUnit> AssetUnits { get; set; } = new List<VideoAssetUnit>();
 
     /// <summary>
-    /// This unit's own Target Scope rows. NoAction-deleted with the unit.
-    /// A student authorized by ANY of these rows gets access to EVERY video
-    /// in this unit, independent of each video's own <see cref="VideoScope"/>.
+    /// This unit's own Target Scope rows (the BOUNDARY for its videos).
+    /// NoAction-deleted with the unit. These rows bound what a member video's
+    /// own <see cref="VideoScope"/> may target; they do NOT themselves grant a
+    /// student access (student visibility is decided by the video's scope).
     /// </summary>
     public ICollection<VideoUnitScope> Scopes { get; set; } = new List<VideoUnitScope>();
 }

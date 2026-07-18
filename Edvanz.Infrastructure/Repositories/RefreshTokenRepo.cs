@@ -24,5 +24,14 @@ namespace Edvanz.Infrastructure.Repositories
         {
          return _context.RefreshTokens.Where(r=>r.UserId == userId).ToList();
         }
+
+        public async Task<int> SlideActiveExpiryAsync(long userId, DateTime newExpiryUtc, DateTime nowUtc)
+        {
+            // Slide only still-alive sessions forward; the ExpiryDate > nowUtc guard guarantees
+            // we never revive a session that already idled out. Set-based UPDATE (no tracking).
+            return await _context.RefreshTokens
+                .Where(r => r.UserId == userId && !r.IsRevoked && r.ExpiryDate > nowUtc)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.ExpiryDate, newExpiryUtc));
+        }
     }
 }

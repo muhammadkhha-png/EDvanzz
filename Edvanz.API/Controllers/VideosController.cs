@@ -147,33 +147,6 @@ public sealed class VideosController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // ENDPOINT 4 — REMOVE SINGLE SCOPE  (Story D, endpoint #4)
-    // DELETE /api/videos/{videoAssetId}/scopes/{scopeId}
-    // ══════════════════════════════════════════════════════════════════════
-    //
-    // WHAT IT DOES:
-    //   Removes one scope row from a video. Refuses if it would leave the
-    //   video with zero scopes — teacher should hard-delete the video instead.
-    //
-    // ══════════════════════════════════════════════════════════════════════
-    [HttpDelete("{videoAssetId:long}/scopes/{scopeId:long}")]
-    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> RemoveScope(
-        [FromRoute] long videoAssetId, [FromRoute] long scopeId)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _service.RemoveScopeAsync(teacherId.Value, videoAssetId, scopeId);
-        return ToResponse(result);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     // ENDPOINT 5 — DELETE VIDEO  (Story E, REQ-VCM-BR-03)
     // DELETE /api/videos/{videoAssetId}
     // ══════════════════════════════════════════════════════════════════════
@@ -393,28 +366,9 @@ public sealed class VideosController : ModuleSixApiBaseController
     // Attachment download is gone — the attachment's stable gated URL (/api/files/{fileId}) is
     // returned in the video read/create responses and used directly.
 
-    // ══════════════════════════════════════════════════════════════════════
-    // ASSIGN VIDEO TO UNIT(S) — replace-all, deliberately separate from
-    // POST /api/videos (unit assignment was intentionally removed from
-    // create — see the CreateVideoRequest history)
-    // PUT /api/videos/{videoAssetId}/units
-    // ══════════════════════════════════════════════════════════════════════
-    [HttpPut("{videoAssetId:long}/units")]
-    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.AssignVideoUnitsResponse>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> AssignVideoUnits(
-        [FromRoute] long videoAssetId, [FromBody] AssignVideoUnitsRequest request)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _service.AssignVideoToUnitsAsync(teacherId.Value, videoAssetId, request);
-        return ToResponse(result);
-    }
+    // Unit membership is set via POST /api/videos (create) and PUT /api/videos/{id}
+    // (update `unitIds`) — a video always belongs to >=1 unit, so there is no
+    // separate assign-to-units endpoint.
 
     // ══════════════════════════════════════════════════════════════════════
     // G-EDIT — GET VIDEO DETAIL

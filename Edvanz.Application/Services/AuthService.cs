@@ -167,7 +167,7 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(7),
+                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
@@ -322,10 +322,11 @@ namespace Edvanz.Application.Services
                 return Result<AuthResponse>.Failure(_localizer, "TokenReuseDetected");
             }
 
-            // Rotate: mark current as revoked, issue new
-            token.IsRevoked = true;
-
-
+            // Rotate the refresh token IN PLACE (same row, new token string below). Do NOT set
+            // IsRevoked here: the row is repurposed as the NEW valid token and the previous
+            // token string is overwritten (so it is no longer resolvable). Marking it revoked
+            // was a bug that made the very next refresh fail as "TokenReuseDetected" — refresh
+            // tokens were effectively single-use.
             var user = await _unitOfWork.Users.GetByIdAsync(token.UserId);
             if (user == null)
                 return Result<AuthResponse>.Failure(_localizer, "UserNotFound");
@@ -335,7 +336,10 @@ namespace Edvanz.Application.Services
             var newRefreshToken = tokenService.GenerateRefreshToken();
 
             token.Token = newRefreshToken;
-            token.ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays"));
+            // Idle deadline (ExpiryDate) is PRESERVED across refresh — it is owned by real
+            // request activity (SessionActivitySlidingMiddleware slides it on every authenticated
+            // call). A token refresh alone must NOT extend the session, so 1 hour with no
+            // authenticated requests still lets it expire (the ExpiryDate <= now guard above).
             token.SecurityStamp = user.SecurityStamp;
 
             await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
@@ -663,7 +667,7 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenDays")),
+                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
