@@ -10,6 +10,16 @@
 public class StudentDashboardTeacherDto
 {
     /// <summary>
+    /// The Teacher's numeric id (<c>Teacher.Id</c>). This is the value the
+    /// student-facing content routes take as their <c>{teacherId}</c> route
+    /// segment — e.g. <c>GET /api/videos/student/teachers/{teacherId}/units</c>,
+    /// attendance, payments, exams. It is NOT the <c>User.Id</c> and NOT the
+    /// <see cref="TeacherCode"/>; use this (never <see cref="LinkId"/>) when the
+    /// frontend needs to select a specific linked teacher's data.
+    /// </summary>
+    public long TeacherId { get; set; }
+
+    /// <summary>
     /// The StudentTeacherLink Id — used for unlink operations.
     /// </summary>
     public long LinkId { get; set; }

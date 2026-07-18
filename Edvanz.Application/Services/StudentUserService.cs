@@ -495,6 +495,7 @@ public class StudentUserService : IStudentUserService
 
         return new StudentDashboardTeacherDto
         {
+            TeacherId = teacherId,
             LinkId = link.Id,
             Status = link.LinkStatus.ToString(),
             RequestedAt = link.RequestedAt,
