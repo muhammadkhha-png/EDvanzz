@@ -90,11 +90,11 @@ const DEFAULT_PAGE_SIZE = 10;
                           View
                         </a>
                         <a
-                          [routerLink]="['/teachers', teacher.id, 'edit']"
-                          class="btn btn-sm btn-outline-primary ms-1"
-                        >
-                          Edit
-                        </a>
+  [routerLink]="['/teachers', teacher.id, 'update']"
+  class="btn btn-sm btn-outline-primary ms-1"
+>
+  Update
+</a>
                         <button
                           type="button"
                           class="btn btn-sm btn-outline-danger ms-1"

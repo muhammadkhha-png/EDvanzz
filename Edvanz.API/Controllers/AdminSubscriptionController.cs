@@ -36,6 +36,34 @@ public class AdminSubscriptionController : ApiBaseController
         _adminService = adminService;
         _currentUser = currentUser;
     }
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: CANCEL (REQ-ADM-013)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Immediately expires the teacher's CURRENT subscription in place
+    //   (EndDate = UtcNow, IsCurrent unchanged). Tutor drops to free tier on next
+    //   request. Reversible via activate/extend/end-date; history preserved.
+    //   404 NoActiveSubscription when the teacher has no current subscription row.
+    //
+    // TABLES WRITTEN: TeacherSubscriptions (EndDate update on current row)
+    //
+    // SAMPLE: POST /api/admin/subscriptions/cancel
+    //   { "teacherId": 42 }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("cancel")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Cancel([FromBody] AdminCancelRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.CancelAsync(adminUserId.Value, request);
+        return ToResponse(result);
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 1: ACTIVATE (FR-SUB-060 / REQ-ADM-012)

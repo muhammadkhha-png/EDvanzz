@@ -8,6 +8,7 @@ import {
   AdminExtendRequest,
   AdminPendingQueueItem,
   AdminSetEndDateRequest,
+  CancelSubscriptionRequest,
   CurrentSubscriptionDto,
 } from '../models/subscription.model';
 import { TeacherSubscriptionDto } from '../models/teacher.model';
@@ -22,6 +23,12 @@ export class SubscriptionService {
    * GET /api/teacher/{teacherId}/subscription
    * Returns the teacher's current subscription (or null if none).
    */
+  cancel(request: CancelSubscriptionRequest) {
+  return this.http.post<CurrentSubscriptionDto>(
+    `${this.base}/admin/subscriptions/cancel`,
+    request
+  );
+}
   getByTeacher(teacherId: number): Observable<TeacherSubscriptionDto | null> {
     return this.http
       .get<ApiResult<TeacherSubscriptionDto | null>>(

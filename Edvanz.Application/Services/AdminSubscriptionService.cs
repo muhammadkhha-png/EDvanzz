@@ -735,4 +735,48 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         Description = quota.Description,
         UpdatedAt = quota.UpdatedAt
     };
+    /// <inheritdoc />
+    public async Task<Result<CurrentSubscriptionDto>> CancelAsync(
+        long adminUserId, AdminCancelRequest request)
+    {
+        DateTime now = DateTime.UtcNow;
+
+        // ── Expire the current row in place inside a transaction ──
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var currentSub = await _unitOfWork.Users
+                .GetCurrentSubscriptionForUpdateAsync(request.TeacherId);
+
+            if (currentSub is null)
+            {
+                // No current row → nothing to cancel (mirrors ExtendAsync).
+                await _unitOfWork.RollbackAsync();
+                return Result<CurrentSubscriptionDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.NoActiveSubscription, HttpStatusCode.NotFound);
+            }
+
+            // Idempotent: already expired → no write, just report the current state.
+            if (currentSub.EndDate > now)
+            {
+                currentSub.EndDate = now;
+                // Stamp the admin as most-recent modifier (FR-SUB-064), same as Extend/SetEndDate.
+                currentSub.CreatedByUserId = adminUserId;
+
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        await _cache.InvalidateAsync(request.TeacherId);
+
+        return await BuildCurrentDtoResultAsync(
+            request.TeacherId, SubscriptionConstants.Messages.SubscriptionCancelled);
+    }
 }

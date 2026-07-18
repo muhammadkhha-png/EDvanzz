@@ -132,4 +132,16 @@ public interface IAdminSubscriptionService
     /// </summary>
     Task<Result<ModuleQuotaDto>> UpdateModuleQuotaAsync(
         long adminUserId, string moduleKey, UpdateModuleQuotaRequest request);
+    /// <summary>
+    /// Cancels the tutor's CURRENT subscription immediately (REQ-ADM-013) by
+    /// expiring it in place: sets EndDate = UtcNow on the current row, leaving
+    /// IsCurrent = true. The derived status becomes Expired, so the tutor drops to
+    /// the free tier on the next request; the cache is invalidated synchronously
+    /// after commit. Reversible via Activate/Extend/SetEndDate — no new row, no
+    /// history loss. Idempotent when the current row is already expired (no write).
+    /// Returns 404 NoActiveSubscription when the teacher has no current row
+    /// (mirrors ExtendAsync).
+    /// </summary>
+    Task<Result<CurrentSubscriptionDto>> CancelAsync(
+        long adminUserId, AdminCancelRequest request);
 }

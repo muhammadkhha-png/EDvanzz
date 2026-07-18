@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos.Subscription;
 using Edvanz.Application.IservicesContract;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Net;
 
 namespace Edvanz.API.Controllers;
 
@@ -114,6 +115,51 @@ public class AdminTutorModuleController : ApiBaseController
             return Unauthorized();
 
         var result = await _moduleService.BulkReplaceAsync(request, adminUserId.Value);
+        return ToResponse(result);
+    }
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 4: CATALOGUE — ALL PLATFORM MODULES
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // GET /api/admin/tutor-modules/catalogue  → Result<ModuleInfoDto[]>  (read-only)
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("catalogue")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.ModuleInfoDto>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCatalogue()
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _moduleService.GetCatalogueAsync();
+        return ToResponse(result);
+    }
+
+    protected IActionResult AdminNotResolved() =>
+        new ObjectResult(new { success = false, message = "admin not found" })
+        {
+            StatusCode = (int)HttpStatusCode.NotFound
+        };
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 5: A TUTOR'S GRANTED MODULES
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // GET /api/admin/tutor-modules/{teacherId}  → Result<ModuleInfoDto[]>
+    //   404 TeacherNotFound if the teacher does not exist.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("{teacherId:long}")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.ModuleInfoDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTutorModules([FromRoute] long teacherId)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _moduleService.GetTutorModulesAsync(teacherId);
         return ToResponse(result);
     }
 }

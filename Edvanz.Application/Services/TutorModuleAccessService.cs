@@ -271,4 +271,34 @@ public class TutorModuleAccessService : ITutorModuleAccessService
 
     private static string ResolveModuleName(Dictionary<long, string> map, long moduleId) =>
         map.TryGetValue(moduleId, out string? name) ? name : $"#{moduleId}";
+    /// <inheritdoc />
+    public async Task<Result<List<ModuleInfoDto>>> GetCatalogueAsync()
+    {
+        var modules = await _unitOfWork.GetRepository<Module, long>().GetAllAsync();
+
+        var dtos = modules
+            .OrderBy(m => m.Id)
+            .Select(m => new ModuleInfoDto { Id = m.Id, Name = m.Name })
+            .ToList();
+
+        return Result<List<ModuleInfoDto>>.Success(dtos, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<ModuleInfoDto>>> GetTutorModulesAsync(long teacherId)
+    {
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<List<ModuleInfoDto>>.Failure(
+                _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        var modules = await _unitOfWork.ModuleTeacherRepo!.GetModulesPerTeacher(teacherId);
+
+        var dtos = modules
+            .OrderBy(m => m.Id)
+            .Select(m => new ModuleInfoDto { Id = m.Id, Name = m.Name })
+            .ToList();
+
+        return Result<List<ModuleInfoDto>>.Success(dtos, _localizer);
+    }
 }

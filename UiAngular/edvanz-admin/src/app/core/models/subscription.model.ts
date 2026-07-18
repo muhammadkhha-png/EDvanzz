@@ -37,3 +37,6 @@ export interface AdminPendingQueueItem {
   phoneNumber?: string;
   createdAt: string;
 }
+export interface CancelSubscriptionRequest {
+  teacherId: number;
+}

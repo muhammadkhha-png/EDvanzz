@@ -197,9 +197,26 @@ export class SubscriptionPanelComponent implements OnInit {
   }
 
   protected async cancel(): Promise<void> {
-    // ⚠ POST /api/admin/subscriptions/cancel does not exist yet on the backend.
-    this.toast.error('Cancel endpoint not yet available on the backend.');
+
+  const confirmed = await this.confirm.open({
+    title: 'Cancel subscription',
+    message: 'Are you sure you want to cancel this subscription?',
+    confirmText: 'Cancel subscription',
+    cancelText: 'Keep subscription'
+  });
+
+  if (!confirmed) {
+    return;
   }
+
+  this.subscriptionService
+    .cancel({
+      teacherId: this.teacherId
+    })
+    .subscribe(sub => {
+      this.applyResult(sub, 'Subscription cancelled.');
+    });
+}
 
   private applyResult(sub: CurrentSubscriptionDto, message: string): void {
     this.subscription.set(sub);

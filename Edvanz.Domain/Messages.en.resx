@@ -1827,4 +1827,8 @@
   <data name="ChildEnrollmentRemoved" xml:space="preserve">
     <value>This child's enrollment record with this teacher was removed. Please contact the teacher</value>
   </data>
+  <!-- Messages.en.resx -->
+<data name="SubscriptionCancelled" xml:space="preserve">
+  <value>Subscription cancelled.</value>
+</data>
 </root>

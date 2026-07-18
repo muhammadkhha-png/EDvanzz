@@ -43,4 +43,23 @@ public interface ITutorModuleAccessService
     /// and invalidates the cache once for the tutor + assistants fan-out.
     /// </summary>
     Task<Result<string>> BulkReplaceAsync(TutorModulesReplaceRequest request, long adminUserId);
+    // ══════════════════════════════════════════════
+    // READS (admin module-assignment UI)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Every module defined in the platform (the Models table) as an id/name
+    /// projection. Backs GET /api/admin/tutor-modules/catalogue — the left side of
+    /// the admin module-assignment grid. Read-only; no tenant scope.
+    /// </summary>
+    Task<Result<List<ModuleInfoDto>>> GetCatalogueAsync();
+
+    /// <summary>
+    /// The modules currently granted to the given tutor (the TutorModuleAccess rows
+    /// for that teacher) as an id/name projection. Backs
+    /// GET /api/admin/tutor-modules/{teacherId}. Returns 404 TeacherNotFound when
+    /// the teacher does not exist; an existing teacher with no grants returns an
+    /// empty list (success), not 404.
+    /// </summary>
+    Task<Result<List<ModuleInfoDto>>> GetTutorModulesAsync(long teacherId);
 }

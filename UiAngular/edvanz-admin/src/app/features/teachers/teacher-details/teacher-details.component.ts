@@ -8,7 +8,7 @@ import {
 import { TeacherProfile } from '../../../core/models/teacher.model';
 import { TeacherService } from '../../../core/services/teacher.service';
 import { SubscriptionStatusBadgeComponent } from '../subscription-panel/subscription-status-badge.component';
-
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 /**
  * Shell for a single teacher. Loads the header once and hosts three tabbed
  * child routes (info / subscription / modules), each of which is an
@@ -119,10 +119,17 @@ export class TeacherDetailsComponent implements OnInit {
   ngOnInit(): void {
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
-      this.teacherService.getTeacherById(+id).subscribe((t) => this.teacher.set(t));
+      this.teacherService.getTeacherById(+id).subscribe((t) => { this.teacher.set(t); this.patchForm(); });
     }
   }
+private readonly fb = inject(FormBuilder);
 
+  readonly form = this.fb.nonNullable.group({
+  fullName: ['', Validators.required],
+  languagePreference: ['en', Validators.required],
+  subjectIds: [[] as number[]],
+  customSubject: ['']
+});
   protected initials(name: string): string {
     return name
       .split(' ')
@@ -131,4 +138,26 @@ export class TeacherDetailsComponent implements OnInit {
       .join('')
       .toUpperCase();
   }
+  protected readonly editing = signal(false);
+
+enableEdit() {
+  this.editing.set(true);
+}
+
+cancelEdit() {
+  this.editing.set(false);
+  this.patchForm();
+}
+private patchForm(): void {
+  const teacher = this.teacher();
+
+  if (!teacher) return;
+
+  this.form.patchValue({
+    fullName: teacher.fullName,
+    languagePreference: teacher.languagePreference,
+    subjectIds: teacher.subjects.map(s => s.id),
+    customSubject: teacher.customSubject ?? ''
+  });
+}
 }

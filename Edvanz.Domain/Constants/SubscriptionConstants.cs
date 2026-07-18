@@ -7,6 +7,7 @@
 /// </summary>
 public static class SubscriptionConstants
 {
+   
     // ══════════════════════════════════════════════
     // CONFIGURATION LIMITS
     // ══════════════════════════════════════════════
@@ -117,6 +118,10 @@ public static class SubscriptionConstants
     /// </summary>
     public static class Messages
     {
+        public const string SubscriptionActivated = "SubscriptionActivated";
+        public const string SubscriptionExtended = "SubscriptionExtended";
+        public const string SubscriptionCancelled = "SubscriptionCancelled";   // ← add
+        public const string SubscriptionEndDateUpdated = "SubscriptionEndDateUpdated";
         // ── Generic operation outcomes ──
         public const string Success = "Success";
         public const string TeacherNotFound = "TeacherNotFound";
@@ -182,9 +187,7 @@ public static class SubscriptionConstants
         public const string RejectionReasonRequired = "RejectionReasonRequired";
 
         // ── Admin manual overrides ──
-        public const string SubscriptionActivated = "SubscriptionActivated";
-        public const string SubscriptionExtended = "SubscriptionExtended";
-        public const string SubscriptionEndDateUpdated = "SubscriptionEndDateUpdated";
+       
         public const string SubscriptionNotFound = "SubscriptionNotFound";
         public const string ExtensionDaysMustBePositive = "ExtensionDaysMustBePositive";
         public const string EndDateMustBeAfterStart = "EndDateMustBeAfterStart";
