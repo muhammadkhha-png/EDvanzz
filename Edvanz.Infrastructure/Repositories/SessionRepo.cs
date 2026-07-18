@@ -346,6 +346,20 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .AsNoTracking()
             .ToDictionaryAsync(s => s.Id, s => s.SessionName);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<long, string>> GetGroupNamesByIdsAsync(
+        long teacherId, IEnumerable<long> groupIds)
+    {
+        var ids = groupIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<long, string>();
+
+        return await _context.SessionGroups
+            .Where(g => g.TeacherId == teacherId && ids.Contains(g.Id))
+            .Select(g => new { g.Id, g.GroupName })
+            .AsNoTracking()
+            .ToDictionaryAsync(g => g.Id, g => g.GroupName);
+    }
     /// <inheritdoc />
     public async Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId)
     {

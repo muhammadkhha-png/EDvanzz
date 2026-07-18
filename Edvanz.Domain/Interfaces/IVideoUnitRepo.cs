@@ -98,4 +98,18 @@ public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
     /// "last scope cannot be removed" guard at the unit level.
     /// </summary>
     Task<int> CountScopesForUnitAsync(long unitId);
+
+    /// <summary>
+    /// Returns the scope rows for a set of units (AsNoTracking). Used to compute
+    /// the union of allowed sessions/groups a video's units cover — the boundary
+    /// for the video-scope containment rule and the allowed-scope-targets picker.
+    /// </summary>
+    Task<List<VideoUnitScope>> GetScopeRowsForUnitsAsync(IEnumerable<long> unitIds);
+
+    /// <summary>
+    /// Returns the ids of the videos currently linked to a unit (via
+    /// <c>VideoAssetUnit</c>). Used by the unit-scope block guard to check that a
+    /// scope shrink / unit delete would not leave a member video uncovered.
+    /// </summary>
+    Task<List<long>> GetVideoIdsInUnitAsync(long unitId);
 }

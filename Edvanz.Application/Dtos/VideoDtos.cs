@@ -944,6 +944,40 @@ public sealed class VideoUnitResponse
     public string? Description { get; set; }
     public List<VideoScopeInputDto> Scopes { get; set; } = new();
 }
+
+/// <summary>
+/// The sessions and session-groups a video is ALLOWED to be scoped to, derived
+/// from the target scope of the unit(s) it belongs to. Backs
+/// <c>GET /api/video-units/allowed-scope-targets</c> so the video-scope picker
+/// only offers targets the video's units cover — enforcing the containment rule
+/// that a video's audience must stay within its units' audience.
+/// </summary>
+public sealed class AllowedScopeTargetsDto
+{
+    /// <summary>
+    /// Sessions the video may target: the units' own Session scopes PLUS every
+    /// session inside the units' SessionGroup scopes (a group expands to its
+    /// members, so a teacher can pick an individual session within a covered group).
+    /// </summary>
+    public List<AllowedSessionTargetDto> Sessions { get; set; } = new();
+
+    /// <summary>Session-groups the video may target: the units' SessionGroup scopes.</summary>
+    public List<AllowedGroupTargetDto> Groups { get; set; } = new();
+}
+
+/// <summary>One selectable session in <see cref="AllowedScopeTargetsDto"/>.</summary>
+public sealed class AllowedSessionTargetDto
+{
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = null!;
+}
+
+/// <summary>One selectable session-group in <see cref="AllowedScopeTargetsDto"/>.</summary>
+public sealed class AllowedGroupTargetDto
+{
+    public long SessionGroupId { get; set; }
+    public string GroupName { get; set; } = null!;
+}
 // <summary>
 /// One scope-type group for the merged create-video request. <c>Ids</c> are
 /// session ids when <c>ScopeType = Session</c>, or session-group ids when

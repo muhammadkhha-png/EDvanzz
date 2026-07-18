@@ -172,6 +172,16 @@ public static class VideoConstants
         public const string VideoUnitDeleted  = "VideoUnitDeleted";
         public const string VideoUnitNotFound = "VideoUnitNotFound";
 
+        // ── Unit ↔ Video scope containment (a video's scope must stay within its units' scope) ──
+        /// <summary>Error (422) — a video was saved/updated without belonging to any unit. Arg {0} = video title.</summary>
+        public const string VideoMustBelongToUnit = "VideoMustBelongToUnit";
+        /// <summary>Error (422) — a video targets sessions its units don't cover. Arg {0} = video title, {1} = offending session names.</summary>
+        public const string VideoScopeExceedsUnitScope = "VideoScopeExceedsUnitScope";
+        /// <summary>Error (409) — shrinking/removing a unit scope would leave member videos targeting uncovered sessions. Arg {0} = video titles.</summary>
+        public const string UnitScopeChangeUncoversVideos = "UnitScopeChangeUncoversVideos";
+        /// <summary>Error (409) — deleting a unit would leave member videos without a unit or with uncovered sessions. Arg {0} = video titles.</summary>
+        public const string UnitDeleteWouldOrphanVideos = "UnitDeleteWouldOrphanVideos";
+
         // ── Track F / §5 Attachments ─────────────────────────────────────────
         public const string AttachmentsLimitExceeded = "VideoAttachmentsLimitExceeded";
         // "Thumbnail" renamed to "VideoPhoto" app-wide — same messages, new terminology.

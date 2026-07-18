@@ -101,6 +101,13 @@ public sealed class VideoService : IVideoService
             return Result<AppendScopesResponse>.Failure(
                 _localizer, ownershipError, HttpStatusCode.BadRequest);
 
+        // Containment: the appended targets must stay within the video's units' coverage.
+        var appendUnitIds = await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(videoAssetId);
+        var appendContainment = await EnsureVideoScopeWithinUnitsAsync(
+            teacherId, video.Title, appendUnitIds, request.Scopes);
+        if (!appendContainment.IsSuccess)
+            return Result<AppendScopesResponse>.Failure(appendContainment);
+
         // Pre-load existing scope rows so we can dedupe client-side rather
         // than catching unique-violation exceptions per row. The DB unique
         // index UX_VideoScopes_Video_Type_Target remains as a safety net.
@@ -213,6 +220,19 @@ public sealed class VideoService : IVideoService
                 await _unitOfWork.RollbackAsync();
             return Result<ReplaceScopesResponse>.Failure(
                 _localizer, ownershipError, HttpStatusCode.BadRequest);
+        }
+
+        // Containment: the replacement targets must stay within the video's units'
+        // coverage. Covers the standalone PUT /videos/{id}/scopes path (the folded-in
+        // update path also pre-validates the final state before this runs).
+        var replaceUnitIds = await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(videoAssetId);
+        var replaceContainment = await EnsureVideoScopeWithinUnitsAsync(
+            teacherId, video.Title, replaceUnitIds, scopes);
+        if (!replaceContainment.IsSuccess)
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            return Result<ReplaceScopesResponse>.Failure(replaceContainment);
         }
 
         int oldCount = await _unitOfWork.VideoAssetsRepo.CountScopesForVideoAsync(videoAssetId);
@@ -503,6 +523,50 @@ public sealed class VideoService : IVideoService
             {
                 video.DurationSeconds = request.DurationSeconds.Value;
                 video.IsDurationManuallySet = true;
+            }
+
+            // ── Containment: after this update the video must still belong to >=1
+            //    unit and keep its scope within its units' coverage. Compute the
+            //    FINAL units/scopes (a null request field = leave unchanged) and
+            //    validate BEFORE writing. An empty UnitIds list = "unlink all",
+            //    which the helper rejects as VideoMustBelongToUnit.
+            var finalUnitIds = request.UnitIds is not null
+                ? request.UnitIds.Distinct().ToList()
+                : await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(videoAssetId);
+
+            List<VideoScopeInputDto> finalScopes;
+            if (request.Scopes is not null)
+                finalScopes = request.Scopes;
+            else
+            {
+                var existingWithScopes = await _unitOfWork.VideoAssetsRepo
+                    .GetVideoWithScopesAsync(videoAssetId, teacherId);
+                finalScopes = existingWithScopes!.Scopes
+                    .Select(s => new VideoScopeInputDto
+                    {
+                        ScopeType = s.ScopeType,
+                        SessionId = s.SessionId,
+                        SessionGroupId = s.SessionGroupId,
+                    }).ToList();
+            }
+
+            if (request.UnitIds is not null)
+            {
+                var updUnitOwnershipError = await ValidateUnitIdsOwnershipAsync(teacherId, finalUnitIds);
+                if (updUnitOwnershipError is not null)
+                {
+                    if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                    return Result<VideoDetailDto>.Failure(
+                        _localizer, updUnitOwnershipError, HttpStatusCode.BadRequest);
+                }
+            }
+
+            var updContainment = await EnsureVideoScopeWithinUnitsAsync(
+                teacherId, request.Title, finalUnitIds, finalScopes);
+            if (!updContainment.IsSuccess)
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                return Result<VideoDetailDto>.Failure(updContainment);
             }
 
             // Step 9 — new: unit links. null = untouched; empty list = unlink all.
@@ -1443,6 +1507,81 @@ public sealed class VideoService : IVideoService
     }
 
     /// <summary>
+    /// Resolves a set of scope targets (Session / SessionGroup) to the concrete set
+    /// of session ids they reach — a group expands to its member sessions. This is
+    /// the "resolved audience" behind the containment rule: a video's scope is valid
+    /// only when its resolved sessions are a subset of the sessions its units cover.
+    /// Teacher-scoped throughout.
+    /// </summary>
+    private async Task<HashSet<long>> ResolveScopeSessionIdsAsync(
+        long teacherId,
+        IEnumerable<(VideoScopeType ScopeType, long? SessionId, long? SessionGroupId)> targets)
+    {
+        var sessionIds = new HashSet<long>();
+        var groupIds = new List<long>();
+
+        foreach (var t in targets)
+        {
+            if (t.ScopeType == VideoScopeType.Session && t.SessionId.HasValue)
+                sessionIds.Add(t.SessionId.Value);
+            else if (t.ScopeType == VideoScopeType.SessionGroup && t.SessionGroupId.HasValue)
+                groupIds.Add(t.SessionGroupId.Value);
+        }
+
+        if (groupIds.Count > 0)
+        {
+            var rows = await _unitOfWork.SessionsRepo.GetSessionsByGroupIdsAsync(teacherId, groupIds);
+            foreach (var r in rows)
+                sessionIds.Add(r.Id);
+        }
+
+        return sessionIds;
+    }
+
+    /// <summary>
+    /// Enforces the containment invariant for a video: it must belong to at least
+    /// one unit, and every session its scope reaches must be covered by the union of
+    /// its units' scopes (resolved-audience subset). Returns a successful
+    /// <see cref="Result{T}"/> when the invariant holds, or an illustrative failure
+    /// — naming the video and the offending sessions — that the caller propagates
+    /// via <c>Result&lt;T&gt;.Failure(result)</c>.
+    /// </summary>
+    private async Task<Result<bool>> EnsureVideoScopeWithinUnitsAsync(
+        long teacherId, string videoTitle,
+        IReadOnlyCollection<long> unitIds,
+        IReadOnlyCollection<VideoScopeInputDto> scopes)
+    {
+        if (unitIds.Count == 0)
+            return Result<bool>.Failure(
+                _localizer, VideoConstants.Messages.VideoMustBelongToUnit,
+                new object?[] { videoTitle }, HttpStatusCode.UnprocessableEntity);
+
+        var videoSessions = await ResolveScopeSessionIdsAsync(
+            teacherId, scopes.Select(s => (s.ScopeType, s.SessionId, s.SessionGroupId)));
+
+        // An empty (or all-empty-group) scope reaches nobody — trivially within
+        // any unit boundary, so a unit-linked but not-yet-scoped video is allowed.
+        if (videoSessions.Count == 0)
+            return Result<bool>.Success(true, HttpStatusCode.OK);
+
+        var unitTargets = await _unitOfWork.VideoUnitsRepo.GetScopeRowsForUnitsAsync(unitIds);
+        var unitSessions = await ResolveScopeSessionIdsAsync(
+            teacherId, unitTargets.Select(s => (s.ScopeType, s.SessionId, s.SessionGroupId)));
+
+        var offending = videoSessions.Except(unitSessions).ToList();
+        if (offending.Count == 0)
+            return Result<bool>.Success(true, HttpStatusCode.OK);
+
+        var names = await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, offending);
+        string offendingLabel = string.Join(", ",
+            offending.Select(id => names.TryGetValue(id, out var n) ? n : $"#{id}"));
+
+        return Result<bool>.Failure(
+            _localizer, VideoConstants.Messages.VideoScopeExceedsUnitScope,
+            new object?[] { videoTitle, offendingLabel }, HttpStatusCode.UnprocessableEntity);
+    }
+
+    /// <summary>
     /// UPSERT-with-retry for the StartWatch flow's analytics row. Returns the
     /// snapshot of the analytics state after the operation.
     ///
@@ -1870,6 +2009,20 @@ public sealed class VideoService : IVideoService
                     _localizer, scopeOwnershipError, HttpStatusCode.BadRequest);
         }
 
+        // ── Containment: a video must live inside >=1 unit, and its scope must stay
+        //    within the sessions/groups its units cover (resolved-audience subset).
+        //    Validated fail-fast, before any write.
+        var createUnitIds = request.UnitIds?.Distinct().ToList() ?? new List<long>();
+        var createUnitOwnershipError = await ValidateUnitIdsOwnershipAsync(teacherId, createUnitIds);
+        if (createUnitOwnershipError is not null)
+            return Result<CreateVideoResponse>.Failure(
+                _localizer, createUnitOwnershipError, HttpStatusCode.BadRequest);
+
+        var createContainment = await EnsureVideoScopeWithinUnitsAsync(
+            teacherId, title, createUnitIds, scopeInputs);
+        if (!createContainment.IsSuccess)
+            return Result<CreateVideoResponse>.Failure(createContainment);
+
         if (request.Exam is not null)
         {
             var examShapeError = ValidateExamShape(request.Exam);
@@ -2197,6 +2350,24 @@ public sealed class VideoService : IVideoService
         if (ownershipError is not null)
             return Result<AssignVideoUnitsResponse>.Failure(
                 _localizer, ownershipError, HttpStatusCode.BadRequest);
+
+        // Moving a video between units must keep it in >=1 unit AND keep its existing
+        // scope within the new units' coverage (containment). Same rule as the video
+        // PUT so this dedicated endpoint can't be used to bypass the invariant.
+        var videoWithScopes = await _unitOfWork.VideoAssetsRepo
+            .GetVideoWithScopesAsync(videoAssetId, teacherId);
+        var currentScopes = videoWithScopes!.Scopes
+            .Select(s => new VideoScopeInputDto
+            {
+                ScopeType = s.ScopeType,
+                SessionId = s.SessionId,
+                SessionGroupId = s.SessionGroupId,
+            }).ToList();
+
+        var assignContainment = await EnsureVideoScopeWithinUnitsAsync(
+            teacherId, video.Title, unitIds, currentScopes);
+        if (!assignContainment.IsSuccess)
+            return Result<AssignVideoUnitsResponse>.Failure(assignContainment);
 
         // ReplaceUnitLinksAsync's delete is an immediate ExecuteDeleteAsync
         // while the insert is staged for SaveChangesAsync — without a
