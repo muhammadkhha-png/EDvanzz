@@ -97,10 +97,13 @@ public sealed class CreateVideoRequest
     public int? DurationSeconds { get; set; }
 
     /// <summary>
-    /// Optional unit links created with the video (M:N). Null or empty = no unit links; link
-    /// later via <c>PUT /videos/{id}/units</c>. Units must belong to the calling teacher.
+    /// The unit(s) this video belongs to (M:N). REQUIRED and non-empty — a video must
+    /// live inside at least one unit, and its scope must stay within those units' scope
+    /// (containment). Units must belong to the calling teacher.
     /// </summary>
-    public List<long>? UnitIds { get; set; }
+    [Required]
+    [MinLength(1)]
+    public List<long> UnitIds { get; set; } = new();
 
     /// <summary>
     /// Optional video photo (cover image) — the opaque <c>fileId</c> (FileObject.PublicId)
@@ -178,9 +181,11 @@ public sealed class UpdateVideoRequest
 
     /// <summary>
     /// Replaces the video's unit links (M:N). <c>null</c> = leave unit links
-    /// unchanged; empty list = unlink from all units. This distinction is
-    /// load-bearing — the service treats null and empty-list differently.
+    /// unchanged. If provided it must be non-empty (min 1) — a video must stay in
+    /// at least one unit, so "unlink from all" ([]) is rejected (400). The new
+    /// units must still cover the video's scope, else 409/422.
     /// </summary>
+    [MinLength(1)]
     public List<long>? UnitIds { get; set; }
 
     /// <summary>
