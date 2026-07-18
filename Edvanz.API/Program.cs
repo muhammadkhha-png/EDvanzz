@@ -43,6 +43,7 @@ builder.Services.AddControllers()
             new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+
 builder.Services.AddEndpointsApiExplorer();
 var x = builder.Configuration.GetConnectionString("con");
 
@@ -355,7 +356,21 @@ builder.Services.AddHealthChecks()
             : HealthCheckResult.Unhealthy("Hangfire server not running"),
         tags: new[] { "ready" });
 
+const string SpaCors = "SpaCors";
+
+builder.Services.AddCors(options =>
+{
+options.AddPolicy(SpaCors, policy =>
+    policy.WithOrigins(
+              "http://localhost:4200",              // Angular dev
+              "https://app-edvanz-admin.azurewebsites.net") // prod admin origin
+          .AllowAnyHeader()
+          .AllowAnyMethod()
+          .AllowCredentials());                     // omit if you don't use cookies
+});
+
 var app = builder.Build();
+
 
 // Refuse to run against the design-time placeholder connection string — FIRST thing after
 // Build, before seeding, Hangfire storage init, or anything else can dial it. The App
@@ -580,7 +595,7 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.UseCors("Edvanz");
+app.UseCors(SpaCors);
 
 
 // Rate limiting — applied before auth so unauthenticated callers are
