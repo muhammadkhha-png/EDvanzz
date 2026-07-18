@@ -164,40 +164,21 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
         return ToResponse(result);
     }
 
-    // DELETE /api/video-units/{unitId}/scopes/{scopeId} — remove one scope row. 409 (naming the
-    // videos) if removing it would leave a member video uncovered.
-    [HttpDelete("{unitId:long}/scopes/{scopeId:long}")]
-    [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionManageVideos)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> RemoveUnitScope([FromRoute] long unitId, [FromRoute] long scopeId)
-    {
-        long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
-
-        var result = await _service.RemoveUnitScopeAsync(teacherId.Value, unitId, scopeId);
-        return ToResponse(result);
-    }
-
-    // GET /api/video-units/allowed-scope-targets?videoId= OR ?unitIds=1&unitIds=2 —
-    // the sessions/groups a video may be scoped to (its units' coverage). Powers the
-    // video-scope picker: pass videoId on the edit screen, or the chosen unitIds on create.
+    // GET /api/video-units/allowed-scope-targets?unitIds=1&unitIds=2 — the sessions/groups
+    // a video may be scoped to, given the chosen units' coverage. Powers the CREATE screen's
+    // scope picker (the edit screen gets this folded into GET /api/videos/{id}).
     [HttpGet("allowed-scope-targets")]
     [ModulePermission(VideoConstants.ModuleName, VideoConstants.PermissionView)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.VideoContentManagement.AllowedScopeTargetsDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAllowedScopeTargets(
-        [FromQuery] long? videoId, [FromQuery] List<long>? unitIds)
+    public async Task<IActionResult> GetAllowedScopeTargets([FromQuery] List<long>? unitIds)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _service.GetAllowedScopeTargetsAsync(teacherId.Value, unitIds, videoId);
+        var result = await _service.GetAllowedScopeTargetsAsync(teacherId.Value, unitIds ?? new List<long>());
         return ToResponse(result);
     }
 }

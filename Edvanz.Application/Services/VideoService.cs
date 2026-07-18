@@ -53,6 +53,7 @@ public sealed class VideoService : IVideoService
     private readonly IVideoUrlParser _urlParser;
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IFileAccessService _fileAccess;
+    private readonly IVideoUnitService _videoUnitService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public VideoService(
@@ -61,6 +62,7 @@ public sealed class VideoService : IVideoService
         IVideoUrlParser urlParser,
         ISubscriptionGateService subscriptionGate,
         IFileAccessService fileAccess,
+        IVideoUnitService videoUnitService,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
@@ -68,6 +70,7 @@ public sealed class VideoService : IVideoService
         _urlParser = urlParser;
         _subscriptionGate = subscriptionGate;
         _fileAccess = fileAccess;
+        _videoUnitService = videoUnitService;
         _localizer = localizer;
     }
 
@@ -775,6 +778,15 @@ public sealed class VideoService : IVideoService
                 })
                 .ToList();
         }
+
+        // Unit membership + the scope options this video may pick from (the union of
+        // its units' coverage) — folded in so the Edit screen needs one call, not a
+        // separate allowed-scope-targets request.
+        var unitIds = await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(videoAssetId);
+        dto.UnitIds = unitIds;
+        var allowed = await _videoUnitService.GetAllowedScopeTargetsAsync(teacherId, unitIds);
+        if (allowed.IsSuccess && allowed.Data is not null)
+            dto.AllowedScopeTargets = allowed.Data;
 
         var exam = await _unitOfWork.VideoAssetsRepo.GetExamWithQuestionsAsync(videoAssetId, teacherId);
         if (exam is not null)
@@ -1909,9 +1921,8 @@ public sealed class VideoService : IVideoService
             Id = unit.Id,
             Title = unit.Title,
             Description = unit.Description,
-            Scopes = unit.Scopes.Select(s => new UnitScopeItemDto
+            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
             {
-                Id = s.Id,
                 ScopeType = s.ScopeType,
                 SessionId = s.SessionId,
                 SessionGroupId = s.SessionGroupId,

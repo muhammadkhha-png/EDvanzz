@@ -310,6 +310,17 @@ public sealed class VideoDetailDto : VideoBaseDto
     /// <summary>Current scopes, grouped by type. Same shape used to
     /// create/replace scopes — resend this verbatim (edited) to update them.</summary>
     public List<CreateVideoScopeDto>? Scopes { get; set; }
+
+    /// <summary>The ids of the unit(s) this video belongs to (M:N). Resend as
+    /// <c>unitIds</c> on the update to change unit membership.</summary>
+    public List<long> UnitIds { get; set; } = new();
+
+    /// <summary>
+    /// The sessions/groups this video MAY be scoped to — the union of its units'
+    /// scope (groups expanded to sessions, with display names). Populates the
+    /// scope picker directly, so the Edit screen needs no separate call.
+    /// </summary>
+    public AllowedScopeTargetsDto AllowedScopeTargets { get; set; } = new();
 }
 
 /// <summary>
@@ -944,27 +955,11 @@ public sealed class VideoUnitResponse
     public string? Description { get; set; }
 
     /// <summary>
-    /// The unit's scope rows. Each carries its own <see cref="UnitScopeItemDto.Id"/>
-    /// so a client can target a single row for
-    /// <c>DELETE /api/video-units/{unitId}/scopes/{scopeId}</c>.
+    /// The unit's scope rows (the sessions/groups the unit targets). Edit them with
+    /// <c>PUT /api/video-units/{unitId}/scopes</c> (send the full desired set — an
+    /// empty list clears the scope).
     /// </summary>
-    public List<UnitScopeItemDto> Scopes { get; set; } = new();
-}
-
-/// <summary>
-/// One scope row on a unit, as returned by <c>GET /api/video-units/{unitId}</c>.
-/// Same target fields as <see cref="VideoScopeInputDto"/> plus the row <see cref="Id"/>
-/// (needed to delete a single scope).
-/// </summary>
-public sealed class UnitScopeItemDto
-{
-    public long Id { get; set; }
-
-    [JsonConverter(typeof(JsonStringEnumConverter))]
-    public VideoScopeType ScopeType { get; set; }
-
-    public long? SessionId { get; set; }
-    public long? SessionGroupId { get; set; }
+    public List<VideoScopeInputDto> Scopes { get; set; } = new();
 }
 
 /// <summary>

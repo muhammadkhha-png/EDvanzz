@@ -238,9 +238,8 @@ public sealed class VideoUnitService : IVideoUnitService
             Id = unit.Id,
             Title = unit.Title,
             Description = unit.Description,
-            Scopes = unit.Scopes.Select(s => new UnitScopeItemDto
+            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
             {
-                Id = s.Id,
                 ScopeType = s.ScopeType,
                 SessionId = s.SessionId,
                 SessionGroupId = s.SessionGroupId,
@@ -322,9 +321,10 @@ public sealed class VideoUnitService : IVideoUnitService
     public async Task<Result<ReplaceUnitScopesResponse>> ReplaceUnitScopesAsync(
         long teacherId, long actingUserId, long unitId, AssignUnitScopesRequest request)
     {
-        if (request.Scopes is null || request.Scopes.Count == 0)
-            return Result<ReplaceUnitScopesResponse>.Failure(
-                _localizer, VideoConstants.Messages.ScopeCannotBeEmpty, HttpStatusCode.BadRequest);
+        // PUT-replace is the single scope editor: the request is the exact desired set,
+        // so anything omitted is removed. An EMPTY list clears the unit's scope entirely
+        // (the block guard below still refuses it if a member video would be uncovered).
+        request.Scopes ??= new List<VideoScopeInputDto>();
 
         var unit = await _unitOfWork.VideoUnitsRepo.GetUnitByIdAndTeacherAsync(unitId, teacherId);
         if (unit is null)
@@ -398,64 +398,16 @@ public sealed class VideoUnitService : IVideoUnitService
     }
 
     /// <inheritdoc />
-    public async Task<Result<bool>> RemoveUnitScopeAsync(long teacherId, long unitId, long scopeId)
-    {
-        var unit = await _unitOfWork.VideoUnitsRepo.GetUnitWithScopesAsync(unitId, teacherId);
-        if (unit is null)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.NotFound);
-
-        var target = unit.Scopes.FirstOrDefault(s => s.Id == scopeId);
-        if (target is null)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.ScopeNotFound, HttpStatusCode.NotFound);
-
-        // Removing a scope SHRINKS coverage — block if the remaining set would leave
-        // a member video uncovered. The response names the offending video(s).
-        var remainingTargets = unit.Scopes
-            .Where(s => s.Id != scopeId)
-            .Select(s => (s.ScopeType, s.SessionId, s.SessionGroupId))
-            .ToList();
-        var guard = await EnsureUnitChangeKeepsVideosCoveredAsync(
-            teacherId, unitId, remainingTargets, unitIsBeingDeleted: false,
-            VideoConstants.Messages.UnitScopeChangeUncoversVideos);
-        if (!guard.IsSuccess)
-            return Result<bool>.Failure(guard);
-
-        bool removed = await _unitOfWork.VideoUnitsRepo
-            .DeleteUnitScopeByIdAndTeacherAsync(scopeId, teacherId);
-        if (!removed)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.ScopeNotFound, HttpStatusCode.NotFound);
-
-        return Result<bool>.Success(true, _localizer, VideoConstants.Messages.ScopeRemoved);
-    }
-
-    /// <inheritdoc />
     public async Task<Result<AllowedScopeTargetsDto>> GetAllowedScopeTargetsAsync(
-        long teacherId, IReadOnlyCollection<long>? unitIds, long? videoId)
+        long teacherId, IReadOnlyCollection<long> unitIds)
     {
-        List<long> resolvedUnitIds;
-
-        if (videoId is long vid)
+        var resolvedUnitIds = unitIds?.Distinct().ToList() ?? new List<long>();
+        foreach (var uid in resolvedUnitIds)
         {
-            var video = await _unitOfWork.VideoAssetsRepo.GetVideoByIdAndTeacherAsync(vid, teacherId);
-            if (video is null)
+            var unit = await _unitOfWork.VideoUnitsRepo.GetUnitByIdAndTeacherAsync(uid, teacherId);
+            if (unit is null)
                 return Result<AllowedScopeTargetsDto>.Failure(
-                    _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-            resolvedUnitIds = await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(vid);
-        }
-        else
-        {
-            resolvedUnitIds = unitIds?.Distinct().ToList() ?? new List<long>();
-            foreach (var uid in resolvedUnitIds)
-            {
-                var unit = await _unitOfWork.VideoUnitsRepo.GetUnitByIdAndTeacherAsync(uid, teacherId);
-                if (unit is null)
-                    return Result<AllowedScopeTargetsDto>.Failure(
-                        _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.NotFound);
-            }
+                    _localizer, VideoConstants.Messages.VideoUnitNotFound, HttpStatusCode.NotFound);
         }
 
         var dto = new AllowedScopeTargetsDto();
