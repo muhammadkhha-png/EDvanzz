@@ -1812,4 +1812,7 @@
   <data name="VideoQuizAttemptNotFound" xml:space="preserve">
     <value>You haven't taken this quiz yet.</value>
   </data>
+  <data name="ChildEnrollmentRemoved" xml:space="preserve">
+    <value>This child's enrollment record with this teacher was removed. Please contact the teacher</value>
+  </data>
 </root>

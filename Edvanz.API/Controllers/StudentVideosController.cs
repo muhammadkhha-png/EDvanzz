@@ -1,3 +1,5 @@
+using Edvanz.Domain.Resources;
+using Microsoft.Extensions.Localization;
 using System.Net;
 using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.VideoContentManagement;
@@ -48,15 +50,17 @@ public sealed class StudentVideosController : ApiBaseController
     private readonly IVideoService _service;
     private readonly ICurrentUserService _currentUser;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IStringLocalizer<Messages> _localizer;
 
     public StudentVideosController(
         IVideoService service,
         ICurrentUserService currentUser,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
     {
         _service = service;
         _currentUser = currentUser;
         _unitOfWork = unitOfWork;
+        _localizer = localizer;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -267,13 +271,13 @@ public sealed class StudentVideosController : ApiBaseController
     }
 
     private IActionResult NotFoundError(string message) =>
-        new ObjectResult(new { success = false, message })
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
         {
             StatusCode = (int)HttpStatusCode.NotFound,
         };
 
     private IActionResult ForbiddenError(string message) =>
-        new ObjectResult(new { success = false, message })
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
         {
             StatusCode = (int)HttpStatusCode.Forbidden,
         };

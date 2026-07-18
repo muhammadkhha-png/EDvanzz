@@ -1800,4 +1800,7 @@
   <data name="VideoQuizAttemptNotFound" xml:space="preserve">
     <value>لسه محلتش الاختبار ده.</value>
   </data>
+  <data name="ChildEnrollmentRemoved" xml:space="preserve">
+    <value>سجل تسجيل ابنك/بنتك عند المدرس ده اتشال. كلم المدرس</value>
+  </data>
 </root>

@@ -1,4 +1,6 @@
-﻿using Edvanz.API.Attributes;
+﻿using Edvanz.Domain.Resources;
+using Microsoft.Extensions.Localization;
+using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -27,13 +29,15 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     private readonly IStudentOnlineExamService _service;
     private readonly ICurrentUserService _currentUser;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IStringLocalizer<Messages> _localizer;
 
     public StudentOnlineExamsController(
-        IStudentOnlineExamService service, ICurrentUserService currentUser, IUnitOfWork unitOfWork)
+        IStudentOnlineExamService service, ICurrentUserService currentUser, IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
     {
         _service = service;
         _currentUser = currentUser;
         _unitOfWork = unitOfWork;
+        _localizer = localizer;
     }
 
     /// <summary>
@@ -255,10 +259,10 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     }
 
     private IActionResult NotFoundError(string message) =>
-        new ObjectResult(new { success = false, message }) { StatusCode = (int)HttpStatusCode.NotFound };
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value }) { StatusCode = (int)HttpStatusCode.NotFound };
 
     private IActionResult ForbiddenError(string message) =>
-        new ObjectResult(new { success = false, message }) { StatusCode = (int)HttpStatusCode.Forbidden };
+        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value }) { StatusCode = (int)HttpStatusCode.Forbidden };
 
     private readonly struct StudentResolution
     {

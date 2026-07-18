@@ -67,6 +67,10 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         {
             reportByExam.TryGetValue(exam.Id, out var report);
             bool finalized = report?.SubmittedAt is not null;
+            // A Blocked report is terminal too (online exams have no retake) yet never carries
+            // SubmittedAt — without this the list re-offered a blocked exam as attemptable
+            // (`upcoming`, StudentStatus null) and the student only found out at submit-409.
+            bool terminal = finalized || report?.Status == StudentOnlineExamStatus.Blocked;
 
             var row = new OnlineExamStudentListItemDto
             {
@@ -78,12 +82,12 @@ public class StudentOnlineExamService : IStudentOnlineExamService
                 Duration = exam.EndDateTime - exam.StartDateTime,
                 QuestionsCount = exam.Questions.Count,
                 ExamDegree = exam.Questions.Sum(q => q.Degree),
-                StudentDegree = finalized ? report!.Score : null,
-                StudentStatus = finalized ? report!.Status.ToString() : null,
+                StudentDegree = terminal ? report!.Score : null,
+                StudentStatus = terminal ? report!.Status.ToString() : null,
             };
 
-            // QD split: past = finalized ∨ End<now; upcoming = Published ∧ not finalized ∧ window open.
-            if (finalized || exam.EndDateTime < now)
+            // QD split: past = terminal (finalized ∨ blocked) ∨ End<now; upcoming = Published ∧ not terminal ∧ window open.
+            if (terminal || exam.EndDateTime < now)
                 result.Past.Add(row);
             else if (exam.Status == OnlineExamStatus.Published)
                 result.Upcoming.Add(row);
@@ -116,6 +120,10 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         foreach (var q in questions)
             q.ImageUrl = q.ImageFileInternalId is long fid ? imageUrls.GetValueOrDefault(fid) : null;
 
+        // Attempt state so the app can render blocked/finalized on re-entry (writes already
+        // enforce it; this makes the read surface tell the same story).
+        var report = await _unitOfWork.StudentOnlineExamReportsRepo.GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
+
         var dto = new OnlineExamTakeScreenDto
         {
             ExamId = exam.Id,
@@ -125,6 +133,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             StartDateTime = exam.StartDateTime,
             EndDateTime = exam.EndDateTime,
             ExamDegree = await _unitOfWork.OnlineExamsRepo.GetTotalDegreeAsync(onlineExamId),
+            StudentStatus = report?.Status.ToString(),
             Questions = questions.ToList(),
         };
 
@@ -281,6 +290,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         await _unitOfWork.SaveChangesAsync();
 
         var stats = _grading.ComputeStats(questions, allAnswers, score, totalGrade);
+        stats.Status = report.Status.ToString();
         return Result<OnlineExamStatsDto>.Success(stats, _localizer);
     }
 
@@ -354,6 +364,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             if (ownsTransaction) await _unitOfWork.CommitAsync();
 
             var stats = _grading.ComputeStats(questions, allAnswers, score, totalGrade);
+            stats.Status = report.Status.ToString();
             return Result<OnlineExamStatsDto>.Success(stats, _localizer);
         }
         catch
@@ -384,6 +395,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         decimal totalGrade = questions.Sum(q => q.Degree);
 
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
+        stats.Status = report.Status.ToString();
         return Result<OnlineExamStatsDto>.Success(stats, _localizer);
     }
 
@@ -496,6 +508,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         decimal totalGrade = questions.Sum(q => q.Degree);
 
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
+        stats.Status = report.Status.ToString();
         return Result<OnlineExamStatsDto>.Success(stats, _localizer, resultCode);
     }
 
