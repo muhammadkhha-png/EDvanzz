@@ -1909,8 +1909,9 @@ public sealed class VideoService : IVideoService
             Id = unit.Id,
             Title = unit.Title,
             Description = unit.Description,
-            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
+            Scopes = unit.Scopes.Select(s => new UnitScopeItemDto
             {
+                Id = s.Id,
                 ScopeType = s.ScopeType,
                 SessionId = s.SessionId,
                 SessionGroupId = s.SessionGroupId,

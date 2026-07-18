@@ -942,7 +942,29 @@ public sealed class VideoUnitResponse
     public long Id { get; set; }
     public string Title { get; set; } = null!;
     public string? Description { get; set; }
-    public List<VideoScopeInputDto> Scopes { get; set; } = new();
+
+    /// <summary>
+    /// The unit's scope rows. Each carries its own <see cref="UnitScopeItemDto.Id"/>
+    /// so a client can target a single row for
+    /// <c>DELETE /api/video-units/{unitId}/scopes/{scopeId}</c>.
+    /// </summary>
+    public List<UnitScopeItemDto> Scopes { get; set; } = new();
+}
+
+/// <summary>
+/// One scope row on a unit, as returned by <c>GET /api/video-units/{unitId}</c>.
+/// Same target fields as <see cref="VideoScopeInputDto"/> plus the row <see cref="Id"/>
+/// (needed to delete a single scope).
+/// </summary>
+public sealed class UnitScopeItemDto
+{
+    public long Id { get; set; }
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoScopeType ScopeType { get; set; }
+
+    public long? SessionId { get; set; }
+    public long? SessionGroupId { get; set; }
 }
 
 /// <summary>
