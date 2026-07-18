@@ -46,6 +46,7 @@ public class UpdateTeacherConfigurationDto
     public bool StudentVisibilityPayment { get; set; } = true;
     public bool StudentVisibilityHomework { get; set; } = true;
     public bool StudentVisibilityExamDefault { get; set; } = false;
+    public bool StudentVisibilityVideo { get; set; } = true;
 
     // ─── AAM-FR-04.9: Parent Visibility ───
 

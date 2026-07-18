@@ -35,15 +35,18 @@ namespace Edvanz.API.Controllers;
 public class StudentUserController : ApiBaseController
 {
     private readonly IStudentUserService _studentUserService;
+    private readonly IStudentTeacherHomeService _homeService;
     private readonly ICurrentUserService _currentUser;
     private readonly IUnitOfWork _unitOfWork;
 
     public StudentUserController(
         IStudentUserService studentUserService,
+        IStudentTeacherHomeService homeService,
         ICurrentUserService currentUser,
         IUnitOfWork unitOfWork)
     {
         _studentUserService = studentUserService;
+        _homeService = homeService;
         _currentUser = currentUser;
         _unitOfWork = unitOfWork;
     }
@@ -216,6 +219,45 @@ public class StudentUserController : ApiBaseController
         if (studentUserId is null) return StudentNotResolved();
 
         var result = await _studentUserService.GetTeacherBarcodeForStudentAsync(studentUserId.Value, teacherId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ME: PER-TEACHER HOME (aggregated screen — Figma 232:7033)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns the aggregated "teacher home" screen for a selected linked teacher:
+    /// attendance, payment, videos, online/offline exams and homework in ONE call,
+    /// each section gated by the teacher's student-visibility toggles (a hidden
+    /// section carries <c>visible:false</c> with empty data). The merged
+    /// <c>exams.upcoming</c> feed tags every row with <c>examType</c> (Online/Offline).
+    ///
+    /// Identity is the JWT student (same IDOR-safe pattern as the other "me"
+    /// endpoints); the student must be ACTIVELY linked to, and bound under, this
+    /// teacher. Month figures default to the teacher-local (Africa/Cairo) current
+    /// month unless both <paramref name="year"/> and <paramref name="month"/> are supplied.
+    /// </summary>
+    /// <param name="teacherId">The selected linked teacher whose home screen to build.</param>
+    /// <param name="year">Optional scoping year (used only together with <paramref name="month"/>).</param>
+    /// <param name="month">Optional scoping month 1-12 (used only together with <paramref name="year"/>).</param>
+    /// <response code="200">Aggregated home payload; hidden modules carry visible=false with empty data.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Not linked to / not bound under this teacher.</response>
+    /// <response code="404">The authenticated user has no student account.</response>
+    [HttpGet("me/teachers/{teacherId:long}/home")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentTeacherHomeDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyTeacherHome(
+        [FromRoute] long teacherId, [FromQuery] int? year, [FromQuery] int? month)
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _homeService.GetTeacherHomeAsync(studentUserId.Value, teacherId, year, month);
         return ToResponse(result);
     }
 

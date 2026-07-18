@@ -129,6 +129,7 @@ public class TeacherService : ITeacherService
                 StudentVisibilityPayment = true,
                 StudentVisibilityHomework = true,
                 StudentVisibilityExamDefault = false, // AAM-BR-10: default hidden
+                StudentVisibilityVideo = true,
                 ParentVisibilityAttendance = true,
                 ParentVisibilityPayment = true,
                 StudentVisibilityOnlineExamDefault = true,
@@ -405,6 +406,7 @@ public class TeacherService : ITeacherService
             config.StudentVisibilityPayment = dto.StudentVisibilityPayment;
             config.StudentVisibilityHomework = dto.StudentVisibilityHomework;
             config.StudentVisibilityExamDefault = dto.StudentVisibilityExamDefault;
+            config.StudentVisibilityVideo = dto.StudentVisibilityVideo;
             config.ParentVisibilityAttendance = dto.ParentVisibilityAttendance;
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
@@ -483,6 +485,7 @@ public class TeacherService : ITeacherService
             StudentVisibilityPayment = config.StudentVisibilityPayment,
             StudentVisibilityHomework = config.StudentVisibilityHomework,
             StudentVisibilityExamDefault = config.StudentVisibilityExamDefault,
+            StudentVisibilityVideo = config.StudentVisibilityVideo,
             ParentVisibilityAttendance = config.ParentVisibilityAttendance,
             ParentVisibilityPayment = config.ParentVisibilityPayment,
             ParentVisibilityHomework = config.ParentVisibilityHomework,

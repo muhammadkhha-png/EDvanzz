@@ -112,6 +112,12 @@ public class TeacherConfiguration : BaseEntity
     public bool StudentVisibilityExamDefault { get; set; } = false;
     public bool StudentVisibilityOnlineExamDefault { get; set; } = true;
 
+    /// <summary>
+    /// Whether students can see the Videos module.
+    /// Default: true (visible).
+    /// </summary>
+    public bool StudentVisibilityVideo { get; set; } = true;
+
 
     // ─── AAM-FR-04.9: Parent Account Visibility ───
 

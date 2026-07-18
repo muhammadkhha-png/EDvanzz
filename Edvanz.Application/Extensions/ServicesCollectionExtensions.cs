@@ -43,6 +43,9 @@ public static class ServicesCollectionExtensions
         // FIX I1: Interface moved from Edvanz.Domain.ServiceContract to Edvanz.Application.ServiceContract
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IStudentUserService, StudentUserService>();
+        // Aggregated student "teacher home" screen — composes attendance/payment/videos/exams
+        // behind the teacher's per-module student-visibility flags (one call for the whole page).
+        services.AddScoped<IStudentTeacherHomeService, StudentTeacherHomeService>();
         // Student-teacher link request/approval flow: teacher-side ops + shared notifier
         services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
         services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();

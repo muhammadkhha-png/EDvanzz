@@ -97,4 +97,14 @@ public class StudentDashboardTeacherDto
     /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
     /// </summary>
     public bool VisibilityExamDefault { get; set; }
+
+    /// <summary>
+    /// Whether this teacher allows the student to see the Videos module.
+    /// </summary>
+    public bool VisibilityVideo { get; set; }
+
+    /// <summary>
+    /// Default online-exam visibility for this teacher (default: visible).
+    /// </summary>
+    public bool VisibilityOnlineExamDefault { get; set; }
 }
