@@ -10,12 +10,12 @@ namespace Edvanz.Domain.Entities;
 /// three-nullable-FK-plus-discriminator pattern, same DB CHECK constraints —
 /// but targets a <see cref="VideoUnit"/> instead of a <see cref="VideoAsset"/>.
 ///
-/// FINAL DECISION (supersedes the earlier "unit carries no scope" design):
-/// a Video Collection has its own Target Scope in addition to each video's
-/// own <see cref="VideoScope"/>. A student is authorized for a video the
-/// moment EITHER scope resolves them — the video's own scope, OR (when the
-/// video belongs to a unit) that unit's scope. See
-/// <c>IVideoAssetRepo.IsStudentInVideoScopeAsync</c> for the union check.
+/// DESIGN (boundary model): a Video Collection's Target Scope BOUNDS what its
+/// videos may target — each video's own <see cref="VideoScope"/> must be a
+/// subset of the union of its units' scopes (enforced on every video-scope
+/// write). Unit scope does NOT itself grant a student access; student
+/// visibility is decided purely by the video's own <see cref="VideoScope"/>
+/// (which the boundary guarantees sits inside the unit's scope).
 ///
 /// Same single-recipient-type-per-entity rule as <see cref="VideoScope"/>:
 /// all scope rows for one unit must share one <see cref="VideoScopeType"/>

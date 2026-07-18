@@ -53,14 +53,4 @@ public interface IVideoScopeResolver
     /// </summary>
     Task<HashSet<long>> ResolveFromPersistedScopesAsync(
         long teacherId, IEnumerable<VideoScope> scopes);
-
-    /// <summary>
-    /// Resolves persisted <see cref="VideoUnitScope"/> rows (collection-level
-    /// Target Scope) to a deduplicated set of student ids. Same resolution
-    /// rules as <see cref="ResolveFromPersistedScopesAsync"/> — kept as a
-    /// separate overload rather than a shared base type because the two
-    /// entities are distinct EF Core aggregates.
-    /// </summary>
-    Task<HashSet<long>> ResolveFromPersistedUnitScopesAsync(
-        long teacherId, IEnumerable<VideoUnitScope> scopes);
 }

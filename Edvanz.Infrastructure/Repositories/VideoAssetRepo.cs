@@ -793,17 +793,15 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     // ANALYTICS — READ PATH
     // ══════════════════════════════════════════════════════════════════════
     /// <summary>
-    /// Full resolved-students set for a video: union of the video's own
-    /// VideoScope (three branches: individual/session/group — individual is
-    /// dead code today, VideoScopeType has no IndividualStudent value, kept
-    /// harmless/no-op for any legacy data) PLUS, when the video belongs to
-    /// one or more units, each linked unit's VideoUnitScope (same three
-    /// branches). This is the union rule documented on VideoUnitScope.cs:
-    /// "A student is authorized for a video the moment EITHER scope resolves
-    /// them — the video's own scope, OR (when the video belongs to a unit)
-    /// that unit's scope." Shared by GetAnalyticsRowsForTeacherAsync and
-    /// GetAnalyticsAggregatesAsync so the two can never disagree on who's
-    /// "in scope" for the same video.
+    /// The resolved-students set for a video = the students the video's OWN
+    /// VideoScope rows target (session / group; the TeacherStudentId branch is
+    /// dead — VideoScopeType has no IndividualStudent value — kept harmless for
+    /// legacy data). Unit scope is deliberately NOT unioned in: under the boundary
+    /// design a video's audience is defined by its own scope (which is guaranteed
+    /// to sit within its units' scope), so counting the whole unit boundary would
+    /// over-count students who can't actually see the video. Shared by
+    /// GetAnalyticsRowsForTeacherAsync and GetAnalyticsAggregatesAsync so the two
+    /// never disagree on who's "in scope" for the same video.
     /// </summary>
     private IQueryable<long> GetResolvedStudentIdsForVideoQuery(long teacherId, long videoAssetId)
     {
@@ -837,49 +835,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .Where(x => x.TeacherId == teacherId)
             .Select(x => x.Id);
 
-        // NEW — the video's linked unit(s)' own scope, resolved the same
-        // three-branch way, joined through VideoAssetUnits (M:N) instead of
-        // reading VideoScopes directly. A video with no unit links
-        // contributes an empty set here, so this is a strict superset of the
-        // old behavior — never removes access a video previously granted.
-        var unitIndividualScope = _context.VideoAssetUnits
-            .Where(au => au.VideoAssetId == videoAssetId)
-            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
-            .Where(us => us.TeacherStudentId.HasValue)
-            .Select(us => us.TeacherStudentId!.Value);
-
-        var unitSessionScope = _context.VideoAssetUnits
-            .Where(au => au.VideoAssetId == videoAssetId)
-            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
-            .Where(us => us.ScopeType == VideoScopeType.Session && us.SessionId.HasValue)
-            .Join(_context.TeacherStudents,
-                  us => us.SessionId,
-                  ts => ts.SessionId,
-                  (us, ts) => new { ts.Id, ts.TeacherId })
-            .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
-
-        var unitGroupScope = _context.VideoAssetUnits
-            .Where(au => au.VideoAssetId == videoAssetId)
-            .Join(_context.VideoUnitScopes, au => au.UnitId, us => us.VideoUnitId, (au, us) => us)
-            .Where(us => us.ScopeType == VideoScopeType.SessionGroup && us.SessionGroupId.HasValue)
-            .Join(_context.Sessions,
-                  us => us.SessionGroupId,
-                  se => se.SessionGroupId,
-                  (us, se) => se.Id)
-            .Join(_context.TeacherStudents,
-                  sessionId => sessionId,
-                  ts => ts.SessionId,
-                  (sessionId, ts) => new { ts.Id, ts.TeacherId })
-            .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
-
         return individualScope
             .Union(sessionScope)
             .Union(groupScope)
-            .Union(unitIndividualScope)
-            .Union(unitSessionScope)
-            .Union(unitGroupScope)
             .Distinct();
     }
     /// <inheritdoc />

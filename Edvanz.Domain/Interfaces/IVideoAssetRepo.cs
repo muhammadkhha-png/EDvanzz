@@ -272,11 +272,11 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     // ══════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Returns <c>true</c> when the given student is in the resolved scope of
-    /// the given video. Resolves the union of (a) IndividualStudent scopes
-    /// targeting this student directly, (b) Session scopes whose session
-    /// contains this student, (c) SessionGroup scopes whose group contains
-    /// this student's session.
+    /// Returns <c>true</c> when the given student is in the resolved scope of the
+    /// given video — decided by the video's OWN <see cref="VideoScope"/> rows only
+    /// (unit scope is a write-time boundary, not a runtime grant): (a) Session
+    /// scopes whose session contains this student, (b) SessionGroup scopes whose
+    /// group contains this student's session.
     ///
     /// This is the BR-VCM-01 enforcement gate called on every Start and Stop
     /// request before any analytics write. Backed by the three filtered

@@ -275,36 +275,6 @@ public sealed class VideoService : IVideoService
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // REMOVE SINGLE SCOPE (Story D, endpoint #4)
-    // ══════════════════════════════════════════════════════════════════════
-
-    /// <inheritdoc />
-    public async Task<Result<bool>> RemoveScopeAsync(
-        long teacherId, long videoAssetId, long scopeId)
-    {
-        // Verify ownership before probing scope ids — defends against
-        // foreign-tenant id enumeration.
-        var video = await _unitOfWork.VideoAssetsRepo
-            .GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
-        if (video is null)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-        int totalScopes = await _unitOfWork.VideoAssetsRepo.CountScopesForVideoAsync(videoAssetId);
-        if (totalScopes <= 1)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.LastScopeCannotBeRemoved, HttpStatusCode.BadRequest);
-
-        bool removed = await _unitOfWork.VideoAssetsRepo
-            .DeleteScopeByIdAndTeacherAsync(scopeId, teacherId);
-        if (!removed)
-            return Result<bool>.Failure(
-                _localizer, VideoConstants.Messages.ScopeNotFound, HttpStatusCode.NotFound);
-
-        return Result<bool>.Success(true, _localizer, VideoConstants.Messages.ScopeRemoved);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     // DELETE VIDEO (Story E, transactional with audit snapshot)
     // ══════════════════════════════════════════════════════════════════════
 
@@ -2347,68 +2317,4 @@ public sealed class VideoService : IVideoService
         return null;
     }
 
-    /// <inheritdoc />
-    public async Task<Result<AssignVideoUnitsResponse>> AssignVideoToUnitsAsync(
-        long teacherId, long videoAssetId, AssignVideoUnitsRequest request)
-    {
-        var video = await _unitOfWork.VideoAssetsRepo.GetVideoByIdAndTeacherAsync(videoAssetId, teacherId);
-        if (video is null)
-            return Result<AssignVideoUnitsResponse>.Failure(
-                _localizer, VideoConstants.Messages.VideoNotFound, HttpStatusCode.NotFound);
-
-        var unitIds = request.UnitIds?.Distinct().ToList() ?? new List<long>();
-
-        var ownershipError = await ValidateUnitIdsOwnershipAsync(teacherId, unitIds);
-        if (ownershipError is not null)
-            return Result<AssignVideoUnitsResponse>.Failure(
-                _localizer, ownershipError, HttpStatusCode.BadRequest);
-
-        // Moving a video between units must keep it in >=1 unit AND keep its existing
-        // scope within the new units' coverage (containment). Same rule as the video
-        // PUT so this dedicated endpoint can't be used to bypass the invariant.
-        var videoWithScopes = await _unitOfWork.VideoAssetsRepo
-            .GetVideoWithScopesAsync(videoAssetId, teacherId);
-        var currentScopes = videoWithScopes!.Scopes
-            .Select(s => new VideoScopeInputDto
-            {
-                ScopeType = s.ScopeType,
-                SessionId = s.SessionId,
-                SessionGroupId = s.SessionGroupId,
-            }).ToList();
-
-        var assignContainment = await EnsureVideoScopeWithinUnitsAsync(
-            teacherId, video.Title, unitIds, currentScopes);
-        if (!assignContainment.IsSuccess)
-            return Result<AssignVideoUnitsResponse>.Failure(assignContainment);
-
-        // ReplaceUnitLinksAsync's delete is an immediate ExecuteDeleteAsync
-        // while the insert is staged for SaveChangesAsync — without a
-        // transaction, a failed SaveChangesAsync would leave the video with
-        // its links deleted but the new ones never inserted. Wrapping this
-        // standalone call closes that gap (UpdateVideoAsync's own use of
-        // ReplaceUnitLinksAsync is already safe — it runs inside that
-        // method's existing transaction).
-        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
-        if (ownsTransaction)
-            await _unitOfWork.BeginTransactionAsync();
-
-        try
-        {
-            await _unitOfWork.VideoAssetsRepo.ReplaceUnitLinksAsync(videoAssetId, unitIds);
-            await _unitOfWork.SaveChangesAsync();
-
-            if (ownsTransaction)
-                await _unitOfWork.CommitAsync();
-        }
-        catch
-        {
-            if (ownsTransaction)
-                await _unitOfWork.RollbackAsync();
-            throw;
-        }
-
-        return Result<AssignVideoUnitsResponse>.Success(
-            new AssignVideoUnitsResponse { UnitIds = unitIds },
-            _localizer, VideoConstants.Messages.VideoUnitsAssigned);
-    }
 }
