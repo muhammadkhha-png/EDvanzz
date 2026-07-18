@@ -249,6 +249,11 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<StudentQuestionAnswer> StudentQuestionAnswers => Set<StudentQuestionAnswer>();
     public DbSet<StudentQuestionAnswerOption> StudentQuestionAnswerOptions => Set<StudentQuestionAnswerOption>();
 
+    // Student video-quiz attempt aggregate (Module 14) — video twin of the online-exam report tables.
+    public DbSet<StudentVideoExamReport> StudentVideoExamReports => Set<StudentVideoExamReport>();
+    public DbSet<StudentVideoExamAnswer> StudentVideoExamAnswers => Set<StudentVideoExamAnswer>();
+    public DbSet<StudentVideoExamAnswerOption> StudentVideoExamAnswerOptions => Set<StudentVideoExamAnswerOption>();
+
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -3796,6 +3801,91 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.HasIndex(o => new { o.StudentQuestionAnswerId, o.QuestionOptionId })
                 .IsUnique()
                 .HasDatabaseName("UX_StudentQuestionAnswerOptions_Answer_Option");
+        });
+        #endregion
+
+        // ════════════════════════════════════════════════
+        // STUDENT VIDEO-QUIZ ATTEMPT AGGREGATE (Module 14)
+        // ════════════════════════════════════════════════
+        //
+        // Video-module twin of StudentOnlineExamReport, but with a DIFFERENT delete posture:
+        // the report tree is CASCADE off VideoAsset (same posture as the VideoExam tree — see
+        // that region), so a video hard-delete / teacher-purge tears down attempts at the DB
+        // level with zero service-layer cleanup. The report tree
+        // (report → answer → answer-option) is DISJOINT from the exam tree
+        // (exam → question → option) — no table is reachable by two cascade paths, so there is
+        // no SQL Server multi-cascade-path conflict. VideoExamId / TeacherId / TeacherStudentId
+        // (report) and VideoExamQuestionId / VideoExamQuestionOptionId (answer/option) are plain
+        // denormalized columns with NO navigation FK, so a teacher's quiz replace-all and any
+        // student/teacher purge are never blocked by these tables. Fluent API is the sole source
+        // of FK/OnDelete truth (no [ForeignKey] annotations on these entities).
+
+        #region StudentVideoExamReport
+        modelBuilder.Entity<StudentVideoExamReport>(entity =>
+        {
+            entity.ToTable("StudentVideoExamReports");
+
+            entity.Property(r => r.Score).HasColumnType("decimal(6,2)").IsRequired();
+            entity.Property(r => r.Percentage).HasColumnType("decimal(5,2)").IsRequired();
+            entity.Property(r => r.Status).HasConversion<byte>().IsRequired();
+            entity.Property(r => r.SubmittedAt).HasColumnType("datetime2(0)");
+            entity.Property(r => r.UpdatedAt).HasColumnType("datetime2(0)");
+            entity.Property(r => r.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(r => r.RowVersion).IsRowVersion();
+
+            // CASCADE delete root — mirrors VideoExam's posture off VideoAsset.
+            entity.HasOne(r => r.VideoAsset)
+                .WithMany()
+                .HasForeignKey(r => r.VideoAssetId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // VideoExamId / TeacherStudentId / TeacherId are plain scalar columns (no navigation
+            // FK) — intentional (see region remarks). EF maps them as scalars automatically.
+
+            entity.HasIndex(r => new { r.VideoAssetId, r.TeacherStudentId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentVideoExamReports_Video_Student");
+        });
+        #endregion
+
+        #region StudentVideoExamAnswer
+        modelBuilder.Entity<StudentVideoExamAnswer>(entity =>
+        {
+            entity.ToTable("StudentVideoExamAnswers");
+
+            entity.Property(a => a.AwardedDegree).HasColumnType("decimal(6,2)").IsRequired();
+            entity.Property(a => a.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(a => a.StudentVideoExamReport)
+                .WithMany(r => r.Answers)
+                .HasForeignKey(a => a.StudentVideoExamReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // VideoExamQuestionId is a plain cross-aggregate reference (no FK) — see region remarks.
+
+            entity.HasIndex(a => new { a.StudentVideoExamReportId, a.VideoExamQuestionId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentVideoExamAnswers_Report_Question");
+        });
+        #endregion
+
+        #region StudentVideoExamAnswerOption
+        modelBuilder.Entity<StudentVideoExamAnswerOption>(entity =>
+        {
+            entity.ToTable("StudentVideoExamAnswerOptions");
+
+            entity.Property(o => o.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            entity.HasOne(o => o.StudentVideoExamAnswer)
+                .WithMany(a => a.SelectedOptions)
+                .HasForeignKey(o => o.StudentVideoExamAnswerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // VideoExamQuestionOptionId is a plain cross-aggregate reference (no FK).
+
+            entity.HasIndex(o => new { o.StudentVideoExamAnswerId, o.VideoExamQuestionOptionId })
+                .IsUnique()
+                .HasDatabaseName("UX_StudentVideoExamAnswerOptions_Answer_Option");
         });
         #endregion
     }

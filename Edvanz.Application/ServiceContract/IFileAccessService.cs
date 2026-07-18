@@ -47,4 +47,15 @@ public interface IFileAccessService
     /// null when the id is null or the row is gone.
     /// </summary>
     Task<string?> TryBuildGatedUrlAsync(long? fileObjectId);
+
+    /// <summary>
+    /// Batched twin of <see cref="TryBuildGatedUrlAsync"/>: loads every registry row for the given
+    /// internal <c>FileObject.Id</c> FKs in ONE query and returns a map from internal id to its
+    /// gated URL — same URL format and same per-id null-handling as the single method (an id whose
+    /// row is missing is simply absent from the map, so a <c>TryGetValue</c>/<c>GetValueOrDefault</c>
+    /// lookup yields null exactly as the single method would). Removes the per-question N+1 in the
+    /// quiz take/review screens. Authorization is unaffected — it is enforced later on the actual
+    /// <c>GET /api/files/{id}</c> fetch, not during URL construction.
+    /// </summary>
+    Task<IReadOnlyDictionary<long, string?>> TryBuildGatedUrlsAsync(IEnumerable<long> fileInternalIds);
 }

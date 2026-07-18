@@ -17,25 +17,46 @@ public class OnlineExamGradingService : IOnlineExamGradingService
     }
 
     /// <inheritdoc />
-    public decimal GradeQuestion(Domain.Interfaces.OnlineExamQuestionRow question, HashSet<long> selectedOptionIds)
+    public decimal GradeQuestion(
+        bool isMultipleChoice, ISet<long> correctOptionIds, ISet<long> selectedOptionIds, decimal degree)
     {
-        if (question.QuestionType == OnlineExamQuestionType.SingleChoice)
+        if (!isMultipleChoice)
         {
-            var correctOption = question.Options.FirstOrDefault(o => o.IsCorrect);
-            return correctOption is not null && selectedOptionIds.Contains(correctOption.Id)
-                ? question.Degree
-                : 0m;
+            // Defensive symmetry with the multiple-choice branch below: a malformed single-choice
+            // question authored with ZERO correct options must never award full marks via
+            // SetEquals(∅, ∅). Valid data always has exactly one correct option, so this guard is
+            // inert for well-formed questions — online-exam scores are unchanged.
+            if (correctOptionIds.Count == 0) return 0m;
+
+            // SingleChoice — all-or-nothing: full degree iff the selection is exactly the
+            // correct set. Under the single-choice invariant (exactly one correct option and
+            // exactly one selected option, enforced by option validation BEFORE grading) this
+            // is identical to the legacy "the one correct option was picked" rule — online-exam
+            // scores are unchanged (do not alter results).
+            return selectedOptionIds.SetEquals(correctOptionIds) ? degree : 0m;
         }
 
-        // MultipleChoice — QB: Degree × max(0, (|S∩C| − |S−C|) / |C|), 2dp.
-        var correctIds = question.Options.Where(o => o.IsCorrect).Select(o => o.Id).ToHashSet();
-        if (correctIds.Count == 0) return 0m;
+        // MultipleChoice — QB partial credit: Degree × max(0, (|S∩C| − |S−C|) / |C|), 2dp.
+        if (correctOptionIds.Count == 0) return 0m;
 
-        int correctPicks = selectedOptionIds.Count(id => correctIds.Contains(id));
-        int wrongPicks = selectedOptionIds.Count(id => !correctIds.Contains(id));
+        int correctPicks = selectedOptionIds.Count(id => correctOptionIds.Contains(id));
+        int wrongPicks = selectedOptionIds.Count(id => !correctOptionIds.Contains(id));
 
-        decimal raw = question.Degree * Math.Max(0m, (decimal)(correctPicks - wrongPicks) / correctIds.Count);
+        decimal raw = degree * Math.Max(0m, (decimal)(correctPicks - wrongPicks) / correctOptionIds.Count);
         return Math.Round(raw, 2);
+    }
+
+    /// <inheritdoc />
+    public decimal GradeQuestion(Domain.Interfaces.OnlineExamQuestionRow question, HashSet<long> selectedOptionIds)
+    {
+        // Online-exam adapter over the DTO-free primitive grader (the single source of truth,
+        // also reused by the video-quiz module). Behavior is byte-for-byte unchanged.
+        var correctIds = question.Options.Where(o => o.IsCorrect).Select(o => o.Id).ToHashSet();
+        return GradeQuestion(
+            question.QuestionType == OnlineExamQuestionType.MultipleChoice,
+            correctIds,
+            selectedOptionIds,
+            question.Degree);
     }
 
     /// <inheritdoc />

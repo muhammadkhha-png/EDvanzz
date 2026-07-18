@@ -184,6 +184,42 @@ public class StudentUserController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ME: PER-TEACHER QR ("Show QR Code")
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Returns the authenticated student's per-teacher attendance QR ("Show QR Code").
+    /// The student displays the QR and the teacher scans it (from the teacher app's
+    /// "Scan QR Code from Student account") to record attendance / exam presence / payment;
+    /// it encodes the per-teacher student code the teacher's scan resolves.
+    ///
+    /// The <c>{teacherId}</c> route segment is the TEACHER — never the student id. Identity
+    /// is the JWT student (same IDOR-safe pattern as the other "me" endpoints): the student
+    /// must be ACTIVELY linked to, and bound under, this teacher. When the teacher issues
+    /// hard-copy cards only, the response carries code <c>BarcodeNotAvailableInApp</c> so the
+    /// frontend can hide the button (AAM-FR-04.7).
+    /// </summary>
+    /// <param name="teacherId">The linked teacher whose per-teacher code the QR encodes.</param>
+    /// <response code="200">Teacher name, the per-teacher code, and the rendered QR SVG.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Not linked to / not bound under this teacher, or the teacher issues hard-copy cards only.</response>
+    /// <response code="404">The authenticated user has no student account.</response>
+    [HttpGet("me/teachers/{teacherId:long}/barcode")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.StudentUser.StudentTeacherBarcodeDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyTeacherBarcode([FromRoute] long teacherId)
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.GetTeacherBarcodeForStudentAsync(studentUserId.Value, teacherId);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // LOOKUP BY ACCOUNT CODE (used by the Parent module, AAM-FR-06.3 Method A)
     // ══════════════════════════════════════════════════════════════════════════
 

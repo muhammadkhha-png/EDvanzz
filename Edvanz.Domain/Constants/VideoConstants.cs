@@ -196,6 +196,24 @@ public static class VideoConstants
 
         public const string VideoUnitsAssigned = "VideoUnitsAssigned";
 
+        // ── Student video-quiz flow (Module 14) ──────────────────────────────
+        /// <summary>Success — a video-quiz attempt was submitted (finalized).</summary>
+        public const string VideoQuizSubmitted = "VideoQuizSubmitted";
+        /// <summary>Success — a video-quiz attempt was reset for a retake.</summary>
+        public const string VideoQuizReset = "VideoQuizReset";
+        /// <summary>Error — the video has no quiz attached.</summary>
+        public const string VideoQuizNotFound = "VideoQuizNotFound";
+        /// <summary>Error — a submitted answer references a question not in this quiz.</summary>
+        public const string VideoQuizQuestionNotFound = "VideoQuizQuestionNotFound";
+        /// <summary>Error — a selected option does not belong to its question.</summary>
+        public const string VideoQuizInvalidOptionSelection = "VideoQuizInvalidOptionSelection";
+        /// <summary>Error — a single-choice question was answered with more than one option.</summary>
+        public const string VideoQuizSelectOneAnswer = "VideoQuizSelectOneAnswer";
+        /// <summary>Error (409) — the attempt is already submitted; retry before submitting again.</summary>
+        public const string VideoQuizAlreadySubmitted = "VideoQuizAlreadySubmitted";
+        /// <summary>Error (404) — the student has no recorded attempt for this quiz.</summary>
+        public const string VideoQuizAttemptNotFound = "VideoQuizAttemptNotFound";
+
         /// <summary>
         /// Maximum retry attempts for the StartWatch flow when a concurrent first-time
         /// open from the same student (e.g., simultaneously on phone and tablet)

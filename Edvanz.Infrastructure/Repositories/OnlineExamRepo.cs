@@ -418,4 +418,28 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
         return await _context.TeacherStudents
             .AnyAsync(ts => ts.Id == teacherStudentId && ts.TeacherId == teacherId && !ts.IsDeleted);
     }
+
+    /// <inheritdoc />
+    public async Task<TeacherSubjectNameRow?> GetTeacherSubjectNameAsync(long teacherId)
+    {
+        // One round trip: the teacher's custom subject + the first linked ministry subject's
+        // bilingual names (correlated subquery, ordered for determinism). The service picks the
+        // language (canonical StudentUserService.cs:420-429 subject-name pattern).
+        return await _context.Teachers
+            .Where(t => t.Id == teacherId)
+            .Select(t => new TeacherSubjectNameRow
+            {
+                CustomSubject = t.CustomSubject,
+                SubjectNameEn = t.TeacherSubjects
+                    .OrderBy(ts => ts.Id)
+                    .Select(ts => ts.Subject.NameEn)
+                    .FirstOrDefault(),
+                SubjectNameAr = t.TeacherSubjects
+                    .OrderBy(ts => ts.Id)
+                    .Select(ts => ts.Subject.NameAr)
+                    .FirstOrDefault(),
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
 }

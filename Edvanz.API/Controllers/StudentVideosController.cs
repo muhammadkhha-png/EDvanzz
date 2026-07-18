@@ -86,8 +86,53 @@ public sealed class StudentVideosController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _service.GetStudentVideosAsync(
-            teacherId, resolution.TeacherStudentId!.Value, request);
+            teacherId, resolution.TeacherStudentId!.Value, request, resolution.LanguagePreference);
         return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ENDPOINT 7b — STUDENT UNITS  (V3)
+    // GET /api/videos/student/teachers/{teacherId}/units
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   The units the calling student can see under the named teacher (those
+    //   containing at least one video visible to the student), each with
+    //   per-unit counts (videos + how many carry a quiz) and the subject.
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpGet("teachers/{teacherId:long}/units")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.StudentVideoUnitDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentUnits([FromRoute] long teacherId)
+    {
+        var resolution = await ResolveStudentForTeacherAsync(teacherId);
+        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+
+        return ToResponse(await _service.GetStudentUnitsAsync(
+            teacherId, resolution.TeacherStudentId!.Value, resolution.LanguagePreference));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ENDPOINT 7c — STUDENT VIDEOS IN A UNIT  (V3 drill-down)
+    // GET /api/videos/student/teachers/{teacherId}/units/{unitId}/videos
+    // ══════════════════════════════════════════════════════════════════════
+    [HttpGet("teachers/{teacherId:long}/units/{unitId:long}/videos")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.VideoContentManagement.StudentVideoListItemDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentVideosInUnit(
+        [FromRoute] long teacherId, [FromRoute] long unitId, [FromQuery] StudentVideoListRequest request)
+    {
+        var resolution = await ResolveStudentForTeacherAsync(teacherId);
+        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+
+        return ToResponse(await _service.GetStudentVideosInUnitAsync(
+            teacherId, resolution.TeacherStudentId!.Value, unitId, request, resolution.LanguagePreference));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -218,7 +263,7 @@ public sealed class StudentVideosController : ApiBaseController
         if (link.TeacherStudentId is null)
             return StudentResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
 
-        return StudentResolution.Ok(link.TeacherStudentId.Value);
+        return StudentResolution.Ok(link.TeacherStudentId.Value, studentUser.LanguagePreference);
     }
 
     private IActionResult NotFoundError(string message) =>
@@ -241,18 +286,22 @@ public sealed class StudentVideosController : ApiBaseController
     private readonly struct StudentResolution
     {
         public long? TeacherStudentId { get; }
+
+        /// <summary>The resolved student's language preference ("ar"/"en"), for language-aware content.</summary>
+        public string? LanguagePreference { get; }
         public IActionResult? ErrorResponse { get; }
 
-        private StudentResolution(long? id, IActionResult? error)
+        private StudentResolution(long? id, string? languagePreference, IActionResult? error)
         {
             TeacherStudentId = id;
+            LanguagePreference = languagePreference;
             ErrorResponse = error;
         }
 
-        public static StudentResolution Ok(long teacherStudentId)
-            => new(teacherStudentId, null);
+        public static StudentResolution Ok(long teacherStudentId, string? languagePreference)
+            => new(teacherStudentId, languagePreference, null);
 
         public static StudentResolution Error(IActionResult response)
-            => new(null, response);
+            => new(null, null, response);
     }
 }

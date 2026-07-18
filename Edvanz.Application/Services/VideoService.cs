@@ -605,6 +605,12 @@ public sealed class VideoService : IVideoService
                     await _fileAccess.DetachAsync(oldImageId);
 
                 await _unitOfWork.VideoAssetsRepo.DeleteExamForVideoAsync(videoAssetId);
+
+                // The quiz is being replaced — prior student attempts answered a now-different quiz,
+                // so they are void. Purge them (report → answers → options) in this transaction.
+                // (Video / teacher hard-delete is handled by the CASCADE FK off VideoAsset instead.)
+                await _unitOfWork.StudentVideoExamReportsRepo.PurgeReportsForVideoAsync(videoAssetId);
+
                 var newExam = BuildExamEntity(request.Exam, videoAssetId, teacherId, actingUserId, utcNow);
                 await _unitOfWork.VideoAssetsRepo.AddExamAsync(newExam);
                 await _unitOfWork.SaveChangesAsync(); // generate question ids
@@ -709,14 +715,24 @@ public sealed class VideoService : IVideoService
         var exam = await _unitOfWork.VideoAssetsRepo.GetExamWithQuestionsAsync(videoAssetId, teacherId);
         if (exam is not null)
         {
-            var questions = new List<CreateExamQuestionDto>(exam.Questions.Count);
-            foreach (var q in exam.Questions)
-            {
-                var image = q.ImageFileId is null
-                    ? null
-                    : await _unitOfWork.FileObjectsRepo.GetByIdAsync(q.ImageFileId.Value);
+            // PERF: batch-resolve every question-image FileObject in ONE query. This used to be
+            // an N+1 — a GetByIdAsync per question inside a foreach. BuildGatedUrl is pure string
+            // work off the loaded PublicIds (same batching approach as the student/teacher lists).
+            var imageFileIds = exam.Questions
+                .Where(q => q.ImageFileId is not null)
+                .Select(q => q.ImageFileId!.Value)
+                .Distinct()
+                .ToList();
+            var imagesById = imageFileIds.Count == 0
+                ? new Dictionary<long, Domain.Entities.FileObject>()
+                : (await _unitOfWork.FileObjectsRepo.GetByIdsAsync(imageFileIds)).ToDictionary(f => f.Id);
 
-                questions.Add(new CreateExamQuestionDto
+            var questions = exam.Questions.Select(q =>
+            {
+                Domain.Entities.FileObject? image =
+                    q.ImageFileId is long fid && imagesById.TryGetValue(fid, out var f) ? f : null;
+
+                return new CreateExamQuestionDto
                 {
                     Text = q.Text,
                     QuestionType = q.QuestionType,
@@ -727,8 +743,8 @@ public sealed class VideoService : IVideoService
                         Text = o.Text,
                         IsCorrect = o.IsCorrect,
                     }).ToList(),
-                });
-            }
+                };
+            }).ToList();
 
             dto.Exam = new CreateExamDto
             {
@@ -939,7 +955,7 @@ public sealed class VideoService : IVideoService
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>>
         GetStudentVideosAsync(
-            long teacherId, long teacherStudentId, StudentVideoListRequest request)
+            long teacherId, long teacherStudentId, StudentVideoListRequest request, string? studentLanguage)
     {
         // Runtime module-active gate — students have no `module` JWT claim.
         var moduleGate = await CheckModuleActiveAsync<PaginatedResponse<List<StudentVideoListItemDto>>>(teacherId);
@@ -948,9 +964,62 @@ public sealed class VideoService : IVideoService
         var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
             .GetVisibleVideosForStudentAsync(teacherId, teacherStudentId, request.Page, request.PageSize);
 
-        // Batch-resolve the page's file references to gated URLs — two queries for the whole
-        // page (photos by id, attachments by video id), never a per-row lookup. BuildGatedUrl
-        // is pure string work off the loaded PublicIds.
+        var response = await BuildStudentVideoPageAsync(
+            teacherId, rows, totalCount, request.Page, request.PageSize, studentLanguage);
+        return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>> GetStudentVideosInUnitAsync(
+        long teacherId, long teacherStudentId, long unitId, StudentVideoListRequest request, string? studentLanguage)
+    {
+        var moduleGate = await CheckModuleActiveAsync<PaginatedResponse<List<StudentVideoListItemDto>>>(teacherId);
+        if (moduleGate is not null) return moduleGate;
+
+        var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
+            .GetVisibleVideosForStudentInUnitAsync(teacherId, teacherStudentId, unitId, request.Page, request.PageSize);
+
+        var response = await BuildStudentVideoPageAsync(
+            teacherId, rows, totalCount, request.Page, request.PageSize, studentLanguage);
+        return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<StudentVideoUnitDto>>> GetStudentUnitsAsync(
+        long teacherId, long teacherStudentId, string? studentLanguage)
+    {
+        var moduleGate = await CheckModuleActiveAsync<List<StudentVideoUnitDto>>(teacherId);
+        if (moduleGate is not null) return moduleGate;
+
+        var units = await _unitOfWork.VideoAssetsRepo
+            .GetStudentVisibleUnitsAsync(teacherId, teacherStudentId);
+
+        string subject = ResolveTeacherSubject(
+            await _unitOfWork.VideoAssetsRepo.GetTeacherSubjectAsync(teacherId), studentLanguage);
+
+        var items = units.Select(u => new StudentVideoUnitDto
+        {
+            Id = u.Id,
+            Title = u.Title,
+            Description = u.Description,
+            VideoCount = u.VideoCount,
+            QuizCount = u.QuizVideoCount,
+            Subject = subject,
+        }).ToList();
+
+        return Result<List<StudentVideoUnitDto>>.Success(items, _localizer);
+    }
+
+    /// <summary>
+    /// Shared mapper for the student video list and the V3 unit drill-down. Batch-resolves the
+    /// page's cover photos + attachments (never per-row) and resolves the teacher's subject ONCE
+    /// (all rows share one teacher), then maps rows to the enriched DTO (V2 quiz info, V4 watch
+    /// status, subject).
+    /// </summary>
+    private async Task<PaginatedResponse<List<StudentVideoListItemDto>>> BuildStudentVideoPageAsync(
+        long teacherId, IReadOnlyList<Domain.Interfaces.StudentVideoListRow> rows,
+        int totalCount, int page, int pageSize, string? studentLanguage)
+    {
         var photoIds = rows.Where(r => r.VideoPhotoFileId is not null)
             .Select(r => r.VideoPhotoFileId!.Value).Distinct().ToList();
         var photosById = photoIds.Count == 0
@@ -964,6 +1033,10 @@ public sealed class VideoService : IVideoService
                 .GroupBy(f => f.VideoAssetId!.Value)
                 .ToDictionary(g => g.Key, g => g.ToList()); // all live attachments, oldest-first
 
+        // Subject is per-teacher — resolve once for the whole page (all rows share one teacher).
+        string subject = ResolveTeacherSubject(
+            await _unitOfWork.VideoAssetsRepo.GetTeacherSubjectAsync(teacherId), studentLanguage);
+
         var items = rows.Select(r => new StudentVideoListItemDto
         {
             Id = r.Id,
@@ -975,6 +1048,10 @@ public sealed class VideoService : IVideoService
             AssignedAt = r.AssignedAt,
             HasOpened = r.HasOpened,
             LastOpenedAt = r.LastOpenedAt,
+            HasQuiz = r.HasQuiz,
+            QuestionsCount = r.QuestionsCount,
+            WatchStatus = ComputeWatchStatus(r.TotalWatchSeconds, r.DurationSeconds),
+            Subject = subject,
             VideoPhotoUrl = r.VideoPhotoFileId is long pid && photosById.TryGetValue(pid, out var photo)
                 ? _fileAccess.BuildGatedUrl(photo.PublicId)
                 : null,
@@ -983,16 +1060,48 @@ public sealed class VideoService : IVideoService
                 : new List<VideoAttachmentDto>(),
         }).ToList();
 
-        var response = new PaginatedResponse<List<StudentVideoListItemDto>>
+        return new PaginatedResponse<List<StudentVideoListItemDto>>
         {
             data = items,
-            page = request.Page,
-            pageSize = request.PageSize,
+            page = page,
+            pageSize = pageSize,
             totalCount = totalCount,
-            totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
+            totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
         };
+    }
 
-        return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
+    /// <summary>
+    /// V4 — 3-state watch indicator from the student's accumulated watch seconds vs. the video
+    /// duration. Completed at ≥ <c>VideoConstants.CompletionThresholdPercent</c> (same threshold
+    /// the teacher analytics <c>completedCount</c> uses, so the two never disagree).
+    /// </summary>
+    private static VideoWatchStatus ComputeWatchStatus(long totalWatchSeconds, int durationSeconds)
+    {
+        if (totalWatchSeconds <= 0) return VideoWatchStatus.NotStarted;
+        if (durationSeconds <= 0) return VideoWatchStatus.InProgress; // duration not yet known
+        double pct = (double)totalWatchSeconds / durationSeconds * 100.0;
+        return pct >= VideoConstants.CompletionThresholdPercent
+            ? VideoWatchStatus.Completed
+            : VideoWatchStatus.InProgress;
+    }
+
+    /// <summary>
+    /// Resolves the teacher's subject display name, replicating the canonical
+    /// <c>StudentUserService.BuildDashboardTeacherDtoFromBatch</c> pattern (AAM-FR-02.2/BUG-3): a
+    /// linked ministry subject (in the STUDENT's stored <c>LanguagePreference</c>; null/empty →
+    /// English) wins; otherwise the free-text <c>CustomSubject</c>; otherwise empty. Uses the
+    /// student's stored language, NOT the request UI-culture, so it matches the offline-exam and
+    /// dashboard modules.
+    /// </summary>
+    private static string ResolveTeacherSubject(Domain.Interfaces.TeacherSubjectInfo? info, string? studentLanguage)
+    {
+        if (info is null) return string.Empty;
+
+        bool isArabic = string.Equals(studentLanguage?.Trim(), "ar", StringComparison.OrdinalIgnoreCase);
+        string? ministry = isArabic ? info.SubjectNameAr : info.SubjectNameEn;
+        if (!string.IsNullOrWhiteSpace(ministry)) return ministry!;
+
+        return info.CustomSubject ?? string.Empty;
     }
 
     // ══════════════════════════════════════════════════════════════════════

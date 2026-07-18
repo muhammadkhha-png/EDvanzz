@@ -256,4 +256,19 @@ public sealed class FileAccessService : IFileAccessService
         var file = await _unitOfWork.FileObjectsRepo.GetByIdAsync(fileObjectId.Value);
         return file is null ? null : BuildGatedUrl(file.PublicId);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<long, string?>> TryBuildGatedUrlsAsync(
+        IEnumerable<long> fileInternalIds)
+    {
+        var ids = fileInternalIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<long, string?>();
+
+        // ONE query for the whole set; BuildGatedUrl is pure string work off the loaded PublicIds,
+        // identical to the single method. A missing row is left out of the map (lookup → null),
+        // mirroring TryBuildGatedUrlAsync's null-handling exactly.
+        var files = await _unitOfWork.FileObjectsRepo.GetByIdsAsync(ids);
+        return files.ToDictionary(f => f.Id, f => (string?)BuildGatedUrl(f.PublicId));
+    }
 }

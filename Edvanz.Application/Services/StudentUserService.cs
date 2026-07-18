@@ -34,17 +34,20 @@ public class StudentUserService : IStudentUserService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStudentAccountCodeGenerator _codeGenerator;
     private readonly IStudentLinkNotifier _linkNotifier;
+    private readonly IQrCodeRenderer _qrCodeRenderer;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public StudentUserService(
         IUnitOfWork unitOfWork,
         IStudentAccountCodeGenerator codeGenerator,
         IStudentLinkNotifier linkNotifier,
+        IQrCodeRenderer qrCodeRenderer,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _linkNotifier = linkNotifier;
+        _qrCodeRenderer = qrCodeRenderer;
         _localizer = localizer;
     }
 
@@ -372,6 +375,63 @@ public class StudentUserService : IStudentUserService
         var profileDto = BuildProfileDto(studentUser, user, linkedCount);
 
         return Result<StudentUserProfileDto>.Success(profileDto, _localizer, "Success", HttpStatusCode.OK);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<StudentTeacherBarcodeDto>> GetTeacherBarcodeForStudentAsync(
+        long studentUserId, long teacherId)
+    {
+        // ── 1. Validate the calling student account exists (defensive — the controller
+        //       already resolved it from the JWT). ──
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
+        if (studentUser is null)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
+
+        // ── 2. The student must be ACTIVELY linked to this teacher. The route teacherId is
+        //       untrusted (§3.3): a student can only ever obtain a code under a teacher they
+        //       actually belong to (mirrors the attendance/videos student gates). ──
+        var link = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUserId, teacherId);
+        if (link is null)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "StudentNotLinkedToTeacher", HttpStatusCode.Forbidden);
+
+        // ── 3. The Active link must be BOUND to a roster record — the per-teacher code lives
+        //       on that record. Active-but-unbound = connected, no code issued yet. ──
+        if (link.TeacherStudentId is null)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "StudentNotBoundToRoster", HttpStatusCode.Forbidden);
+
+        // ── 4. Honour the teacher's barcode display mode (AAM-FR-04.7). HardCopyOnly means the
+        //       teacher issues printed cards only — the app must not show an in-app QR. The
+        //       stable code lets the frontend hide the "Show QR Code" button. ──
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config?.BarcodeDisplayMode == BarcodeDisplayMode.HardCopyOnly)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "BarcodeNotAvailableInApp", HttpStatusCode.Forbidden);
+
+        // ── 5. Load the bound roster record (tenant-scoped to the teacher). Null means the
+        //       teacher deleted it after binding — treat as unbound. ──
+        var roster = await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, link.TeacherStudentId.Value);
+        if (roster is null)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "StudentNotBoundToRoster", HttpStatusCode.Forbidden);
+
+        // ── 6. Encode the value the teacher's scan resolves. GetActiveByCodeAndTeacherAsync
+        //       (the exam/attendance/payment scan path) matches TeacherStudent.StudentCode, so
+        //       the QR MUST encode StudentCode for the loop to close. (Barcode is set ==
+        //       StudentCode at creation but is immutable per REQ-STU-048, so it can drift from
+        //       StudentCode after a manual-mode code change — StudentCode is the authoritative
+        //       scan key.) ──
+        string code = roster.StudentCode;
+
+        // ── 7. Resolve the teacher's display name for the screen header (lean projection). ──
+        string teacherName = await _unitOfWork.Users.GetTeacherDisplayNameAsync(teacherId) ?? string.Empty;
+
+        var dto = new StudentTeacherBarcodeDto
+        {
+            TeacherId = teacherId,
+            TeacherName = teacherName,
+            Code = code,
+            QrSvg = _qrCodeRenderer.RenderQrCodeSvg(code)
+        };
+
+        return Result<StudentTeacherBarcodeDto>.Success(dto, _localizer, "Success", HttpStatusCode.OK);
     }
 
     // ══════════════════════════════════════════════

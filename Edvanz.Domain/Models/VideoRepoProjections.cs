@@ -98,10 +98,98 @@ public sealed class StudentVideoListRow
     public DateTime? LastOpenedAt { get; set; }
 
     /// <summary>
+    /// This student's accumulated watch seconds for the video (0 when never opened) — from the
+    /// per-(video, student) <c>VideoAnalytics</c> LEFT JOIN. Drives the 3-state
+    /// <c>WatchStatus</c> (V4) the service computes against <see cref="DurationSeconds"/>.
+    /// </summary>
+    public long TotalWatchSeconds { get; set; }
+
+    /// <summary>True when the video has a quiz (<c>VideoExam</c>) attached (V2).</summary>
+    public bool HasQuiz { get; set; }
+
+    /// <summary>Number of questions in the video's quiz, 0 when it has none (V2).</summary>
+    public int QuestionsCount { get; set; }
+
+    /// <summary>
     /// Registry file id (<c>FileObject.Id</c>) of the video's cover photo, or null. The service
     /// batch-resolves these to gated URLs for the student card (no per-row query).
     /// </summary>
     public long? VideoPhotoFileId { get; set; }
+}
+
+/// <summary>
+/// Projection row for the student's units view (V3). Rolls up, per unit, how many of the
+/// student's visible videos it contains and how many of those carry a quiz. Computed from
+/// the SAME "visible video" predicate the student video list uses, so the units view and
+/// the video list never disagree.
+/// </summary>
+public sealed class StudentVideoUnitRow
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+
+    /// <summary>Count of the student's visible videos linked to this unit.</summary>
+    public int VideoCount { get; set; }
+
+    /// <summary>Of <see cref="VideoCount"/>, how many carry a quiz (<c>VideoExam</c>).</summary>
+    public int QuizVideoCount { get; set; }
+}
+
+/// <summary>
+/// A teacher's subject, for the student video-list <c>Subject</c> column (replicates the
+/// canonical <c>StudentUserService</c> pattern: <c>CustomSubject ?? Subject.NameEn/NameAr</c>
+/// by the reader's language). Resolved once per list (all rows share one teacher), never per row.
+/// </summary>
+public sealed class TeacherSubjectInfo
+{
+    public string? CustomSubject { get; set; }
+    public string? SubjectNameEn { get; set; }
+    public string? SubjectNameAr { get; set; }
+}
+
+/// <summary>
+/// Student-facing take-screen projection for a video quiz (<c>VideoExam</c>) — <c>IsCorrect</c>
+/// does not exist on this type at all. Security by shape, mirroring
+/// <c>StudentOnlineExamQuestionRow</c> (do-not-reintroduce #9): the correct-answer key can
+/// never leak onto the take screen regardless of DTO-mapper discipline.
+/// </summary>
+public sealed class StudentVideoExamQuestionRow
+{
+    public long Id { get; set; }
+    public string QuestionText { get; set; } = null!;
+    public Enums.VideoExamQuestionType QuestionType { get; set; }
+
+    /// <summary>Points for this question — always 1 (video questions are equally weighted).</summary>
+    public decimal Degree { get; set; }
+    public int SortOrder { get; set; }
+
+    /// <summary>Internal registry FK (<c>FileObject.Id</c>), repo-projected. Never serialized.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? ImageFileInternalId { get; set; }
+
+    /// <summary>Gated image URL, populated by the service (not the repo). Students only need the URL.</summary>
+    public string? ImageUrl { get; set; }
+
+    public List<StudentVideoExamQuestionOptionRow> Options { get; set; } = new();
+}
+
+public sealed class StudentVideoExamQuestionOptionRow
+{
+    public long Id { get; set; }
+    public string OptionText { get; set; } = null!;
+    public int SortOrder { get; set; }
+}
+
+/// <summary>
+/// Lightweight header of a video's quiz (<c>VideoExam</c>) — id/title/description + existence,
+/// without loading the question graph (or the answer key). Backs the student take-screen header.
+/// </summary>
+public sealed class VideoExamHeaderRow
+{
+    public long ExamId { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
 }
 
 /// <summary>

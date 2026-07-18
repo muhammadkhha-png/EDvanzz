@@ -108,6 +108,13 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
     Task<bool> IsTeacherStudentOwnedByTeacherAsync(long teacherStudentId, long teacherId);
 
     /// <summary>
+    /// S1 subject label — the teacher's <c>CustomSubject</c> plus their first linked ministry
+    /// subject's EN/AR names, in one round trip. Fetched once per student exam-list call (a
+    /// single teacher; never per exam → no N+1). Null when the teacher row is missing.
+    /// </summary>
+    Task<TeacherSubjectNameRow?> GetTeacherSubjectNameAsync(long teacherId);
+
+    /// <summary>
     /// File-access policy support (<c>IFileAccessService</c>): true when <paramref name="fileObjectId"/>
     /// is the image of a question on an exam owned by <paramref name="teacherId"/> and the student
     /// <paramref name="teacherStudentId"/> is in that exam's live assigned set. Composes

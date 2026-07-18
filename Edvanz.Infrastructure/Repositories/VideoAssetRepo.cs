@@ -323,13 +323,28 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     /// <inheritdoc />
-    public async Task<(IReadOnlyList<StudentVideoListRow> Items, int TotalCount)>
+    public Task<(IReadOnlyList<StudentVideoListRow> Items, int TotalCount)>
         GetVisibleVideosForStudentAsync(
             long teacherId, long teacherStudentId, int page, int pageSize)
+        => GetStudentVisibleVideosPagedAsync(teacherId, teacherStudentId, unitId: null, page, pageSize);
+
+    /// <inheritdoc />
+    public Task<(IReadOnlyList<StudentVideoListRow> Items, int TotalCount)>
+        GetVisibleVideosForStudentInUnitAsync(
+            long teacherId, long teacherStudentId, long unitId, int page, int pageSize)
+        => GetStudentVisibleVideosPagedAsync(teacherId, teacherStudentId, unitId, page, pageSize);
+
+    /// <summary>
+    /// Shared visible-videos query for the student list (V2/V4 enriched) and the V3 unit
+    /// drill-down. One code path — <paramref name="unitId"/> null lists all visible videos;
+    /// non-null restricts to that unit's videos. Batched; no N+1.
+    /// </summary>
+    private async Task<(IReadOnlyList<StudentVideoListRow> Items, int TotalCount)>
+        GetStudentVisibleVideosPagedAsync(
+            long teacherId, long teacherStudentId, long? unitId, int page, int pageSize)
     {
-        // Story B Q1 — implements the spec's three-way scope union with
-        // analytics LEFT JOIN. Hot path; covered by the three filtered
-        // scope-target indexes on VideoScopes plus
+        // Story B Q1 — implements the spec's scope union with analytics LEFT JOIN. Hot path;
+        // covered by the filtered scope-target indexes on VideoScopes plus
         // IX_VideoAnalytics_TeacherStudentId_VideoAssetId on the LEFT JOIN.
         //
         // The student's session is needed to resolve Session and SessionGroup
@@ -344,16 +359,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .AsNoTracking()
             .FirstOrDefaultAsync();
 
-        // If the student has no session, only IndividualStudent scopes can apply.
         long? studentSessionId = student?.SessionId;
         long? studentSessionGroupId = student?.SessionGroupId;
 
-        // Visible-videos query: distinct VideoAssetId across the three scope
-        // unions, joined back to VideoAsset for display fields, and LEFT
-        // JOINed to VideoAnalytics for the per-student state.
-        //
-        // EF Core translates DISTINCT + GROUP BY MIN(AssignedAt) for the
-        // earliest-assignment timestamp shown on the card.
         var utcNow = DateTime.UtcNow;
 
         // Track D1 visibility gate: Draft videos, or Published videos whose
@@ -365,7 +373,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                      && (v.PublishDate == null || v.PublishDate <= utcNow))
             .Select(v => v.Id);
 
-        var visibleQuery = _context.VideoScopes
+        var scopeQuery = _context.VideoScopes
             .Where(s => s.TeacherId == teacherId)
             .Where(s => publishedVideoIds.Contains(s.VideoAssetId))
             .Where(s =>
@@ -374,7 +382,18 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                  && s.SessionId == studentSessionId)
              || (s.ScopeType == VideoScopeType.SessionGroup
                  && studentSessionGroupId.HasValue
-                 && s.SessionGroupId == studentSessionGroupId))
+                 && s.SessionGroupId == studentSessionGroupId));
+
+        // V3 drill-down: restrict to videos linked to the requested unit.
+        if (unitId.HasValue)
+        {
+            var unitVideoIds = _context.VideoAssetUnits
+                .Where(vau => vau.UnitId == unitId.Value)
+                .Select(vau => vau.VideoAssetId);
+            scopeQuery = scopeQuery.Where(s => unitVideoIds.Contains(s.VideoAssetId));
+        }
+
+        var visibleQuery = scopeQuery
             .GroupBy(s => s.VideoAssetId)
             .Select(g => new
             {
@@ -385,8 +404,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // Total before pagination — needed for PaginatedResponse.
         int totalCount = await visibleQuery.CountAsync();
 
-        // Final projection: join the visible-set onto VideoAssets and LEFT
-        // JOIN VideoAnalytics for the student's HasOpened / LastOpenedAt.
+        // Final projection: join the visible-set onto VideoAssets and LEFT JOIN VideoAnalytics
+        // for the student's HasOpened / LastOpenedAt / TotalWatchSeconds (V4), plus per-video
+        // quiz aggregates (V2) as SQL subqueries so the whole page is one round trip.
         var rows = await visibleQuery
             .OrderByDescending(v => v.AssignedAt)
             .Skip((page - 1) * pageSize)
@@ -413,12 +433,135 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                     AssignedAt = x.AssignedAt,
                     HasOpened = an != null,
                     LastOpenedAt = an != null ? (DateTime?)an.LastUpdated : null,
+                    TotalWatchSeconds = an != null ? an.TotalWatchSeconds : 0,
+                    HasQuiz = _context.VideoExams.Any(e => e.VideoAssetId == x.Asset.Id),
+                    QuestionsCount = _context.VideoExamQuestions
+                        .Count(q => q.Exam.VideoAssetId == x.Asset.Id),
                     VideoPhotoFileId = x.Asset.VideoPhotoFileId,
                 })
             .AsNoTracking()
             .ToListAsync();
 
         return (rows, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentVideoUnitRow>> GetStudentVisibleUnitsAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // Resolve the student's session/group once (same as the visible-videos query).
+        var student = await _context.TeacherStudents
+            .Where(ts => ts.Id == teacherStudentId && ts.TeacherId == teacherId)
+            .Select(ts => new
+            {
+                ts.SessionId,
+                SessionGroupId = ts.Session != null ? ts.Session.SessionGroupId : null
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+
+        long? studentSessionId = student?.SessionId;
+        long? studentSessionGroupId = student?.SessionGroupId;
+
+        var utcNow = DateTime.UtcNow;
+
+        var publishedVideoIds = _context.VideoAssets
+            .Where(v => v.TeacherId == teacherId
+                     && v.Status == VideoStatus.Published
+                     && (v.PublishDate == null || v.PublishDate <= utcNow))
+            .Select(v => v.Id);
+
+        // The SAME visible-video predicate the list uses — units and the list never disagree.
+        var visibleVideoIds = _context.VideoScopes
+            .Where(s => s.TeacherId == teacherId)
+            .Where(s => publishedVideoIds.Contains(s.VideoAssetId))
+            .Where(s =>
+                (s.ScopeType == VideoScopeType.Session
+                 && studentSessionId.HasValue
+                 && s.SessionId == studentSessionId)
+             || (s.ScopeType == VideoScopeType.SessionGroup
+                 && studentSessionGroupId.HasValue
+                 && s.SessionGroupId == studentSessionGroupId))
+            .Select(s => s.VideoAssetId)
+            .Distinct();
+
+        // One flat query (unit × visible video + hasQuiz), grouped in memory — no N+1.
+        // VideoUnit's global soft-delete query filter applies automatically.
+        var flat = await (
+            from vau in _context.VideoAssetUnits
+            where visibleVideoIds.Contains(vau.VideoAssetId)
+            join u in _context.VideoUnits on vau.UnitId equals u.Id
+            where u.TeacherId == teacherId
+            select new
+            {
+                u.Id,
+                u.Title,
+                u.Description,
+                vau.VideoAssetId,
+                HasQuiz = _context.VideoExams.Any(e => e.VideoAssetId == vau.VideoAssetId)
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return flat
+            .GroupBy(r => new { r.Id, r.Title, r.Description })
+            .Select(g => new StudentVideoUnitRow
+            {
+                Id = g.Key.Id,
+                Title = g.Key.Title,
+                Description = g.Key.Description,
+                VideoCount = g.Select(x => x.VideoAssetId).Distinct().Count(),
+                QuizVideoCount = g.Where(x => x.HasQuiz).Select(x => x.VideoAssetId).Distinct().Count(),
+            })
+            .OrderBy(u => u.Title)
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<TeacherSubjectInfo?> GetTeacherSubjectAsync(long teacherId)
+    {
+        return await _context.Teachers
+            .Where(t => t.Id == teacherId)
+            .Select(t => new TeacherSubjectInfo
+            {
+                CustomSubject = t.CustomSubject,
+                SubjectNameEn = t.TeacherSubjects
+                    .Select(ts => ts.Subject.NameEn).FirstOrDefault(),
+                SubjectNameAr = t.TeacherSubjects
+                    .Select(ts => ts.Subject.NameAr).FirstOrDefault(),
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentVideoExamQuestionRow>> GetStudentVideoExamQuestionsAsync(long videoAssetId)
+    {
+        // Dedicated no-IsCorrect projection (security by shape). Degree is a constant 1 —
+        // video questions are equally weighted (VideoExamQuestion has no Degree column).
+        return await _context.VideoExamQuestions
+            .Where(q => q.Exam.VideoAssetId == videoAssetId)
+            .OrderBy(q => q.SortOrder)
+            .Select(q => new StudentVideoExamQuestionRow
+            {
+                Id = q.Id,
+                QuestionText = q.Text,
+                QuestionType = q.QuestionType,
+                Degree = 1m,
+                SortOrder = q.SortOrder,
+                ImageFileInternalId = q.ImageFileId,
+                Options = q.Options
+                    .OrderBy(o => o.SortOrder)
+                    .Select(o => new StudentVideoExamQuestionOptionRow
+                    {
+                        Id = o.Id,
+                        OptionText = o.Text,
+                        SortOrder = o.SortOrder,
+                    })
+                    .ToList(),
+            })
+            .AsNoTracking()
+            .ToListAsync();
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1106,5 +1249,20 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     {
         return await _context.VideoExamQuestions
             .CountAsync(q => q.Exam.VideoAssetId == videoAssetId);
+    }
+
+    /// <inheritdoc />
+    public async Task<VideoExamHeaderRow?> GetVideoExamHeaderAsync(long videoAssetId, long teacherId)
+    {
+        return await _context.VideoExams
+            .Where(e => e.VideoAssetId == videoAssetId && e.TeacherId == teacherId)
+            .Select(e => new VideoExamHeaderRow
+            {
+                ExamId = e.Id,
+                Title = e.Title,
+                Description = e.Description,
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
     }
 }

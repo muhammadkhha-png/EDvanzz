@@ -2087,7 +2087,14 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
     }
     private Result<AssignmentTemplateDto> Failure(string key) =>
         Result<AssignmentTemplateDto>.Failure(_localizer, key, HttpStatusCode.BadRequest);
-    private static StudentOfflineExamListItemDto MapToStudentOfflineExamListItemDto(StudentOfflineExamRow row) => new()
+    /// <summary>
+    /// Maps one offline-exam row to its student DTO. <paramref name="subject"/> is the publishing
+    /// teacher's subject (F3 — same for every row in a list). <paramref name="rank"/> is the student's
+    /// leaderboard position in this exam's cohort (F1), or null when the student's exam isn't graded.
+    /// F2 max grade is the occurrence's snapshotted max — the same denominator as <c>ScorePercentage</c>.
+    /// </summary>
+    private static StudentOfflineExamListItemDto MapToStudentOfflineExamListItemDto(
+        StudentOfflineExamRow row, string? subject, StudentExamRankRow? rank) => new()
     {
         ExamId = row.OccurrenceId,
         ExamName = row.ExamName,
@@ -2095,6 +2102,10 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         Date = DateOnly.FromDateTime(row.DueDate),
         Score = row.GradeValue,
         ScorePercentage = ComputeScorePercentage(row.GradeValue, row.MaxGradeSnapshot),
+        MaxGrade = row.MaxGradeSnapshot,
+        Subject = subject,
+        Rank = rank?.Rank,
+        GroupSize = rank?.GroupSize,
         Status = row.Status,
     };
 
@@ -2111,7 +2122,7 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
-        long teacherId, long teacherStudentId, int page, int pageSize)
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize)
     {
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
@@ -2119,7 +2130,21 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         var (rows, totalCount) = await _unitOfWork.ExamHomeworkRepo
             .GetOfflineExamsForStudentPagedAsync(teacherId, teacherStudentId, page, pageSize);
 
-        var dtos = rows.Select(MapToStudentOfflineExamListItemDto).ToList();
+        // F3 — resolve the publishing teacher's subject ONCE (per-teacher, not per-row). Canonical
+        // pattern (StudentUserService.BuildDashboardTeacherDtoFromBatch): prefer the ministry subject
+        // name (language-aware), fall back to the teacher's free-text CustomSubject.
+        string? subject = await ResolveTeacherSubjectAsync(teacherId, studentLanguage);
+
+        // F1 — batch the leaderboard ranks for this page's occurrences in ONE query (no N+1). Only
+        // graded occurrences come back; ungraded ones map to null rank/group-size below.
+        var rankRows = await _unitOfWork.ExamHomeworkRepo
+            .GetStudentExamRanksAsync(teacherId, teacherStudentId, rows.Select(r => r.OccurrenceId));
+        var rankByOccurrence = rankRows.ToDictionary(r => r.OccurrenceId);
+
+        var dtos = rows
+            .Select(r => MapToStudentOfflineExamListItemDto(
+                r, subject, rankByOccurrence.GetValueOrDefault(r.OccurrenceId)))
+            .ToList();
 
         var response = new PaginatedResponse<List<StudentOfflineExamListItemDto>>
         {
@@ -2130,6 +2155,28 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
             totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
         };
 
-        return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Success(response, _localizer);
+        return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Success(
+            response, _localizer, "OfflineExamsRetrieved");
+    }
+
+    /// <summary>
+    /// F3 — resolves the teacher's subject for student-facing display. Replicates the canonical
+    /// language-aware pattern in <c>StudentUserService.BuildDashboardTeacherDtoFromBatch</c>: the
+    /// ministry <see cref="Domain.Entities.Subject"/> name (by the student's language) wins, falling
+    /// back to the teacher's free-text <see cref="Domain.Entities.Teacher.CustomSubject"/>; null when
+    /// neither is on file. One query per request (the whole list is one teacher).
+    /// </summary>
+    private async Task<string?> ResolveTeacherSubjectAsync(long teacherId, string? studentLanguage)
+    {
+        var row = await _unitOfWork.ExamHomeworkRepo.GetTeacherSubjectDisplayAsync(teacherId);
+        if (row is null) return null;
+
+        string? subject = row.CustomSubject;
+        bool isArabic = string.Equals(studentLanguage?.Trim(), "ar", StringComparison.OrdinalIgnoreCase);
+        string? ministryName = isArabic ? row.SubjectNameAr : row.SubjectNameEn;
+        if (!string.IsNullOrWhiteSpace(ministryName))
+            subject = ministryName;
+
+        return subject;
     }
 }

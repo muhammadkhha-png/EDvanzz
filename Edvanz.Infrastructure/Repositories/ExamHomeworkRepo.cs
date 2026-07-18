@@ -153,6 +153,73 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         return (items, totalCount);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentExamRankRow>> GetStudentExamRanksAsync(
+        long teacherId, long teacherStudentId, IEnumerable<long> occurrenceIds)
+    {
+        var ids = occurrenceIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<StudentExamRankRow>();
+
+        // "Graded" == the terminal exam grade state, identical to GetExamGradeAnalysisAsync (REQ-EXH-043):
+        // AttendedWithGrade with a grade. The cohort for an occurrence is every graded, non-soft-deleted
+        // obligation sharing that OccurrenceId — one occurrence == one session's exam-takers, so this is
+        // the same "session assignment" grouping the roster/grade-analysis paths use. Competition ranking:
+        // rank = 1 + peers scoring STRICTLY higher (ties share a rank). ONE round trip for the whole page:
+        // the outer query is the student's own graded rows across the page's occurrences, each carrying two
+        // correlated COUNTs over its cohort (no per-exam round trip). Referencing peer.TeacherStudent makes
+        // the global !IsDeleted filter apply; the explicit predicate mirrors GetCompletionSummariesByOccurrenceIdsAsync.
+        return await _context.StudentAssignmentObligations
+            .Where(self => self.TeacherId == teacherId
+                        && self.TeacherStudentId == teacherStudentId
+                        && ids.Contains(self.OccurrenceId)
+                        && self.Status == ObligationStatus.AttendedWithGrade
+                        && self.GradeValue.HasValue)
+            .Select(self => new StudentExamRankRow
+            {
+                OccurrenceId = self.OccurrenceId,
+                Rank = 1 + _context.StudentAssignmentObligations.Count(peer =>
+                    peer.OccurrenceId == self.OccurrenceId
+                    && peer.TeacherId == teacherId
+                    && peer.Status == ObligationStatus.AttendedWithGrade
+                    && peer.GradeValue.HasValue
+                    && peer.GradeValue.Value > self.GradeValue!.Value
+                    && !peer.TeacherStudent.IsDeleted),
+                GroupSize = _context.StudentAssignmentObligations.Count(peer =>
+                    peer.OccurrenceId == self.OccurrenceId
+                    && peer.TeacherId == teacherId
+                    && peer.Status == ObligationStatus.AttendedWithGrade
+                    && peer.GradeValue.HasValue
+                    && !peer.TeacherStudent.IsDeleted),
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<TeacherSubjectDisplayRow?> GetTeacherSubjectDisplayAsync(long teacherId)
+    {
+        // One row: CustomSubject + the first linked ministry subject's bilingual names (ordered for
+        // determinism; teachers normally have exactly one subject). The service selects EN/AR by the
+        // student's language and applies the CustomSubject fallback (canonical pattern, StudentUserService).
+        return await _context.Teachers
+            .Where(t => t.Id == teacherId)
+            .Select(t => new TeacherSubjectDisplayRow
+            {
+                CustomSubject = t.CustomSubject,
+                SubjectNameEn = t.TeacherSubjects
+                    .OrderBy(ts => ts.Id)
+                    .Select(ts => ts.Subject.NameEn)
+                    .FirstOrDefault(),
+                SubjectNameAr = t.TeacherSubjects
+                    .OrderBy(ts => ts.Id)
+                    .Select(ts => ts.Subject.NameAr)
+                    .FirstOrDefault(),
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+
     /// <inheritdoc />
     public async Task<AssignmentTemplate?> GetTemplateByIdAndTeacherAsync(long templateId, long teacherId)
     {

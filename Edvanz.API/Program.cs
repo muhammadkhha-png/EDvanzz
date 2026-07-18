@@ -255,6 +255,7 @@ builder.Services.AddScoped<IVideoUnitService, VideoUnitService>();
 builder.Services.AddScoped<IOnlineExamScopeResolver, OnlineExamScopeResolver>();
 builder.Services.AddScoped<IOnlineExamService, OnlineExamService>();
 builder.Services.AddScoped<IStudentOnlineExamService, StudentOnlineExamService>();
+builder.Services.AddScoped<IStudentVideoExamService, StudentVideoExamService>();
 builder.Services.AddScoped<IOnlineExamGradingService, OnlineExamGradingService>();
 builder.Services.AddHttpContextAccessor();
 builder.Configuration.AddEnvironmentVariables();

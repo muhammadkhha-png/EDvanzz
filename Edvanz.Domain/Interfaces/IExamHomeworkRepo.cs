@@ -754,6 +754,32 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// </summary>
     Task<(IReadOnlyList<StudentOfflineExamRow> Items, int TotalCount)> GetOfflineExamsForStudentPagedAsync(
         long teacherId, long teacherStudentId, int page, int pageSize);
+
+    /// <summary>
+    /// Batched leaderboard ranks for one student across a set of offline-exam occurrences — ONE query,
+    /// no N+1 (feeds a paged list). For each occurrence in which the student has a GRADED obligation
+    /// (<see cref="ObligationStatus.AttendedWithGrade"/> with a grade), returns the student's rank by
+    /// grade DESCENDING within that occurrence's cohort. The cohort is every graded student sharing the
+    /// same <see cref="AssignmentOccurrence"/> — i.e. the same session's exam-takers, since every exam
+    /// occurrence is anchored to exactly one session (same grouping the roster/grade-analysis paths use).
+    /// Competition ranking: rank = 1 + peers scoring STRICTLY higher, so ties share a rank (same grade =
+    /// same rank). <c>GroupSize</c> = graded students in the cohort, INCLUDING this student. Soft-deleted
+    /// students are excluded from both counts (matches <see cref="GetCompletionSummariesByOccurrenceIdsAsync"/>).
+    /// Occurrences where the student is NOT graded are OMITTED from the result — the service surfaces a
+    /// null rank/group-size for those. Rides IX_StudentAssignmentObligations_Tracking
+    /// (TeacherId, OccurrenceId, Status) INCLUDE (TeacherStudentId, GradeValue).
+    /// </summary>
+    Task<IReadOnlyList<StudentExamRankRow>> GetStudentExamRanksAsync(
+        long teacherId, long teacherStudentId, IEnumerable<long> occurrenceIds);
+
+    /// <summary>
+    /// The publishing teacher's subject pieces for student-facing display: the teacher's free-text
+    /// <see cref="Teacher.CustomSubject"/> plus the first linked ministry <see cref="Subject"/>'s
+    /// bilingual names. The service selects EN/AR by the student's language and applies the
+    /// CustomSubject fallback — the canonical pattern in
+    /// <c>StudentUserService.BuildDashboardTeacherDtoFromBatch</c>. Returns null if the teacher is absent.
+    /// </summary>
+    Task<TeacherSubjectDisplayRow?> GetTeacherSubjectDisplayAsync(long teacherId);
 }
 
 // ══════════════════════════════════════════════
@@ -910,4 +936,31 @@ public sealed class StudentOfflineExamRow
     public decimal? GradeValue { get; set; }
     public decimal? MaxGradeSnapshot { get; set; }
     public ObligationStatus Status { get; set; }
+}
+
+/// <summary>
+/// Batched rank projection for one student in one offline-exam occurrence (audit F1 leaderboard).
+/// <see cref="Rank"/> is competition-style (1 + peers scoring strictly higher; ties share a rank);
+/// <see cref="GroupSize"/> is the number of graded students in the occurrence's cohort — the session's
+/// exam-takers — INCLUDING this student. Only emitted for occurrences where the student is graded.
+/// Lives in the Domain layer alongside the other query projections in this file (not a cross-layer DTO).
+/// </summary>
+public sealed class StudentExamRankRow
+{
+    public long OccurrenceId { get; set; }
+    public int Rank { get; set; }
+    public int GroupSize { get; set; }
+}
+
+/// <summary>
+/// Raw subject pieces for language-aware display of a teacher's subject (audit F3). The service picks
+/// EN/AR by the student's language, preferring the ministry subject name and falling back to
+/// <see cref="CustomSubject"/> — the canonical pattern in <c>StudentUserService</c>. A query projection,
+/// not a cross-layer DTO.
+/// </summary>
+public sealed class TeacherSubjectDisplayRow
+{
+    public string? CustomSubject { get; set; }
+    public string? SubjectNameEn { get; set; }
+    public string? SubjectNameAr { get; set; }
 }

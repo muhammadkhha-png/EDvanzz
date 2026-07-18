@@ -97,5 +97,22 @@ public interface IStudentUserService
     /// <returns>Result containing basic student info if found.</returns>
     Task<Result<StudentUserProfileDto>> GetStudentUserByAccountCodeAsync(string accountCode);
 
-
+    /// <summary>
+    /// Returns the authenticated student's per-teacher attendance QR for the "Show QR Code"
+    /// screen. The student displays the QR and the teacher scans it (from "Scan QR Code from
+    /// Student account") to record attendance / exam presence / payment. The QR encodes the
+    /// per-teacher student code (<c>TeacherStudent.StudentCode</c>) — the SAME value the scan
+    /// paths resolve via <c>GetActiveByCodeAndTeacherAsync</c> — so the loop closes.
+    ///
+    /// GATES: the caller must have an ACTIVE <c>StudentTeacherLink</c> to
+    /// <paramref name="teacherId"/> (else <c>StudentNotLinkedToTeacher</c>, 403) that is bound
+    /// to a roster record (else <c>StudentNotBoundToRoster</c>, 403 — no per-teacher code
+    /// exists yet). If the teacher issues codes as printed cards only
+    /// (<c>BarcodeDisplayMode.HardCopyOnly</c>) the QR is withheld
+    /// (<c>BarcodeNotAvailableInApp</c>, 403) so the frontend can hide the button. AAM-FR-04.7.
+    /// </summary>
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <param name="teacherId">The linked teacher whose per-teacher code the QR encodes (route segment, NOT the student id).</param>
+    /// <returns>Result containing the teacher name, the code, and the rendered QR SVG.</returns>
+    Task<Result<StudentTeacherBarcodeDto>> GetTeacherBarcodeForStudentAsync(long studentUserId, long teacherId);
 }

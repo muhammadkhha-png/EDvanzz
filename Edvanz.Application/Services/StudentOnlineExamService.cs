@@ -31,7 +31,8 @@ public class StudentOnlineExamService : IStudentOnlineExamService
     // ══════════════════════════════════════════════════════════════════════
     // S1 — MY EXAMS (upcoming/past split, QD)
     // ══════════════════════════════════════════════════════════════════════
-    public async Task<Result<StudentOnlineExamListDto>> GetMyExamsAsync(long teacherId, long teacherStudentId)
+    public async Task<Result<StudentOnlineExamListDto>> GetMyExamsAsync(
+        long teacherId, long teacherStudentId, string? studentLanguage)
     {
         var (sessionId, groupId) = await _unitOfWork.OnlineExamsRepo.GetStudentSessionContextAsync(teacherStudentId);
         var exams = await _unitOfWork.OnlineExamsRepo.GetExamsAssignedToStudentAsync(teacherId, sessionId, groupId);
@@ -45,6 +46,20 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             .GetAsync(r => examIds.Contains(r.OnlineExamId) && r.TeacherStudentId == teacherStudentId);
         var reportByExam = reports.ToDictionary(r => r.OnlineExamId);
 
+        // Subject label — resolved ONCE for this teacher (never per-exam → no N+1). Canonical
+        // StudentUserService.BuildDashboardTeacherDtoFromBatch pattern (AAM-FR-02.2/BUG-3): default
+        // to the teacher's free-text CustomSubject, then override with the linked ministry subject
+        // localized to the STUDENT's stored LanguagePreference (null/empty → English). This matches
+        // the offline-exam + dashboard modules; it is NOT the request UI-culture (the prior
+        // CurrentUICulture approach diverged from the canonical pattern despite claiming otherwise).
+        var subjectRow = await _unitOfWork.OnlineExamsRepo.GetTeacherSubjectNameAsync(teacherId);
+        string subjectName = subjectRow?.CustomSubject ?? string.Empty;
+        if (subjectRow?.SubjectNameEn is not null)
+        {
+            bool isArabic = string.Equals(studentLanguage?.Trim(), "ar", StringComparison.OrdinalIgnoreCase);
+            subjectName = isArabic ? (subjectRow.SubjectNameAr ?? subjectRow.SubjectNameEn) : subjectRow.SubjectNameEn;
+        }
+
         var now = DateTime.UtcNow;
         var result = new StudentOnlineExamListDto();
 
@@ -57,6 +72,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             {
                 ExamId = exam.Id,
                 ExamName = exam.Title,
+                Subject = subjectName,
                 ExamDate = DateOnly.FromDateTime(exam.StartDateTime),
                 ExamTime = TimeOnly.FromDateTime(exam.StartDateTime),
                 Duration = exam.EndDateTime - exam.StartDateTime,
@@ -91,11 +107,14 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             .BuildAssignedStudentIdsQuery(onlineExamId, teacherId)
             .AnyAsync(id => id == teacherStudentId);
         if (!isAssigned)
-            return Result<OnlineExamTakeScreenDto>.Failure(_localizer, "OnlineExam.NotInScope", HttpStatusCode.Forbidden);
+            return Result<OnlineExamTakeScreenDto>.Failure(_localizer, OnlineExamConstants.Messages.NotInScope, HttpStatusCode.Forbidden);
 
         var questions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForStudentAsync(onlineExamId);
+        // PERF: batch-resolve every question-image gated URL in ONE query (was an N+1).
+        var imageUrls = await _fileAccess.TryBuildGatedUrlsAsync(
+            questions.Where(q => q.ImageFileInternalId is not null).Select(q => q.ImageFileInternalId!.Value));
         foreach (var q in questions)
-            q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
+            q.ImageUrl = q.ImageFileInternalId is long fid ? imageUrls.GetValueOrDefault(fid) : null;
 
         var dto = new OnlineExamTakeScreenDto
         {
@@ -133,7 +152,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
                 .BuildAssignedStudentIdsQuery(onlineExamId, teacherId)
                 .AnyAsync(id => id == teacherStudentId);
             if (!isAssigned)
-                return Result<OnlineExamReviewDto>.Failure(_localizer, "OnlineExam.NotInScope", HttpStatusCode.Forbidden);
+                return Result<OnlineExamReviewDto>.Failure(_localizer, OnlineExamConstants.Messages.NotInScope, HttpStatusCode.Forbidden);
         }
         if (report is not null)
             await _grading.TryAutoFinalizeAsync(exam, report);
@@ -158,8 +177,11 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         if (finalized)
         {
             var teacherRows = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
+            // PERF: batch-resolve every question-image gated URL in ONE query (was an N+1).
+            var imageUrls = await _fileAccess.TryBuildGatedUrlsAsync(
+                teacherRows.Where(q => q.ImageFileInternalId is not null).Select(q => q.ImageFileInternalId!.Value));
             foreach (var q in teacherRows)
-                q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
+                q.ImageUrl = q.ImageFileInternalId is long fid ? imageUrls.GetValueOrDefault(fid) : null;
             dto.Questions = teacherRows.Select(q =>
             {
                 answersByQuestion.TryGetValue(q.Id, out var answer);
@@ -186,8 +208,11 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         else
         {
             var studentRows = await _unitOfWork.OnlineExamsRepo.GetQuestionsForStudentAsync(onlineExamId);
+            // PERF: batch-resolve every question-image gated URL in ONE query (was an N+1).
+            var imageUrls = await _fileAccess.TryBuildGatedUrlsAsync(
+                studentRows.Where(q => q.ImageFileInternalId is not null).Select(q => q.ImageFileInternalId!.Value));
             foreach (var q in studentRows)
-                q.ImageUrl = await _fileAccess.TryBuildGatedUrlAsync(q.ImageFileInternalId);
+                q.ImageUrl = q.ImageFileInternalId is long fid ? imageUrls.GetValueOrDefault(fid) : null;
             dto.Questions = studentRows.Select(q =>
             {
                 answersByQuestion.TryGetValue(q.Id, out var answer);
@@ -226,7 +251,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         var questions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
         var question = questions.FirstOrDefault(q => q.Id == request.QuestionId);
         if (question is null)
-            return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+            return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.QuestionNotFound, HttpStatusCode.NotFound);
 
         var optionValidation = ValidateSelectedOptions(question, request.SelectedOptionIds);
         if (optionValidation is not null)
@@ -274,7 +299,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         foreach (var a in request.Answers)
         {
             if (!questionsById.TryGetValue(a.QuestionId, out var q))
-                return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.BadRequest);
+                return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.QuestionNotFound, HttpStatusCode.BadRequest);
 
             var optionValidation = ValidateSelectedOptions(q, a.SelectedOptionIds);
             if (optionValidation is not null)
@@ -360,6 +385,118 @@ public class StudentOnlineExamService : IStudentOnlineExamService
 
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
         return Result<OnlineExamStatsDto>.Success(stats, _localizer);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // O1 — SELF-SERVICE BLOCK (front-end fires this when the student leaves an
+    // in-progress exam; sets the caller's OWN report to Blocked). Distinct from
+    // the teacher T5s block (OnlineExamService.UpdateStudentStatusAsync) — the
+    // same underlying report status-setting sequence, but self-service (identity
+    // is the JWT-resolved caller) with an assignment gate instead of an ownership
+    // guard. Online exams have NO retake, so blocking is terminal for the attempt.
+    // ══════════════════════════════════════════════════════════════════════
+    public async Task<Result<OnlineExamStatsDto>> BlockMyExamAsync(
+        long teacherId, long teacherStudentId, long onlineExamId)
+    {
+        var exam = await _unitOfWork.OnlineExamsRepo.GetByIdAndTeacherAsync(onlineExamId, teacherId);
+        if (exam is null || exam.Status == OnlineExamStatus.Draft)
+            return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+
+        var report = await _unitOfWork.StudentOnlineExamReportsRepo.GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
+
+        // Assignment gate — a caller with an existing report was assigned when they started, so
+        // allow the block even if later unassigned (case-3); otherwise require live scope.
+        if (report is null)
+        {
+            bool isAssigned = await _unitOfWork.OnlineExamsRepo
+                .BuildAssignedStudentIdsQuery(onlineExamId, teacherId)
+                .AnyAsync(id => id == teacherStudentId);
+            if (!isAssigned)
+                return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.NotInScope, HttpStatusCode.Forbidden);
+        }
+
+        var utcNow = DateTime.UtcNow;
+        string resultCode;
+
+        if (report is null)
+        {
+            // Lazy-create as Blocked — same shape as GetOrCreateReportAsync / the T5s create branch.
+            report = new StudentOnlineExamReport
+            {
+                OnlineExamId = onlineExamId,
+                TeacherStudentId = teacherStudentId,
+                TeacherId = teacherId,
+                Status = StudentOnlineExamStatus.Blocked,
+                Score = 0,
+                Percentage = 0,
+                CreateAt = utcNow,
+            };
+            await _unitOfWork.StudentOnlineExamReportsRepo.AddAsync(report);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync();
+                resultCode = OnlineExamConstants.Messages.ExamBlocked;
+            }
+            catch (DbUpdateException)
+            {
+                // First-write INSERT race: a concurrent submit/block created the report between our
+                // null-read and this insert, colliding on UX_StudentOnlineExamReports_Exam_Student.
+                // Re-read and return a terminal outcome instead of a 500. No second write here — the
+                // change tracker still holds the failed insert, so we only READ from this point.
+                var raced = await _unitOfWork.StudentOnlineExamReportsRepo
+                    .GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
+                if (raced is null)
+                    return Result<OnlineExamStatsDto>.Failure(
+                        _localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+                if (raced.SubmittedAt is not null)
+                    return Result<OnlineExamStatsDto>.Failure(
+                        _localizer, OnlineExamConstants.Messages.ExamAlreadyFinalized, HttpStatusCode.Conflict);
+
+                // The report now exists (Blocked — the dominant self-block race — or still InProgress);
+                // the caller's "leaving the exam" intent is already satisfied by a live non-finalized
+                // report, so report it with the inert AlreadyBlocked code (idempotent, same as below).
+                report = raced;
+                resultCode = OnlineExamConstants.Messages.AlreadyBlocked;
+            }
+        }
+        else if (report.Status == StudentOnlineExamStatus.Blocked)
+        {
+            // Idempotent — already blocked (a Blocked report never carries SubmittedAt).
+            resultCode = OnlineExamConstants.Messages.AlreadyBlocked;
+        }
+        else if (report.SubmittedAt is not null)
+        {
+            // Finalized (Passed/Failed) — blocking is moot, and online exams have no retake.
+            return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.ExamAlreadyFinalized, HttpStatusCode.Conflict);
+        }
+        else
+        {
+            // InProgress → Blocked.
+            report.Status = StudentOnlineExamStatus.Blocked;
+            report.UpdatedAt = utcNow;
+            await _unitOfWork.StudentOnlineExamReportsRepo.UpdateAsync(report);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync();
+                resultCode = OnlineExamConstants.Messages.ExamBlocked;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // A concurrent SubmitExamAsync finalized this report between our read and save — the
+                // block's UPDATE matched 0 rows (RowVersion moved). Blocking a finalized report is
+                // moot; return the same 409 the already-finalized branch does (never a 500), matching
+                // the sibling submit/auto-finalize paths.
+                return Result<OnlineExamStatsDto>.Failure(
+                    _localizer, OnlineExamConstants.Messages.ExamAlreadyFinalized, HttpStatusCode.Conflict);
+            }
+        }
+
+        var questions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
+        var answers = await _unitOfWork.StudentOnlineExamReportsRepo.GetAnswersForReportAsync(report.Id);
+        decimal totalGrade = questions.Sum(q => q.Degree);
+
+        var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
+        return Result<OnlineExamStatsDto>.Success(stats, _localizer, resultCode);
     }
 
     // ══════════════════════════════════════════════════════════════════════

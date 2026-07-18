@@ -201,8 +201,12 @@ public interface IExamHomeworkService
         long teacherId, long obligationId, int page, int pageSize);
     /// <summary>
     /// Every offline exam (AssignmentType.Exam) the calling student has an obligation for
-    /// under this teacher, paginated, sorted by date descending.
+    /// under this teacher, paginated, sorted by date descending. Each row is enriched with the exam's
+    /// max grade (F2), the publishing teacher's subject (F3, resolved by <paramref name="studentLanguage"/>),
+    /// and the student's leaderboard rank within the exam's cohort (F1).
     /// </summary>
+    /// <param name="studentLanguage">The calling student's language preference ("ar"/"en") for the
+    /// language-aware subject name; resolved from the JWT in the controller.</param>
     Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
-        long teacherId, long teacherStudentId, int page, int pageSize);
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize);
 }

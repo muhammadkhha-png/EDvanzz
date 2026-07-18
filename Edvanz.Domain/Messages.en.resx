@@ -1763,4 +1763,53 @@
   <data name="ExamDateInPast" xml:space="preserve">
     <value>Exam date must be today or a future date</value>
   </data>
+  <!-- Figma↔API gap fixes (2026-07-18): barcode/QR, offline-exam enrichment, online-exam self-block, video quiz -->
+  <data name="StudentNotLinkedToTeacher" xml:space="preserve">
+    <value>You're not linked to this teacher, so there's no code to show.</value>
+  </data>
+  <data name="StudentNotBoundToRoster" xml:space="preserve">
+    <value>Your account isn't connected to a student record with this teacher yet, so no code has been issued.</value>
+  </data>
+  <data name="BarcodeNotAvailableInApp" xml:space="preserve">
+    <value>This teacher issues attendance codes as printed cards only.</value>
+  </data>
+  <data name="OfflineExamsRetrieved" xml:space="preserve">
+    <value>Offline exams retrieved successfully.</value>
+  </data>
+  <data name="OnlineExam.QuestionNotFound" xml:space="preserve">
+    <value>Question not found.</value>
+  </data>
+  <data name="OnlineExam.ExamBlocked" xml:space="preserve">
+    <value>You've left the exam, so it's now locked for you.</value>
+  </data>
+  <data name="OnlineExam.AlreadyBlocked" xml:space="preserve">
+    <value>You're already blocked from this exam.</value>
+  </data>
+  <data name="OnlineExam.ExamAlreadyFinalized" xml:space="preserve">
+    <value>You've already submitted this exam, so it can't be blocked.</value>
+  </data>
+  <data name="VideoQuizSubmitted" xml:space="preserve">
+    <value>Your quiz was submitted.</value>
+  </data>
+  <data name="VideoQuizReset" xml:space="preserve">
+    <value>You can take the quiz again.</value>
+  </data>
+  <data name="VideoQuizNotFound" xml:space="preserve">
+    <value>This video has no quiz.</value>
+  </data>
+  <data name="VideoQuizQuestionNotFound" xml:space="preserve">
+    <value>One of the answers is for a question not in this quiz.</value>
+  </data>
+  <data name="VideoQuizInvalidOptionSelection" xml:space="preserve">
+    <value>One of the selected answers isn't valid for its question.</value>
+  </data>
+  <data name="VideoQuizSelectOneAnswer" xml:space="preserve">
+    <value>Choose one answer only for this question.</value>
+  </data>
+  <data name="VideoQuizAlreadySubmitted" xml:space="preserve">
+    <value>You already submitted this quiz. Tap Retry to take it again.</value>
+  </data>
+  <data name="VideoQuizAttemptNotFound" xml:space="preserve">
+    <value>You haven't taken this quiz yet.</value>
+  </data>
 </root>

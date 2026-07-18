@@ -196,7 +196,23 @@ public interface IVideoService
     /// under that teacher, resolved the same way.</param>
     Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>>
         GetStudentVideosAsync(
-            long teacherId, long teacherStudentId, StudentVideoListRequest request);
+            long teacherId, long teacherStudentId, StudentVideoListRequest request, string? studentLanguage);
+
+    /// <summary>
+    /// V3 — the units a student can see under a teacher (those containing at least one video
+    /// visible to the student, same predicate as the video list), each with per-unit counts
+    /// (videos + how many carry a quiz) and the teacher's subject. Runs the runtime
+    /// module-active gate. Batched, no N+1.
+    /// </summary>
+    Task<Result<List<StudentVideoUnitDto>>> GetStudentUnitsAsync(
+        long teacherId, long teacherStudentId, string? studentLanguage);
+
+    /// <summary>
+    /// V3 drill-down — the student's visible videos within one unit (same enriched shape as
+    /// <see cref="GetStudentVideosAsync"/>). Runs the runtime module-active gate.
+    /// </summary>
+    Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>> GetStudentVideosInUnitAsync(
+        long teacherId, long teacherStudentId, long unitId, StudentVideoListRequest request, string? studentLanguage);
 
     /// <summary>
     /// Records the student's Open event and returns the embed URL + resume

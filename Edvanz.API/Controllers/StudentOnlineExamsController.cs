@@ -57,7 +57,8 @@ public sealed class StudentOnlineExamsController : ApiBaseController
         var resolution = await ResolveStudentForTeacherAsync(teacherId);
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
-        return ToResponse(await _service.GetMyExamsAsync(teacherId, resolution.TeacherStudentId!.Value));
+        return ToResponse(await _service.GetMyExamsAsync(
+            teacherId, resolution.TeacherStudentId!.Value, resolution.LanguagePreference));
     }
 
     /// <summary>
@@ -197,6 +198,37 @@ public sealed class StudentOnlineExamsController : ApiBaseController
         return ToResponse(await _service.GetReviewAsync(teacherId, resolution.TeacherStudentId!.Value, onlineExamId));
     }
 
+    /// <summary>
+    /// O1 — Self-service block: the frontend calls this when it detects the calling student
+    /// leaving an in-progress exam, locking the caller's OWN report to <c>Blocked</c> (online
+    /// exams have no retake). Lazy-creates the report if the student had none. Idempotent — a
+    /// report already <c>Blocked</c> returns success (code <c>AlreadyBlocked</c>); one already
+    /// submitted returns 409 (code <c>ExamAlreadyFinalized</c>, blocking is moot). Distinct from
+    /// the teacher T5s manual block (<c>PATCH .../students/{teacherStudentId}/status</c>): identity
+    /// here is the JWT-resolved caller, never a route/body id.
+    /// </summary>
+    /// <param name="teacherId">The teacher who owns the exam.</param>
+    /// <param name="onlineExamId">The exam to block the caller from.</param>
+    /// <response code="200">The caller's report is now Blocked (or was already Blocked); current stats returned.</response>
+    /// <response code="401">Caller is not authenticated.</response>
+    /// <response code="403">Caller has no active link with this teacher, or is not assigned to this exam.</response>
+    /// <response code="404">Exam not found (or still Draft), or caller has no student account.</response>
+    /// <response code="409">The caller already submitted this exam — blocking is moot.</response>
+    [HttpPost("teachers/{teacherId:long}/{onlineExamId:long}/block")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.OnlineExamStatsDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> BlockMyExam([FromRoute] long teacherId, [FromRoute] long onlineExamId)
+    {
+        var resolution = await ResolveStudentForTeacherAsync(teacherId);
+        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+
+        return ToResponse(await _service.BlockMyExamAsync(teacherId, resolution.TeacherStudentId!.Value, onlineExamId));
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS — verbatim copy of StudentVideosController's resolution
     // pattern (studentUserId → active StudentTeacherLink(teacherId) → TeacherStudentId)
@@ -219,7 +251,7 @@ public sealed class StudentOnlineExamsController : ApiBaseController
         if (link.TeacherStudentId is null)
             return StudentResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
 
-        return StudentResolution.Ok(link.TeacherStudentId.Value);
+        return StudentResolution.Ok(link.TeacherStudentId.Value, studentUser.LanguagePreference);
     }
 
     private IActionResult NotFoundError(string message) =>
@@ -231,15 +263,20 @@ public sealed class StudentOnlineExamsController : ApiBaseController
     private readonly struct StudentResolution
     {
         public long? TeacherStudentId { get; }
+
+        /// <summary>The resolved student's language preference ("ar"/"en"), for language-aware content.</summary>
+        public string? LanguagePreference { get; }
         public IActionResult? ErrorResponse { get; }
 
-        private StudentResolution(long? id, IActionResult? error)
+        private StudentResolution(long? id, string? languagePreference, IActionResult? error)
         {
             TeacherStudentId = id;
+            LanguagePreference = languagePreference;
             ErrorResponse = error;
         }
 
-        public static StudentResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
-        public static StudentResolution Error(IActionResult response) => new(null, response);
+        public static StudentResolution Ok(long teacherStudentId, string? languagePreference) =>
+            new(teacherStudentId, languagePreference, null);
+        public static StudentResolution Error(IActionResult response) => new(null, null, response);
     }
 }

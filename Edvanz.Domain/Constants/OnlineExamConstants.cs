@@ -62,5 +62,21 @@ public static class OnlineExamConstants
         public const string ManualStatusNotAllowed = "OnlineExam.ManualStatusNotAllowed";
         public const string CannotBlockFinalizedReport = "OnlineExam.CannotBlockFinalizedReport";
         public const string StudentNotOwned = "OnlineExam.StudentNotOwned";
+
+        /// <summary>
+        /// A referenced questionId does not belong to the exam. Distinct from
+        /// <see cref="NotFound"/> ("Exam not found") — surfacing "Exam not found" for a bad
+        /// QUESTION id was misleading (message-clarity audit O-msg).
+        /// </summary>
+        public const string QuestionNotFound = "OnlineExam.QuestionNotFound";
+
+        // O1 — student/front-end self-service block (POST .../{onlineExamId}/block). Distinct
+        // from the teacher-audience T5s <see cref="StudentStatusBlocked"/>: here the STUDENT is
+        // the audience (they left an in-progress exam and were locked out).
+        public const string ExamBlocked = "OnlineExam.ExamBlocked";
+        /// <summary>Idempotent no-op success: the caller's report was already Blocked.</summary>
+        public const string AlreadyBlocked = "OnlineExam.AlreadyBlocked";
+        /// <summary>Block is moot: the caller's report is already submitted/finalized (Passed/Failed).</summary>
+        public const string ExamAlreadyFinalized = "OnlineExam.ExamAlreadyFinalized";
     }
 }

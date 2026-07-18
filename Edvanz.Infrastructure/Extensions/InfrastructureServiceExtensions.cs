@@ -137,6 +137,8 @@ public static class InfrastructureServiceExtensions
         // Student barcode rendering (REQ-STU-047/052): Code 128 SVG (ZXing) + card-grid PDF (QuestPDF).
         // Stateless renderers — the orchestrating IStudentBarcodeService lives in the Application layer.
         services.AddSingleton<IBarcodeRenderer, BarcodeRenderer>();
+        // QR renderer (ZXing QR_CODE SVG) for the student in-app code — hard-copy stays Code 128 above.
+        services.AddSingleton<IQrCodeRenderer, QrCodeRenderer>();
         services.AddScoped<IStudentBarcodePdfBuilder, StudentBarcodePdfBuilder>();
 
         // Video attachments (Track F, §5) — Azure Blob Storage. No AddHttpClient

@@ -8,9 +8,28 @@ public sealed class OnlineExamStudentListItemDto
 {
     public long ExamId { get; set; }
     public string ExamName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Teacher's subject label — the free-text <c>CustomSubject</c>, else the first linked
+    /// ministry subject localized to the caller's language (Accept-Language → the same culture
+    /// the localizer uses), replicating the canonical StudentUserService subject-name pattern.
+    /// Resolved ONCE per list call (no N+1). Empty string when the teacher has no subject set.
+    /// </summary>
+    public string Subject { get; set; } = string.Empty;
+
     public DateOnly ExamDate { get; set; }
     public TimeOnly ExamTime { get; set; }
+
+    /// <summary>
+    /// O3: the exam WINDOW length (<c>EndDateTime − StartDateTime</c>), a convenience for the
+    /// client. This is NOT a per-attempt time allowance and there is intentionally NO
+    /// server-side per-attempt timer / DurationMinutes field — the countdown is driven entirely
+    /// by the window (start = <see cref="ExamDate"/>+<see cref="ExamTime"/>; end = start + this),
+    /// and the window End is the single hard stop (enforced by submission-window validation and
+    /// §3.5 auto-finalize). Leaving and reopening never resets time.
+    /// </summary>
     public TimeSpan Duration { get; set; }
+
     public int QuestionsCount { get; set; }
     public decimal ExamDegree { get; set; }
     public decimal? StudentDegree { get; set; }
@@ -31,8 +50,21 @@ public sealed class OnlineExamTakeScreenDto
     public string ExamName { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string? Instructions { get; set; }
+
+    /// <summary>
+    /// O3: the exam window opens at <see cref="StartDateTime"/> and closes at
+    /// <see cref="EndDateTime"/>. The client drives the countdown from these two values
+    /// (<c>remaining = EndDateTime − now</c>; window length = <c>EndDateTime − StartDateTime</c>).
+    /// There is intentionally NO per-attempt server-side timer and NO DurationMinutes/time-limit
+    /// field — the window End is the single hard stop, enforced server-side by submission-window
+    /// validation and §3.5 window-end auto-finalize. Leaving and reopening the take screen never
+    /// resets time.
+    /// </summary>
     public DateTime StartDateTime { get; set; }
+
+    /// <inheritdoc cref="StartDateTime"/>
     public DateTime EndDateTime { get; set; }
+
     public decimal ExamDegree { get; set; }
     public List<StudentOnlineExamQuestionRow> Questions { get; set; } = new();
 }
@@ -84,7 +116,7 @@ public sealed class SubmitOnlineExamRequest
     public List<SubmitOnlineExamAnswerRequest> Answers { get; set; } = new();
 }
 
-/// <summary>Shared stats shape — S3/S4/S5 and T5s (Phase 6).</summary>
+/// <summary>Shared stats shape — S3/S4/S5, the teacher T5s block, and the O1 student self-block.</summary>
 public sealed class OnlineExamStatsDto
 {
     public decimal Percentage { get; set; }

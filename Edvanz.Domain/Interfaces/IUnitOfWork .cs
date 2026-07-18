@@ -178,6 +178,9 @@ namespace Edvanz.Domain.Interfaces
         /// <summary>Online Exam Module — student-report aggregate (own aggregate root, §1).</summary>
         IStudentOnlineExamReportRepo StudentOnlineExamReportsRepo { get; }
 
+        /// <summary>Video Module — student video-quiz attempt aggregate (own aggregate root; video twin of the online-exam report repo).</summary>
+        IStudentVideoExamReportRepo StudentVideoExamReportsRepo { get; }
+
         /// <summary>Central file registry — one row per uploaded file, gated by <c>GET /api/files/{fileId}</c>.</summary>
         IFileObjectRepo FileObjectsRepo { get; }
     }

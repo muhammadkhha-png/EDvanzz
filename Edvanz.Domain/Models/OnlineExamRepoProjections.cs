@@ -102,3 +102,16 @@ public sealed class AssignedStudentRow
     public string StudentName { get; set; } = string.Empty;
     public string? StudentCode { get; set; }
 }
+
+/// <summary>
+/// S1 subject-label source (<see cref="IOnlineExamRepo.GetTeacherSubjectNameAsync"/>). Carries
+/// the teacher's free-text <c>CustomSubject</c> plus the first linked ministry subject's
+/// bilingual names; the service localizes to the request culture, replicating the canonical
+/// StudentUserService subject-name resolution. Fetched ONCE per S1 call (never per exam → no N+1).
+/// </summary>
+public sealed class TeacherSubjectNameRow
+{
+    public string? CustomSubject { get; set; }
+    public string? SubjectNameEn { get; set; }
+    public string? SubjectNameAr { get; set; }
+}

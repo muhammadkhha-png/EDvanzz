@@ -1751,4 +1751,53 @@
   <data name="ExamDateInPast" xml:space="preserve">
     <value>تاريخ الامتحان لازم يكون النهاردة أو في المستقبل</value>
   </data>
+  <!-- Figma↔API gap fixes (2026-07-18): barcode/QR, offline-exam enrichment, online-exam self-block, video quiz -->
+  <data name="StudentNotLinkedToTeacher" xml:space="preserve">
+    <value>انت مش مربوط بالمدرس ده، فمفيش كود نعرضه.</value>
+  </data>
+  <data name="StudentNotBoundToRoster" xml:space="preserve">
+    <value>حسابك لسه مش متوصّل بسجل طالب عند المدرس ده، فلسه مفيش كود اتطلع.</value>
+  </data>
+  <data name="BarcodeNotAvailableInApp" xml:space="preserve">
+    <value>المدرس ده بيطلّع أكواد الحضور كروت مطبوعة بس.</value>
+  </data>
+  <data name="OfflineExamsRetrieved" xml:space="preserve">
+    <value>تم جلب الامتحانات بنجاح.</value>
+  </data>
+  <data name="OnlineExam.QuestionNotFound" xml:space="preserve">
+    <value>السؤال ده مش موجود.</value>
+  </data>
+  <data name="OnlineExam.ExamBlocked" xml:space="preserve">
+    <value>خرجت من الامتحان، فاتقفل عليك.</value>
+  </data>
+  <data name="OnlineExam.AlreadyBlocked" xml:space="preserve">
+    <value>إنت متحظور بالفعل من الامتحان ده.</value>
+  </data>
+  <data name="OnlineExam.ExamAlreadyFinalized" xml:space="preserve">
+    <value>إنت سلّمت الامتحان ده خلاص، مينفعش يتحظر.</value>
+  </data>
+  <data name="VideoQuizSubmitted" xml:space="preserve">
+    <value>تم تسليم الاختبار.</value>
+  </data>
+  <data name="VideoQuizReset" xml:space="preserve">
+    <value>تقدر تعيد حل الاختبار تاني.</value>
+  </data>
+  <data name="VideoQuizNotFound" xml:space="preserve">
+    <value>الفيديو ده مفيهوش اختبار.</value>
+  </data>
+  <data name="VideoQuizQuestionNotFound" xml:space="preserve">
+    <value>فيه إجابة لسؤال مش موجود في الاختبار ده.</value>
+  </data>
+  <data name="VideoQuizInvalidOptionSelection" xml:space="preserve">
+    <value>فيه اختيار إجابة مش صح للسؤال بتاعه.</value>
+  </data>
+  <data name="VideoQuizSelectOneAnswer" xml:space="preserve">
+    <value>اختار إجابة واحدة بس للسؤال ده.</value>
+  </data>
+  <data name="VideoQuizAlreadySubmitted" xml:space="preserve">
+    <value>إنت خلصت الاختبار ده خلاص. دوس إعادة عشان تحله تاني.</value>
+  </data>
+  <data name="VideoQuizAttemptNotFound" xml:space="preserve">
+    <value>لسه محلتش الاختبار ده.</value>
+  </data>
 </root>

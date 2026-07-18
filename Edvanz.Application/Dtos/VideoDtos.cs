@@ -675,6 +675,26 @@ public sealed class StudentVideoListItemDto
     public bool HasOpened { get; set; }
     public DateTime? LastOpenedAt { get; set; }
 
+    /// <summary>V2 — true when the video has a quiz (<c>VideoExam</c>) attached.</summary>
+    public bool HasQuiz { get; set; }
+
+    /// <summary>V2 — number of questions in the video's quiz, 0 when it has none.</summary>
+    public int QuestionsCount { get; set; }
+
+    /// <summary>
+    /// V4 — 3-state watch indicator (NotStarted / InProgress / Completed) computed from the
+    /// student's watch seconds vs. the video duration (Completed ≥
+    /// <c>VideoConstants.CompletionThresholdPercent</c>). Serialized as a string.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoWatchStatus WatchStatus { get; set; }
+
+    /// <summary>
+    /// The owning teacher's subject (<c>CustomSubject</c>, else the ministry subject name in the
+    /// student's language) — same resolution as the student dashboard. Empty if none set.
+    /// </summary>
+    public string Subject { get; set; } = string.Empty;
+
     /// <summary>
     /// Stable gated URL of the video's cover photo (<c>/api/files/{fileId}</c>), or null if the
     /// video has none. Load with the student's JWT; access is re-checked per fetch (scoped
@@ -687,6 +707,27 @@ public sealed class StudentVideoListItemDto
     /// stable gated URL — same access rules as the video photo.
     /// </summary>
     public List<VideoAttachmentDto> Attachments { get; set; } = new();
+}
+
+/// <summary>
+/// V3 — one unit the student can see under a teacher, with per-unit counts. A unit is visible
+/// when it contains at least one video visible to the student (same predicate as the student
+/// video list, so the two never disagree).
+/// </summary>
+public sealed class StudentVideoUnitDto
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+
+    /// <summary>Count of the student's visible videos in this unit.</summary>
+    public int VideoCount { get; set; }
+
+    /// <summary>Of <see cref="VideoCount"/>, how many carry a quiz.</summary>
+    public int QuizCount { get; set; }
+
+    /// <summary>The owning teacher's subject (same resolution as the video list), empty if none.</summary>
+    public string Subject { get; set; } = string.Empty;
 }
 
 

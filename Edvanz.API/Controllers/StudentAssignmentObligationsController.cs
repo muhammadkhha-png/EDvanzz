@@ -58,7 +58,7 @@ public sealed class StudentAssignmentObligationsController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         return ToResponse(await _service.GetMyOfflineExamsAsync(
-            teacherId, resolution.TeacherStudentId!.Value, page, pageSize));
+            teacherId, resolution.TeacherStudentId!.Value, resolution.LanguagePreference, page, pageSize));
     }
     // ──────────────────────────────────────────────────────────────────
     // PRIVATE HELPERS — verbatim copy of StudentOnlineExamsController's resolution pattern
@@ -81,7 +81,7 @@ public sealed class StudentAssignmentObligationsController : ApiBaseController
         if (link.TeacherStudentId is null)
             return StudentResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
 
-        return StudentResolution.Ok(link.TeacherStudentId.Value);
+        return StudentResolution.Ok(link.TeacherStudentId.Value, studentUser.LanguagePreference);
     }
 
     private IActionResult NotFoundError(string message) =>
@@ -93,15 +93,20 @@ public sealed class StudentAssignmentObligationsController : ApiBaseController
     private readonly struct StudentResolution
     {
         public long? TeacherStudentId { get; }
+
+        /// <summary>The resolved student's language preference ("ar"/"en"), for language-aware content.</summary>
+        public string? LanguagePreference { get; }
         public IActionResult? ErrorResponse { get; }
 
-        private StudentResolution(long? id, IActionResult? error)
+        private StudentResolution(long? id, string? languagePreference, IActionResult? error)
         {
             TeacherStudentId = id;
+            LanguagePreference = languagePreference;
             ErrorResponse = error;
         }
 
-        public static StudentResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
-        public static StudentResolution Error(IActionResult response) => new(null, response);
+        public static StudentResolution Ok(long teacherStudentId, string? languagePreference) =>
+            new(teacherStudentId, languagePreference, null);
+        public static StudentResolution Error(IActionResult response) => new(null, null, response);
     }
 }

@@ -166,6 +166,52 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
             int page,
             int pageSize);
 
+    /// <summary>
+    /// Same visible-video resolution as <see cref="GetVisibleVideosForStudentAsync"/>, but
+    /// restricted to videos linked to <paramref name="unitId"/> (V3 unit drill-down). Shares one
+    /// query path with the un-filtered list so the two never disagree. Batched (no N+1).
+    /// </summary>
+    Task<(IReadOnlyList<StudentVideoListRow> Items, int TotalCount)>
+        GetVisibleVideosForStudentInUnitAsync(
+            long teacherId,
+            long teacherStudentId,
+            long unitId,
+            int page,
+            int pageSize);
+
+    /// <summary>
+    /// The units (V3) a student can see under a teacher — those containing at least one video
+    /// visible to the student (same "visible video" predicate as
+    /// <see cref="GetVisibleVideosForStudentAsync"/>) — with per-unit counts (videos + how many
+    /// carry a quiz). One query + in-memory group; batched, no N+1.
+    /// </summary>
+    Task<IReadOnlyList<StudentVideoUnitRow>> GetStudentVisibleUnitsAsync(
+        long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// The owning teacher's subject for the student video-list <c>Subject</c> column:
+    /// <c>CustomSubject</c> plus the first linked ministry subject's English/Arabic names (the
+    /// service resolves the display value by the reader's language, replicating the canonical
+    /// <c>StudentUserService</c> pattern). One lookup per list, never per row. Null if the
+    /// teacher does not exist.
+    /// </summary>
+    Task<TeacherSubjectInfo?> GetTeacherSubjectAsync(long teacherId);
+
+    /// <summary>
+    /// Student take-screen projection of a video's quiz questions + options, ordered by
+    /// SortOrder — <c>IsCorrect</c> is absent from the projected type (security by shape,
+    /// mirrors <c>IOnlineExamRepo.GetQuestionsForStudentAsync</c>). Empty if the video has no
+    /// quiz. The service fills each row's gated <c>ImageUrl</c> from <c>ImageFileInternalId</c>.
+    /// </summary>
+    Task<IReadOnlyList<StudentVideoExamQuestionRow>> GetStudentVideoExamQuestionsAsync(long videoAssetId);
+
+    /// <summary>
+    /// Lightweight header of a video's quiz (id/title/description), tenant-scoped — also the
+    /// "does this video have a quiz?" existence check (null = no quiz). Does not load the
+    /// question graph or answer key.
+    /// </summary>
+    Task<VideoExamHeaderRow?> GetVideoExamHeaderAsync(long videoAssetId, long teacherId);
+
     // ══════════════════════════════════════════════════════════════════════
     // SCOPE — WRITE PATH
     // ══════════════════════════════════════════════════════════════════════
