@@ -1,6 +1,8 @@
 {
   "/api": {
-    "target": "https://localhost:44351",
+
+        "target": "https://app-edvanz-api-prod.azurewebsites.net",
+
     "secure": false,
     "changeOrigin": true,
     "logLevel": "debug"

@@ -25,6 +25,13 @@ public class TeacherProfileDto
     public List<SubjectDto> Subjects { get; set; } = new();
 
     /// <summary>
+    /// Selected capacity package Id, if configured. Exposed so the admin edit screen
+    /// can preselect the current tier and re-send it (an unchanged value is a no-op;
+    /// changing it on a configured teacher is rejected with CapacityChangeRequiresApproval).
+    /// </summary>
+    public long? StudentCapacityPackageId { get; set; }
+
+    /// <summary>
     /// Selected capacity package name, if configured.
     /// </summary>
     public string? CapacityPackageName { get; set; }

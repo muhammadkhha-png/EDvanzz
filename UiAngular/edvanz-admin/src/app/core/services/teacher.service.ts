@@ -5,12 +5,14 @@ import { environment } from '../../../environments/environment';
 import { ApiResult } from '../models/api-result.model';
 import { PaginatedResponse } from '../models/paginated-response.model';
 import {
+  CreateTeacherSignUpRequest,
   DashboardSummary,
-  InitializeTeacherRequest,
-  SignUpRequest,
+  StudentCapacityPackageDto,
+  SubjectDto,
   TeacherListItem,
   TeacherListQuery,
   TeacherProfile,
+  UpdateTeacherProfileRequest,
 } from '../models/teacher.model';
 
 @Injectable({ providedIn: 'root' })
@@ -41,7 +43,8 @@ export class TeacherService {
 
   /**
    * GET /api/teacher/{teacherId}/profile
-   * Full teacher detail including active subscription.
+   * Full teacher detail including active subscription. For SuperAdmin the route id
+   * is honoured server-side (support access), so this reads ANY teacher by id.
    */
   getTeacherById(teacherId: number): Observable<TeacherProfile> {
     return this.http
@@ -88,22 +91,74 @@ export class TeacherService {
   }
 
   /**
-   * Create teacher: step 1 — POST /api/Auth/sign-up (creates the User record).
-   * Returns the new userId needed for step 2.
+   * GET /api/teacher/subjects
+   * Ministry-defined subject lookup (bilingual names). `lang` sets Accept-Language.
    */
-  signUp(request: SignUpRequest): Observable<{ userId: number }> {
+  getSubjects(lang: 'en' | 'ar' = 'en'): Observable<SubjectDto[]> {
     return this.http
-      .post<ApiResult<{ userId: number }>>(`${this.base}/Auth/sign-up`, request)
-      .pipe(map((r) => r.data));
+      .get<ApiResult<SubjectDto[]>>(`${this.base}/teacher/subjects`, {
+        headers: { 'Accept-Language': lang },
+      })
+      .pipe(map((r) => r.data ?? []));
   }
 
   /**
-   * Create teacher: step 2 — POST /api/teacher/initialize
-   * Creates Teacher + subjects + configuration row.
+   * GET /api/teacher/capacity-packages
+   * The 7 active student-capacity tiers, ordered by displayOrder. `lang` sets Accept-Language.
    */
-  initializeTeacher(request: InitializeTeacherRequest): Observable<TeacherProfile> {
+  getCapacityPackages(lang: 'en' | 'ar' = 'en'): Observable<StudentCapacityPackageDto[]> {
     return this.http
-      .post<ApiResult<TeacherProfile>>(`${this.base}/teacher/initialize`, request)
+      .get<ApiResult<StudentCapacityPackageDto[]>>(`${this.base}/teacher/capacity-packages`, {
+        headers: { 'Accept-Language': lang },
+      })
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Create teacher — SINGLE CALL: POST /api/Auth/sign-up (multipart/form-data).
+   * Content-Type is intentionally NOT set — the browser adds the multipart boundary.
+   */
+  createTeacher(
+    req: CreateTeacherSignUpRequest,
+    lang: 'en' | 'ar' = 'en',
+  ): Observable<ApiResult<string | null>> {
+    const form = new FormData();
+    form.append('userType', req.userType);
+    form.append('fullName', req.fullName);
+    form.append('username', req.username);
+    form.append('password', req.password);
+    form.append('confirmedPassword', req.confirmedPassword);
+    form.append('phoneNumber', req.phoneNumber);
+    form.append('languagePreference', req.languagePreference);
+
+    if (req.email) form.append('email', req.email);
+    if (req.studentCapacity != null) form.append('studentCapacity', String(req.studentCapacity));
+    if (req.customSubject) form.append('customSubject', req.customSubject.trim());
+
+    for (const id of req.subjectIds) form.append('subjectIds', String(id));
+
+    if (req.idImage) form.append('idImage', req.idImage, req.idImage.name);
+
+    return this.http.post<ApiResult<string | null>>(`${this.base}/Auth/sign-up`, form, {
+      headers: { 'Accept-Language': lang },
+    });
+  }
+
+  /**
+   * PUT /api/teacher/{teacherId}/profile
+   * Updates the editable profile fields (fullName, language, subjects, customSubject,
+   * capacity package). SuperAdmin edits any teacher by route id. `lang` sets Accept-Language
+   * so validation / capacity-approval messages come back in the interface language.
+   */
+  updateTeacher(
+    teacherId: number,
+    req: UpdateTeacherProfileRequest,
+    lang: 'en' | 'ar' = 'en',
+  ): Observable<TeacherProfile> {
+    return this.http
+      .put<ApiResult<TeacherProfile>>(`${this.base}/teacher/${teacherId}/profile`, req, {
+        headers: { 'Accept-Language': lang },
+      })
       .pipe(map((r) => r.data));
   }
 }

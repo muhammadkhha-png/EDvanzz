@@ -834,7 +834,8 @@ public class TeacherService : ITeacherService
             CreatedAt = teacher.CreateAt,
             Subjects = subjects,
             CapacityPackageName = packageName,
-            ActiveSubscription = subscriptionResult.Data
+            ActiveSubscription = subscriptionResult.Data,
+            StudentCapacityPackageId = teacher.StudentCapacityPackageId,
         };
     }
 }
