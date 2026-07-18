@@ -112,7 +112,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         bool vVideo = config?.StudentVisibilityVideo ?? true;
         bool vHomework = config?.StudentVisibilityHomework ?? true;
         bool vOnlineExam = config?.StudentVisibilityOnlineExamDefault ?? true;
-        bool vOfflineExam = config?.StudentVisibilityExamDefault ?? false;
+        bool vOfflineExam = config?.StudentVisibilityExamDefault ?? true;
 
         // ── Month scoping: teacher-local Africa/Cairo current month, or an explicit year+month override ──
         DateTime localToday = _timeZoneService.GetTeacherLocalDate(teacherId);

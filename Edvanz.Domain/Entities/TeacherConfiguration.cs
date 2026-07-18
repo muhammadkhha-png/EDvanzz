@@ -104,12 +104,13 @@ public class TeacherConfiguration : BaseEntity
     public bool StudentVisibilityHomework { get; set; } = true;
 
     /// <summary>
-    /// Default visibility for newly created exams in student accounts.
-    /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
-    /// Per-exam overrides are stored in a separate ExamVisibility table (future module).
-    /// Default: false (hidden per AAM-BR-10).
+    /// Default visibility of offline exams in student accounts.
+    /// Product decision (2026-07-18): offline exams are VISIBLE by default on the student side
+    /// (overrides the original AAM-BR-10 "hidden by default"); a teacher can still hide them per
+    /// account by turning this off. Per-exam overrides remain a future ExamVisibility module.
+    /// Default: true (visible).
     /// </summary>
-    public bool StudentVisibilityExamDefault { get; set; } = false;
+    public bool StudentVisibilityExamDefault { get; set; } = true;
     public bool StudentVisibilityOnlineExamDefault { get; set; } = true;
 
     /// <summary>

@@ -128,7 +128,7 @@ public class TeacherService : ITeacherService
                 StudentVisibilityAttendance = true,
                 StudentVisibilityPayment = true,
                 StudentVisibilityHomework = true,
-                StudentVisibilityExamDefault = false, // AAM-BR-10: default hidden
+                StudentVisibilityExamDefault = true, // 2026-07-18: offline exams visible by default (student side)
                 StudentVisibilityVideo = true,
                 ParentVisibilityAttendance = true,
                 ParentVisibilityPayment = true,

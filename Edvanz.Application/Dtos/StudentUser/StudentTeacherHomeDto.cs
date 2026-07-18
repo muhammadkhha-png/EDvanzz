@@ -170,7 +170,7 @@ public class HomeExamsDto
     /// <summary>Whether online exams are visible (StudentVisibilityOnlineExamDefault).</summary>
     public bool OnlineVisible { get; set; }
 
-    /// <summary>Whether offline exams are visible (StudentVisibilityExamDefault — default off).</summary>
+    /// <summary>Whether offline exams are visible (StudentVisibilityExamDefault — default on).</summary>
     public bool OfflineVisible { get; set; }
 
     /// <summary>"Exams" quick-tile badge = number of upcoming exams across enabled types.</summary>
