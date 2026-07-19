@@ -102,6 +102,33 @@ import { SubscriptionStatusBadgeComponent } from './subscription-status-badge.co
         </div>
       </div>
     }
+    @else {
+  <div class="action-card empty-state">
+    <h6>No subscription yet</h6>
+    <p class="text-muted small mb-3">
+      This teacher has no subscription record. Create the first one below
+      (manual activation — SuperAdminOverride, no payment).
+    </p>
+    <form [formGroup]="activateForm" (ngSubmit)="activate()">
+      <div class="row g-2">
+        <div class="col-sm-6">
+          <label class="form-label">Start date</label>
+          <input type="date" class="form-control" formControlName="startDate" />
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label">End date</label>
+          <input type="date" class="form-control" formControlName="endDate" />
+        </div>
+      </div>
+      <p class="text-muted small mt-2 mb-2">
+        Leave both empty to start today for 30 days.
+      </p>
+      <button type="submit" class="btn btn-success btn-sm" [disabled]="activateForm.invalid">
+        Create subscription
+      </button>
+    </form>
+  </div>
+}
   `,
   styles: [
     `
@@ -117,6 +144,7 @@ import { SubscriptionStatusBadgeComponent } from './subscription-status-badge.co
         padding: 0.6rem 0;
         border-bottom: 1px solid var(--edvanz-border, #eef2f7);
       }
+      .empty-state { max-width: 520px; }
       .summary-row:last-child {
         border-bottom: none;
       }

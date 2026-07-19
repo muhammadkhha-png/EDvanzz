@@ -45,7 +45,13 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Users
                 .FirstOrDefaultAsync(u => u.PhoneNumber == phone);
         }
-
+        /// <inheritdoc />
+        public async Task<Teacher?> GetTeacherByIdIncludingDeletedAsync(long teacherId)
+        {
+            return await _context.Teachers
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.Id == teacherId);
+        }
         /// <inheritdoc />
         // FIX B1: Previously queried PhoneNumber instead of Username — now correctly queries Username
         public async Task<User?> GetByUserName(string userName)

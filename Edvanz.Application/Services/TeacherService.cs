@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
@@ -33,17 +34,74 @@ public class TeacherService : ITeacherService
     private readonly ITeacherCodeGenerator _codeGenerator;
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly IUserAuthInvalidationService _authInvalidation;
 
     public TeacherService(
         IUnitOfWork unitOfWork,
         ITeacherCodeGenerator codeGenerator,
         ISubscriptionGateService subscriptionGate,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        IUserAuthInvalidationService authInvalidation)   // NEW
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _subscriptionGate = subscriptionGate;
         _localizer = localizer;
+        _authInvalidation = authInvalidation;             // NEW
+    }
+    /// <inheritdoc />
+    public async Task<Result<string>> ToggleTeacherStatusAsync(ToggleAccountStatus req)
+    {
+        // Include soft-deleted so a Suspended teacher can be reactivated.
+        var teacher = await _unitOfWork.Users.GetTeacherByIdIncludingDeletedAsync(req.accountId);
+        if (teacher is null)
+            return Result<string>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        if (user is null)
+            return Result<string>.Failure(_localizer, "UserNotFound", HttpStatusCode.NotFound);
+
+        if (teacher.AccountStatus == req.targetStatus)
+            return Result<string>.Failure(_localizer, "TeacherAlreadyInThisStatus");
+
+        // Status + login gate.
+        teacher.AccountStatus = req.targetStatus;
+        user.IsActive = req.targetStatus == AccountStatus.Active;  // the actual sign-in gate
+
+        switch (req.targetStatus)
+        {
+            case AccountStatus.Active:
+                teacher.DeactivatedAt = null;
+                teacher.DeletedAt = null;
+                break;
+            case AccountStatus.Inactive:
+                teacher.DeactivatedAt = DateTime.UtcNow;
+                break;
+            case AccountStatus.Suspended:
+                teacher.DeletedAt = DateTime.UtcNow;   // soft-delete (no +2min)
+                break;
+        }
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await _unitOfWork.Users.UpdateTeacherAsync(teacher);
+
+            // CLAUDE.md §5.1: stamp bump BEFORE SaveChanges so it joins this transaction —
+            // forces sign-out and blocks re-login for Inactive/Suspended.
+            await _authInvalidation.InvalidateUserAsync(user.Id);
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        return Result<string>.Success("Success", _localizer);
     }
 
     /// <inheritdoc />

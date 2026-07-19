@@ -1819,4 +1819,8 @@
 <data name="SubscriptionCancelled" xml:space="preserve">
   <value>تم إلغاء الاشتراك.</value>
 </data>
+<!-- Messages.ar.resx -->
+<data name="TeacherAlreadyInThisStatus" xml:space="preserve">
+  <value>المدرّس بالفعل في هذه الحالة</value>
+</data>
 </root>

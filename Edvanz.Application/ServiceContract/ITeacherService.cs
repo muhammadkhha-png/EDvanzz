@@ -128,4 +128,12 @@ public interface ITeacherService
         PaginatedRequest request,
         string? accountStatus = null,
         string? subscriptionStatus = null);
+    /// <summary>
+    /// Toggles a teacher's account status (Active / Inactive / Suspended). Sets User.IsActive
+    /// (the login gate) and bumps the security stamp in the same transaction so any live session
+    /// is invalidated immediately and re-login is blocked for non-Active states. Inactive stamps
+    /// DeactivatedAt; Suspended is a soft-delete (DeletedAt = now); Active clears both.
+    /// SuperAdmin only. REQ-ADM-017/018/020–024.
+    /// </summary>
+    Task<Result<string>> ToggleTeacherStatusAsync(ToggleAccountStatus req);
 }

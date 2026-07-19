@@ -144,4 +144,14 @@ public interface IAdminSubscriptionService
     /// </summary>
     Task<Result<CurrentSubscriptionDto>> CancelAsync(
         long adminUserId, AdminCancelRequest request);
+
+    /// <summary>
+    /// Admin-initiated, increase-only capacity raise for a teacher WITHOUT a prior request.
+    /// Same core as ApproveCapacityRequestAsync: raises Teacher.StudentCapacity (Math.Max),
+    /// writes an Approved CapacityIncreaseRequest audit row (RequestedByUserId =
+    /// ResolvedByUserId = admin), notifies the teacher post-commit. New price from the next
+    /// renewal (BR-SUB-009). 400 when newCapacity is out of range or not greater than current.
+    /// </summary>
+    Task<Result<CapacityRequestDto>> SetTeacherCapacityAsync(
+        long adminUserId, long teacherId, AdminSetCapacityRequest request);
 }

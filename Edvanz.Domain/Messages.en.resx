@@ -1831,4 +1831,8 @@
 <data name="SubscriptionCancelled" xml:space="preserve">
   <value>Subscription cancelled.</value>
 </data>
+<!-- Messages.en.resx -->
+<data name="TeacherAlreadyInThisStatus" xml:space="preserve">
+  <value>The teacher is already in this status</value>
+</data>
 </root>

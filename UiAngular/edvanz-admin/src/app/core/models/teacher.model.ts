@@ -31,7 +31,7 @@ export interface TeacherProfile {
   createdAt: string;
   subjects: SubjectDto[];
   capacityPackageName?: string;
-  /** Current capacity package id — added to TeacherProfileDto (D2-B) so edit can preselect/re-send it. */
+  /** Current capacity package id (added to TeacherProfileDto) so edit can preselect it. */
   studentCapacityPackageId?: number | null;
   activeSubscription?: TeacherSubscriptionDto;
 }
@@ -62,13 +62,8 @@ export interface TeacherSubscriptionDto {
 }
 
 // ── Create teacher (POST /api/Auth/sign-up — multipart/form-data) ────────────
-//
-// SINGLE CALL. Sign-up with userType=Teacher already creates BOTH the User and
-// the Teacher record: UserService.AddUser opens one transaction, creates the User,
-// then calls TeacherService.InitializeTeacherAsync (generates TeacherCode, links
-// subjects, seeds TeacherConfiguration + prorated tiers) inside it.
-// => Do NOT also POST /api/teacher/initialize — the teacher already exists and
-//    that endpoint would hit the duplicate-teacher guard and return 409 Conflict.
+// SINGLE CALL — sign-up with userType=Teacher creates User + Teacher in one server
+// transaction. Do NOT also call /api/teacher/initialize (would 409).
 export interface CreateTeacherSignUpRequest {
   userType: 'Teacher';
   fullName: string;
@@ -78,34 +73,41 @@ export interface CreateTeacherSignUpRequest {
   confirmedPassword: string;
   /** Required. Egyptian mobile: 010/011/012/015 + 8 digits (^01[0125]\d{8}$). */
   phoneNumber: string;
-  /** Exactly one id per current UX (single-subject select). */
   subjectIds: number[];
-  /** Teacher's app language. InitializeTeacherAsync rejects anything but 'en'/'ar'. */
   languagePreference: 'en' | 'ar';
-  /** Backend defaults to 500 when omitted. */
   studentCapacity?: number;
-  /** Optional free-text subject (alternative/addition to subjectIds). */
   customSubject?: string;
-  /** Optional ID image. */
   idImage?: File | null;
 }
 
 // ── Update teacher profile (PUT /api/teacher/{id}/profile) ───────────────────
-//
-// Editable via this endpoint ONLY. TeacherCode, AccountStatus, Email, Username,
-// Password and PhoneNumber are NOT updatable here (managed elsewhere / immutable).
-// subjectIds REPLACES all existing subject associations. At least one subjectId
-// OR a customSubject is required.
-//
-// Capacity rule: for an already-configured teacher, sending a studentCapacityPackageId
-// DIFFERENT from the current one returns 400 CapacityChangeRequiresApproval — that path
-// must go through the capacity-increase request flow. Re-sending the current id is a no-op.
+// Editable: fullName, languagePreference, subjectIds (replaces all), customSubject,
+// and studentCapacityPackageId ONLY while the teacher is not yet configured. Once
+// isConfigurationCompleted, capacity is managed via the admin capacity endpoint below,
+// so the client omits studentCapacityPackageId for configured teachers.
 export interface UpdateTeacherProfileRequest {
   fullName: string;
   languagePreference: 'en' | 'ar';
   subjectIds: number[];
   customSubject?: string;
   studentCapacityPackageId?: number | null;
+}
+
+// ── Admin capacity adjust (PUT /api/admin/subscriptions/teachers/{id}/capacity) ─
+// SuperAdmin-only, increase-only. Raises Teacher.StudentCapacity directly (no prior
+// teacher request), writes an Approved audit row, notifies the teacher; new price from
+// the next renewal. teacherId is in the route.
+export interface AdminSetCapacityRequest {
+  newCapacity: number;
+  note?: string;
+}
+
+/** Subset of CapacityRequestDto returned by the admin capacity endpoint. */
+export interface CapacityAdjustResult {
+  id: number;
+  requestedCapacity: number;
+  capacityAtRequest: number;
+  status: string;
 }
 
 // ── Teacher list query params ─────────────────────────────────────────────────

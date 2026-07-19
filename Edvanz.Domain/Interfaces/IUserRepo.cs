@@ -639,8 +639,11 @@ namespace Edvanz.Domain.Interfaces
         ///
         /// Returns null if the teacher does not exist or is soft-deleted.
         /// </summary>
-        Task<TeacherReminderProjection?> GetTeacherForReminderAsync(long teacherId);
-
+        Task<TeacherReminderProjection?> GetTeacherForReminderAsync(long teacherId);/// <summary>
+                                                                                    /// Finds a teacher by Id, bypassing the global soft-delete filter, so a Suspended
+                                                                                    /// (DeletedAt != null) teacher can be reloaded and reactivated. Tracked for update.
+                                                                                    /// </summary>
+        Task<Teacher?> GetTeacherByIdIncludingDeletedAsync(long teacherId);
         // (UpdateCapacityPackagePriceAsync was removed 2026-07-17 with the retired
         // per-package price endpoint — renewal pricing is per-student now.)
 

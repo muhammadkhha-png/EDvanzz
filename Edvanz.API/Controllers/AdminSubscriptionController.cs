@@ -36,6 +36,21 @@ public class AdminSubscriptionController : ApiBaseController
         _adminService = adminService;
         _currentUser = currentUser;
     }
+    [HttpPut("teachers/{teacherId:long}/capacity")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CapacityRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetTeacherCapacity(
+    [FromRoute] long teacherId,
+    [FromBody] Edvanz.Application.Dtos.Subscription.AdminSetCapacityRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.SetTeacherCapacityAsync(adminUserId.Value, teacherId, request);
+        return ToResponse(result);
+    }
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT: CANCEL (REQ-ADM-013)
     // ══════════════════════════════════════════════════════════════════════════

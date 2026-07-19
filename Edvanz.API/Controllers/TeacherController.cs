@@ -703,4 +703,27 @@ public class TeacherController : ApiBaseController
             subscriptionStatus?.ToString());
         return ToResponse(result);
     }
+    [HttpPatch("{id:long}/deactivate")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Deactivate(long id)
+    => ToResponse(await _teacherService.ToggleTeacherStatusAsync(
+        new ToggleAccountStatus { accountId = id, targetStatus = AccountStatus.Inactive }));
+
+    [HttpPatch("{id:long}/activate")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Activate(long id)
+        => ToResponse(await _teacherService.ToggleTeacherStatusAsync(
+            new ToggleAccountStatus { accountId = id, targetStatus = AccountStatus.Active }));
+
+    [HttpPatch("{id:long}/delete")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SoftDelete(long id)
+        => ToResponse(await _teacherService.ToggleTeacherStatusAsync(
+            new ToggleAccountStatus { accountId = id, targetStatus = AccountStatus.Suspended }));
 }

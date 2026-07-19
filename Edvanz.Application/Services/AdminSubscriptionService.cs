@@ -450,35 +450,80 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         await _unitOfWork.BeginTransactionAsync();
         try
         {
-            teacher.StudentCapacity = Math.Max(teacher.StudentCapacity, request.RequestedCapacity);
-            await _unitOfWork.Users.UpdateTeacherAsync(teacher);
-
-            request.Status = CapacityRequestStatus.Approved;
-            request.ResolvedAt = DateTime.UtcNow;
-            request.ResolvedByUserId = adminUserId;
-            _unitOfWork.CapacityRequestsRepo.UpdateRequest(request);
-
-            await _unitOfWork.SaveChangesAsync();
+            await ApplyApprovedCapacityAsync(teacher, request, adminUserId, isNewRow: false);
             await _unitOfWork.CommitAsync();
         }
-        catch
-        {
-            await _unitOfWork.RollbackAsync();
-            throw;
-        }
+        catch { await _unitOfWork.RollbackAsync(); throw; }
 
-        // ── Post-commit, best-effort notification (module-standard enqueue pattern;
-        // the Application-layer IBackgroundJobClient use mirrors the existing
-        // subscription jobs and is a known §6.2 architectural violation). ──
-        // No subscription-cache invalidation needed: the cached projection carries
-        // dates only — the new price is read live at the next renewal initiation.
-        _backgroundJobs.Enqueue<ICapacityRequestResolvedNotificationJob>(
-            job => job.SendAsync(request.TeacherId, request.Id, true, null));
-
+        EnqueueCapacityApprovedNotification(request.TeacherId, request.Id);
         return Result<CapacityRequestDto>.Success(
-            ToCapacityRequestDto(request),
-            _localizer,
-            SubscriptionConstants.Messages.CapacityRequestApproved);
+            ToCapacityRequestDto(request), _localizer, SubscriptionConstants.Messages.CapacityRequestApproved);
+    }
+
+    /// <summary>Increase-only capacity raise + Approved audit stamp, inside the caller's transaction.</summary>
+    private async Task ApplyApprovedCapacityAsync(
+        Teacher teacher, CapacityIncreaseRequest request, long adminUserId, bool isNewRow)
+    {
+        teacher.StudentCapacity = Math.Max(teacher.StudentCapacity, request.RequestedCapacity);
+        await _unitOfWork.Users.UpdateTeacherAsync(teacher);
+
+        request.Status = CapacityRequestStatus.Approved;
+        request.ResolvedAt = DateTime.UtcNow;
+        request.ResolvedByUserId = adminUserId;
+
+        if (isNewRow) await _unitOfWork.CapacityRequestsRepo.AddAsync(request);
+        else _unitOfWork.CapacityRequestsRepo.UpdateRequest(request);
+
+        await _unitOfWork.SaveChangesAsync();
+    }
+
+    private void EnqueueCapacityApprovedNotification(long teacherId, long requestId) =>
+        _backgroundJobs.Enqueue<ICapacityRequestResolvedNotificationJob>(
+            j => j.SendAsync(teacherId, requestId, true, null));
+
+    /// <inheritdoc />
+    public async Task<Result<CapacityRequestDto>> SetTeacherCapacityAsync(
+        long adminUserId, long teacherId, AdminSetCapacityRequest request)
+    {
+        if (request.NewCapacity <= 0 || request.NewCapacity > SubscriptionConstants.MaxStudentCapacity)
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedCapacityTooLarge);
+
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+
+        // Increase-only (product decision): decreases are not supported here.
+        if (request.NewCapacity <= teacher.StudentCapacity)
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedCapacityMustExceedCurrent);
+
+        string? note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        if (note is { Length: > 500 }) note = note[..500];
+
+        var row = new CapacityIncreaseRequest
+        {
+            TeacherId = teacherId,
+            CapacityAtRequest = teacher.StudentCapacity,
+            RequestedCapacity = request.NewCapacity,
+            Note = note,
+            RequestedAt = DateTime.UtcNow,
+            RequestedByUserId = adminUserId,   // admin acted on the teacher's behalf
+            CreateAt = DateTime.UtcNow,
+        };
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await ApplyApprovedCapacityAsync(teacher, row, adminUserId, isNewRow: true);
+            await _unitOfWork.CommitAsync();
+        }
+        catch { await _unitOfWork.RollbackAsync(); throw; }
+
+        EnqueueCapacityApprovedNotification(row.TeacherId, row.Id);
+        return Result<CapacityRequestDto>.Success(
+            ToCapacityRequestDto(row), _localizer, SubscriptionConstants.Messages.CapacityRequestApproved);
     }
 
     /// <inheritdoc />

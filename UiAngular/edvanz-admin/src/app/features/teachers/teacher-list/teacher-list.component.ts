@@ -90,18 +90,19 @@ const DEFAULT_PAGE_SIZE = 10;
                           View
                         </a>
                         <a
-  [routerLink]="['/teachers', teacher.id, 'update']"
+[routerLink]="['/teachers', teacher.id]"
+  [queryParams]="{ edit: 1 }"
   class="btn btn-sm btn-outline-primary ms-1"
 >
   Update
 </a>
-                        <button
-                          type="button"
-                          class="btn btn-sm btn-outline-danger ms-1"
-                          (click)="confirmDelete(teacher)"
-                        >
-                          Delete
-                        </button>
+                       
+                        @if (teacher.accountStatus === 'Active') {
+  <button type="button" class="btn btn-sm btn-outline-warning ms-1" (click)="deactivate(teacher)">Deactivate</button>
+} @else {
+  <button type="button" class="btn btn-sm btn-outline-success ms-1" (click)="activate(teacher)">Activate</button>
+}
+<button type="button" class="btn btn-sm btn-outline-danger ms-1" (click)="softDelete(teacher)">Delete</button>
                       </td>
                     </tr>
                   }
@@ -195,7 +196,29 @@ export class TeacherListComponent implements OnInit {
     }
 this.toast.error('Delete endpoint not yet available on the backend.');
   }
+protected async deactivate(t: TeacherListItem): Promise<void> {
+  const ok = await this.confirm.open({
+    title: 'Deactivate teacher',
+    message: `Deactivate ${t.fullName}? They'll be signed out and unable to log in.`,
+    confirmText: 'Deactivate', cancelText: 'Cancel',
+  });
+  if (!ok) return;
+  this.teacherService.deactivateTeacher(t.id).subscribe(() => { this.toast.success('Teacher deactivated.'); this.load(); });
+}
 
+protected activate(t: TeacherListItem): void {
+  this.teacherService.activateTeacher(t.id).subscribe(() => { this.toast.success('Teacher activated.'); this.load(); });
+}
+
+protected async softDelete(t: TeacherListItem): Promise<void> {
+  const ok = await this.confirm.open({
+    title: 'Delete teacher',
+    message: `Soft-delete ${t.fullName}? They'll be removed from the list and signed out. Reversible via Activate.`,
+    confirmText: 'Delete', cancelText: 'Cancel',
+  });
+  if (!ok) return;
+  this.teacherService.softDeleteTeacher(t.id).subscribe(() => { this.toast.success('Teacher deleted.'); this.load(); });
+}
   private load(): void {
     this.teacherService
       .getTeachers({

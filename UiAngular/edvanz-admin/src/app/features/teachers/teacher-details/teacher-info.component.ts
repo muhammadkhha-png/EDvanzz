@@ -19,11 +19,6 @@ import { ToastService } from '../../../core/services/toast.service';
 
 type UiLang = 'en' | 'ar';
 
-/**
- * Bilingual strings for the Details tab. Self-contained (no app-wide i18n dependency);
- * the same toggle also drives Accept-Language on the API calls, so backend messages —
- * including the capacity-approval message — return in the selected language.
- */
 const MSG: Record<UiLang, Record<string, string>> = {
   en: {
     edit: 'Edit teacher', save: 'Save changes', saving: 'Saving…', cancel: 'Cancel',
@@ -35,7 +30,10 @@ const MSG: Record<UiLang, Record<string, string>> = {
     reqFullName: 'Full name is required.',
     reqSubject: 'Select a subject or enter a custom subject.',
     savedOk: 'Teacher updated.',
-    capacityNote: 'Changing the tier for a configured teacher needs an approved capacity request.',
+    packageOnboardingNote: 'Set at onboarding. Use "Adjust capacity" to change the live limit.',
+    adjust: 'Adjust', adjustSave: 'Set', adjustCancel: 'Cancel',
+    capacityIncreaseOnly: 'New capacity must be greater than the current capacity.',
+    capacityUpdated: 'Capacity updated.',
     langEn: 'English', langAr: 'Arabic',
   },
   ar: {
@@ -48,18 +46,26 @@ const MSG: Record<UiLang, Record<string, string>> = {
     reqFullName: 'الاسم بالكامل مطلوب.',
     reqSubject: 'اختر مادة أو أدخل مادة مخصّصة.',
     savedOk: 'تم تحديث المدرّس.',
-    capacityNote: 'تغيير الباقة لمدرّس مكتمل الإعداد يحتاج طلب زيادة سعة معتمَد.',
+    packageOnboardingNote: 'تُحدَّد عند الإعداد. استخدم "تعديل السعة" لتغيير الحد الفعلي.',
+    adjust: 'تعديل السعة', adjustSave: 'حفظ', adjustCancel: 'إلغاء',
+    capacityIncreaseOnly: 'السعة الجديدة يجب أن تكون أكبر من السعة الحالية.',
+    capacityUpdated: 'تم تحديث السعة.',
     langEn: 'الإنجليزية', langAr: 'العربية',
   },
 };
 
-/** Details tab: read-only view + inline edit via PUT /api/teacher/{id}/profile. */
+/**
+ * Details tab: read-only view + inline edit (PUT /api/teacher/{id}/profile).
+ * Capacity/package are read-only once the teacher is configured — capacity then has its
+ * own "Adjust capacity" action hitting the admin capacity endpoint, so every billing
+ * side effect stays in one place and the profile PUT never touches capacity.
+ */
 @Component({
   selector: 'app-teacher-info',
   standalone: true,
   imports: [ReactiveFormsModule, DatePipe],
   template: `
-    @if (teacher(); as t) {
+    @if (teacher()) {
       <div [attr.dir]="uiLang() === 'ar' ? 'rtl' : 'ltr'">
         <div class="d-flex justify-content-end align-items-center gap-2 mb-3">
           <div class="btn-group btn-group-sm" role="group" aria-label="Interface language">
@@ -76,7 +82,7 @@ const MSG: Record<UiLang, Record<string, string>> = {
         </div>
 
         @if (!editing()) {
-          <!-- ── VIEW MODE (read-only) ─────────────────────────────────────── -->
+          <!-- ── VIEW MODE ─────────────────────────────────────────────────── -->
           <dl class="info-grid">
             <div><dt>{{ t('fullName') }}</dt><dd>{{ current.fullName }}</dd></div>
             <div><dt>{{ t('email') }}</dt><dd>{{ current.email || t('none') }}</dd></div>
@@ -86,13 +92,34 @@ const MSG: Record<UiLang, Record<string, string>> = {
             <div><dt>{{ t('customSubject') }}</dt><dd>{{ current.customSubject || t('none') }}</dd></div>
             <div><dt>{{ t('language') }}</dt><dd>{{ current.languagePreference === 'ar' ? t('langAr') : t('langEn') }}</dd></div>
             <div><dt>{{ t('package') }}</dt><dd>{{ current.capacityPackageName || t('notSet') }}</dd></div>
-            <div><dt>{{ t('capacity') }}</dt><dd>{{ current.studentCapacity }}</dd></div>
+            <div>
+              <dt>{{ t('capacity') }}</dt>
+              <dd>
+                @if (!adjusting()) {
+                  {{ current.studentCapacity }}
+                  @if (current.isConfigurationCompleted) {
+                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" (click)="startAdjustCapacity()">
+                      {{ t('adjust') }}
+                    </button>
+                  }
+                } @else {
+                  <div class="d-flex align-items-center gap-2">
+                    <input type="number" class="form-control form-control-sm" style="max-width:130px"
+                      [formControl]="capacityControl" [min]="current.studentCapacity + 1" />
+                    <button type="button" class="btn btn-sm btn-primary" [disabled]="savingCapacity()"
+                      (click)="saveCapacity()">{{ savingCapacity() ? t('saving') : t('adjustSave') }}</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                      (click)="cancelAdjustCapacity()">{{ t('adjustCancel') }}</button>
+                  </div>
+                }
+              </dd>
+            </div>
             <div><dt>{{ t('accountStatus') }}</dt><dd>{{ current.accountStatus }}</dd></div>
             <div><dt>{{ t('createdAt') }}</dt><dd>{{ current.createdAt | date: 'mediumDate' }}</dd></div>
             <div><dt>{{ t('subscription') }}</dt><dd>{{ current.activeSubscription?.subscriptionStatus || t('none') }}</dd></div>
           </dl>
         } @else {
-          <!-- ── EDIT MODE (inline form) ───────────────────────────────────── -->
+          <!-- ── EDIT MODE (profile only — never capacity) ─────────────────── -->
           <form [formGroup]="form" (ngSubmit)="save()" novalidate>
             <div class="row g-3">
               <div class="col-md-6">
@@ -129,14 +156,14 @@ const MSG: Record<UiLang, Record<string, string>> = {
 
               <div class="col-md-6">
                 <label class="form-label" for="studentCapacityPackageId">{{ t('package') }}</label>
-                <select id="studentCapacityPackageId" class="form-select" formControlName="studentCapacityPackageId">
-                  <option [ngValue]="null">{{ t('packagePlaceholder') }}</option>
-                  @for (p of packages(); track p.id) {
-                    <option [ngValue]="p.id">{{ p.name }}</option>
-                  }
-                </select>
-                @if (current.isConfigurationCompleted) {
-                  <div class="form-text">{{ t('capacityNote') }}</div>
+                @if (!current.isConfigurationCompleted) {
+                  <select id="studentCapacityPackageId" class="form-select" formControlName="studentCapacityPackageId">
+                    <option [ngValue]="null">{{ t('packagePlaceholder') }}</option>
+                    @for (p of packages(); track p.id) { <option [ngValue]="p.id">{{ p.name }}</option> }
+                  </select>
+                } @else {
+                  <input class="form-control" [value]="current.capacityPackageName || t('notSet')" disabled />
+                  <div class="form-text">{{ t('packageOnboardingNote') }}</div>
                 }
               </div>
             </div>
@@ -169,6 +196,8 @@ export class TeacherInfoComponent implements OnInit {
   protected readonly packages = signal<StudentCapacityPackageDto[]>([]);
   protected readonly editing = signal(false);
   protected readonly saving = signal(false);
+  protected readonly adjusting = signal(false);
+  protected readonly savingCapacity = signal(false);
   protected readonly uiLang = signal<UiLang>('en');
 
   private teacherId!: number;
@@ -184,23 +213,27 @@ export class TeacherInfoComponent implements OnInit {
     { validators: [TeacherInfoComponent.subjectOrCustom] },
   );
 
-  /** Non-null teacher accessor for the template (guarded by @if in the view). */
+  protected readonly capacityControl = this.fb.nonNullable.control(0, [Validators.required]);
+
   protected get current(): TeacherProfile {
     return this.teacher()!;
   }
 
   ngOnInit(): void {
-    // Parent (details shell) holds the :id param.
     const id = this.route.parent?.snapshot.paramMap.get('id');
     if (!id) return;
     this.teacherId = +id;
 
-    this.teacherService.getTeacherById(this.teacherId).subscribe((t) => this.teacher.set(t));
+    const openInEdit = this.route.snapshot.queryParamMap.get('edit') === '1';
+
+    this.teacherService.getTeacherById(this.teacherId).subscribe((t) => {
+      this.teacher.set(t);
+      if (openInEdit) this.startEdit();
+    });
     this.loadLookups();
   }
 
   private loadLookups(): void {
-    // Interceptor toasts on failure; edit still works with the custom-subject path.
     this.teacherService.getSubjects(this.uiLang()).subscribe({
       next: (list) => this.subjects.set([...list].sort((a, b) => a.displayOrder - b.displayOrder)),
       error: () => {},
@@ -211,7 +244,6 @@ export class TeacherInfoComponent implements OnInit {
     });
   }
 
-  /** At least one of subjectId / customSubject must be present (mirrors the backend rule). */
   private static subjectOrCustom(group: AbstractControl): ValidationErrors | null {
     const subjectId = group.get('subjectId')?.value;
     const custom = (group.get('customSubject')?.value ?? '').trim();
@@ -221,7 +253,7 @@ export class TeacherInfoComponent implements OnInit {
   protected setUiLang(lang: UiLang): void {
     if (this.uiLang() === lang) return;
     this.uiLang.set(lang);
-    this.loadLookups(); // refresh so any backend message localizes; names are bilingual
+    this.loadLookups();
   }
 
   protected t(key: string): string {
@@ -236,14 +268,14 @@ export class TeacherInfoComponent implements OnInit {
     return names.length ? names.join('، ') : this.t('none');
   }
 
+  // ── Profile edit ──────────────────────────────────────────────────────────
   protected startEdit(): void {
     const t = this.teacher();
     if (!t) return;
-    // Single-subject select (D3): preselect the first current subject; saving replaces all.
     this.form.reset({
       fullName: t.fullName,
-      languagePreference: (t.languagePreference === 'ar' ? 'ar' : 'en'),
-      subjectId: t.subjects[0]?.id ?? null,
+      languagePreference: t.languagePreference === 'ar' ? 'ar' : 'en',
+      subjectId: t.subjects[0]?.id ?? null,          // single-subject (D3); save replaces all
       customSubject: t.customSubject ?? '',
       studentCapacityPackageId: t.studentCapacityPackageId ?? null,
     });
@@ -277,11 +309,12 @@ export class TeacherInfoComponent implements OnInit {
       languagePreference: raw.languagePreference,
       subjectIds: raw.subjectId != null ? [raw.subjectId] : [],
       customSubject: raw.customSubject.trim() || undefined,
-      // Always send the selected package (D4). For a configured teacher, an UNCHANGED
-      // value is a server-side no-op; a CHANGED value returns 400 CapacityChangeRequiresApproval,
-      // which the error interceptor surfaces (localized via Accept-Language).
-      studentCapacityPackageId: raw.studentCapacityPackageId,
     };
+    // Package is editable ONLY before configuration; for configured teachers the field is
+    // read-only and capacity is changed via the Adjust capacity action, so omit it here.
+    if (!this.current.isConfigurationCompleted) {
+      request.studentCapacityPackageId = raw.studentCapacityPackageId;
+    }
 
     this.teacherService.updateTeacher(this.teacherId, request, this.uiLang()).subscribe({
       next: (updated) => {
@@ -291,6 +324,35 @@ export class TeacherInfoComponent implements OnInit {
         this.toast.success(this.t('savedOk'));
       },
       error: () => this.saving.set(false),
+    });
+  }
+
+  // ── Capacity adjust (admin endpoint, increase-only) ───────────────────────
+  protected startAdjustCapacity(): void {
+    this.capacityControl.setValue(this.current.studentCapacity + 1);
+    this.adjusting.set(true);
+  }
+
+  protected cancelAdjustCapacity(): void {
+    this.adjusting.set(false);
+  }
+
+  protected saveCapacity(): void {
+    const value = this.capacityControl.value;
+    if (!value || value <= this.current.studentCapacity) {
+      this.toast.error(this.t('capacityIncreaseOnly'));
+      return;
+    }
+    this.savingCapacity.set(true);
+    this.teacherService.adjustTeacherCapacity(this.teacherId, { newCapacity: value }, this.uiLang()).subscribe({
+      next: () => {
+        // Re-fetch so studentCapacity (and any derived fields) reflect the raise.
+        this.teacherService.getTeacherById(this.teacherId).subscribe((t) => this.teacher.set(t));
+        this.adjusting.set(false);
+        this.savingCapacity.set(false);
+        this.toast.success(this.t('capacityUpdated'));
+      },
+      error: () => this.savingCapacity.set(false),
     });
   }
 }
