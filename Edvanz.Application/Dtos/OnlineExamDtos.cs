@@ -127,6 +127,18 @@ public sealed class OnlineExamListItemDto
 {
     public long Id { get; set; }
     public string Title { get; set; } = null!;
+
+    /// <summary>
+    /// The owning teacher's subject, resolved by the request language (ministry subject name
+    /// preferred, falling back to the teacher's free-text custom subject). Online exams carry no
+    /// per-exam subject, so this is the teacher's subject — identical for every row in the list
+    /// (one teacher per request). Null when the teacher has no subject on file.
+    /// </summary>
+    public string? Subject { get; set; }
+
+    /// <summary>Number of questions on the exam (live count, not stored — mirrors the total-degree pattern).</summary>
+    public int QuestionsCount { get; set; }
+
     public OnlineExamStatus Status { get; set; }
     public DateTime StartDateTime { get; set; }
     public DateTime EndDateTime { get; set; }

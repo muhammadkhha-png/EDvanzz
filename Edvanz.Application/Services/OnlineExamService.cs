@@ -7,6 +7,7 @@ using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using System.Globalization;
 using System.Net;
 
 namespace Edvanz.Application.Services;
@@ -246,20 +247,28 @@ public class OnlineExamService : IOnlineExamService
 
         var examIds = exams.Select(e => e.Id).ToList();
 
-        // Exactly 2 grouped queries for the whole page — no per-row calls.
+        // Grouped queries for the whole page — no per-row calls.
         var assignedCounts = await _unitOfWork.OnlineExamsRepo.GetAssignedCountsByExamIdsAsync(examIds, teacherId);
+        var questionCounts = await _unitOfWork.OnlineExamsRepo.GetQuestionCountsByExamIdsAsync(examIds);
         var statusAggregates = await _unitOfWork.StudentOnlineExamReportsRepo.GetStatusCountsByExamIdsAsync(examIds);
         var statusByExam = statusAggregates.ToDictionary(a => a.OnlineExamId);
+
+        // Online exams carry no per-exam subject — the subject is the teacher's, identical for
+        // every row. Resolve it ONCE per request (the whole list is one teacher).
+        string? subject = await ResolveTeacherSubjectAsync(teacherId);
 
         var items = exams.Select(e =>
         {
             statusByExam.TryGetValue(e.Id, out var agg);
             assignedCounts.TryGetValue(e.Id, out var assigned);
+            questionCounts.TryGetValue(e.Id, out var questions);
 
             return new OnlineExamListItemDto
             {
                 Id = e.Id,
                 Title = e.Title,
+                Subject = subject,
+                QuestionsCount = questions,
                 Status = e.Status,
                 StartDateTime = e.StartDateTime,
                 EndDateTime = e.EndDateTime,
@@ -281,6 +290,29 @@ public class OnlineExamService : IOnlineExamService
         };
 
         return Result<PaginatedResponse<List<OnlineExamListItemDto>>>.Success(response, _localizer);
+    }
+
+    /// <summary>
+    /// Resolves the owning teacher's subject for display in the exam list. Mirrors the canonical
+    /// language-aware pattern (<c>ExamHomeworkService.ResolveTeacherSubjectAsync</c> /
+    /// <c>StudentUserService</c>): the ministry <see cref="Domain.Entities.Subject"/> name — by the
+    /// request language (Accept-Language, via <see cref="CultureInfo.CurrentUICulture"/>) — wins,
+    /// falling back to the teacher's free-text <see cref="Domain.Entities.Teacher.CustomSubject"/>;
+    /// null when neither is on file. One query per request (the whole list is one teacher).
+    /// </summary>
+    private async Task<string?> ResolveTeacherSubjectAsync(long teacherId)
+    {
+        var row = await _unitOfWork.ExamHomeworkRepo.GetTeacherSubjectDisplayAsync(teacherId);
+        if (row is null) return null;
+
+        string? subject = row.CustomSubject;
+        bool isArabic = string.Equals(
+            CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, "ar", StringComparison.OrdinalIgnoreCase);
+        string? ministryName = isArabic ? row.SubjectNameAr : row.SubjectNameEn;
+        if (!string.IsNullOrWhiteSpace(ministryName))
+            subject = ministryName;
+
+        return subject;
     }
 
     // ══════════════════════════════════════════════════════════════════════

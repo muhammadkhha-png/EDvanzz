@@ -271,6 +271,22 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetQuestionCountsByExamIdsAsync(IEnumerable<long> onlineExamIds)
+    {
+        var examIds = onlineExamIds.ToList();
+        if (examIds.Count == 0)
+            return new Dictionary<long, int>();
+
+        var grouped = await _context.OnlineExamQuestions
+            .Where(q => examIds.Contains(q.OnlineExamId))
+            .GroupBy(q => q.OnlineExamId)
+            .Select(g => new { OnlineExamId = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        return grouped.ToDictionary(x => x.OnlineExamId, x => x.Count);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<AssignedStudentRow>> GetAssignedStudentsAsync(long onlineExamId, long teacherId)
     {
         var sessionBranch = _context.OnlineExamScopes

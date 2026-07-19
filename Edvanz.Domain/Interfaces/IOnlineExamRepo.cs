@@ -83,6 +83,9 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
     /// <summary>§3.3 T4 batch — one grouped query for a page's assigned counts, not one call per row.</summary>
     Task<Dictionary<long, int>> GetAssignedCountsByExamIdsAsync(IEnumerable<long> onlineExamIds, long teacherId);
 
+    /// <summary>T4 batch — one grouped query for a page's per-exam question counts, not one call per row.</summary>
+    Task<Dictionary<long, int>> GetQuestionCountsByExamIdsAsync(IEnumerable<long> onlineExamIds);
+
     /// <summary>T7 grid — assigned-student identities with name/code, materialized (small sets only — one exam's roster).</summary>
     Task<IReadOnlyList<AssignedStudentRow>> GetAssignedStudentsAsync(long onlineExamId, long teacherId);
 

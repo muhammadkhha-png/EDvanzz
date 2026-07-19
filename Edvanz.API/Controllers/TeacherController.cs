@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Enums;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Edvanz.API.Controllers;
@@ -572,7 +573,12 @@ public class TeacherController : ApiBaseController
     //   }
     //
     // ══════════════════════════════════════════════════════════════════════════
+    // AllowAnonymous: the subject dropdown is populated during teacher registration, BEFORE any
+    // account/JWT exists. Without this, the global FallbackPolicy (RequireAuthenticatedUser) would
+    // 401 the call. Safe — this returns only the public ministry Subjects lookup (no tenant data),
+    // and TenantScopeFilter passes anonymous requests straight through.
     [HttpGet("subjects")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.IReadOnlyList<Edvanz.Application.Dtos.Teacher.SubjectDto>>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAvailableSubjects()
     {
