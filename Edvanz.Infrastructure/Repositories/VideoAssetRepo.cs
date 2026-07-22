@@ -586,6 +586,22 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     /// <inheritdoc />
+    public async Task DeleteScopesBySessionAsync(long sessionId)
+    {
+        await _context.VideoScopes
+            .Where(s => s.SessionId == sessionId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteScopesByGroupAsync(long sessionGroupId)
+    {
+        await _context.VideoScopes
+            .Where(s => s.SessionGroupId == sessionGroupId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<bool> DeleteScopeByIdAndTeacherAsync(long scopeId, long teacherId)
     {
         // Single-scope DELETE with tenant guard inline. Returns false when

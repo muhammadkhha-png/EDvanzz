@@ -84,6 +84,24 @@ public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
     Task DeleteAllScopesForUnitAsync(long unitId);
 
     /// <summary>
+    /// Hard-deletes every <c>VideoUnitScope</c> row targeting a given session
+    /// (<c>ScopeType = Session</c>). Called by the session-delete cleanup in
+    /// <c>SessionService.DeleteSessionAsync</c> BEFORE the session is hard-
+    /// deleted: the <c>VideoUnitScopes.SessionId</c> FK is <c>NoAction</c> and
+    /// would otherwise block the delete with a 409. Mirrors
+    /// <c>IVideoAssetRepo.DeleteScopesBySessionAsync</c>.
+    /// </summary>
+    Task DeleteUnitScopesBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// Hard-deletes every <c>VideoUnitScope</c> row targeting a given session
+    /// group (<c>ScopeType = SessionGroup</c>). Called by
+    /// <c>SessionService.DeleteGroupAsync</c> so the <c>NoAction</c>
+    /// <c>SessionGroupId</c> FK cannot block the group delete.
+    /// </summary>
+    Task DeleteUnitScopesByGroupAsync(long sessionGroupId);
+
+    /// <summary>
     /// Hard-deletes a single unit-scope row, scoped to the teacher. Returns
     /// <c>false</c> if the row does not exist or belongs to a different
     /// teacher.

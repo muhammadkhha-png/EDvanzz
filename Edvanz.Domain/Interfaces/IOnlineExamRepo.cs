@@ -41,6 +41,26 @@ public interface IOnlineExamRepo : IGenericRepo<OnlineExam, long>
     /// the full teardown via set-based <c>ExecuteDeleteAsync</c> calls.
     /// </summary>
     Task PurgeExamGraphAsync(long onlineExamId);
+
+    /// <summary>
+    /// Hard-deletes every <c>OnlineExamScope</c> row targeting a given session
+    /// (<c>ScopeType = Session</c>). Called by <c>SessionService.DeleteSessionAsync</c>
+    /// BEFORE the session row is hard-deleted: the <c>OnlineExamScopes.SessionId</c>
+    /// FK is <c>NoAction</c>, so any row still targeting the session would otherwise
+    /// block the delete with a 409 "conflicts with existing data". The scope row is a
+    /// live assignment rule, not history, and its CHECK constraint forbids nulling the
+    /// FK — so the row is removed. Set-based <c>ExecuteDeleteAsync</c>, one round trip.
+    /// </summary>
+    Task DeleteScopesBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// Hard-deletes every <c>OnlineExamScope</c> row targeting a given session group
+    /// (<c>ScopeType = SessionGroup</c>). Session-group counterpart of
+    /// <see cref="DeleteScopesBySessionAsync"/>, called by
+    /// <c>SessionService.DeleteGroupAsync</c> so the <c>NoAction</c>
+    /// <c>SessionGroupId</c> FK cannot block the group delete.
+    /// </summary>
+    Task DeleteScopesByGroupAsync(long sessionGroupId);
     // ══════════════════════════════════════════════════════════════════════
     // §3.1 — LIVE ASSIGNED SET (BR-VCM-01 pattern: composable, never materialized)
     // ══════════════════════════════════════════════════════════════════════

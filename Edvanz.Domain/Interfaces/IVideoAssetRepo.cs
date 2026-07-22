@@ -233,6 +233,28 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     Task DeleteAllScopesForVideoAsync(long videoAssetId);
 
     /// <summary>
+    /// Hard-deletes every <c>VideoScope</c> row targeting a given session
+    /// (<c>ScopeType = Session</c>). Called by the session-delete cleanup in
+    /// <c>SessionService.DeleteSessionAsync</c> BEFORE the session row is hard-
+    /// deleted: the <c>VideoScopes.SessionId</c> FK is <c>NoAction</c>, so any
+    /// row still targeting the session would otherwise block the delete with a
+    /// 409 "conflicts with existing data". The scope row is a live access rule,
+    /// not history — nulling the FK would violate the CHECK constraint (exactly
+    /// one target FK non-null), so the row is removed. Set-based
+    /// <c>ExecuteDeleteAsync</c>, one round trip.
+    /// </summary>
+    Task DeleteScopesBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// Hard-deletes every <c>VideoScope</c> row targeting a given session group
+    /// (<c>ScopeType = SessionGroup</c>). Session-group counterpart of
+    /// <see cref="DeleteScopesBySessionAsync"/>, called by
+    /// <c>SessionService.DeleteGroupAsync</c> so the <c>NoAction</c>
+    /// <c>SessionGroupId</c> FK cannot block the group delete.
+    /// </summary>
+    Task DeleteScopesByGroupAsync(long sessionGroupId);
+
+    /// <summary>
     /// Hard-deletes a single scope row, scoped to the teacher. Used by the
     /// DELETE-single-scope endpoint (Story D, endpoint #4). Returns
     /// <c>false</c> if the row does not exist or belongs to a different

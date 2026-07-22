@@ -74,6 +74,22 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
     }
 
     /// <inheritdoc />
+    public async Task DeleteScopesBySessionAsync(long sessionId)
+    {
+        await _context.OnlineExamScopes
+            .Where(s => s.SessionId == sessionId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteScopesByGroupAsync(long sessionGroupId)
+    {
+        await _context.OnlineExamScopes
+            .Where(s => s.SessionGroupId == sessionGroupId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
     public IQueryable<long> BuildAssignedStudentIdsQuery(long onlineExamId, long teacherId)
     {
         var sessionBranch = _context.OnlineExamScopes

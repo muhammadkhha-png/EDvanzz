@@ -187,6 +187,22 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
     }
 
     /// <inheritdoc />
+    public async Task DeleteUnitScopesBySessionAsync(long sessionId)
+    {
+        await _context.VideoUnitScopes
+            .Where(s => s.SessionId == sessionId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteUnitScopesByGroupAsync(long sessionGroupId)
+    {
+        await _context.VideoUnitScopes
+            .Where(s => s.SessionGroupId == sessionGroupId)
+            .ExecuteDeleteAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<bool> DeleteUnitScopeByIdAndTeacherAsync(long scopeId, long teacherId)
     {
         var rowsAffected = await _context.VideoUnitScopes

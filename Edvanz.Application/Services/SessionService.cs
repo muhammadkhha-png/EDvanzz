@@ -340,6 +340,16 @@ public class SessionService : ISessionService
             // Denormalized SessionName preserved on all records.
             await _paymentService.OnSessionDeletingAsync(teacherId, sessionId);
 
+            // ── VIDEO / ONLINE-EXAM SCOPE CLEANUP: remove targeting rules before hard delete ──
+            // VideoScope, VideoUnitScope, and OnlineExamScope reference this session via a
+            // NoAction FK, so any surviving row would block the delete with a 409
+            // ("conflicts with existing data"). Unlike attendance/payment history, a scope
+            // row is a live access/assignment rule with no meaning once its session is gone,
+            // and its CHECK constraint forbids nulling the FK — so the rows are deleted.
+            await _unitOfWork.VideoAssetsRepo.DeleteScopesBySessionAsync(sessionId);
+            await _unitOfWork.VideoUnitsRepo.DeleteUnitScopesBySessionAsync(sessionId);
+            await _unitOfWork.OnlineExamsRepo.DeleteScopesBySessionAsync(sessionId);
+
             await _unitOfWork.SaveChangesAsync();
 
             // REQ-SES-043: Remove all links where this session is on the Restrict side
@@ -587,12 +597,38 @@ public class SessionService : ISessionService
         if (group is null)
             return Result<bool>.Failure(_localizer, "SessionGroupNotFound", HttpStatusCode.NotFound);
 
-        // REQ-SES-031: Deleting group does NOT delete sessions.
-        // Sessions become ungrouped via DB SetNull NoAction on SessionGroupId FK.
-        await _unitOfWork.SessionsRepo.DeleteGroupAsync(group);
-        await _unitOfWork.SaveChangesAsync();
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
 
-        return Result<bool>.Success(true, _localizer, "SessionGroupDeletedSuccess");
+        try
+        {
+            // ── VIDEO / ONLINE-EXAM SCOPE CLEANUP: remove group-targeting rules before delete ──
+            // VideoScope, VideoUnitScope, and OnlineExamScope reference this group via a
+            // NoAction FK (Session's own SessionGroupId FK is SetNull, but these scope tables
+            // are not), so a surviving group-scope row would block the delete with a 409.
+            // Scope rows are live rules with a CHECK constraint that forbids nulling the FK —
+            // so the group-targeting rows are removed.
+            await _unitOfWork.VideoAssetsRepo.DeleteScopesByGroupAsync(groupId);
+            await _unitOfWork.VideoUnitsRepo.DeleteUnitScopesByGroupAsync(groupId);
+            await _unitOfWork.OnlineExamsRepo.DeleteScopesByGroupAsync(groupId);
+
+            // REQ-SES-031: Deleting group does NOT delete sessions.
+            // Sessions become ungrouped via DB SetNull on the Session.SessionGroupId FK.
+            await _unitOfWork.SessionsRepo.DeleteGroupAsync(group);
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            return Result<bool>.Success(true, _localizer, "SessionGroupDeletedSuccess");
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     // ══════════════════════════════════════════════
