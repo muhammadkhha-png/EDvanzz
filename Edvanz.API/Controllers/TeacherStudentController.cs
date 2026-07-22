@@ -117,7 +117,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ResolveStudentByCode([FromQuery] string code)
+    public async Task<IActionResult> ResolveStudentByCode([FromQuery] string? code)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
