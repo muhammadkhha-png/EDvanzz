@@ -802,9 +802,16 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Non-unique index kept for messaging/lookup performance only.
             entity.HasIndex(x => new { x.TeacherId, x.ParentPhoneNumber });
 
-            // Composite unique: StudentCode is unique within each teacher's account
+            // Composite unique: StudentCode is unique within each teacher's account,
+            // but ONLY among ACTIVE rows. Filtered on [IsDeleted] = 0 so a soft-deleted
+            // student stops reserving its code — otherwise re-adding a student with a
+            // manual code that was previously deleted throws a unique violation at INSERT
+            // (surfaced as a 409), even though the app-layer StudentCodeExistsAsync check
+            // — which honours the global soft-delete filter — reports the code as free.
+            // Mirrors the StudentPhoneNumber filtered unique index above.
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentCode })
                 .IsUnique()
+                .HasFilter("[IsDeleted] = 0")
                 .HasDatabaseName("IX_TeacherStudents_TeacherId_StudentCode");
 
             // HashedToken: mandatory, auto-generated (AAM-NFR-03)
