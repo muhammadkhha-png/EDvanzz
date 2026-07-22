@@ -509,6 +509,7 @@ public class SessionService : ISessionService
         {
             TeacherId = dto.TeacherId,
             GroupName = trimmedName,
+            Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
             CreateAt = DateTime.UtcNow
         };
 
@@ -520,6 +521,7 @@ public class SessionService : ISessionService
             Id = group.Id,
             TeacherId = group.TeacherId,
             GroupName = group.GroupName,
+            Description = group.Description,
             SessionCount = 0,
             CreatedAt = group.CreateAt
         };
@@ -550,6 +552,7 @@ public class SessionService : ISessionService
                 Id = group.Id,
                 TeacherId = group.TeacherId,
                 GroupName = group.GroupName,
+                Description = group.Description,
                 SessionCount = sessionCount,
                 CreatedAt = group.CreateAt
             });
@@ -571,6 +574,10 @@ public class SessionService : ISessionService
             return Result<SessionGroupDto>.Failure(_localizer, "SessionGroupNameDuplicate", HttpStatusCode.Conflict);
 
         group.GroupName = trimmedName;
+        // Description is opt-in on rename: null leaves it unchanged; an empty/whitespace
+        // string clears it; any other value updates it.
+        if (dto.Description != null)
+            group.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
         await _unitOfWork.SessionsRepo.UpdateGroupAsync(group);
         await _unitOfWork.SaveChangesAsync();
 
@@ -583,6 +590,7 @@ public class SessionService : ISessionService
             Id = group.Id,
             TeacherId = group.TeacherId,
             GroupName = group.GroupName,
+            Description = group.Description,
             SessionCount = sessionCount,
             CreatedAt = group.CreateAt
         };

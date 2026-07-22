@@ -197,6 +197,13 @@ public class CreateSessionGroupDto
     [Required]
     [MaxLength(200, ErrorMessage = "Group name must be at most 200 characters.")]
     public string GroupName { get; set; } = null!;
+
+    /// <summary>
+    /// Optional group description. REQ-SES-025: Supports Arabic and English.
+    /// Persisted and echoed back on the group DTO.
+    /// </summary>
+    [MaxLength(1000, ErrorMessage = "Group description must be at most 1000 characters.")]
+    public string? Description { get; set; }
 }
 
 /// <summary>
@@ -212,6 +219,13 @@ public class RenameSessionGroupDto
     [Required]
     [MaxLength(200, ErrorMessage = "Group name must be at most 200 characters.")]
     public string GroupName { get; set; } = null!;
+
+    /// <summary>
+    /// Optional updated description. Null leaves the existing description unchanged;
+    /// pass an empty string to clear it.
+    /// </summary>
+    [MaxLength(1000, ErrorMessage = "Group description must be at most 1000 characters.")]
+    public string? Description { get; set; }
 }
 
 // ══════════════════════════════════════════════
@@ -407,6 +421,11 @@ public class SessionGroupDto
     public long Id { get; set; }
     public long TeacherId { get; set; }
     public string GroupName { get; set; } = null!;
+
+    /// <summary>
+    /// Optional group description entered by the tutor. Null when none was set.
+    /// </summary>
+    public string? Description { get; set; }
 
     /// <summary>
     /// Number of sessions in this group.

@@ -28,6 +28,13 @@ public class SessionGroup : BaseEntity
     public string GroupName { get; set; } = null!;
 
     /// <summary>
+    /// Optional free-text description of the group, entered by the tutor on the
+    /// create-group screen. REQ-SES-025: supports Arabic and English. Nullable —
+    /// groups created before this field existed (and groups saved without one) have null.
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
     /// Navigation property: sessions belonging to this group.
     /// REQ-SES-027: Group box expands to show sessions within it.
     /// </summary>

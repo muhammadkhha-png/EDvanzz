@@ -1109,6 +1109,9 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasMaxLength(200)
                 .IsRequired();
 
+            entity.Property(g => g.Description)
+                .HasMaxLength(1000);
+
             // Unique group name per teacher
             entity.HasIndex(g => new { g.TeacherId, g.GroupName })
                 .IsUnique()
