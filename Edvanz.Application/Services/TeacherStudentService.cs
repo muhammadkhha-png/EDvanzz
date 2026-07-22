@@ -225,6 +225,41 @@ public class TeacherStudentService : ITeacherStudentService
 
         return Result<TeacherStudentProfileDto>.Success(MapToProfileDto(student, session), _localizer);
     }
+
+    /// <inheritdoc />
+    public async Task<Result<StudentCodeResolveDto>> ResolveByCodeAsync(long teacherId, string code)
+    {
+        // Canonical scan resolver. EXACT match on StudentCode (not the partial roster search the
+        // old attendance manual-lookup used, which took .first and could resolve A1 -> A10). The
+        // barcode/QR encodes the plain per-teacher StudentCode, so scanning + typing both land here.
+        var trimmed = code?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+            return Result<StudentCodeResolveDto>.Failure(_localizer, "BarcodeRequired", HttpStatusCode.BadRequest);
+
+        // Tenant-scoped exact lookup; the global soft-delete filter excludes deleted students, so a
+        // reused-after-delete code resolves to the CURRENT active owner (permanence-per-code, §design).
+        var student = await _unitOfWork.Students.GetActiveByCodeAndTeacherAsync(trimmed, teacherId);
+        if (student is null)
+            return Result<StudentCodeResolveDto>.Failure(_localizer, "StudentCodeNotFound", HttpStatusCode.NotFound);
+
+        string? sessionName = null;
+        if (student.SessionId.HasValue)
+        {
+            var names = await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(
+                teacherId, new[] { student.SessionId.Value });
+            names.TryGetValue(student.SessionId.Value, out sessionName);
+        }
+
+        return Result<StudentCodeResolveDto>.Success(new StudentCodeResolveDto
+        {
+            Id = student.Id,
+            StudentName = student.StudentName,
+            StudentCode = student.StudentCode,
+            SessionId = student.SessionId,
+            SessionName = sessionName
+        }, _localizer, "Success");
+    }
+
     /// <inheritdoc />
     public async Task<Result<TeacherStudentDto>> UpdateStudentAsync(
         long teacherId, long studentId, UpdateTeacherStudentDto dto)

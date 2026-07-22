@@ -95,6 +95,36 @@ public class TeacherStudentController : ModuleSixApiBaseController
         return ToResponse(result);
     }
 
+    /// <summary>Resolves a scanned/typed student code to the student (canonical scan-resolution endpoint).</summary>
+    /// <remarks>
+    /// The single, EXACT code→student resolver shared by every scanning surface (session attendance,
+    /// exam attendance, and future link scans). The barcode/QR encodes the plain per-teacher
+    /// <c>StudentCode</c>; the client decodes it and resolves it here (or from the already-loaded
+    /// roster for the hot path — this endpoint is the fallback + manual-entry target). EXACT match,
+    /// not the partial roster search, so <c>A1</c> can never resolve to <c>A10</c>.
+    /// AUTH: requires <c>Student / ViewProfile</c> (same as the barcode endpoints).
+    /// TENANCY: teacherId from JWT — the same code resolves only within THIS teacher's roster.
+    /// <c>code</c> is a query param (not a path segment) so non-ASCII (Arabic) codes and whitespace
+    /// survive URL-encoding intact.
+    /// </remarks>
+    /// <response code="200">Returns the resolved <c>StudentCodeResolveDto</c> (id, name, code, session).</response>
+    /// <response code="400">Blank code (<c>BarcodeRequired</c>).</response>
+    /// <response code="404">No active student carries this code for the teacher (<c>StudentCodeNotFound</c>).</response>
+    [HttpGet("students/resolve")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewProfile)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.StudentCodeResolveDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ResolveStudentByCode([FromQuery] string code)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _studentService.ResolveByCodeAsync(teacherId.Value, code));
+    }
+
     /// <summary>Returns the student's barcode as an SVG image for the profile screen.</summary>
     /// <remarks>
     /// REQ-STU-047: barcode encodes the immutable student code. Rendered on demand (Code 128,

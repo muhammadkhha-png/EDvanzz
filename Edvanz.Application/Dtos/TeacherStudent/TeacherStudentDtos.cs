@@ -495,3 +495,30 @@ public class TenantStudentListDto
     /// </summary>
     public PaginatedResponse<List<TeacherStudentDto>> students { get; set; } = null!;
 }
+/// <summary>
+/// Lean projection returned by the exact "resolve student by scanned code" endpoint
+/// (<c>GET /api/teacherstudent/students/resolve?code=</c>). This is the canonical
+/// scan-resolution contract shared by every scanning surface (session attendance,
+/// exam attendance, and future parent/student link scans): the client decodes the
+/// barcode/QR to the plain per-teacher <c>StudentCode</c>, then resolves it to the
+/// student here. Tenant-scoped from the JWT, so the same code resolves only within
+/// the scanning teacher's roster. <see cref="SessionId"/> lets an attendance screen
+/// verify the scanned student belongs to the session being marked.
+/// </summary>
+public class StudentCodeResolveDto
+{
+    /// <summary>The student's <c>TeacherStudent.Id</c> — the value the mark/attendance endpoints take.</summary>
+    public long Id { get; set; }
+
+    /// <summary>Student display name (for the on-screen confirmation banner).</summary>
+    public string StudentName { get; set; } = null!;
+
+    /// <summary>The resolved per-teacher student code (echoed back, normalized).</summary>
+    public string StudentCode { get; set; } = null!;
+
+    /// <summary>The student's currently-assigned session, or null when unassigned.</summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>Display name of the assigned session, or null when unassigned.</summary>
+    public string? SessionName { get; set; }
+}

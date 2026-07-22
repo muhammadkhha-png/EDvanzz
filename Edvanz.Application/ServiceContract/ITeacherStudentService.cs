@@ -36,6 +36,17 @@ public interface ITeacherStudentService
     Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId);
 
     /// <summary>
+    /// Resolves a scanned/typed per-teacher <c>StudentCode</c> to its student — the canonical
+    /// scan-resolution contract shared by every scanning surface (session/exam attendance,
+    /// future link scans). EXACT match on <c>StudentCode</c> (not the partial roster search),
+    /// tenant-scoped from the JWT, so the same code resolves only within this teacher's roster.
+    /// Returns 400 <c>BarcodeRequired</c> for a blank code and 404 <c>StudentCodeNotFound</c>
+    /// when no active student carries it. Case-insensitive and whitespace-trimmed; works for
+    /// non-ASCII (Arabic) codes too.
+    /// </summary>
+    Task<Result<StudentCodeResolveDto>> ResolveByCodeAsync(long teacherId, string code);
+
+    /// <summary>
     /// Updates an existing student record.
     /// REQ-STU-006: All fields remain editable after creation.
     /// REQ-STU-048: Barcode never changes even if other fields are modified.

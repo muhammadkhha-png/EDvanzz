@@ -21,20 +21,36 @@ public class StudentBarcodeService : IStudentBarcodeService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IBarcodeRenderer _barcodeRenderer;
+    private readonly IQrCodeRenderer _qrCodeRenderer;
     private readonly IStudentBarcodePdfBuilder _pdfBuilder;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public StudentBarcodeService(
         IUnitOfWork unitOfWork,
         IBarcodeRenderer barcodeRenderer,
+        IQrCodeRenderer qrCodeRenderer,
         IStudentBarcodePdfBuilder pdfBuilder,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _barcodeRenderer = barcodeRenderer;
+        _qrCodeRenderer = qrCodeRenderer;
         _pdfBuilder = pdfBuilder;
         _localizer = localizer;
     }
+
+    /// <summary>
+    /// Renders the scannable image for a student code. Code 128 for plain ASCII codes (the
+    /// familiar 1D stripe), but Arabic (or any non-ASCII) auto-codes like "أ1" — which the
+    /// ZXing Code 128 writer CANNOT encode and would throw "Bad character in input" on (a hard
+    /// 500 for those teachers) — fall back to a QR code, which is UTF-8 and encodes them fine.
+    /// Both symbologies encode the SAME plain <c>StudentCode</c> payload and both decode back to
+    /// it, so the scan-resolution contract is unchanged and already-printed cards stay valid.
+    /// </summary>
+    private string RenderScannable(string code)
+        => code.All(char.IsAscii)
+            ? _barcodeRenderer.RenderCode128Svg(code)
+            : _qrCodeRenderer.RenderQrCodeSvg(code);
 
     /// <inheritdoc />
     public async Task<Result<StudentBarcodeSvgDto>> GetBarcodeSvgAsync(long teacherId, long studentId)
@@ -54,7 +70,7 @@ public class StudentBarcodeService : IStudentBarcodeService
         var dto = new StudentBarcodeSvgDto
         {
             StudentCode = code,
-            Svg = _barcodeRenderer.RenderCode128Svg(code)
+            Svg = RenderScannable(code)
         };
 
         return Result<StudentBarcodeSvgDto>.Success(dto, _localizer, "Success");
@@ -78,13 +94,15 @@ public class StudentBarcodeService : IStudentBarcodeService
             .Select(s =>
             {
                 // Always encode the canonical StudentCode (the scan key) — never the stale
-                // `Barcode` column. See GetBarcodeSvgAsync for the full rationale.
+                // `Barcode` column. See GetBarcodeSvgAsync for the full rationale. Code 128 for
+                // ASCII, QR fallback for Arabic (RenderScannable) so an Arabic-coded roster never
+                // 500s the whole export.
                 string code = s.StudentCode;
                 return new StudentBarcodeCard
                 {
                     StudentName = s.StudentName,
                     StudentCode = code,
-                    BarcodeSvg = _barcodeRenderer.RenderCode128Svg(code)
+                    BarcodeSvg = RenderScannable(code)
                 };
             })
             .ToList();
