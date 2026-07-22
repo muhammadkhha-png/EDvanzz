@@ -434,6 +434,8 @@ public class PaymentService : IPaymentService
                 OriginalAmount = isProRated ? amountDue / (period?.ProRatedFraction ?? 1m) : null,
                 ProRatedAmount = isProRated ? amountDue : null
             };
+            // Resolve the collector's display name for the collection receipt.
+            await EnrichCollectorNameAsync(resultDto.Transaction);
 
             return Result<CollectPaymentResultDto>.Success(
                 resultDto, _localizer, PaymentConstants.Messages.PaymentCollectedSuccess);
@@ -622,8 +624,11 @@ public class PaymentService : IPaymentService
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
+            var editedDto = MapToTransactionDto(transaction);
+            // Resolve the collector's display name for the edit receipt.
+            await EnrichCollectorNameAsync(editedDto);
             return Result<PaymentTransactionDto>.Success(
-                MapToTransactionDto(transaction), _localizer, PaymentConstants.Messages.PaymentEditSuccess);
+                editedDto, _localizer, PaymentConstants.Messages.PaymentEditSuccess);
         }
         catch
         {
@@ -805,6 +810,8 @@ public class PaymentService : IPaymentService
             .Take(pageSize)
             .ToList();
         historyDto.Periods = pagedPeriods.Select(MapToPeriodDto).ToList();
+        // Resolve each period-transaction's collector display name (batch, no N+1).
+        await EnrichCollectorNamesAsync(historyDto.Periods);
 
         var response = new PaginatedResponse<PaymentHistoryDto>
         {
@@ -1715,6 +1722,10 @@ public class PaymentService : IPaymentService
         decimal overdue = await _unitOfWork.PaymentsRepo
             .GetOverdueTotalThroughAsync(teacherId, teacherStudentId, null, monthEnd);
 
+        var periodDtos = periods.Select(MapToPeriodDto).ToList();
+        // Resolve each period-transaction's collector display name (batch, no N+1).
+        await EnrichCollectorNamesAsync(periodDtos);
+
         return Result<StudentPaymentViewDto>.Success(new StudentPaymentViewDto
         {
             SessionName = currentSession,
@@ -1722,7 +1733,7 @@ public class PaymentService : IPaymentService
             AmountDue = overdue,
             AmountPaid = counter?.TotalAmountPaid ?? 0,
             Outstanding = overdue,
-            Periods = periods.Select(MapToPeriodDto).ToList()
+            Periods = periodDtos
         }, _localizer, PaymentConstants.Messages.Success);
     }
 
@@ -2388,6 +2399,40 @@ public class PaymentService : IPaymentService
         OnlineTransactionRef = t.OnlineTransactionRef
     };
 
+    /// <summary>
+    /// Fills <see cref="PaymentTransactionDto.CollectedByUserName"/> on every transaction across the
+    /// given periods, batch-resolving collector user ids → full names in ONE query (no N+1). The
+    /// collector id itself is already set by <see cref="MapToTransactionDto"/>; this only adds the
+    /// display name so a per-period "Collected by" can render a name instead of a bare id.
+    /// </summary>
+    private async Task EnrichCollectorNamesAsync(IEnumerable<PaymentPeriodDto> periods)
+    {
+        var transactions = periods.SelectMany(p => p.Transactions).ToList();
+        var collectorIds = transactions
+            .Where(t => t.CollectedByUserId.HasValue)
+            .Select(t => t.CollectedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        if (collectorIds.Count == 0) return;
+
+        var names = await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorIds);
+        foreach (var t in transactions)
+            if (t.CollectedByUserId.HasValue && names.TryGetValue(t.CollectedByUserId.Value, out var name))
+                t.CollectedByUserName = name;
+    }
+
+    /// <summary>
+    /// Fills <see cref="PaymentTransactionDto.CollectedByUserName"/> on a single transaction (e.g. the
+    /// collect/edit receipt), resolving the collector id → full name. No-op when the collector is unset.
+    /// </summary>
+    private async Task EnrichCollectorNameAsync(PaymentTransactionDto? transaction)
+    {
+        if (transaction?.CollectedByUserId is not long collectorId) return;
+        var names = await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(new List<long> { collectorId });
+        if (names.TryGetValue(collectorId, out var name))
+            transaction.CollectedByUserName = name;
+    }
+
     private static PaymentPeriodDto MapToPeriodDto(PaymentPeriod p) => new()
     {
         Id = p.Id,
@@ -2402,7 +2447,16 @@ public class PaymentService : IPaymentService
         ProRatedFraction = p.ProRatedFraction,
         PeriodSequence = p.PeriodSequence,
         IsCarriedForward = p.IsCarriedForward,
-        OriginSessionName = p.OriginSessionName
+        OriginSessionName = p.OriginSessionName,
+        // Surface the period's collection(s), including the collector id, so a per-period view can
+        // show "Collected by". Requires the caller to have eager-loaded PaymentTransactions; a
+        // period whose transactions were not loaded maps to an empty list (unchanged behaviour).
+        // The collector NAME (CollectedByUserName) is resolved separately by EnrichCollectorNamesAsync.
+        Transactions = (p.PaymentTransactions ?? new List<PaymentTransaction>())
+            .Where(t => !t.IsDeleted)
+            .OrderBy(t => t.CollectedAt)
+            .Select(MapToTransactionDto)
+            .ToList()
     };
 
     private static string FormatPeriodLabel(PaymentPeriod period) =>

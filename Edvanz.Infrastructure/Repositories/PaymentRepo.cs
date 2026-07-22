@@ -313,6 +313,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     {
         return await _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
+            // Eager-load non-deleted transactions so the payment-view period rows can surface each
+            // paid period's collection(s) — incl. the collector (CollectedByUserId) — without an N+1.
+            .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
             .OrderBy(p => p.SessionName)
             .ThenBy(p => p.PeriodSequence)
             .AsNoTracking()
@@ -350,6 +353,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             query = query.Where(p => p.PeriodStart <= endDate.Value);
 
         return await query
+            // Eager-load non-deleted transactions so the history screen's period rows carry their
+            // collection(s) — incl. the collector (CollectedByUserId) — without an N+1 per period.
+            .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
             .OrderBy(p => p.SessionName)
             .ThenBy(p => p.PeriodSequence)
             .AsNoTracking()
