@@ -43,8 +43,13 @@ public class StudentBarcodeService : IStudentBarcodeService
         if (student is null)
             return Result<StudentBarcodeSvgDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
 
-        // Barcode value defaults to the student code (REQ-STU-047); older rows may have it null.
-        string code = string.IsNullOrWhiteSpace(student.Barcode) ? student.StudentCode : student.Barcode!;
+        // REQ-STU-047: encode the canonical StudentCode — the exact value EVERY scan path
+        // resolves (GetActiveByCodeAndTeacherAsync matches StudentCode). The legacy `Barcode`
+        // column is a stale denormalization that was NOT re-synced when a student's code was
+        // edited, so encoding it printed a barcode that no longer scanned ("no student matched
+        // the scanned barcode"). Reading StudentCode here also self-heals any already-diverged
+        // row without a data migration.
+        string code = student.StudentCode;
 
         var dto = new StudentBarcodeSvgDto
         {
@@ -72,7 +77,9 @@ public class StudentBarcodeService : IStudentBarcodeService
             .OrderBy(s => s.StudentCode)
             .Select(s =>
             {
-                string code = string.IsNullOrWhiteSpace(s.Barcode) ? s.StudentCode : s.Barcode!;
+                // Always encode the canonical StudentCode (the scan key) — never the stale
+                // `Barcode` column. See GetBarcodeSvgAsync for the full rationale.
+                string code = s.StudentCode;
                 return new StudentBarcodeCard
                 {
                     StudentName = s.StudentName,

@@ -275,6 +275,12 @@ public class TeacherStudentService : ITeacherStudentService
                 return Result<TeacherStudentDto>.Failure(_localizer, "StudentCodeDuplicate", HttpStatusCode.Conflict);
 
             student.StudentCode = normalizedCode;
+            // Keep the denormalized Barcode column in lock-step with the code. Historically the
+            // code edit updated StudentCode only, leaving Barcode pointing at the OLD code — so
+            // the printed barcode (rendered from Barcode) no longer scanned. The renderer now
+            // reads StudentCode, but we still sync the column so the exposed DTO.Barcode and the
+            // payment-scan `Barcode == barcode` branch stay correct.
+            student.Barcode = normalizedCode;
         }
 
         // Resolve the target session assignment. On an explicit single edit, a supplied id that
@@ -1074,7 +1080,7 @@ public class TeacherStudentService : ITeacherStudentService
         dto.HashedToken = student.HashedToken;
         dto.StudentPhoneNumber = student.StudentPhoneNumber;
         dto.ParentPhoneNumber = student.ParentPhoneNumber;
-        dto.Barcode = student.Barcode;
+        dto.Barcode = student.StudentCode; // canonical scan key (see StudentBarcodeService)
         dto.SessionId = student.SessionId;
         dto.SessionName = sessionName;
         dto.CreatedAt = student.CreateAt;
@@ -1117,7 +1123,7 @@ public class TeacherStudentService : ITeacherStudentService
             HashedToken = student.HashedToken,
             StudentPhoneNumber = student.StudentPhoneNumber,
             ParentPhoneNumber = student.ParentPhoneNumber,
-            Barcode = student.Barcode,
+            Barcode = student.StudentCode, // canonical scan key (see StudentBarcodeService)
             SessionId = student.SessionId,
             SessionName = sessionName,
             CreatedAt = student.CreateAt,
