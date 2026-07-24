@@ -732,4 +732,39 @@ public class TeacherController : ApiBaseController
     public async Task<IActionResult> SoftDelete(long id)
         => ToResponse(await _teacherService.ToggleTeacherStatusAsync(
             new ToggleAccountStatus { accountId = id, targetStatus = AccountStatus.Suspended }));
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: GET TEACHER LOOKUP (UNPAGINATED, FOR DROPDOWNS)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns Id + FullName for every active teacher, in one flat array,
+    //   ordered by name. No pagination — intended for select/dropdown controls
+    //   on the Super Admin dashboard.
+    //
+    // WHO CALLS IT:
+    //   Super Admin only.
+    //
+    // SAMPLE REQUEST:
+    //   GET /api/teacher/lookup
+    //
+    // SAMPLE RESPONSE (200 OK):
+    //   {
+    //     "success": true,
+    //     "message": "Done successfully",
+    //     "data": [
+    //       { "id": 1, "fullName": "Ahmed Mohamed" },
+    //       { "id": 2, "fullName": "Sara Ali" }
+    //     ]
+    //   }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("lookup")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Teacher.TeacherLookupItemDto>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTeacherLookup()
+    {
+        var result = await _teacherService.GetTeacherLookupAsync();
+        return ToResponse(result);
+    }
 }

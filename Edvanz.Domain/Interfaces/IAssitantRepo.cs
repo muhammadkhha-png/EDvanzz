@@ -39,6 +39,20 @@ namespace Edvanz.Domain.Interfaces
         /// Used to enforce the free-tier assistant quota for unsubscribed teachers.
         /// </summary>
         Task<int> CountByTeacherAccountIdAsync(long teacherId);
+        /// <summary>
+        /// Returns a platform-wide, paginated list of assistants for the Admin Portal.
+        /// Unlike <see cref="GetListAssistantsPerTeacher"/>, this is NOT tenant-scoped —
+        /// intended for SuperAdmin callers only (enforced at the controller/service level).
+        /// </summary>
+        /// <param name="teacherId">Optional — restrict results to a single teacher's assistants.</param>
+        /// <param name="search">Optional — matches assistant full name OR phone number (contains, case-insensitive).</param>
+        Task<(IReadOnlyList<Assistant>, int)> GetAllAssistantsAsync(
+            long? teacherId,
+            string? search,
+            AssistantSortBy? sortBy,
+            SortDirection? sortDirection,
+            int page,
+            int pageSize);
 
     }
 }

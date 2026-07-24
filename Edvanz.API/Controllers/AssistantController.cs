@@ -160,5 +160,18 @@ namespace Edvanz.API.Controllers
             var result = await assistantService.GetLoginActivityAsync(id);
             return ToResponse(result);
         }
+
+        // ── GET /api/assistant/all ───────────────────────────────────────────
+        // Platform-wide paginated assistant list for the Admin Portal.
+        // Filters: teacherId (nullable), search (name OR phone).
+        // Access: SuperAdmin only
+        [HttpGet("all")]
+        [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+        [ProducesResponseType(typeof(Result<PaginatedResponse<List<AssistantAdminListDto>>>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetAllAssistants([FromQuery] AdminAssistantFilterDto req)
+        {
+            var res = await assistantService.GetAllAssistantsAsync(req);
+            return ToResponse(res);
+        }
     }
 }

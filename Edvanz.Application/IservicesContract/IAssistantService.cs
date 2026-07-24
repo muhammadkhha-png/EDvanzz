@@ -24,7 +24,11 @@ namespace Edvanz.Application.IservicesContract
         public Task RecordLoginActivityAsync(long assistantId, LoginAcitvityActionType actionType, HttpContext httpContext);
         public Task ValidateTeacherScopeAsync(long teacherId, HashSet<long> permissionIds);
         public  Task<HashSet<long>> ResolveAssistantPermissionsAsync(IEnumerable<long>? permissionIds,IEnumerable<long>? templateIds);
-
+        /// <summary>
+        /// Platform-wide paginated assistant list for the Admin Portal.
+        /// SuperAdmin only — no tenant scoping applied.
+        /// </summary>
+        Task<Result<PaginatedResponse<List<AssistantAdminListDto>>>> GetAllAssistantsAsync(AdminAssistantFilterDto req);
 
     }
 }

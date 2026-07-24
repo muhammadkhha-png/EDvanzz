@@ -136,4 +136,11 @@ public interface ITeacherService
     /// SuperAdmin only. REQ-ADM-017/018/020–024.
     /// </summary>
     Task<Result<string>> ToggleTeacherStatusAsync(ToggleAccountStatus req);
+
+    /// <summary>
+    /// Returns Id + FullName for every active teacher, unpaginated. Backs select/dropdown
+    /// controls on the Super Admin dashboard (e.g. filtering other lists by teacher).
+    /// Only AccountStatus = Active, non-deleted teachers are included.
+    /// </summary>
+    Task<Result<List<TeacherLookupItemDto>>> GetTeacherLookupAsync();
 }

@@ -739,5 +739,58 @@ namespace Edvanz.Application.Services
             if (outOfScope.Any())
                 throw new AssistantPermissionsOutOfScopeException();
         }
+
+        public async Task<Result<PaginatedResponse<List<AssistantAdminListDto>>>> GetAllAssistantsAsync(
+    AdminAssistantFilterDto req)
+        {
+            try
+            {
+                var (assistants, totalCount) = await _unitOfWork.AssistantRepo
+                    .GetAllAssistantsAsync(
+                        teacherId: req.teacherId,
+                        search: req.search,
+                        sortBy: req.sortBy,
+                        sortDirection: req.sortDirection,
+                        page: req.Page,
+                        pageSize: req.PageSize
+                    );
+
+                var dtoList = assistants.Select(a => new AssistantAdminListDto
+                {
+                    id = a.Id,
+                    userId = a.UserId,
+                    fullName = a.User.FullName,
+                    username = a.User.Username,
+                    email = a.User.Email,
+                    phoneNumber = a.User.PhoneNumber ?? string.Empty,
+                    isActive = (bool)a.User.IsActive,
+                    teacherId = a.TeacherAccountId,
+                    teacherName = a.Teacher.User.FullName,
+                    accountStatus = a.AccountStatus.ToString(),
+                    createdAt = a.CreateAt,
+                    deletedAt = a.DeletedAt,
+                    languagePreference = a.LanguagePreference,
+                    updatedAt = a.UpdatedAt,
+                }).ToList();
+
+                var response = new PaginatedResponse<List<AssistantAdminListDto>>
+                {
+                    totalCount = totalCount,
+                    page = req.Page,
+                    pageSize = req.PageSize,
+                    totalPages = (int)Math.Ceiling((double)totalCount / req.PageSize),
+                    data = dtoList
+                };
+
+                return Result<PaginatedResponse<List<AssistantAdminListDto>>>.Success(response, localizer);
+            }
+            catch (Exception)
+            {
+                return Result<PaginatedResponse<List<AssistantAdminListDto>>>.Failure(
+                    localizer,
+                    "ServerError",
+                    HttpStatusCode.InternalServerError);
+            }
+        }
     }
 }

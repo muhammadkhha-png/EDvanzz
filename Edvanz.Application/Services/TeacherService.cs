@@ -897,4 +897,18 @@ public class TeacherService : ITeacherService
             StudentCapacityPackageId = teacher.StudentCapacityPackageId,
         };
     }
+
+    /// <inheritdoc />
+    public async Task<Result<List<TeacherLookupItemDto>>> GetTeacherLookupAsync()
+    {
+        var rows = await _unitOfWork.Users.GetTeacherNameLookupAsync();
+
+        var items = rows.Select(r => new TeacherLookupItemDto
+        {
+            Id = r.TeacherId,
+            FullName = r.FullName
+        }).ToList();
+
+        return Result<List<TeacherLookupItemDto>>.Success(items, _localizer, "Success", HttpStatusCode.OK);
+    }
 }

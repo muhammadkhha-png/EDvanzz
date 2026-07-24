@@ -127,5 +127,54 @@ namespace Edvanz.Infrastructure.Repositories
             return await _context.Assistants
                 .CountAsync(a => a.TeacherAccountId == teacherId && a.DeletedAt == null);
         }
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<Assistant>, int)> GetAllAssistantsAsync(
+            long? teacherId,
+            string? search,
+            AssistantSortBy? sortBy,
+            SortDirection? sortDirection,
+            int page,
+            int pageSize)
+        {
+            var sort = sortBy ?? AssistantSortBy.CreatedAt;
+            var direction = sortDirection ?? SortDirection.Desc;
+
+            IQueryable<Assistant> query = _context.Set<Assistant>()
+                .Include(a => a.User)
+                .Include(a => a.Teacher).ThenInclude(t => t.User);
+
+            // ── FILTERS ──
+            if (teacherId.HasValue)
+                query = query.Where(a => a.TeacherAccountId == teacherId.Value);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim().ToLower();
+                query = query.Where(a =>
+                    a.User.FullName.ToLower().Contains(term) ||
+                    (a.User.PhoneNumber != null && a.User.PhoneNumber.ToLower().Contains(term)));
+            }
+
+            var totalCount = await query.CountAsync();
+
+            // ── SORT ──
+            query = sort switch
+            {
+                AssistantSortBy.fullName => direction == SortDirection.Asc
+                    ? query.OrderBy(a => a.User.FullName)
+                    : query.OrderByDescending(a => a.User.FullName),
+
+                _ => direction == SortDirection.Asc
+                    ? query.OrderBy(a => a.CreateAt)
+                    : query.OrderByDescending(a => a.CreateAt)
+            };
+
+            // ── PAGINATION ──
+            query = query.Skip((page - 1) * pageSize).Take(pageSize);
+
+            var list = await query.AsNoTracking().ToListAsync();
+
+            return (list, totalCount);
+        }
     }
 }

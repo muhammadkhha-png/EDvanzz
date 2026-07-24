@@ -727,6 +727,13 @@ namespace Edvanz.Domain.Interfaces
         Task<Dictionary<long, string>> GetUserFullNamesByUserIdsAsync(
             IEnumerable<long> userIds);
 
+        /// <summary>
+        /// Lightweight Id + FullName projection for every active teacher (AccountStatus = Active,
+        /// DeletedAt == null), ordered by name. No pagination — backs select/dropdown UI
+        /// (e.g. Super Admin filters) where the full TeacherListItemDto shape is unnecessary.
+        /// </summary>
+        Task<IReadOnlyList<TeacherNameLookupProjection>> GetTeacherNameLookupAsync();
+
 
     }
     // ══════════════════════════════════════════════════════════════════
@@ -748,7 +755,16 @@ namespace Edvanz.Domain.Interfaces
         public decimal AmountPaidEGP { get; set; }
         public long? StudentCapacityPackageId { get; set; }
     }
-
+    /// <summary>
+    /// Lean Id/Name row for teacher select-dropdown lists. Deliberately excludes every
+    /// other Teacher/User field — this projection exists only to avoid pulling full
+    /// entities for a UI control that needs nothing else.
+    /// </summary>
+    public class TeacherNameLookupProjection
+    {
+        public long TeacherId { get; set; }
+        public string FullName { get; set; } = null!;
+    }
     /// <summary>
     /// One row per teacher eligible for a reminder on the dispatcher run.
     /// </summary>

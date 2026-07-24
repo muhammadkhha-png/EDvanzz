@@ -1163,5 +1163,22 @@ namespace Edvanz.Infrastructure.Repositories
                 .AsNoTracking()
                 .ToDictionaryAsync(u => u.Id, u => u.FullName);
         }
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherNameLookupProjection>> GetTeacherNameLookupAsync()
+        {
+            return await _context.Set<Teacher>()
+                .AsNoTracking()
+                .Where(t => t.DeletedAt == null && t.AccountStatus == AccountStatus.Active)
+                .Join(_context.Users.AsNoTracking(),
+                    t => t.UserId,
+                    u => u.Id,
+                    (t, u) => new TeacherNameLookupProjection
+                    {
+                        TeacherId = t.Id,
+                        FullName = u.FullName
+                    })
+                .OrderBy(x => x.FullName)
+                .ToListAsync();
+        }
     }
 }
