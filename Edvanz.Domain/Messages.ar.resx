@@ -1823,4 +1823,10 @@
 <data name="TeacherAlreadyInThisStatus" xml:space="preserve">
   <value>المدرّس بالفعل في هذه الحالة</value>
 </data>
+<data name="PasswordConfirmationMismatch" xml:space="preserve">
+  <value>الباسورد الجديد وتأكيده مش متطابقين</value>
+</data>
+<data name="ForcePasswordChangedSuccess" xml:space="preserve">
+  <value>تم تغيير الباسورد بتاع المستخدم وتسجيل خروجه من كل الجلسات النشطة</value>
+</data>
 </root>

@@ -276,5 +276,35 @@ namespace Edvanz.API.Controllers
             var result = await authService.Logout(req.token, req.logoutAllSessions);
             return ToResponse(result);
         }
+        /// <summary>Forces a password reset on any user account. SuperAdmin only.</summary>
+        /// <remarks>
+        /// No old-password verification — this is the admin-initiated counterpart to
+        /// <c>change-password</c>. Every existing refresh token for the target user is
+        /// revoked and their SecurityStamp is bumped, so all of their active sessions
+        /// are invalidated immediately.
+        ///
+        /// <para><b>Auth note:</b> gated by <see cref="ModulePermissionAttribute"/>
+        /// (roleOnly: SuperAdmin), which reads the role directly off
+        /// <c>HttpContext.User</c> — this is deliberate, not <c>[Authorize]</c>, because
+        /// this controller's class-level <c>[AllowAnonymous]</c> makes <c>[Authorize]</c>
+        /// unreliable here (see the <c>change-password</c> doc note above).</para>
+        /// </remarks>
+        /// <param name="req">Target user id, new password, and confirmation.</param>
+        /// <response code="200">Password force-changed; target's sessions revoked.</response>
+        /// <response code="400">Validation failed, target not found, or confirmation mismatch.</response>
+        /// <response code="403">Caller is not a SuperAdmin.</response>
+        /// <response code="429">Rate limit exceeded.</response>
+        [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+        [HttpPost("admin/force-change-password")]
+        [EnableRateLimiting("admin-auth")]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        public async Task<IActionResult> ForceChangePassword([FromBody] Edvanz.Application.Dtos.Auth.ForceChangePasswordDto req)
+        {
+            var result = await authService.ForceChangePasswordAsync(req);
+            return ToResponse(result);
+        }
     }
 }

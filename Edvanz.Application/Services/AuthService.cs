@@ -242,7 +242,49 @@ namespace Edvanz.Application.Services
             }, _localizer, "successlogin");
         }
 
+        /// <inheritdoc />
+        public async Task<Result<string>> ForceChangePasswordAsync(ForceChangePasswordDto req)
+        {
+            // ── 1. Confirmation check ──
+            // ChangePasswordDto/AddUserDto don't enforce this via [Compare]; matching
+            // that convention and validating manually here too, localized.
+            if (!string.Equals(req.newPassword, req.confirmPassword, StringComparison.Ordinal))
+                return Result<string>.Failure(_localizer, "PasswordConfirmationMismatch");
 
+            // ── 2. Load target user ──
+            var user = await _unitOfWork.Users.GetByIdAsync(req.userId);
+            if (user == null)
+                return Result<string>.Failure(_localizer, "UserNotFound");
+
+            // ── 3. Hash + apply ──
+            var newHashedPassword = _passwordService.HashPassword(req.newPassword);
+
+            await _unitOfWork.BeginTransactionAsync();
+
+            user.PasswordHashed = newHashedPassword;
+            user.SecurityStamp = Guid.NewGuid().ToString();
+
+            // Forced reset always revokes every existing session for the target —
+            // no opt-out, unlike self-service ChangePassword's logOutFromAllDevices flag.
+            var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(req.userId);
+            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
+
+            // REQ-USR-013 / REQ-USR-027: invalidate the Redis snapshot in the same
+            // transaction as the SecurityStamp bump, BEFORE SaveChangesAsync — same
+            // discipline as every other state-mutating service in this codebase.
+            await _authInvalidation.InvalidateUserAsync(req.userId);
+
+            var res = await _unitOfWork.SaveChangesAsync();
+            if (res <= 0)
+            {
+                await _unitOfWork.RollbackAsync();
+                return Result<string>.Failure(_localizer, "ServerError");
+            }
+
+            await _unitOfWork.CommitAsync();
+
+            return Result<string>.Success(null, _localizer, "ForcePasswordChangedSuccess");
+        }
 
         public async Task<Result<string>> ChangePassword(ChangePasswordDto req)
         {

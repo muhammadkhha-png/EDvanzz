@@ -801,10 +801,12 @@ public class TeacherService : ITeacherService
         //    CreatedAt = x.Teacher.CreateAt
         //}).ToList();
         // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
+        // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
         var dtoNow = DateTime.UtcNow;
         var items = paged.Select(x => new TeacherListItemDto
         {
             Id = x.Teacher.Id,
+            UserId = x.User?.Id ?? 0,
             FullName = x.User?.FullName ?? string.Empty,
             Username = x.User?.Username ?? string.Empty,
             TeacherCode = x.Teacher.TeacherCode,
@@ -812,7 +814,6 @@ public class TeacherService : ITeacherService
             StudentCapacity = x.Teacher.StudentCapacity,
             AccountStatus = x.Teacher.AccountStatus.ToString(),
             IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
-            // Derive status; null LatestSub → "Expired" (treated as never-subscribed).
             SubscriptionStatus = x.LatestSub is null
                 ? null
                 : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),

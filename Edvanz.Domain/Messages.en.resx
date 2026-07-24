@@ -1835,4 +1835,10 @@
 <data name="TeacherAlreadyInThisStatus" xml:space="preserve">
   <value>The teacher is already in this status</value>
 </data>
+<data name="PasswordConfirmationMismatch" xml:space="preserve">
+  <value>New password and confirmation do not match</value>
+</data>
+<data name="ForcePasswordChangedSuccess" xml:space="preserve">
+  <value>The user's password has been reset and their active sessions have been revoked</value>
+</data>
 </root>

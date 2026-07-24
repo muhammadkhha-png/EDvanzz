@@ -9,6 +9,8 @@
 public class TeacherListItemDto
 {
     public long Id { get; set; }
+    public long UserId { get; set; }
+
     public string FullName { get; set; } = null!;
     public string Username { get; set; } = null!;
     public string TeacherCode { get; set; } = null!;
