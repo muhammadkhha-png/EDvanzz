@@ -228,11 +228,51 @@ public class TutorModuleAccessService : ITutorModuleAccessService
                 });
             }
 
+            // Assistant user-ids under this tutor — computed once (not per module),
+            // reused by the BR-ADM-010 cascade below for every revoked module.
+            // Includes assistants of any AccountStatus (Active/Inactive/Suspended):
+            // a deactivated assistant's stale grants must be cleaned up too, or
+            // reactivating them later would silently restore access to a module
+            // the tutor no longer has.
+            var assistantUserIds = toRevoke.Count > 0
+                ? (await _unitOfWork.AssistantRepo
+                    .GetUserIdsByTeacherAccountIdAsync(request.TeacherId)).ToList()
+                : new List<long>();
+
             // Revokes
             foreach (long moduleId in toRevoke)
             {
                 await _unitOfWork.ModuleTeacherRepo!
                     .RevokeModuleAsync(request.TeacherId, moduleId);
+
+                // ── BR-ADM-010 cascade ──────────────────────────────────────────
+                // A revoked module must not leave any assistant of this tutor still
+                // holding permissions that belong to it — otherwise an assistant
+                // could retain functional access the tutor itself no longer has.
+                int removedPermissionCount = 0;
+                if (assistantUserIds.Count > 0)
+                {
+                    var modulePermissionIds = await _unitOfWork.permissionRepo
+                        .GetPermissionIdsByModuleIdsAsync(new[] { moduleId });
+
+                    if (modulePermissionIds.Count > 0)
+                    {
+                        var rowsToRemove = await _unitOfWork.UsersPermissions
+                            .GetExistingUserPermissionsAsync(
+                                assistantUserIds, modulePermissionIds.ToList());
+
+                        if (rowsToRemove.Count > 0)
+                        {
+                            await _unitOfWork.UsersPermissions.DeleteRangeAsync(rowsToRemove);
+                            removedPermissionCount = rowsToRemove.Count;
+                        }
+                    }
+                }
+
+                var cascadeNote = removedPermissionCount > 0
+                    ? $" {removedPermissionCount} assistant permission grant(s) for this " +
+                      "module were also removed."
+                    : string.Empty;
 
                 await _auditTrail.RecordAuditTrailAsync(new CreateAuditTrailDto
                 {
@@ -241,7 +281,8 @@ public class TutorModuleAccessService : ITutorModuleAccessService
                     actionType = ActionType.Delete,
                     moduleId = moduleId,
                     desc = $"SuperAdmin (UserId={adminUserId}) revoked module " +
-                           $"'{ResolveModuleName(moduleNameById, moduleId)}' from tutor (bulk-replace)."
+                           $"'{ResolveModuleName(moduleNameById, moduleId)}' from tutor " +
+                           $"(bulk-replace).{cascadeNote}"
                 });
             }
 
