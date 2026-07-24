@@ -72,6 +72,63 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetTeacherIdsWithOccurrencesBetweenAsync(
+        DateTime fromInclusive, DateTime toExclusive)
+    {
+        return await _context.SessionOccurrences
+            .Where(o => o.OccurrenceDate >= fromInclusive.Date && o.OccurrenceDate < toExclusive.Date)
+            .Select(o => o.TeacherId)
+            .Distinct()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SessionOccurrence>> GetOccurrencesByTeacherAndDateRangeAsync(
+        long teacherId, DateTime fromInclusive, DateTime toExclusive)
+    {
+        // Tracked (no AsNoTracking): the auto-absent worker refreshes each occurrence's Status.
+        return await _context.SessionOccurrences
+            .Where(o => o.TeacherId == teacherId
+                && o.OccurrenceDate >= fromInclusive.Date
+                && o.OccurrenceDate < toExclusive.Date)
+            .Include(o => o.Session)
+            .OrderBy(o => o.OccurrenceDate)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<DateTime?> GetMaxOccurrenceDateForSlotAsync(
+        IEnumerable<long> sessionIds, DateTime weekStartDate, int dayPositionIndex)
+    {
+        var ids = sessionIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return null;
+
+        // Max() over a nullable projection returns null for an empty match set (no throw).
+        return await _context.SessionOccurrences
+            .Where(o => ids.Contains(o.SessionId)
+                && o.WeekStartDate == weekStartDate.Date
+                && o.DayPositionIndex == dayPositionIndex)
+            .MaxAsync(o => (DateTime?)o.OccurrenceDate);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<AttendanceRecord>> GetRecordsByOccurrenceForStudentsAsync(
+        long sessionOccurrenceId, IEnumerable<long> teacherStudentIds)
+    {
+        var ids = teacherStudentIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new List<AttendanceRecord>();
+
+        // Tracked — the worker may mutate a Held row to Absent in place.
+        return await _context.AttendanceRecords
+            .Where(r => r.SessionOccurrenceId == sessionOccurrenceId
+                && r.TeacherStudentId.HasValue
+                && ids.Contains(r.TeacherStudentId.Value))
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task UpdateOccurrenceAsync(SessionOccurrence occurrence)
     {
         _context.Entry(occurrence).State = EntityState.Modified;

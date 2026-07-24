@@ -419,6 +419,40 @@ student sees every class day, including upcoming and not-yet-marked ones. Rules:
 - Additive, **no migration**. Apply this same occurrence-overlay shape to the not-yet-built
   student payment/exam/homework calendar views (see §7.2b).
 
+**Auto-absent nightly sweep — unmarked/held ⇒ Absent (shipped 2026-07-24).** DELIBERATE reversal of
+the old "unmarked = unknown, never inferred" policy (requested: a student the teacher skipped, or left
+on hold, should count absent). This is NOT the historical "harmful silent Absent" per-mark default that
+`ValidateCallerStatus` still guards against — that was an ungated default on an explicit mark; this is a
+gated, equivalence-safe, auditable background job. Do NOT "fix" it as a regression.
+- **Job**: Hangfire recurring `attendance-auto-absent` (`AttendanceConstants.AutoAbsentJobId`, default
+  02:30 Africa/Cairo) → `AutoAbsentDispatcherJob` fans out one `IAutoAbsentJob.SweepTeacherAsync(teacherId)`
+  per teacher on the `auto-absent` queue → `AttendanceAutoAbsentService` (Application; the job is a thin
+  wrapper, §6.2). Config `AutoAbsentOptions` ("AutoAbsent" section): `Enabled` kill switch,
+  `EffectiveFrom` (**non-retroactive** — never marks class days before this; default the go-live date
+  2026-07-24), `LookbackDays` (rolling catch-up window, default 14), `CronExpression`.
+- **What it writes**: for each active-roster student obligated on a PAST occurrence (assigned on/before
+  the class day, BR-ATT-001) with no record, an `Absent` row flagged **`AttendanceRecord.IsAutoAbsent`**
+  (migration `20260724184931_AddIsAutoAbsentToAttendanceRecords`, `bit NOT NULL default 0`); and it rolls
+  an unresolved `Held` record forward to `Absent` (same flag). Then it recomputes the student's
+  `StudentAbsenceCounter` from records, refreshes `OccurrenceStatus`, and (post-commit, best-effort)
+  fires the normal absence notification + `ReconcileExamsForSessionOccurrenceAsync`.
+- **Equivalence-safe (the reason it's a job, not a per-occurrence write)**: a linked session's equivalent
+  occurrence (same `(WeekStartDate, DayPositionIndex)` slot) can fall on a LATER weekday (Sun≡Mon), so it
+  marks a student absent for a slot ONLY once the **max occurrence date across the home + linked sessions
+  has passed** (`GetMaxOccurrenceDateForSlotAsync`), and skips any student with a record on the occurrence
+  OR any equivalent occurrence (`GetEquivalentOccurrenceIdsAsync` + the batch equiv check — they attended
+  a linked class). Idempotent: a slot with an existing record for a student is never re-marked.
+- **Flip on late scan (mark path)**: `MarkAttendanceAsync`/`BulkMarkAttendanceAsync` no longer 409 an
+  auto-absent as a duplicate. A same-occurrence `IsAutoAbsent` row is **overwritten** by a later mark
+  (teacher marking the morning after isn't forced into Edit). An `Absent` on an **equivalent occurrence**
+  (auto OR manual — physical attendance is ground truth) **flips to `CrossSessionPresent`** with the
+  attended session/date when the student is scanned Present there — logged as an `AttendanceEditLog`,
+  `IsAutoAbsent` cleared, counter recomputed so the "was absent last time" alert (driven by
+  `ConsecutiveAbsences`) does NOT surface for the same logical class instance. Shared helper
+  `ApplyReconciliationAsync`; edit-reason resx keys `AutoAbsent*` / `AbsentFlippedToCrossSessionPresent`.
+- **Scope note**: only CURRENTLY-active assignments are swept (matches the occurrence-status roster); a
+  student unassigned since the class day is not retro-marked.
+
 ### 7.2b Student User Module — Request/Approval Linking (redesigned 2026-07-12; Connection↔Link split 2026-07-13)
 
 The original AAM-FR-05.5 3-credential instant link (TeacherCode + StudentCode +

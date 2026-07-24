@@ -133,6 +133,9 @@ public static class ServicesCollectionExtensions
         services.AddScoped<IAssignmentScopeResolver, AssignmentScopeResolver>();
         services.AddScoped<IRecurringAssignmentMaterializerService,
                            RecurringAssignmentMaterializerService>();
+        // Nightly auto-absent sweep — writes Absent for unmarked/held rosters once the equivalence
+        // slot has passed (business logic; the Infrastructure job is a thin dispatcher over this).
+        services.AddScoped<IAttendanceAutoAbsentService, AttendanceAutoAbsentService>();
 
         services.Configure<RequestLocalizationOptions>(options =>
         {

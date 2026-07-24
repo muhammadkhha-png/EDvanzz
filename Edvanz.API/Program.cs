@@ -243,6 +243,10 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 // (edit appsettings.json locally, or App Service settings "FreeTierQuotas__Students" in prod).
 builder.Services.Configure<Edvanz.Application.Options.FreeTierQuotaOptions>(
     builder.Configuration.GetSection(Edvanz.Application.Options.FreeTierQuotaOptions.Section));
+// Nightly auto-absent sweep — kill switch, effective-from (non-retroactive), lookback, cron all
+// tunable via App Service settings "AutoAbsent__Enabled" / "AutoAbsent__EffectiveFrom" etc.
+builder.Services.Configure<Edvanz.Application.Options.AutoAbsentOptions>(
+    builder.Configuration.GetSection(Edvanz.Application.Options.AutoAbsentOptions.Section));
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
 // Turns a subscription-only Forbidden into a clear localized "please subscribe" envelope
 // (instead of the framework's bare, body-less 403) on every gated action.
@@ -539,6 +543,22 @@ for (int attempt = 1; ; attempt++)
             recurringJobId: "recurring-assignment-materializer",
             methodCall: job => job.RunAsync(),
             cronExpression: "0 6 * * *",
+            options: new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+            }
+          );
+
+        // ── Nightly auto-absent sweep ──
+        // Marks unmarked/held roster students Absent once a class occurrence's whole equivalence-slot
+        // window has passed. Default 02:30 Africa/Cairo — after the day has closed, off-peak. The
+        // dispatcher enqueues per-teacher workers; the service is the kill switch (AutoAbsent__Enabled).
+        var autoAbsentOpts = app.Services
+            .GetRequiredService<IOptions<Edvanz.Application.Options.AutoAbsentOptions>>().Value;
+        RecurringJob.AddOrUpdate<AutoAbsentDispatcherJob>(
+            recurringJobId: AttendanceConstants.AutoAbsentJobId,
+            methodCall: job => job.RunAsync(),
+            cronExpression: autoAbsentOpts.CronExpression,
             options: new RecurringJobOptions
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),

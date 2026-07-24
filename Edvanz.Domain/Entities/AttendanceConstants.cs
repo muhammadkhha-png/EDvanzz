@@ -154,7 +154,38 @@ public static class AttendanceConstants
 
         /// <summary>ATT-7: report type requires a session group id (SessionGroupAttendance).</summary>
         public const string AttendanceReportSessionGroupRequired = "AttendanceReportSessionGroupRequired";
+
+        // ══════════════════════════════════════════════
+        // AUTO-ABSENT — edit-log reasons (audit trail on AttendanceEditLog.EditReason).
+        // Stored on the log rows the auto-absent job / flip produce, so the edit history reads clearly.
+        // ══════════════════════════════════════════════
+
+        /// <summary>Auto-absent job rolled an unresolved Held record forward to Absent (whole slot passed).</summary>
+        public const string AutoAbsentHeldRolledToAbsent = "AutoAbsentHeldRolledToAbsent";
+
+        /// <summary>A later same-occurrence mark overwrote a system-written auto-absent record.</summary>
+        public const string AutoAbsentOverwrittenByMark = "AutoAbsentOverwrittenByMark";
+
+        /// <summary>A later equivalent-occurrence present scan flipped a prior Absent to CrossSessionPresent.</summary>
+        public const string AbsentFlippedToCrossSessionPresent = "AbsentFlippedToCrossSessionPresent";
     }
+
+    // ══════════════════════════════════════════════
+    // AUTO-ABSENT BACKGROUND JOB
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Hangfire recurring-job id for the nightly auto-absent dispatcher (registered in Program.cs).
+    /// One id, single-sourced here so registration and any programmatic trigger stay in sync.
+    /// </summary>
+    public const string AutoAbsentJobId = "attendance-auto-absent";
+
+    /// <summary>
+    /// Hangfire queue the per-teacher auto-absent workers run on. Declared on the worker interface
+    /// method via <c>[Queue(...)]</c> (§6.1) — its own queue keeps the nightly sweep off the
+    /// latency-sensitive "notifications" queue.
+    /// </summary>
+    public const string AutoAbsentQueue = "auto-absent";
 
     // ══════════════════════════════════════════════
     // MODULE IDENTITY

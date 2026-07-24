@@ -411,6 +411,9 @@
   <data name="NoStudentsSelected" xml:space="preserve">
     <value>No students selected. Please select at least one student</value>
   </data>
+  <data name="NoStudentsInSession" xml:space="preserve">
+    <value>There are no students assigned to this session</value>
+  </data>
   <data name="BulkImportComplete" xml:space="preserve">
     <value>Bulk import completed</value>
   </data>
@@ -1840,5 +1843,15 @@
 </data>
 <data name="ForcePasswordChangedSuccess" xml:space="preserve">
   <value>The user's password has been reset and their active sessions have been revoked</value>
+</data>
+<!-- Auto-absent audit edit-reasons -->
+<data name="AutoAbsentHeldRolledToAbsent" xml:space="preserve">
+  <value>Automatically marked absent (was on hold and the class day passed).</value>
+</data>
+<data name="AutoAbsentOverwrittenByMark" xml:space="preserve">
+  <value>Attendance re-marked over an automatic absence.</value>
+</data>
+<data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
+  <value>Marked present in a linked session (same class); the earlier absence was cleared.</value>
 </data>
 </root>

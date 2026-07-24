@@ -129,6 +129,48 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// </summary>
     Task<IReadOnlyList<SessionOccurrence>> GetOccurrencesByTeacherAndDateAsync(long teacherId, DateTime date);
 
+    // ── Auto-absent nightly sweep (AttendanceAutoAbsentService) ──────────────────────────
+    // Fan-out selection + candidate enumeration for the job that materializes Absent records
+    // for students never marked once an occurrence's whole equivalence-slot window has passed.
+
+    /// <summary>
+    /// Distinct teacher ids that have at least one <see cref="SessionOccurrence"/> whose date is in
+    /// [<paramref name="fromInclusive"/>, <paramref name="toExclusive"/>). Coarse fan-out selector for
+    /// the auto-absent dispatcher, so it enqueues a worker only for teachers who actually held classes
+    /// in the window (the worker re-gates precisely against each teacher's local date). Both bounds are
+    /// compared on the date component.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetTeacherIdsWithOccurrencesBetweenAsync(
+        DateTime fromInclusive, DateTime toExclusive);
+
+    /// <summary>
+    /// A teacher's occurrences whose date is in [<paramref name="fromInclusive"/>,
+    /// <paramref name="toExclusive"/>), ordered by date ascending, with <c>Session</c> included.
+    /// Tracked (NOT AsNoTracking): the auto-absent worker refreshes each processed occurrence's
+    /// <see cref="SessionOccurrence.Status"/>. This is the candidate set the worker sweeps.
+    /// </summary>
+    Task<IReadOnlyList<SessionOccurrence>> GetOccurrencesByTeacherAndDateRangeAsync(
+        long teacherId, DateTime fromInclusive, DateTime toExclusive);
+
+    /// <summary>
+    /// The maximum occurrence date among <paramref name="sessionIds"/> for the equivalence slot
+    /// (<paramref name="weekStartDate"/> + <paramref name="dayPositionIndex"/>), or null when none
+    /// exists. The auto-absent worker passes the home session plus its linked sessions so it can hold
+    /// off marking a student absent until the ENTIRE slot window has passed — linked sessions meeting
+    /// on a later weekday (Sun≡Mon) still give the student their equivalent-attendance chance first.
+    /// </summary>
+    Task<DateTime?> GetMaxOccurrenceDateForSlotAsync(
+        IEnumerable<long> sessionIds, DateTime weekStartDate, int dayPositionIndex);
+
+    /// <summary>
+    /// The tracked attendance records that <paramref name="teacherStudentIds"/> already have on
+    /// <paramref name="sessionOccurrenceId"/> (any status). Tracked so the auto-absent worker can roll
+    /// an unresolved <see cref="Edvanz.Domain.Enums.AttendanceStatus.Held"/> record forward to Absent
+    /// in place. Empty list when none.
+    /// </summary>
+    Task<IReadOnlyList<AttendanceRecord>> GetRecordsByOccurrenceForStudentsAsync(
+        long sessionOccurrenceId, IEnumerable<long> teacherStudentIds);
+
     /// <summary>
     /// Updates an existing session occurrence (e.g., status change).
     /// REQ-ATT-049/051: Occurrence status updated as attendance is taken.

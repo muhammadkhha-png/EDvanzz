@@ -130,6 +130,9 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<RecurringAssignmentDispatcherJob>();
         services.AddScoped<IRecurringAssignmentMaterializerJob,
                            RecurringAssignmentMaterializerJob>();
+        // Nightly auto-absent sweep — dispatcher fans out one per-teacher worker.
+        services.AddScoped<AutoAbsentDispatcherJob>();
+        services.AddScoped<IAutoAbsentJob, AutoAbsentJob>();
         services.AddScoped<IExamHomeworkReportService, ExamHomeworkReportService>();
         // Generic PDF export engine (QuestPDF) — reused across modules. First consumer: audit (REQ-USR-030).
         services.AddScoped<IPdfExportService, PdfExportService>();
