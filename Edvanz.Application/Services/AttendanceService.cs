@@ -512,6 +512,15 @@ public class AttendanceService : IAttendanceService
             .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id);
         if (existingRecord is not null)
         {
+            // A system-written auto-absent (nightly sweep) is NOT a real teacher mark — a later mark on
+            // the same occurrence OVERWRITES it (clears the inferred absence) instead of 409-ing, so the
+            // teacher isn't forced through Edit Attendance. A teacher's own record still reads as a
+            // duplicate (unchanged behaviour).
+            if (existingRecord.IsAutoAbsent && existingRecord.Status == AttendanceStatus.Absent)
+                return await ReconcileSingleMarkAsync(existingRecord, markStatus, session, dto,
+                    AttendanceConstants.Messages.AutoAbsentOverwrittenByMark,
+                    isCrossFlip: false, null, null, null, trackedOccurrence: occurrence);
+
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
             {
                 Record = null,
@@ -547,6 +556,17 @@ public class AttendanceService : IAttendanceService
             .GetExistingAttendanceOnEquivalentOccurrenceAsync(dto.TeacherStudentId, equivalentOccurrenceIds);
         if (crossDuplicate is not null)
         {
+            // The student is being marked PRESENT on an EQUIVALENT occurrence while carrying an Absent
+            // on another occurrence of the same logical slot (their home occurrence — typically written
+            // by the nightly sweep, but a manual Absent flips too: physical attendance is ground truth).
+            // Flip that Absent to CrossSessionPresent (attended THIS session) rather than 409-ing — same
+            // class instance, so no "was absent last time" alert should survive.
+            if (crossDuplicate.Status == AttendanceStatus.Absent && markStatus == AttendanceStatus.Present)
+                return await ReconcileSingleMarkAsync(crossDuplicate, AttendanceStatus.CrossSessionPresent,
+                    session, dto, AttendanceConstants.Messages.AbsentFlippedToCrossSessionPresent,
+                    isCrossFlip: true, crossSessionId: dto.SessionId, crossSessionName: session.SessionName,
+                    crossOccurrenceDate: date, trackedOccurrence: null);
+
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
             {
                 Record = null,
@@ -785,6 +805,50 @@ public class AttendanceService : IAttendanceService
             var crossSessionDuplicates = await _unitOfWork.AttendanceRepo
                 .GetExistingAttendanceOnEquivalentOccurrenceBatchAsync(studentIds, equivalentOccurrenceIds);
 
+            // Auto-absent reconciliation (pre-pass, before the normal insert loop). A system-written
+            // auto-absent on this occurrence is OVERWRITTEN by the incoming mark; an Absent on an
+            // EQUIVALENT occurrence FLIPS to CrossSessionPresent when marking Present (physical
+            // attendance is ground truth). Handled up front so the loop's duplicate guards below simply
+            // report these students as already-handled successes. Counters are recomputed from records
+            // after the batch flush; occurrence statuses are refreshed alongside the fresh marks.
+            var sameOccRecords = (await _unitOfWork.AttendanceRepo
+                    .GetRecordsByOccurrenceForStudentsAsync(occurrence.Id, studentIds))
+                .Where(r => r.TeacherStudentId.HasValue)
+                .ToDictionary(r => r.TeacherStudentId!.Value);
+
+            var reconciledStudentIds = new HashSet<long>();
+            var reconciledOccurrenceIds = new HashSet<long>();
+            foreach (var studentId in studentIds)
+            {
+                if (!studentMap.ContainsKey(studentId))
+                    continue; // not an active student — the loop reports StudentNotFound
+
+                if (sameOccRecords.TryGetValue(studentId, out var occRec))
+                {
+                    if (occRec.IsAutoAbsent && occRec.Status == AttendanceStatus.Absent)
+                    {
+                        await ApplyReconciliationAsync(occRec, bulkStatus,
+                            AttendanceConstants.Messages.AutoAbsentOverwrittenByMark,
+                            isCrossFlip: false, null, null, null, dto.RecordedByUserId);
+                        reconciledStudentIds.Add(studentId);
+                        reconciledOccurrenceIds.Add(occurrence.Id);
+                    }
+                    continue; // any same-occ record → not eligible for the equivalent-flip below
+                }
+
+                if (bulkStatus == AttendanceStatus.Present
+                    && crossSessionDuplicates.TryGetValue(studentId, out var crossRec)
+                    && crossRec.Status == AttendanceStatus.Absent)
+                {
+                    await ApplyReconciliationAsync(crossRec, AttendanceStatus.CrossSessionPresent,
+                        AttendanceConstants.Messages.AbsentFlippedToCrossSessionPresent,
+                        isCrossFlip: true, dto.SessionId, session.SessionName, date, dto.RecordedByUserId);
+                    reconciledStudentIds.Add(studentId);
+                    if (crossRec.SessionOccurrenceId.HasValue)
+                        reconciledOccurrenceIds.Add(crossRec.SessionOccurrenceId.Value);
+                }
+            }
+
             // Occurrences that received a mark — the selected occurrence for same-session marks, home
             // occurrences for cross-session marks. Their statuses are refreshed together after the loop.
             var affectedOccurrences = new HashSet<SessionOccurrence>();
@@ -794,6 +858,14 @@ public class AttendanceService : IAttendanceService
 
             foreach (var studentId in studentIds)
             {
+                // Already handled by the auto-absent reconciliation pre-pass (overwrite / flip).
+                if (reconciledStudentIds.Contains(studentId))
+                {
+                    successCount++;
+                    studentResults.Add(new BulkMarkStudentResultDto { TeacherStudentId = studentId, Success = true });
+                    continue;
+                }
+
                 if (!studentMap.TryGetValue(studentId, out var student))
                 {
                     Skip(studentId, AttendanceConstants.Messages.StudentNotFound);
@@ -936,13 +1008,34 @@ public class AttendanceService : IAttendanceService
 
             // FIX H8: SaveChanges BEFORE UpdateOccurrenceStatusAsync.
             // The occurrence status query uses AsNoTracking, so it needs the records
-            // flushed to the database first to get an accurate count.
+            // flushed to the database first to get an accurate count. This flush also persists the
+            // reconciliation pre-pass's in-place status changes so the recompute below reads them.
             await _unitOfWork.SaveChangesAsync();
 
+            // Reconciled students (overwrite/flip) bypassed the in-memory counter mutation — recompute
+            // their counters from the now-flushed records (full recompute, so a flipped/overwritten
+            // absence correctly drops the consecutive-absence streak that drives the "was absent" alert).
+            foreach (var reconciledId in reconciledStudentIds)
+                await RecalculateAbsenceCounterFromRecordsAsync(dto.TeacherId, reconciledId);
+
             // Update the status of EVERY occurrence that received a mark (the selected occurrence for
-            // same-session marks; home-session occurrences for cross-session marks).
+            // same-session marks; home-session occurrences for cross-session marks) plus any occurrence
+            // touched by the reconciliation pre-pass.
             foreach (var affected in affectedOccurrences)
                 await UpdateOccurrenceStatusAsync(affected);
+
+            var refreshedOccurrenceIds = affectedOccurrences.Select(o => o.Id).ToHashSet();
+            foreach (var occId in reconciledOccurrenceIds)
+            {
+                if (!refreshedOccurrenceIds.Add(occId))
+                    continue;
+                // TRACKED get-by-id — returns the already-tracked instance (e.g. the selected occurrence,
+                // or a home occurrence a fresh cross-session mark landed on) instead of a conflicting copy.
+                var reconciledOcc = await _unitOfWork.AttendanceRepo
+                    .GetOccurrenceByIdTrackedAsync(occId, dto.TeacherId);
+                if (reconciledOcc is not null)
+                    await UpdateOccurrenceStatusAsync(reconciledOcc);
+            }
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -976,7 +1069,8 @@ public class AttendanceService : IAttendanceService
             // assignment, cross-session, etc.) keep their real session status in the exam too.
             if (ownsTransaction)
             {
-                foreach (var affectedOccurrenceId in affectedOccurrences.Select(o => o.Id).Distinct())
+                foreach (var affectedOccurrenceId in affectedOccurrences.Select(o => o.Id)
+                             .Concat(reconciledOccurrenceIds).Distinct())
                     await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                         dto.TeacherId, affectedOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
             }
@@ -2680,6 +2774,133 @@ public class AttendanceService : IAttendanceService
             .RecalculateConsecutiveAbsencesAsync(teacherStudentId);
 
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
+    }
+
+    /// <summary>
+    /// Reconciles an EXISTING attendance record for an incoming present/absent mark, in place, instead
+    /// of rejecting it as a duplicate. Two cases feed this (see the take paths):
+    ///   • OVERWRITE — a system-written <c>IsAutoAbsent</c> record on the SAME occurrence becomes the
+    ///     freshly-marked status, so a teacher re-marking the morning after the nightly sweep isn't
+    ///     forced through Edit Attendance.
+    ///   • FLIP — an <see cref="AttendanceStatus.Absent"/> record on an EQUIVALENT occurrence becomes
+    ///     <see cref="AttendanceStatus.CrossSessionPresent"/> (with the attended session/date) because
+    ///     the student was scanned present on a linked session's equivalent occurrence — the same
+    ///     logical class instance, so it must not read as a fresh absence.
+    /// Writes an <see cref="AttendanceEditLog"/>, clears <c>IsAutoAbsent</c>, and flags the record
+    /// edited. Mutates the tracked record only — the caller owns flush / counter recompute / occurrence
+    /// refresh / commit (so the counter recompute drops the stale consecutive-absence streak and the
+    /// "was absent last time" alert clears).
+    /// </summary>
+    private async Task ApplyReconciliationAsync(
+        AttendanceRecord record, AttendanceStatus newStatus, string editReason, bool isCrossFlip,
+        long? crossSessionId, string? crossSessionName, DateTime? crossOccurrenceDate, long? editedByUserId)
+    {
+        var now = DateTime.UtcNow;
+        await _unitOfWork.AttendanceRepo.AddEditLogAsync(new AttendanceEditLog
+        {
+            AttendanceRecordId = record.Id,
+            PreviousStatus = record.Status,
+            NewStatus = newStatus,
+            PreviousAttendanceMethod = record.AttendanceMethod,
+            NewAttendanceMethod = record.AttendanceMethod,
+            EditedAt = now,
+            EditedByUserId = editedByUserId,
+            EditReason = editReason,
+            CreateAt = now
+        });
+
+        record.Status = newStatus;
+        record.IsAutoAbsent = false;
+        if (isCrossFlip)
+        {
+            record.IsCrossSession = true;
+            record.CrossSessionId = crossSessionId;
+            record.CrossSessionName = crossSessionName;
+            record.CrossSessionOccurrenceDate = crossOccurrenceDate;
+        }
+        record.IsEdited = true;
+        record.LastEditedAt = now;
+        record.LastEditedByUserId = editedByUserId;
+        await _unitOfWork.AttendanceRepo.UpdateAttendanceRecordAsync(record);
+    }
+
+    /// <summary>
+    /// Single-mark wrapper around <see cref="ApplyReconciliationAsync"/>: applies the in-place
+    /// overwrite/flip, recomputes the counter + occurrence status, commits, then (post-commit) fires the
+    /// matching attended/absent notification and exam reconcile — mirroring MarkAttendanceAsync's tail so
+    /// the reconciled mark behaves exactly like a fresh one.
+    /// </summary>
+    private async Task<Result<MarkAttendanceResultDto>> ReconcileSingleMarkAsync(
+        AttendanceRecord record, AttendanceStatus newStatus, Session session, MarkAttendanceDto dto,
+        string editReason, bool isCrossFlip, long? crossSessionId, string? crossSessionName,
+        DateTime? crossOccurrenceDate, SessionOccurrence? trackedOccurrence)
+    {
+        long? teacherStudentId = record.TeacherStudentId;
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
+        {
+            await ApplyReconciliationAsync(record, newStatus, editReason, isCrossFlip,
+                crossSessionId, crossSessionName, crossOccurrenceDate, dto.RecordedByUserId);
+
+            // Flush BEFORE the counter/occurrence recompute — both read back from the DB (ATT-9).
+            await _unitOfWork.SaveChangesAsync();
+
+            int consecutive = 0;
+            if (teacherStudentId.HasValue)
+            {
+                await RecalculateAbsenceCounterFromRecordsAsync(dto.TeacherId, teacherStudentId.Value);
+                var counter = await _unitOfWork.AttendanceRepo
+                    .GetAbsenceCounterAsync(dto.TeacherId, teacherStudentId.Value);
+                consecutive = counter?.ConsecutiveAbsences ?? 0;
+            }
+
+            // Refresh the occurrence status. Prefer the caller's already-TRACKED instance (the selected
+            // occurrence in the overwrite case) — reloading it AsNoTracking would collide with the
+            // tracked copy. The flip case passes null and the record's (distinct, untracked) home
+            // occurrence is loaded by id.
+            var occToRefresh = trackedOccurrence;
+            if (occToRefresh is null && record.SessionOccurrenceId.HasValue)
+                occToRefresh = await _unitOfWork.AttendanceRepo
+                    .GetOccurrenceByIdTrackedAsync(record.SessionOccurrenceId.Value, dto.TeacherId);
+            if (occToRefresh is not null)
+                await UpdateOccurrenceStatusAsync(occToRefresh);
+
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            if (ownsTransaction && teacherStudentId.HasValue)
+            {
+                if (newStatus == AttendanceStatus.Absent)
+                    await _attendanceNotifier.OnStudentAbsentAsync(
+                        dto.TeacherId, teacherStudentId.Value, dto.SessionId, session.SessionName,
+                        record.OccurrenceDate, consecutive);
+                else
+                    await _attendanceNotifier.OnStudentAttendedAsync(
+                        dto.TeacherId, teacherStudentId.Value, dto.SessionId, session.SessionName,
+                        record.OccurrenceDate);
+
+                if (record.SessionOccurrenceId.HasValue)
+                    await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
+                        dto.TeacherId, record.SessionOccurrenceId.Value, dto.RecordedByUserId ?? dto.TeacherId);
+            }
+
+            return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
+            {
+                Record = MapToRecordDto(record, record.StudentName ?? "Unknown", record.StudentCode ?? "")
+            }, _localizer, AttendanceConstants.Messages.AttendanceMarkedSuccess);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>

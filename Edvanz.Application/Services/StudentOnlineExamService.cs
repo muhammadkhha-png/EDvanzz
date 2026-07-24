@@ -71,6 +71,9 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             // SubmittedAt — without this the list re-offered a blocked exam as attemptable
             // (`upcoming`, StudentStatus null) and the student only found out at submit-409.
             bool terminal = finalized || report?.Status == StudentOnlineExamStatus.Blocked;
+            // Assigned (every row here is in-scope) + never attempted + window CLOSED ⇒ virtual Missed,
+            // so the app renders a status/score instead of null. Not persisted.
+            bool missed = report is null && exam.EndDateTime < now;
 
             var row = new OnlineExamStudentListItemDto
             {
@@ -82,8 +85,9 @@ public class StudentOnlineExamService : IStudentOnlineExamService
                 Duration = exam.EndDateTime - exam.StartDateTime,
                 QuestionsCount = exam.Questions.Count,
                 ExamDegree = exam.Questions.Sum(q => q.Degree),
-                StudentDegree = terminal ? report!.Score : null,
-                StudentStatus = terminal ? report!.Status.ToString() : null,
+                StudentDegree = terminal ? report!.Score : (missed ? 0m : (decimal?)null),
+                StudentStatus = terminal ? report!.Status.ToString()
+                    : (missed ? StudentOnlineExamStatus.Missed.ToString() : null),
             };
 
             // QD split: past = terminal (finalized ∨ blocked) ∨ End<now; upcoming = Published ∧ not terminal ∧ window open.
@@ -386,7 +390,26 @@ public class StudentOnlineExamService : IStudentOnlineExamService
 
         var report = await _unitOfWork.StudentOnlineExamReportsRepo.GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
         if (report is null)
+        {
+            // Never-attempted + availability window CLOSED + student is in scope ⇒ a virtual "Missed"
+            // result (zeroed body) instead of 404, so the app can show a proper "you missed this exam"
+            // screen. No report row is created (Missed is derived, like NotAttended). Before the window
+            // closes, or for a student not in scope, keep the 404 (nothing to show yet).
+            bool windowClosed = exam.Status != OnlineExamStatus.Draft && DateTime.UtcNow > exam.EndDateTime;
+            bool isAssigned = windowClosed && await _unitOfWork.OnlineExamsRepo
+                .BuildAssignedStudentIdsQuery(onlineExamId, teacherId)
+                .AnyAsync(id => id == teacherStudentId);
+            if (windowClosed && isAssigned)
+            {
+                var missedQuestions = await _unitOfWork.OnlineExamsRepo.GetQuestionsForTeacherAsync(onlineExamId);
+                var missedStats = _grading.ComputeStats(
+                    missedQuestions, Array.Empty<StudentQuestionAnswer>(), 0m, missedQuestions.Sum(q => q.Degree));
+                missedStats.Status = StudentOnlineExamStatus.Missed.ToString();
+                return Result<OnlineExamStatsDto>.Success(missedStats, _localizer);
+            }
+
             return Result<OnlineExamStatsDto>.Failure(_localizer, OnlineExamConstants.Messages.ReportNotFound, HttpStatusCode.NotFound);
+        }
 
         await _grading.TryAutoFinalizeAsync(exam, report);
 

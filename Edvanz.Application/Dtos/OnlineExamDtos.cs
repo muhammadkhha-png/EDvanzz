@@ -162,6 +162,14 @@ public sealed class OnlineExamOverviewDto
     public int FailedCount { get; set; }
     public int BlockedCount { get; set; }
     public int InProgressCount { get; set; }
+
+    /// <summary>
+    /// Assigned students with NO report row = "did not attend". After the window closes these are the
+    /// missed students; matches the per-student <c>NotAttended</c> rows on scope-analysis. Derived as
+    /// assigned − reported (set difference), so out-of-scope reports can never make it negative.
+    /// </summary>
+    public int MissedCount { get; set; }
+
     public List<OnlineExamScopeDto> Scopes { get; set; } = new();
 }
 

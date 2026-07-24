@@ -269,7 +269,10 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
                             StudentStatus = e.StudentStatus
                         });
                     }
-                    tileCount += data.Upcoming.Count;
+                    // Tile count = ALL online exams this student has (upcoming + past), so it reflects
+                    // the exam page rather than reading 0 when nothing is upcoming. Offline exams are
+                    // deliberately NOT counted here. The `upcoming` preview list below stays upcoming-only.
+                    tileCount += data.Upcoming.Count + data.Past.Count;
                 }
             }
             catch (Exception ex)
@@ -301,7 +304,8 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
                             MaxGrade = r.MaxGrade
                         });
                     }
-                    tileCount += offlineUpcoming.Count;
+                    // Offline exams contribute to the upcoming preview + month strip but NOT to tileCount
+                    // (the tile counts online exams only, per product decision).
 
                     section.OfflineMonths = BuildOfflineMonths(rows, localToday);
                 }

@@ -153,6 +153,19 @@ public class AttendanceRecord : BaseEntity
     /// </summary>
     public AttendanceMethod AttendanceMethod { get; set; }
 
+    /// <summary>
+    /// True when this <see cref="AttendanceStatus.Absent"/> row was written by the nightly
+    /// auto-absent job (AutoAbsentJob) — i.e. the student was never explicitly marked and the
+    /// occurrence's whole equivalence-slot window passed, OR an unresolved Held record was rolled
+    /// forward to Absent by that job. Distinguishes a system-inferred absence from one a teacher
+    /// explicitly recorded, so the take-attendance paths may still OVERWRITE it (a plain re-mark on
+    /// the same occurrence) or FLIP it to <see cref="AttendanceStatus.CrossSessionPresent"/> when the
+    /// student is later scanned present on an equivalent occurrence — without treating it as a hard
+    /// duplicate. Always false for teacher/assistant-recorded rows and cleared on any such conversion.
+    /// Defaults to false so every historically-written row reads as an explicit mark.
+    /// </summary>
+    public bool IsAutoAbsent { get; set; } = false;
+
     // ══════════════════════════════════════════════
     // CROSS-SESSION FIELDS (REQ-ATT-014 through 018)
     // ══════════════════════════════════════════════

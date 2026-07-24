@@ -411,6 +411,9 @@
   <data name="NoStudentsSelected" xml:space="preserve">
     <value>مفيش طلاب محددين. من فضلك اختار طالب واحد على الأقل</value>
   </data>
+  <data name="NoStudentsInSession" xml:space="preserve">
+    <value>مفيش طلبة موجودة داخل المجموعة ، برجاء اضافة طلبة</value>
+  </data>
   <data name="BulkImportComplete" xml:space="preserve">
     <value>تم الاستيراد</value>
   </data>
@@ -1828,5 +1831,15 @@
 </data>
 <data name="ForcePasswordChangedSuccess" xml:space="preserve">
   <value>تم تغيير الباسورد بتاع المستخدم وتسجيل خروجه من كل الجلسات النشطة</value>
+</data>
+<!-- Auto-absent audit edit-reasons -->
+<data name="AutoAbsentHeldRolledToAbsent" xml:space="preserve">
+  <value>اتسجّل غايب تلقائيًا (كان معلّق وعدّى يوم الحصة).</value>
+</data>
+<data name="AutoAbsentOverwrittenByMark" xml:space="preserve">
+  <value>اتعدّل الحضور بدل الغياب التلقائي.</value>
+</data>
+<data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
+  <value>اتسجّل حاضر في حصة مرتبطة (نفس الحصة) واتشال الغياب اللي فات.</value>
 </data>
 </root>

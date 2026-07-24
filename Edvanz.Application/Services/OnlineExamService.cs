@@ -325,8 +325,14 @@ public class OnlineExamService : IOnlineExamService
             return Result<OnlineExamOverviewDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
 
         decimal examGrade = await _unitOfWork.OnlineExamsRepo.GetTotalDegreeAsync(onlineExamId);
-        int assignedCount = await _unitOfWork.OnlineExamsRepo
-            .BuildAssignedStudentIdsQuery(onlineExamId, teacherId).Distinct().CountAsync();
+        // Materialize the assigned id set once (used for both AssignedCount and MissedCount).
+        var assignedIds = await _unitOfWork.OnlineExamsRepo
+            .BuildAssignedStudentIdsQuery(onlineExamId, teacherId).Distinct().ToListAsync();
+        int assignedCount = assignedIds.Count;
+        // MissedCount = assigned students with no report (= scope-analysis "NotAttended"). Except (not a
+        // subtraction of counts) so an out-of-scope report can never drive it negative.
+        var reportedIds = await _unitOfWork.StudentOnlineExamReportsRepo.GetReportedStudentIdsAsync(onlineExamId);
+        int missedCount = assignedIds.Except(reportedIds).Count();
         var (avg, high, low) = await _unitOfWork.StudentOnlineExamReportsRepo.GetPercentageStatsAsync(onlineExamId);
         var statusCounts = await _unitOfWork.StudentOnlineExamReportsRepo.GetStatusCountsAsync(onlineExamId);
         var scopes = await _unitOfWork.OnlineExamsRepo.GetScopesByExamIdsAsync(new[] { onlineExamId });
@@ -346,6 +352,7 @@ public class OnlineExamService : IOnlineExamService
             FailedCount = statusCounts.Failed,
             BlockedCount = statusCounts.Blocked,
             InProgressCount = statusCounts.InProgress,
+            MissedCount = missedCount,
             Scopes = scopes.Select(s => MapScopeDto(s, perScopeCounts)).ToList(),
         };
 
