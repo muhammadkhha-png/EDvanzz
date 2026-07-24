@@ -392,6 +392,8 @@ public class OnlineExamService : IOnlineExamService
                 Percentage = report?.Percentage,
                 Score = report?.Score,
                 IsOutOfScope = false,
+                SessionId = student.SessionId,
+                SessionGroupId = student.SessionGroupId,
             });
         }
 
@@ -407,6 +409,8 @@ public class OnlineExamService : IOnlineExamService
                 Percentage = report.Percentage,
                 Score = report.Score,
                 IsOutOfScope = true,
+                SessionId = report.TeacherStudent?.SessionId,  // best-effort
+                SessionGroupId = null,
             });
         }
 

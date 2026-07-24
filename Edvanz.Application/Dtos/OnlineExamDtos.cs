@@ -201,6 +201,8 @@ public sealed class OnlineExamScopeAnalysisRowDto
     public decimal? Percentage { get; set; }
     public decimal? Score { get; set; }
     public bool IsOutOfScope { get; set; } // case-3 flag
+    public long? SessionId { get; set; }
+    public long? SessionGroupId { get; set; }
 }
 
 /// <summary>T10 questions overview.</summary>

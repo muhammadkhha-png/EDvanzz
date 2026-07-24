@@ -312,18 +312,23 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
                 {
                     TeacherStudentId = ts.Id,
                     StudentName = ts.StudentName ?? string.Empty,
-                    StudentCode = ts.StudentCode
+                    StudentCode = ts.StudentCode,
+                    SessionId = ts.SessionId,          // the scoped session
+                    SessionGroupId = null,             // session scope: group N/A
                 });
 
         var groupBranch = _context.OnlineExamScopes
             .Where(s => s.OnlineExamId == onlineExamId && s.TeacherId == teacherId && s.SessionGroupId != null)
-            .Join(_context.Sessions, s => s.SessionGroupId, sess => sess.SessionGroupId, (s, sess) => sess.Id)
-            .Join(_context.TeacherStudents, sessionId => sessionId, ts => ts.SessionId,
-                (sessionId, ts) => new AssignedStudentRow
+            .Join(_context.Sessions, s => s.SessionGroupId, sess => sess.SessionGroupId,
+                (s, sess) => new { s.SessionGroupId, SessionId = sess.Id })
+            .Join(_context.TeacherStudents, x => x.SessionId, ts => ts.SessionId,
+                (x, ts) => new AssignedStudentRow
                 {
                     TeacherStudentId = ts.Id,
                     StudentName = ts.StudentName ?? string.Empty,
-                    StudentCode = ts.StudentCode
+                    StudentCode = ts.StudentCode,
+                    SessionId = ts.SessionId,          // the student's session
+                    SessionGroupId = x.SessionGroupId, // the scoped group
                 });
 
         var rows = await sessionBranch.Union(groupBranch).AsNoTracking().ToListAsync();
