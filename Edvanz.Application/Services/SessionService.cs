@@ -1049,4 +1049,21 @@ public class SessionService : ISessionService
             CreatedAt = session.CreateAt
         };
     }
+    /// <inheritdoc />
+    public async Task<Result<List<SessionLookupItemDto>>> GetSessionLookupAsync(long teacherId)
+    {
+        // Validate teacher exists — same guard as every other teacher-scoped read in this service.
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<List<SessionLookupItemDto>>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // Reuses the existing repo projection — already used internally by GetSessionAssignmentChipsAsync.
+        var sessions = await _unitOfWork.SessionsRepo.GetTeacherSessionNamesAsync(teacherId);
+
+        var dto = sessions
+            .Select(s => new SessionLookupItemDto { Id = s.Id, SessionName = s.SessionName })
+            .ToList();
+
+        return Result<List<SessionLookupItemDto>>.Success(dto, _localizer);
+    }
 }

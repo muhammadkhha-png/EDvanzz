@@ -376,4 +376,20 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .AsNoTracking()
             .FirstOrDefaultAsync();
     }
+    // Repo
+    public async Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(
+        long? teacherId, IEnumerable<long> sessionIds)
+    {
+        var ids = sessionIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<long, string>();
+
+        var query = _context.Sessions.Where(s => ids.Contains(s.Id));
+        if (teacherId.HasValue)
+            query = query.Where(s => s.TeacherId == teacherId.Value);
+
+        return await query
+            .Select(s => new { s.Id, s.SessionName })
+            .AsNoTracking()
+            .ToDictionaryAsync(s => s.Id, s => s.SessionName);
+    }
 }

@@ -139,4 +139,9 @@ public interface ISessionService
     /// Sets TeacherStudent.SessionId to null.
     /// </summary>
     Task<Result<bool>> UnassignStudentAsync(long teacherId, long sessionId, long studentId);
+    /// <summary>
+    /// Returns every session (Id + SessionName only) belonging to the teacher, ordered by name.
+    /// Not paginated, not filtered — intended for select/dropdown controls, not the sessions screen.
+    /// </summary>
+    Task<Result<List<SessionLookupItemDto>>> GetSessionLookupAsync(long teacherId);
 }

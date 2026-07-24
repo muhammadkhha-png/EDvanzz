@@ -96,34 +96,7 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     // LIST / SEARCH / FILTER QUERIES
     // ══════════════════════════════════════════════
 
-    /// <summary>
-    /// Builds a filtered, searchable, sortable IQueryable for the teacher's active students.
-    /// The caller (service layer) uses this with GetPagedAsync for pagination.
-    /// 
-    /// REQ-STU-032: Search by name, code, or session name (partial match).
-    /// REQ-STU-036: Filter by session, missing phone, missing parent phone, missing session.
-    /// REQ-STU-SRT-001: Sort by name, code, or date added.
-    /// REQ-STU-SRT-005: Filter first, then sort.
-    /// 
-    /// Returns IQueryable so pagination is applied at the database level (not in-memory).
-    /// </summary>
-    /// <param name="teacherId">The owning teacher's Id (multi-tenant scope).</param>
-    /// <param name="search">Optional search term (partial match on name, code).</param>
-    /// <param name="sessionId">Optional filter: only students in this session.</param>
-    /// <param name="missingStudentPhone">If true, only students with no phone number.</param>
-    /// <param name="missingParentPhone">If true, only students with no parent phone.</param>
-    /// <param name="missingSession">If true, only students with no assigned session.</param>
-    /// <param name="sortBy">Column to sort by. Defaults to DateAdded.</param>
-    /// <param name="sortDirection">Sort direction. Defaults to Desc.</param>
-    IQueryable<TeacherStudent> BuildStudentListQuery(
-        long teacherId,
-        string? search = null,
-        long? sessionId = null,
-        bool missingStudentPhone = false,
-        bool missingParentPhone = false,
-        bool missingSession = false,
-        Enums.StudentSortBy sortBy = Enums.StudentSortBy.DateAdded,
-        Enums.SortDirection sortDirection = Enums.SortDirection.Desc);
+
 
     /// <summary>
     /// Builds a queryable for the teacher's recycle bin (soft-deleted students only).
@@ -181,6 +154,33 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// left-joins them onto the full session catalog.
     /// </summary>
     Task<StudentAssignmentCounts> GetAssignmentCountsAsync(long teacherId, string? search = null);
+    /// <summary>
+    /// Builds a filtered, searchable, sortable IQueryable for the teacher's active students.
+    /// The caller (service layer) uses this with GetPagedAsync for pagination.
+    /// 
+    /// REQ-STU-032: Search by name, code, or session name (partial match).
+    /// REQ-STU-036: Filter by session, missing phone, missing parent phone, missing session.
+    /// REQ-STU-SRT-001: Sort by name, code, or date added.
+    /// REQ-STU-SRT-005: Filter first, then sort.
+    /// 
+    /// Returns IQueryable so pagination is applied at the database level (not in-memory).
+    /// </summary>
+    /// <param name="teacherId">The owning teacher's Id (multi-tenant scope).</param>
+    /// <param name="search">Optional search term (partial match on name, code).</param>
+    /// <param name="sessionId">Optional filter: only students in this session.</param>
+    /// <param name="missingStudentPhone">If true, only students with no phone number.</param>
+    /// <param name="missingParentPhone">If true, only students with no parent phone.</param>
+    /// <param name="missingSession">If true, only students with no assigned session.</param>
+    /// <param name="sortBy">Column to sort by. Defaults to DateAdded.</param>
+    /// <param name="sortDirection">Sort direction. Defaults to Desc.</param>
 
-
+    IQueryable<TeacherStudent> BuildStudentListQuery(
+    long? teacherId,
+    string? search = null,
+    long? sessionId = null,
+    bool missingStudentPhone = false,
+    bool missingParentPhone = false,
+    bool missingSession = false,
+    Enums.StudentSortBy sortBy = Enums.StudentSortBy.DateAdded,
+    Enums.SortDirection sortDirection = Enums.SortDirection.Desc);
 }

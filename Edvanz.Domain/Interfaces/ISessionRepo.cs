@@ -217,4 +217,6 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// materializing the full Session entity.
     /// </summary>
     Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId);
+    // Interface
+    Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long? teacherId, IEnumerable<long> sessionIds);
 }

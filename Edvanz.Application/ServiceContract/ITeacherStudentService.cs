@@ -28,7 +28,7 @@ public interface ITeacherStudentService
     /// REQ-STU-047: Auto-generates barcode at creation.
     /// Validates capacity limit, name not empty, code uniqueness, and code format.
     /// </summary>
-    Task<Result<TeacherStudentDto>> CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto);
+    Task<Result<TeacherStudentDto>>  CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto);
     /// <summary>
     /// Retrieves a single active student record by Id, scoped to the teacher,
     /// including the assigned-session summary for the profile screen.
@@ -149,5 +149,14 @@ public interface ITeacherStudentService
     /// </summary>
     Task<Result<TenantStudentListDto>> GetTenantStudentListAsync(
         long teacherId, StudentListRequest request);
+    /// <summary>
+    /// SUPER-ADMIN variant of <see cref="GetStudentListAsync(long, StudentListRequest)"/>.
+    /// When <paramref name="teacherId"/> is null, returns the paginated list across ALL
+    /// teachers (no tenant scope) — must only be reachable behind a roleOnly SuperAdmin
+    /// gate. When supplied, behaves identically to the teacher-scoped overload, including
+    /// the TeacherNotFound guard.
+    /// </summary>
+    Task<Result<PaginatedResponse<List<TeacherStudentDto>>>> GetStudentListForAdminAsync(
+        long? teacherId, StudentListRequest request);
 
 }

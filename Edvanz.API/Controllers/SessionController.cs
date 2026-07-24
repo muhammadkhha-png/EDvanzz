@@ -538,4 +538,33 @@ public class SessionController : ApiBaseController
         var result = await _sessionService.UnassignStudentAsync(id.Value, sessionId, studentId);
         return ToResponse(result);
     }
+
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 7b: GET SESSION LOOKUP (Id + Name only, not paginated)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Returns every session belonging to the teacher as {id, sessionName} pairs.
+    //   No pagination, no search/filter — for select/dropdown controls.
+    //
+    // SAMPLE REQUEST (Teacher/Assistant, teacherId from JWT):
+    //   GET /api/session/sessions/lookup
+    //
+    // SAMPLE REQUEST (SuperAdmin, explicit teacherId):
+    //   GET /api/session/1/sessions/lookup
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/lookup")]
+    [HttpGet("{teacherId:long}/sessions/lookup")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.Session.SessionLookupItemDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSessionLookup([FromRoute] long? teacherId = null)
+    {
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+
+        var result = await _sessionService.GetSessionLookupAsync(id.Value);
+        return ToResponse(result);
+    }
 }

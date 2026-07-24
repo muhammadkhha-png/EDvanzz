@@ -115,18 +115,20 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
 
     /// <inheritdoc />
     public IQueryable<TeacherStudent> BuildStudentListQuery(
-        long teacherId,
-        string? search = null,
-        long? sessionId = null,
-        bool missingStudentPhone = false,
-        bool missingParentPhone = false,
-        bool missingSession = false,
-        StudentSortBy sortBy = StudentSortBy.DateAdded,
-        SortDirection sortDirection = SortDirection.Desc)
+      long? teacherId,
+      string? search = null,
+      long? sessionId = null,
+      bool missingStudentPhone = false,
+      bool missingParentPhone = false,
+      bool missingSession = false,
+      StudentSortBy sortBy = StudentSortBy.DateAdded,
+      SortDirection sortDirection = SortDirection.Desc)
     {
-        // Start with active students for this teacher (global filter handles IsDeleted)
-        var query = _context.TeacherStudents
-            .Where(ts => ts.TeacherId == teacherId);
+        // Global filter handles IsDeleted. Scope by teacher ONLY when one is supplied —
+        // null means "every teacher" (SuperAdmin cross-tenant path).
+        var query = _context.TeacherStudents.AsQueryable();
+        if (teacherId.HasValue)
+            query = query.Where(ts => ts.TeacherId == teacherId.Value);
 
         // ── FILTERS (applied BEFORE sort per REQ-STU-SRT-005) ──
 
@@ -292,4 +294,6 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
             PerSession = perSession
         };
     }
+
+
 }

@@ -486,3 +486,13 @@ public class AssignStudentsResultDto
     /// </summary>
     public List<StudentReassignmentWarning> Warnings { get; set; } = new();
 }
+/// <summary>
+/// Minimal session identity for select/dropdown controls — Id + SessionName only.
+/// Not paginated, not filtered: returns the teacher's full session catalog in one call.
+/// Same pattern as <see cref="Edvanz.Application.Dtos.Teacher.TeacherLookupItemDto"/>.
+/// </summary>
+public class SessionLookupItemDto
+{
+    public long Id { get; set; }
+    public string SessionName { get; set; } = null!;
+}

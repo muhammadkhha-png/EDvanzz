@@ -1270,4 +1270,57 @@ public class TeacherStudentService : ITeacherStudentService
         // fallback is exactly what turned a StudentCode collision into a bogus phone error.
         return null;
     }
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<TeacherStudentDto>>>> GetStudentListForAdminAsync(
+        long? teacherId, StudentListRequest request)
+    {
+        // Validate teacher exists — only when one was supplied. Null teacherId = every teacher,
+        // safe only because the controller gates this to SuperAdmin (roleOnly).
+        if (teacherId.HasValue)
+        {
+            var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId.Value);
+            if (teacher is null)
+                return Result<PaginatedResponse<List<TeacherStudentDto>>>.Failure(
+                    _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+        }
+
+        var query = _unitOfWork.Students.BuildStudentListQuery(
+            teacherId,
+            request.Search,
+            request.SessionId,
+            request.MissingStudentPhone,
+            request.MissingParentPhone,
+            request.MissingSession,
+            request.SortBy,
+            request.SortDirection);
+
+        int totalCount = await _unitOfWork.Students.CountAsync(query);
+        var students = await _unitOfWork.Students.GetPagedAsync(query, request.Page, request.PageSize);
+
+        // Enrich the assigned-session badge. sessionIds are globally unique (Session.Id is the PK,
+        // not composite with TeacherId), so one cross-tenant lookup is safe even when the page mixes
+        // students from different teachers.
+        var sessionIds = students
+            .Where(s => s.SessionId.HasValue)
+            .Select(s => s.SessionId!.Value)
+            .Distinct()
+            .ToList();
+
+        IReadOnlyDictionary<long, string> sessionNames = sessionIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, sessionIds);
+
+        var dtos = students.Select(s => MapToDto(s, sessionNames)).ToList();
+
+        var response = new PaginatedResponse<List<TeacherStudentDto>>
+        {
+            totalCount = totalCount,
+            page = request.Page,
+            pageSize = request.PageSize,
+            totalPages = (int)Math.Ceiling((double)totalCount / request.PageSize),
+            data = dtos
+        };
+
+        return Result<PaginatedResponse<List<TeacherStudentDto>>>.Success(response, _localizer);
+    }
 }

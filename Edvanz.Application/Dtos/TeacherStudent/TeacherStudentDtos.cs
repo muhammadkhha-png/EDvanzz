@@ -522,3 +522,44 @@ public class StudentCodeResolveDto
     /// <summary>Display name of the assigned session, or null when unassigned.</summary>
     public string? SessionName { get; set; }
 }
+/// <summary>
+/// Input DTO for creating a single student record on behalf of a specified teacher.
+/// SUPER-ADMIN ONLY. Adds <see cref="TeacherId"/> on top of the standard
+/// <see cref="CreateTeacherStudentDto"/> fields so the same validation and creation
+/// logic (REQ-STU-005/008/009/012/014/047) can be reused verbatim by
+/// TeacherStudentService.CreateStudentAsync — the target teacher is simply supplied
+/// explicitly instead of being resolved from the JWT.
+/// SECURITY: this DTO must only ever be bound on an action gated to the SuperAdmin
+/// role (roleOnly). TeacherId here is caller-supplied — an IDOR vector for any other
+/// role, since every other Student-module endpoint derives teacherId from the JWT
+/// (Catalog §1.3).
+/// </summary>
+public class CreateTeacherStudentByAdminDto : CreateTeacherStudentDto
+{
+    /// <summary>
+    /// The target teacher's Id. Must reference an existing active Teacher record —
+    /// validated inside CreateStudentAsync (returns 404 TeacherNotFound otherwise).
+    /// </summary>
+    [Required]
+    public long TeacherId { get; set; }
+}
+/// <summary>
+/// Paginated student-list request for a teacher specified by the caller.
+/// SUPER-ADMIN ONLY. Extends <see cref="StudentListRequest"/> with
+/// <see cref="TeacherId"/> so the same search/filter/sort pipeline in
+/// TeacherStudentService.GetStudentListAsync can be reused verbatim — the
+/// target teacher is supplied explicitly instead of resolved from the JWT.
+/// SECURITY: TeacherId here is caller-supplied — only safe behind a roleOnly
+/// SuperAdmin gate (Catalog §1.3; every other Student-module endpoint derives
+/// teacherId from the JWT).
+/// </summary>
+/// <summary>
+/// Optional target teacher's Id. When supplied, behaves identically to the teacher-scoped
+/// student list (404 TeacherNotFound if the id doesn't resolve). When omitted, returns
+/// students across ALL teachers — cross-tenant, reachable only via the roleOnly SuperAdmin
+/// gate on this controller action.
+/// </summary>
+public class StudentListByAdminRequest : StudentListRequest
+{
+    public long? TeacherId { get; set; }
+}

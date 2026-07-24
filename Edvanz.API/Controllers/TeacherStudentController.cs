@@ -557,4 +557,45 @@ public class TeacherStudentController : ModuleSixApiBaseController
         var result = await _studentService.GetTenantStudentListAsync(teacherId.Value, request);
         return ToResponse(result);
     }
+    /// <summary>Creates a new student record under a teacher specified by the caller. SuperAdmin only.</summary>
+    /// <remarks>
+    /// REQ-STU-012 / REQ-STU-005: identical validation and creation behavior as the
+    /// teacher-facing <see cref="CreateStudent"/> action — this exists solely so a
+    /// SuperAdmin can operate on behalf of a teacher for whom no JWT-derived tenant
+    /// scope exists (SuperAdmin has no Teacher row — see ModuleSixApiBaseController.ResolveTeacherIdAsync).
+    /// AUTH: SuperAdmin role only (roleOnly gate) — NOT reachable by Teacher/Assistant,
+    /// because TeacherId is caller-supplied here and would otherwise be an IDOR vector
+    /// (the only action in this controller where that is true).
+    /// TENANCY: TeacherId comes from the request body, by design, only under the roleOnly
+    /// SuperAdmin gate above.
+    /// </remarks>
+    /// <param name="dto">New student data plus the target TeacherId.</param>
+    /// <response code="201">Student created successfully under the specified teacher.</response>
+    /// <response code="400">Validation failure (e.g. empty name, duplicate student code, capacity exceeded).</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">TeacherId does not reference an existing active teacher.</response>
+    [HttpPost("admin")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CreateStudentForTeacher([FromBody] CreateTeacherStudentByAdminDto dto)
+    {
+        var result = await _studentService.CreateStudentAsync(dto.TeacherId, dto);
+        return ToResponse(result);
+    }
+    [HttpGet("admin/students")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentListForTeacher([FromQuery] StudentListByAdminRequest request)
+    {
+        var result = await _studentService.GetStudentListForAdminAsync(request.TeacherId, request);
+        return ToResponse(result);
+    }
 }
