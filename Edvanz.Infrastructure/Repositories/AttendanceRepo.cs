@@ -129,6 +129,17 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<SessionOccurrence?> GetOccurrenceByIdTrackedAsync(
+        long sessionOccurrenceId, long teacherId)
+    {
+        // TRACKED (no AsNoTracking): identity resolution returns the already-tracked instance if the
+        // mark pipeline loaded this occurrence earlier (e.g. the cross-session slot remap), avoiding a
+        // duplicate-key tracking conflict when its status is refreshed.
+        return await _context.SessionOccurrences
+            .FirstOrDefaultAsync(o => o.Id == sessionOccurrenceId && o.TeacherId == teacherId);
+    }
+
+    /// <inheritdoc />
     public async Task UpdateOccurrenceAsync(SessionOccurrence occurrence)
     {
         _context.Entry(occurrence).State = EntityState.Modified;

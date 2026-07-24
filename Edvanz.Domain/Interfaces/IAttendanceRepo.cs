@@ -172,6 +172,15 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long sessionOccurrenceId, IEnumerable<long> teacherStudentIds);
 
     /// <summary>
+    /// TRACKED get-by-id (unlike <see cref="GetOccurrenceByIdAndTeacherAsync"/> which is AsNoTracking).
+    /// Returns the already-tracked instance via identity resolution when one exists, else loads and
+    /// tracks it. Used by the reconciliation flip/overwrite to refresh an occurrence's status WITHOUT
+    /// risking a second, conflicting instance for an occurrence the mark pipeline already tracked (the
+    /// home occurrence a cross-session mark was remapped onto). Null when not found for the teacher.
+    /// </summary>
+    Task<SessionOccurrence?> GetOccurrenceByIdTrackedAsync(long sessionOccurrenceId, long teacherId);
+
+    /// <summary>
     /// Updates an existing session occurrence (e.g., status change).
     /// REQ-ATT-049/051: Occurrence status updated as attendance is taken.
     /// </summary>

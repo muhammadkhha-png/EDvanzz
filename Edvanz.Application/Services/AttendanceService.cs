@@ -1029,15 +1029,10 @@ public class AttendanceService : IAttendanceService
             {
                 if (!refreshedOccurrenceIds.Add(occId))
                     continue;
-                // The selected occurrence is already TRACKED — refresh that instance directly; reloading
-                // it AsNoTracking would collide. Other (home) occurrences are distinct and untracked.
-                if (occId == occurrence.Id)
-                {
-                    await UpdateOccurrenceStatusAsync(occurrence);
-                    continue;
-                }
+                // TRACKED get-by-id — returns the already-tracked instance (e.g. the selected occurrence,
+                // or a home occurrence a fresh cross-session mark landed on) instead of a conflicting copy.
                 var reconciledOcc = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceByIdAndTeacherAsync(occId, dto.TeacherId);
+                    .GetOccurrenceByIdTrackedAsync(occId, dto.TeacherId);
                 if (reconciledOcc is not null)
                     await UpdateOccurrenceStatusAsync(reconciledOcc);
             }
@@ -2870,7 +2865,7 @@ public class AttendanceService : IAttendanceService
             var occToRefresh = trackedOccurrence;
             if (occToRefresh is null && record.SessionOccurrenceId.HasValue)
                 occToRefresh = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceByIdAndTeacherAsync(record.SessionOccurrenceId.Value, dto.TeacherId);
+                    .GetOccurrenceByIdTrackedAsync(record.SessionOccurrenceId.Value, dto.TeacherId);
             if (occToRefresh is not null)
                 await UpdateOccurrenceStatusAsync(occToRefresh);
 
