@@ -74,6 +74,14 @@ public sealed class OnlineExamTakeScreenDto
     /// </summary>
     public string? StudentStatus { get; set; }
 
+    // ── Anti-cheat (leave-the-exam tolerance) ──
+    /// <summary>When true, the app must warn on violations and block once <see cref="MaxViolations"/> is reached.</summary>
+    public bool BlockOnViolation { get; set; }
+    /// <summary>Violations tolerated before auto-block. The app warns before, blocks on the Nth.</summary>
+    public int MaxViolations { get; set; }
+    /// <summary>The caller's current server-side violation count, so re-entry after backgrounding shows the correct remaining tolerance.</summary>
+    public int ViolationCount { get; set; }
+
     public List<StudentOnlineExamQuestionRow> Questions { get; set; } = new();
 }
 
@@ -140,4 +148,18 @@ public sealed class OnlineExamStatsDto
     /// on paths that carry no report (kept nullable for wire back-compat).
     /// </summary>
     public string? Status { get; set; }
+
+    /// <summary>The caller's current anti-cheat violation count (0 when no report / not applicable).</summary>
+    public int ViolationCount { get; set; }
+}
+
+/// <summary>Response of the O2 violation endpoint — server-authoritative tolerance state.</summary>
+public sealed class ViolationRecordedDto
+{
+    /// <summary>The caller's violation count AFTER this violation was recorded.</summary>
+    public int ViolationCount { get; set; }
+    /// <summary>The exam's configured tolerance (block on the Nth). Echoed so the app shows the right warning copy.</summary>
+    public int MaxViolations { get; set; }
+    /// <summary>True when this violation pushed the report to Blocked (count reached the tolerance and BlockOnViolation is on).</summary>
+    public bool IsBlocked { get; set; }
 }

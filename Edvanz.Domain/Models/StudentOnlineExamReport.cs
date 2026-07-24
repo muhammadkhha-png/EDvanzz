@@ -38,6 +38,14 @@ public class StudentOnlineExamReport : BaseEntity
 
     public StudentOnlineExamStatus Status { get; set; } = StudentOnlineExamStatus.InProgress;
 
+    /// <summary>
+    /// Server-side count of anti-cheat violations (leaving/backgrounding the exam) for this student.
+    /// Incremented atomically by the violation endpoint so the tally survives an app kill; when it
+    /// reaches the exam's <c>MaxViolations</c> (and <c>BlockOnViolation</c> is on) the report is set
+    /// <see cref="StudentOnlineExamStatus.Blocked"/>. Default 0.
+    /// </summary>
+    public int ViolationCount { get; set; } = 0;
+
     /// <summary>Null while in-progress. Set on bulk submit (S3) or window-end auto-finalize (§3.5).</summary>
     public DateTime? SubmittedAt { get; set; }
 

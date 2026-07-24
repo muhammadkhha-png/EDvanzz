@@ -138,6 +138,9 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             EndDateTime = exam.EndDateTime,
             ExamDegree = await _unitOfWork.OnlineExamsRepo.GetTotalDegreeAsync(onlineExamId),
             StudentStatus = report?.Status.ToString(),
+            BlockOnViolation = exam.BlockOnViolation,
+            MaxViolations = exam.MaxViolations,
+            ViolationCount = report?.ViolationCount ?? 0,
             Questions = questions.ToList(),
         };
 
@@ -419,6 +422,7 @@ public class StudentOnlineExamService : IStudentOnlineExamService
 
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
         stats.Status = report.Status.ToString();
+        stats.ViolationCount = report.ViolationCount;
         return Result<OnlineExamStatsDto>.Success(stats, _localizer);
     }
 
@@ -533,6 +537,95 @@ public class StudentOnlineExamService : IStudentOnlineExamService
         var stats = _grading.ComputeStats(questions, answers, report.Score, totalGrade);
         stats.Status = report.Status.ToString();
         return Result<OnlineExamStatsDto>.Success(stats, _localizer, resultCode);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // O2 — RECORD ANTI-CHEAT VIOLATION (tolerant path; the app calls this each
+    // time the student leaves/backgrounds the exam when BlockOnViolation is on).
+    // Server-authoritative so the tally survives an app kill; blocks at the
+    // exam's MaxViolations tolerance. Distinct from O1 /block (the terminal action).
+    // ══════════════════════════════════════════════════════════════════════
+    public async Task<Result<ViolationRecordedDto>> RecordViolationAsync(
+        long teacherId, long teacherStudentId, long onlineExamId)
+    {
+        var exam = await _unitOfWork.OnlineExamsRepo.GetByIdAndTeacherAsync(onlineExamId, teacherId);
+        if (exam is null || exam.Status == OnlineExamStatus.Draft)
+            return Result<ViolationRecordedDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+
+        // A violation only makes sense while the exam is open. (Same window shape as
+        // ValidateSubmissionWindowAsync, inlined — that helper is hard-typed to OnlineExamStatsDto.)
+        var now = DateTime.UtcNow;
+        if (now < exam.StartDateTime || now > exam.EndDateTime)
+            return Result<ViolationRecordedDto>.Failure(_localizer, OnlineExamConstants.Messages.WindowClosed, HttpStatusCode.Conflict);
+
+        var report = await _unitOfWork.StudentOnlineExamReportsRepo.GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
+        if (report is null)
+        {
+            bool isAssigned = await _unitOfWork.OnlineExamsRepo
+                .BuildAssignedStudentIdsQuery(onlineExamId, teacherId)
+                .AnyAsync(id => id == teacherStudentId);
+            if (!isAssigned)
+                return Result<ViolationRecordedDto>.Failure(_localizer, OnlineExamConstants.Messages.NotInScope, HttpStatusCode.Forbidden);
+
+            // Lazy-create InProgress (a student can violate before answering anything) — same first-write
+            // race handling as BlockMyExamAsync (re-read on the UX collision instead of a 500).
+            report = new StudentOnlineExamReport
+            {
+                OnlineExamId = onlineExamId,
+                TeacherStudentId = teacherStudentId,
+                TeacherId = teacherId,
+                Status = StudentOnlineExamStatus.InProgress,
+                Score = 0,
+                Percentage = 0,
+                ViolationCount = 0,
+                CreateAt = now,
+            };
+            await _unitOfWork.StudentOnlineExamReportsRepo.AddAsync(report);
+            try
+            {
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                var raced = await _unitOfWork.StudentOnlineExamReportsRepo
+                    .GetByExamAndStudentAsync(onlineExamId, teacherStudentId);
+                if (raced is null)
+                    return Result<ViolationRecordedDto>.Failure(_localizer, OnlineExamConstants.Messages.NotFound, HttpStatusCode.NotFound);
+                report = raced;
+            }
+        }
+
+        // Terminal states — nothing to increment; report the current tally idempotently.
+        if (report.SubmittedAt is not null)
+            return Result<ViolationRecordedDto>.Success(new ViolationRecordedDto
+            {
+                ViolationCount = report.ViolationCount,
+                MaxViolations = exam.MaxViolations,
+                IsBlocked = false,
+            }, _localizer, OnlineExamConstants.Messages.ViolationRecorded);
+
+        if (report.Status == StudentOnlineExamStatus.Blocked)
+            return Result<ViolationRecordedDto>.Success(new ViolationRecordedDto
+            {
+                ViolationCount = report.ViolationCount,
+                MaxViolations = exam.MaxViolations,
+                IsBlocked = true,
+            }, _localizer, OnlineExamConstants.Messages.AlreadyBlocked);
+
+        // Atomic increment (set-based — no lost updates, and it leaves the tracked `report` copy stale on
+        // purpose; we never SaveChanges it after this).
+        int newCount = await _unitOfWork.StudentOnlineExamReportsRepo.IncrementViolationCountAsync(report.Id);
+
+        bool isBlocked = false;
+        if (exam.BlockOnViolation && newCount >= exam.MaxViolations)
+            isBlocked = await _unitOfWork.StudentOnlineExamReportsRepo.TryBlockForViolationAsync(report.Id, now);
+
+        return Result<ViolationRecordedDto>.Success(new ViolationRecordedDto
+        {
+            ViolationCount = newCount,
+            MaxViolations = exam.MaxViolations,
+            IsBlocked = isBlocked,
+        }, _localizer, isBlocked ? OnlineExamConstants.Messages.ExamBlocked : OnlineExamConstants.Messages.ViolationRecorded);
     }
 
     // ══════════════════════════════════════════════════════════════════════

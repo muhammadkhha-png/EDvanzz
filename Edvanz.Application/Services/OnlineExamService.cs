@@ -94,7 +94,7 @@ public class OnlineExamService : IOnlineExamService
 
         var validation = await ValidateCreateOrUpdateAsync(
             teacherId, request.Title, request.StartDateTime,
-            request.EndDateTime, request.PassPercentage, request.Scopes);
+            request.EndDateTime, request.PassPercentage, request.MaxViolations, request.Scopes);
         if (validation is not null)
             return Result<OnlineExamDetailDto>.Failure(_localizer, validation, HttpStatusCode.BadRequest);
 
@@ -124,6 +124,8 @@ public class OnlineExamService : IOnlineExamService
                 EndDateTime = request.EndDateTime,
                 PassPercentage = request.PassPercentage,
                 Visibility = request.Visibility,
+                BlockOnViolation = request.BlockOnViolation,
+                MaxViolations = request.MaxViolations,
                 Status = OnlineExamStatus.Draft,
                 CreatedByUserId = actingUserId,
                 CreateAt = utcNow,
@@ -189,7 +191,7 @@ public class OnlineExamService : IOnlineExamService
 
         var validation = await ValidateCreateOrUpdateAsync(
             teacherId, request.Title, request.StartDateTime,
-            request.EndDateTime, request.PassPercentage, scopes: null);
+            request.EndDateTime, request.PassPercentage, request.MaxViolations, scopes: null);
         if (validation is not null)
             return Result<OnlineExamDetailDto>.Failure(_localizer, validation, HttpStatusCode.BadRequest);
 
@@ -203,6 +205,8 @@ public class OnlineExamService : IOnlineExamService
         exam.EndDateTime = request.EndDateTime;
         exam.PassPercentage = request.PassPercentage;
         exam.Visibility = request.Visibility;
+        exam.BlockOnViolation = request.BlockOnViolation;
+        exam.MaxViolations = request.MaxViolations;
         exam.UpdatedByUserId = actingUserId;
         exam.UpdatedAt = DateTime.UtcNow;
 
@@ -388,6 +392,8 @@ public class OnlineExamService : IOnlineExamService
                 Percentage = report?.Percentage,
                 Score = report?.Score,
                 IsOutOfScope = false,
+                SessionId = student.SessionId,
+                SessionGroupId = student.SessionGroupId,
             });
         }
 
@@ -403,6 +409,8 @@ public class OnlineExamService : IOnlineExamService
                 Percentage = report.Percentage,
                 Score = report.Score,
                 IsOutOfScope = true,
+                SessionId = report.TeacherStudent?.SessionId,  // best-effort
+                SessionGroupId = null,
             });
         }
 
@@ -658,7 +666,7 @@ public class OnlineExamService : IOnlineExamService
 
     private async Task<string?> ValidateCreateOrUpdateAsync(
         long teacherId, string title, DateTime start, DateTime end,
-        decimal passPercentage, List<OnlineExamScopeInputDto>? scopes)
+        decimal passPercentage, int maxViolations, List<OnlineExamScopeInputDto>? scopes)
     {
         if (string.IsNullOrWhiteSpace(title) || title.Length > 250)
             return OnlineExamConstants.Messages.TitleRequired;
@@ -668,6 +676,10 @@ public class OnlineExamService : IOnlineExamService
 
         if (passPercentage is < 0 or > 100)
             return OnlineExamConstants.Messages.PassPercentageOutOfRange;
+
+        // Redundant with CK_OnlineExams_MaxViolationsRange, but yields a localized 400 rather than a 500.
+        if (maxViolations < 0)
+            return OnlineExamConstants.Messages.MaxViolationsOutOfRange;
 
         if (scopes is not null)
         {
@@ -743,6 +755,8 @@ public class OnlineExamService : IOnlineExamService
             EndDateTime = exam.EndDateTime,
             PassPercentage = exam.PassPercentage,
             Visibility = exam.Visibility,
+            BlockOnViolation = exam.BlockOnViolation,
+            MaxViolations = exam.MaxViolations,
             Status = exam.Status,
             Scopes = scopes.Select(s => MapScopeDto(s)).ToList(),
             RowVersion = exam.RowVersion,

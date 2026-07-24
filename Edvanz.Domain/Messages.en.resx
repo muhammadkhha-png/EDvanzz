@@ -1797,6 +1797,12 @@
   <data name="OnlineExam.ExamBlocked" xml:space="preserve">
     <value>You've left the exam, so it's now locked for you.</value>
   </data>
+  <data name="OnlineExam.ViolationRecorded" xml:space="preserve">
+    <value>Warning: leaving the exam again may lock you out.</value>
+  </data>
+  <data name="OnlineExam.MaxViolationsOutOfRange" xml:space="preserve">
+    <value>The allowed number of violations must be zero or more.</value>
+  </data>
   <data name="OnlineExam.AlreadyBlocked" xml:space="preserve">
     <value>You're already blocked from this exam.</value>
   </data>

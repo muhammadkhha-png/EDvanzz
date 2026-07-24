@@ -3564,9 +3564,15 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
 
                 t.HasCheckConstraint("CK_OnlineExams_DateOrder",
                     "[StartDateTime] < [EndDateTime]");
+
+                t.HasCheckConstraint("CK_OnlineExams_MaxViolationsRange",
+                    "[MaxViolations] >= 0");
             });
 
             entity.Property(e => e.Title).HasMaxLength(250).IsRequired();
+
+            entity.Property(e => e.BlockOnViolation).HasDefaultValue(false);
+            entity.Property(e => e.MaxViolations).HasDefaultValue(2);
 
             entity.Property(e => e.PassPercentage).HasColumnType("decimal(5,2)").IsRequired();
 
@@ -3727,6 +3733,7 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
             entity.Property(r => r.Score).HasColumnType("decimal(6,2)").IsRequired();
             entity.Property(r => r.Percentage).HasColumnType("decimal(5,2)").IsRequired();
             entity.Property(r => r.Status).HasConversion<byte>().IsRequired();
+            entity.Property(r => r.ViolationCount).HasDefaultValue(0);
             entity.Property(r => r.SubmittedAt).HasColumnType("datetime2(0)");
             entity.Property(r => r.UpdatedAt).HasColumnType("datetime2(0)");
             entity.Property(r => r.CreateAt).HasColumnType("datetime2(0)").IsRequired();

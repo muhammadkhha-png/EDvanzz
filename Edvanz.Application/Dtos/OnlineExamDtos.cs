@@ -46,6 +46,12 @@ public sealed class CreateOnlineExamRequest
     public DateTime EndDateTime { get; set; }
     public decimal PassPercentage { get; set; }
     public bool Visibility { get; set; } = true;
+
+    /// <summary>Anti-cheat: block a student who leaves the exam once <see cref="MaxViolations"/> is hit. Default false.</summary>
+    public bool BlockOnViolation { get; set; } = false;
+    /// <summary>Violations tolerated before auto-block (warn before, block on the Nth). Default 2. Must be &gt;= 0.</summary>
+    public int MaxViolations { get; set; } = 2;
+
     public List<OnlineExamScopeInputDto> Scopes { get; set; } = new();
     public List<CreateOnlineExamQuestionDto>? Questions { get; set; }
 }
@@ -60,6 +66,12 @@ public sealed class UpdateOnlineExamRequest
     public DateTime EndDateTime { get; set; }
     public decimal PassPercentage { get; set; }
     public bool Visibility { get; set; }
+
+    /// <summary>Anti-cheat: block a student who leaves the exam once <see cref="MaxViolations"/> is hit. Default false.</summary>
+    public bool BlockOnViolation { get; set; } = false;
+    /// <summary>Violations tolerated before auto-block (warn before, block on the Nth). Default 2. Must be &gt;= 0.</summary>
+    public int MaxViolations { get; set; } = 2;
+
     public byte[] RowVersion { get; set; } = null!;
 }
 
@@ -98,6 +110,12 @@ public sealed class OnlineExamDetailDto
     public DateTime EndDateTime { get; set; }
     public decimal PassPercentage { get; set; }
     public bool Visibility { get; set; }
+
+    /// <summary>Anti-cheat: whether a student who leaves the exam is auto-blocked at the tolerance.</summary>
+    public bool BlockOnViolation { get; set; }
+    /// <summary>Violations tolerated before auto-block.</summary>
+    public int MaxViolations { get; set; }
+
     public OnlineExamStatus Status { get; set; }
     public List<OnlineExamScopeDto> Scopes { get; set; } = new();
     public byte[] RowVersion { get; set; } = null!;
@@ -183,6 +201,8 @@ public sealed class OnlineExamScopeAnalysisRowDto
     public decimal? Percentage { get; set; }
     public decimal? Score { get; set; }
     public bool IsOutOfScope { get; set; } // case-3 flag
+    public long? SessionId { get; set; }
+    public long? SessionGroupId { get; set; }
 }
 
 /// <summary>T10 questions overview.</summary>

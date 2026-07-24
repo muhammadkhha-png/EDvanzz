@@ -47,4 +47,22 @@ public interface IStudentOnlineExamReportRepo : IGenericRepo<StudentOnlineExamRe
     Task ReplaceAnswerOptionsAsync(long studentQuestionAnswerId, IEnumerable<StudentQuestionAnswerOption> newOptions);
 
     Task<IReadOnlyList<StudentQuestionAnswer>> GetAnswersForReportAsync(long studentReportId);
+
+    /// <summary>
+    /// Atomically increments a report's <c>ViolationCount</c> (single set-based SQL
+    /// <c>ViolationCount = ViolationCount + 1</c>) and returns the new value. No read-modify-write, so
+    /// rapid-fire violations cannot lose increments. Set-based on purpose — it does NOT touch the change
+    /// tracker, so a tracked copy of the report is left with a stale RowVersion (the caller must not
+    /// SaveChanges that copy afterwards; use <see cref="TryBlockForViolationAsync"/> for the block).
+    /// </summary>
+    Task<int> IncrementViolationCountAsync(long reportId);
+
+    /// <summary>
+    /// Conditionally sets the report to <c>Blocked</c> — set-based, ONLY when it is still un-submitted
+    /// and not already Blocked — then returns whether the report is Blocked now (true whether this call
+    /// or a concurrent one blocked it; false if it was finalized meanwhile). Used by the violation
+    /// endpoint after the tolerance is reached; avoids the RowVersion conflict a tracked update would hit
+    /// once <see cref="IncrementViolationCountAsync"/> bumped the row out-of-band.
+    /// </summary>
+    Task<bool> TryBlockForViolationAsync(long reportId, DateTime now);
 }

@@ -101,6 +101,8 @@ public sealed class AssignedStudentRow
     public long TeacherStudentId { get; set; }
     public string StudentName { get; set; } = string.Empty;
     public string? StudentCode { get; set; }
+    public long? SessionId { get; set; }
+    public long? SessionGroupId { get; set; }
 }
 
 /// <summary>

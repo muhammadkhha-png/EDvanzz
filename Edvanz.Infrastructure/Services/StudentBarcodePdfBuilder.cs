@@ -51,30 +51,42 @@ public sealed class StudentBarcodePdfBuilder : IStudentBarcodePdfBuilder
 
     private static void ComposeCards(IContainer container, IReadOnlyList<StudentBarcodeCard> cards)
     {
-        container.Table(table =>
+        // Lay the cards out as explicit rows of CardsPerRow, each row wrapped in ShowEntire so a card
+        // is NEVER split across a page break (its name, barcode and code always stay together). A table
+        // row could otherwise paginate mid-card — the reported bug where the name sat at the bottom of
+        // one page and the barcode at the top of the next (REQ-STU-052). A single card is far smaller
+        // than a page, so ShowEntire never overflows; when a row doesn't fit, it moves to the next page.
+        container.Column(column =>
         {
-            table.ColumnsDefinition(def =>
+            for (int i = 0; i < cards.Count; i += CardsPerRow)
             {
-                for (int i = 0; i < CardsPerRow; i++)
-                    def.RelativeColumn();
-            });
-
-            foreach (var card in cards)
-                table.Cell().Element(CardStyle).Column(col =>
+                column.Item().ShowEntire().Row(row =>
                 {
-                    col.Item().AlignCenter().Text(card.StudentName)
-                        .SemiBold().FontSize(12);
+                    int placed = 0;
+                    for (int j = i; j < cards.Count && placed < CardsPerRow; j++, placed++)
+                        row.RelativeItem().Element(CardStyle).Column(ComposeCard(cards[j]));
 
-                    // Vector barcode — scales without pixelation on print. The barcode fills
-                    // the cell width within a fixed height; note QuestPDF rejects an .AlignCenter()
-                    // between .Height() and .Svg() (Svg derives its own size → conflicting constraints).
-                    col.Item().PaddingVertical(6).Height(60).Svg(card.BarcodeSvg);
-
-                    col.Item().AlignCenter().Text(card.StudentCode)
-                        .FontSize(11).FontColor(Colors.Grey.Darken2);
+                    // Keep a partly-filled final row's cards at column width (don't stretch a lone card).
+                    for (; placed < CardsPerRow; placed++)
+                        row.RelativeItem();
                 });
+            }
         });
     }
+
+    private static Action<ColumnDescriptor> ComposeCard(StudentBarcodeCard card) => col =>
+    {
+        col.Item().AlignCenter().Text(card.StudentName)
+            .SemiBold().FontSize(12);
+
+        // Vector barcode — scales without pixelation on print. The barcode fills the cell width
+        // within a fixed height; note QuestPDF rejects an .AlignCenter() between .Height() and .Svg()
+        // (Svg derives its own size → conflicting constraints).
+        col.Item().PaddingVertical(6).Height(60).Svg(card.BarcodeSvg);
+
+        col.Item().AlignCenter().Text(card.StudentCode)
+            .FontSize(11).FontColor(Colors.Grey.Darken2);
+    };
 
     private static IContainer CardStyle(IContainer container) =>
         container

@@ -78,5 +78,11 @@ public static class OnlineExamConstants
         public const string AlreadyBlocked = "OnlineExam.AlreadyBlocked";
         /// <summary>Block is moot: the caller's report is already submitted/finalized (Passed/Failed).</summary>
         public const string ExamAlreadyFinalized = "OnlineExam.ExamAlreadyFinalized";
+
+        // O2 — anti-cheat violation tolerance (POST .../{onlineExamId}/violation).
+        /// <summary>A violation was recorded (below the tolerance — not yet blocked).</summary>
+        public const string ViolationRecorded = "OnlineExam.ViolationRecorded";
+        /// <summary>Create/Update guard: MaxViolations must be &gt;= 0.</summary>
+        public const string MaxViolationsOutOfRange = "OnlineExam.MaxViolationsOutOfRange";
     }
 }
