@@ -26,6 +26,43 @@ public class StudentOnlineExamReportRepo : GenericRepo<StudentOnlineExamReport, 
     }
 
     /// <inheritdoc />
+    public async Task<int> IncrementViolationCountAsync(long reportId)
+    {
+        // Atomic SET ViolationCount = ViolationCount + 1 — no lost updates under concurrent violations.
+        await _context.StudentOnlineExamReports
+            .Where(r => r.Id == reportId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.ViolationCount, r => r.ViolationCount + 1));
+
+        // Read back the fresh value (scalar projection — untracked, so it reflects the DB, not a stale
+        // tracked copy).
+        return await _context.StudentOnlineExamReports
+            .Where(r => r.Id == reportId)
+            .Select(r => r.ViolationCount)
+            .FirstAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryBlockForViolationAsync(long reportId, DateTime now)
+    {
+        // Block ONLY a still-live report (not submitted, not already Blocked) — set-based so it can't
+        // race a concurrent finalize into a 500.
+        await _context.StudentOnlineExamReports
+            .Where(r => r.Id == reportId
+                && r.SubmittedAt == null
+                && r.Status != StudentOnlineExamStatus.Blocked)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Status, StudentOnlineExamStatus.Blocked)
+                .SetProperty(r => r.UpdatedAt, (DateTime?)now));
+
+        // True when the report is Blocked now — whether this call blocked it or a concurrent one did;
+        // false if it was finalized (submitted) meanwhile.
+        return await _context.StudentOnlineExamReports
+            .Where(r => r.Id == reportId)
+            .Select(r => r.Status == StudentOnlineExamStatus.Blocked)
+            .FirstAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<OnlineExamReportStatusCounts> GetStatusCountsAsync(long onlineExamId)
     {
         var rows = await _context.StudentOnlineExamReports

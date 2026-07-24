@@ -56,6 +56,25 @@ public class OnlineExam : BaseEntity
     public bool Visibility { get; set; } = true;
 
     // ══════════════════════════════════════════════
+    // ANTI-CHEAT (leave-the-exam violation tolerance)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// When true, a student who leaves/backgrounds the exam accrues violations and is auto-blocked once
+    /// the count reaches <see cref="MaxViolations"/> (server-enforced, survives app restarts — see
+    /// <c>StudentOnlineExamReport.ViolationCount</c>). When false the app takes no proctoring action.
+    /// Default false.
+    /// </summary>
+    public bool BlockOnViolation { get; set; } = false;
+
+    /// <summary>
+    /// Violation tolerance before auto-block (only meaningful when <see cref="BlockOnViolation"/>). The
+    /// app warns on earlier violations and blocks on the Nth. Default 2 (warn on the 1st, block on the
+    /// 2nd). <c>CK_OnlineExams_MaxViolationsRange</c> enforces &gt;= 0.
+    /// </summary>
+    public int MaxViolations { get; set; } = 2;
+
+    // ══════════════════════════════════════════════
     // AUDIT
     // ══════════════════════════════════════════════
 

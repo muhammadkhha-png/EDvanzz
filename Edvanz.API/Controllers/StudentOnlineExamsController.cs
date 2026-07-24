@@ -233,6 +233,33 @@ public sealed class StudentOnlineExamsController : ApiBaseController
         return ToResponse(await _service.BlockMyExamAsync(teacherId, resolution.TeacherStudentId!.Value, onlineExamId));
     }
 
+    /// <summary>
+    /// O2 — records one anti-cheat violation for the caller (leaving/backgrounding the exam). Increments
+    /// the server-side violation count and, once it reaches the exam's tolerance, blocks the attempt.
+    /// The tolerant counterpart to <c>POST .../block</c> — used when the exam has <c>blockOnViolation</c>.
+    /// </summary>
+    /// <param name="teacherId">The teacher whose exam this is (JWT-scoped via the active link).</param>
+    /// <param name="onlineExamId">The exam being taken.</param>
+    /// <response code="200">Violation recorded. Returns { violationCount, maxViolations, isBlocked }.</response>
+    /// <response code="401">Caller is not authenticated.</response>
+    /// <response code="403">Caller has no active link with this teacher, or is not assigned to this exam.</response>
+    /// <response code="404">Exam not found (or still Draft), or caller has no student account.</response>
+    /// <response code="409">The exam window is closed.</response>
+    [HttpPost("teachers/{teacherId:long}/{onlineExamId:long}/violation")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ViolationRecordedDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RecordViolation([FromRoute] long teacherId, [FromRoute] long onlineExamId)
+    {
+        var resolution = await ResolveStudentForTeacherAsync(teacherId);
+        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+
+        return ToResponse(await _service.RecordViolationAsync(teacherId, resolution.TeacherStudentId!.Value, onlineExamId));
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS — verbatim copy of StudentVideosController's resolution
     // pattern (studentUserId → active StudentTeacherLink(teacherId) → TeacherStudentId)

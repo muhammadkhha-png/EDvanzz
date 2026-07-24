@@ -1785,6 +1785,12 @@
   <data name="OnlineExam.ExamBlocked" xml:space="preserve">
     <value>خرجت من الامتحان، فاتقفل عليك.</value>
   </data>
+  <data name="OnlineExam.ViolationRecorded" xml:space="preserve">
+    <value>تحذير: لو خرجت من الامتحان تاني ممكن يتقفل عليك.</value>
+  </data>
+  <data name="OnlineExam.MaxViolationsOutOfRange" xml:space="preserve">
+    <value>عدد المخالفات المسموح بيه لازم يكون صفر أو أكتر.</value>
+  </data>
   <data name="OnlineExam.AlreadyBlocked" xml:space="preserve">
     <value>إنت متحظور بالفعل من الامتحان ده.</value>
   </data>
