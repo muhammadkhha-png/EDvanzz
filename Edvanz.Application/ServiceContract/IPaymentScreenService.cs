@@ -26,10 +26,15 @@ public interface IPaymentScreenService
     /// <summary>
     /// Screen: AssistantWallet. Wallet card + paginated recent collections for one assistant.
     /// Reuses <c>GetAssistantWalletAsync</c> (tenant-scoped → 404 if not this teacher's) and
-    /// <c>GetCollectorTransactionsPagedAsync</c>. Tutor-only at the controller.
+    /// <c>GetCollectorTransactionsPagedAsync</c>.
+    /// When <paramref name="restrictToAssistantUserId"/> is supplied (assistant caller) the
+    /// requested <paramref name="assistantId"/> is IGNORED and the caller's OWN wallet (resolved by
+    /// their user id) is returned — an assistant can only open their own wallet, never a peer's.
+    /// TODO(assistant-dashboard): interim own-scoping; the dedicated assistant dashboard is to be
+    /// built end-to-end by frontend + backend.
     /// </summary>
     Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
-        long teacherId, long assistantId, int page, int limit);
+        long teacherId, long assistantId, int page, int limit, long? restrictToAssistantUserId = null);
 
     /// <summary>
     /// Screen: CollectPayment. Searchable/filterable (all|assigned|unassigned) paginated

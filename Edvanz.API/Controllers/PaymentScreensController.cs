@@ -73,10 +73,14 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     // Screen: AssistantWallet
     // GET /api/v1/assistants/{assistantId}/wallet?page=&limit=
     // Wallet card + paginated recent collections.
-    // AUTH: TUTOR-ONLY (Teacher/SuperAdmin) — matches every existing wallet endpoint.
+    // AUTH: Teacher (module) → requested assistant. Assistant with Payment.ViewCollectorSummary →
+    //   forced to their OWN wallet. Withdraw (below) stays tutor-only. [interim — TODO(assistant-dashboard)]
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/assistants/{assistantId:long}/wallet")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    // TODO(assistant-dashboard): interim. Was roleOnly tutor-only; an assistant caller is now forced
+    // to their OWN wallet (route assistantId ignored for assistants — see the service). This is the
+    // assistant's own-collections view; a dedicated assistant dashboard is TBD (frontend + backend).
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletScreenResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -89,8 +93,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
+        // Assistant → forced to their own wallet; Teacher/SuperAdmin → the requested assistant.
         var result = await _screenService.GetAssistantWalletScreenAsync(
-            teacherId.Value, assistantId, page, limit);
+            teacherId.Value, assistantId, page, limit, AssistantScopeUserId());
         return ToResponse(result);
     }
 

@@ -386,10 +386,28 @@ public class PaymentDashboardFilterDto
 /// </summary>
 public class PaymentDashboardDto
 {
-    public decimal ExpectedRevenue { get; set; }
+    /// <summary>
+    /// Teacher-wide expected revenue. <c>null</c> when the caller is an assistant — an
+    /// assistant's own dashboard has no teacher-wide expectation, and null (not 0) lets the
+    /// client distinguish "not available to you" from a genuine zero.
+    /// TODO(assistant-dashboard): a real per-assistant target/expected figure is to be
+    /// designed and built end-to-end by frontend + backend.
+    /// </summary>
+    public decimal? ExpectedRevenue { get; set; }
+
+    /// <summary>
+    /// Collected revenue. Teacher caller → all collectors combined. Assistant caller →
+    /// ONLY the money that assistant personally collected.
+    /// </summary>
     public decimal CollectedRevenue { get; set; }
-    public decimal RemainingRevenue { get; set; }
-    public List<SessionRevenueBreakdownDto> PerSessionBreakdown { get; set; } = new();
+
+    /// <summary>Teacher-wide remaining revenue. <c>null</c> for an assistant caller (see <see cref="ExpectedRevenue"/>).</summary>
+    public decimal? RemainingRevenue { get; set; }
+
+    /// <summary>Per-session breakdown. <c>null</c> for an assistant caller (teacher-wide view, not their own data).</summary>
+    public List<SessionRevenueBreakdownDto>? PerSessionBreakdown { get; set; } = new();
+
+    /// <summary>Per-collector breakdown. Assistant caller → a single entry (themselves).</summary>
     public List<CollectorRevenueBreakdownDto> PerCollectorBreakdown { get; set; } = new();
 }
 

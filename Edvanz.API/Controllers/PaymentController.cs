@@ -31,11 +31,17 @@ namespace Edvanz.API.Controllers;
 ///         request body or query string (REQ-PAY-011 / BR-PAY-004).</item>
 /// </list>
 ///
-/// ABSOLUTE TUTOR-ONLY GATES (BR-PAY-002 / REQ-PAY-014 / REQ-PAY-027 /
-/// REQ-PAY-036):
-///   Edit, Delete, Custom-Amount Set, Wallets (view + reset), Dashboard,
-///   Departure, Transfer — all use <c>roleOnly: ["Teacher","SuperAdmin"]</c>
-///   and cannot be delegated to assistants under any configuration.
+/// ABSOLUTE TUTOR-ONLY GATES (BR-PAY-002 / REQ-PAY-027 / REQ-PAY-036) —
+/// money-modifying, never delegated:
+///   Edit, Delete, Custom-Amount Set, Wallet reset/withdraw, Departure, Transfer —
+///   all use <c>roleOnly: ["Teacher","SuperAdmin"]</c>.
+///
+/// INTERIM ASSISTANT-SCOPED READS — TODO(assistant-dashboard):
+///   Dashboard, Wallets (view list + detail) and Collector-summary are permission-gated
+///   (<c>ViewCollectorSummary</c>) and, for an assistant caller, return ONLY that assistant's
+///   OWN data (own wallet / own collections; teacher-wide figures come back <c>null</c>).
+///   Sessions collection-summary stays tutor-only. This is a first-cut — a proper dedicated
+///   assistant dashboard is still to be built end-to-end by frontend + backend.
 ///
 /// ASSISTANT-DELEGATABLE GATES (REQ-USR-018):
 ///   Collect, View History, View Unpaid Students, View Collector Summary,
@@ -417,7 +423,9 @@ public sealed class PaymentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _paymentService.GetCollectorSummaryAsync(teacherId.Value, startDate, endDate);
+        // Assistant → only their own collection summary; Teacher/SuperAdmin → all collectors.
+        var result = await _paymentService.GetCollectorSummaryAsync(
+            teacherId.Value, startDate, endDate, AssistantScopeUserId());
         return ToResponse(result);
     }
 
@@ -431,11 +439,14 @@ public sealed class PaymentController : ModuleSixApiBaseController
     //   currently held across all assistants (sum of each wallet's CurrentBalance).
     //   REQ-PAY-035: Tutor views current wallet balance of each assistant.
     //
-    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    // AUTH: Teacher (module) → all assistants. Assistant with Payment.ViewCollectorSummary →
+    //   ONLY their own wallet. [interim — TODO(assistant-dashboard)]
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("wallets")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    // TODO(assistant-dashboard): interim. Was roleOnly tutor-only; an assistant now sees ONLY
+    // their own wallet (scoped in the service). Full multi-assistant view stays for the tutor.
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletsSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -444,7 +455,9 @@ public sealed class PaymentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _paymentService.GetAllWalletsAsync(teacherId.Value);
+        // Assistant → only their own wallet; Teacher/SuperAdmin → every assistant's wallet.
+        var result = await _paymentService.GetAllWalletsAsync(
+            teacherId.Value, AssistantScopeUserId());
         return ToResponse(result);
     }
 
@@ -457,11 +470,14 @@ public sealed class PaymentController : ModuleSixApiBaseController
     //   Returns the itemized wallet detail for a specific assistant.
     //   REQ-PAY-035: Full collection list per assistant.
     //
-    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    // AUTH: Teacher (module) → requested assistant. Assistant with Payment.ViewCollectorSummary →
+    //   forced to their OWN wallet. [interim — TODO(assistant-dashboard)]
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("wallets/{assistantId:long}")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    // TODO(assistant-dashboard): interim. Was roleOnly tutor-only; an assistant caller is now forced
+    // to their OWN wallet (the route assistantId is ignored for assistants — see the service).
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.AssistantWalletDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -471,7 +487,9 @@ public sealed class PaymentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _paymentService.GetWalletDetailAsync(teacherId.Value, assistantId);
+        // Assistant → forced to their own wallet; Teacher/SuperAdmin → the requested assistant.
+        var result = await _paymentService.GetWalletDetailAsync(
+            teacherId.Value, assistantId, AssistantScopeUserId());
         return ToResponse(result);
     }
 
@@ -520,13 +538,17 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // WHAT IT DOES:
     //   Returns expected/collected/remaining revenue with session and collector
     //   breakdowns.
-    //   REQ-PAY-039–044: Payment Overview Dashboard, tutor-facing.
+    //   REQ-PAY-039–044: Payment Overview Dashboard.
     //
-    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    // AUTH: Teacher (module) → full view. Assistant with Payment.ViewCollectorSummary → OWN-scoped
+    //   view (their collected only; teacher-wide figures null). [interim — TODO(assistant-dashboard)]
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("dashboard")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    // TODO(assistant-dashboard): interim. Was roleOnly tutor-only; now permission-gated so an
+    // assistant can open an OWN-scoped dashboard (teacher-wide figures come back null — scoped in
+    // the service). A proper dedicated assistant dashboard is to be built by frontend + backend.
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.PaymentDashboardDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
@@ -535,7 +557,9 @@ public sealed class PaymentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _paymentService.GetDashboardAsync(teacherId.Value, filter);
+        // Assistant → dashboard scoped to their own collections; Teacher/SuperAdmin → full view.
+        var result = await _paymentService.GetDashboardAsync(
+            teacherId.Value, filter, AssistantScopeUserId());
         return ToResponse(result);
     }
 

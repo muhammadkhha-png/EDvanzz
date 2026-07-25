@@ -118,10 +118,15 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
-        long teacherId, long assistantId, int page, int limit)
+        long teacherId, long assistantId, int page, int limit, long? restrictToAssistantUserId = null)
     {
         // Tenant-scoped lookup: a wallet belonging to another teacher's assistant returns null → 404.
-        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
+        // TODO(assistant-dashboard): interim own-scoping. When an assistant calls, resolve THEIR OWN
+        // wallet by user id and ignore the requested assistantId so they can never open a peer's
+        // wallet. The dedicated assistant dashboard is to be built end-to-end by frontend + backend.
+        var wallet = restrictToAssistantUserId is long ownUserId
+            ? await _unitOfWork.PaymentsRepo.GetAssistantWalletByUserIdAsync(teacherId, ownUserId)
+            : await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
         if (wallet is null)
             return Result<AssistantWalletScreenResponse>.Failure(
                 _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);

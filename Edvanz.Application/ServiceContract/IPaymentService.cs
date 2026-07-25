@@ -128,12 +128,16 @@ public interface IPaymentService
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// Gets the User Collection View (tutor only).
+    /// Gets the User Collection View.
     /// REQ-PAY-013: Per-user collection breakdown.
-    /// REQ-PAY-014: Only tutor has access.
+    /// REQ-PAY-014: The full view (all collectors) is tutor-only; when
+    /// <paramref name="scopeToCollectorUserId"/> is supplied (assistant caller) the result is
+    /// filtered to that single collector's own records.
+    /// TODO(assistant-dashboard): interim own-scoping; the dedicated assistant collection view
+    /// is to be built end-to-end by frontend + backend.
     /// </summary>
     Task<Result<List<CollectorSummaryDto>>> GetCollectorSummaryAsync(
-        long teacherId, DateTime? startDate, DateTime? endDate);
+        long teacherId, DateTime? startDate, DateTime? endDate, long? scopeToCollectorUserId = null);
 
     // ══════════════════════════════════════════════
     // WALLET MANAGEMENT (REQ-PAY-034 through 038)
@@ -143,14 +147,23 @@ public interface IPaymentService
     /// Gets all assistant wallets for a teacher, plus the combined total currently
     /// held across all assistants.
     /// REQ-PAY-035: View current wallet balance of each assistant.
+    /// When <paramref name="scopeToAssistantUserId"/> is supplied (assistant caller) the result
+    /// contains ONLY that assistant's own wallet (never peers'), and the combined total equals
+    /// their own balance.
+    /// TODO(assistant-dashboard): interim own-scoping; proper assistant dashboard TBD (frontend + backend).
     /// </summary>
-    Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(long teacherId);
+    Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(long teacherId, long? scopeToAssistantUserId = null);
 
     /// <summary>
     /// Gets detailed wallet for a specific assistant.
     /// REQ-PAY-035: Itemized collection list.
+    /// When <paramref name="restrictToAssistantUserId"/> is supplied (assistant caller) the
+    /// requested <paramref name="assistantId"/> is IGNORED and the caller's OWN wallet (resolved
+    /// by their user id) is returned — an assistant can never read a peer's wallet.
+    /// TODO(assistant-dashboard): interim own-scoping; proper assistant dashboard TBD (frontend + backend).
     /// </summary>
-    Task<Result<AssistantWalletDto>> GetWalletDetailAsync(long teacherId, long assistantId);
+    Task<Result<AssistantWalletDto>> GetWalletDetailAsync(
+        long teacherId, long assistantId, long? restrictToAssistantUserId = null);
 
     /// <summary>
     /// Resets an assistant's wallet to zero.
@@ -178,9 +191,15 @@ public interface IPaymentService
     /// Gets the Payment Overview Dashboard.
     /// REQ-PAY-039/040/041/042: Expected, collected, remaining revenue.
     /// REQ-PAY-043: Filterable by session, group, payment type, date range.
+    /// When <paramref name="scopeToCollectorUserId"/> is supplied (assistant caller) the result is
+    /// scoped to that assistant's OWN collections: <c>CollectedRevenue</c> = their own collected,
+    /// while the teacher-wide figures (<c>ExpectedRevenue</c>/<c>RemainingRevenue</c>/per-session)
+    /// come back <c>null</c> so the client shows an assistant-scoped view without confusing null and 0.
+    /// TODO(assistant-dashboard): interim own-scoping; a real assistant dashboard (its own expected/
+    /// target semantics) is to be designed and built end-to-end by frontend + backend.
     /// </summary>
     Task<Result<PaymentDashboardDto>> GetDashboardAsync(
-        long teacherId, PaymentDashboardFilterDto filter);
+        long teacherId, PaymentDashboardFilterDto filter, long? scopeToCollectorUserId = null);
 
     /// <summary>
     /// Gets the "Collected by Sessions" card data: one row per currently

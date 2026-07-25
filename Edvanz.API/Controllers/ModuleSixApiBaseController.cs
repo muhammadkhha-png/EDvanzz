@@ -59,6 +59,27 @@ public abstract class ModuleSixApiBaseController : ApiBaseController
         ?? throw new UnauthorizedAccessException("Acting user id missing from JWT");
 
     /// <summary>
+    /// True when the authenticated caller is an <c>Assistant</c> (as opposed to the owning
+    /// Teacher or a SuperAdmin). Read endpoints use this to SCOPE the response to the
+    /// assistant's OWN data (their own wallet / their own collections) instead of the
+    /// full teacher view.
+    ///
+    /// TODO(assistant-dashboard): first-cut role flag. A dedicated, correctly-designed
+    /// assistant dashboard (own collections, own wallet, own targets) is still to be built
+    /// end-to-end by BOTH frontend and backend — this flag only powers the interim scoping.
+    /// </summary>
+    protected bool IsAssistantCaller() =>
+        string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Convenience for the interim assistant-scoping: the caller's own user id when they are an
+    /// assistant, otherwise <c>null</c> (Teacher/SuperAdmin → full, unscoped view). Passed to
+    /// scope-aware service methods (e.g. dashboard / wallets / collector summary).
+    /// </summary>
+    protected long? AssistantScopeUserId() =>
+        IsAssistantCaller() ? GetActingUserId() : (long?)null;
+
+    /// <summary>
     /// Standardized response when the teacher row cannot be resolved from the
     /// authenticated user. Returns 404 — consistent with <c>SubscriptionController</c>.
     /// </summary>

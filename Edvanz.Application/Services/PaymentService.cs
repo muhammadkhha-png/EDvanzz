@@ -920,10 +920,16 @@ public class PaymentService : IPaymentService
 
     /// <inheritdoc />
     public async Task<Result<List<CollectorSummaryDto>>> GetCollectorSummaryAsync(
-        long teacherId, DateTime? startDate, DateTime? endDate)
+        long teacherId, DateTime? startDate, DateTime? endDate, long? scopeToCollectorUserId = null)
     {
         var collectorData = await _unitOfWork.PaymentsRepo
             .GetDashboardPerCollectorAsync(teacherId, startDate, endDate);
+
+        // TODO(assistant-dashboard): interim own-scoping (REQ-PAY-014). An assistant caller sees ONLY
+        // their own collection summary; a teacher (scope null) sees every collector. The dedicated
+        // assistant collection view is to be built end-to-end by frontend + backend.
+        if (scopeToCollectorUserId is long ownUserId)
+            collectorData = collectorData.Where(c => c.UserId == ownUserId).ToList();
 
         var dtos = collectorData.Select(c => new CollectorSummaryDto
         {
@@ -963,19 +969,40 @@ public class PaymentService : IPaymentService
     // WALLET MANAGEMENT
     // ══════════════════════════════════════════════
 
-    /// <inheritdoc />
-    public async Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(long teacherId)
+    /// <summary>Maps an <see cref="AssistantWallet"/> row to its wire DTO (single-sourced mapper).</summary>
+    private static AssistantWalletDto MapWalletDto(AssistantWallet w) => new()
     {
-        var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
-        var dtos = wallets.Select(w => new AssistantWalletDto
+        AssistantId = w.AssistantId,
+        AssistantName = w.Assistant?.User?.FullName ?? "Unknown",
+        CurrentBalance = w.CurrentBalance,
+        TotalCollected = w.TotalCollected,
+        TransactionCount = w.TransactionCount,
+        LastCollectionAt = w.LastCollectionAt
+    };
+
+    /// <inheritdoc />
+    public async Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(
+        long teacherId, long? scopeToAssistantUserId = null)
+    {
+        // TODO(assistant-dashboard): interim own-scoping. An assistant caller sees ONLY their own
+        // wallet (never peers'); the combined total is just their own balance. The proper assistant
+        // dashboard is to be built end-to-end by frontend + backend.
+        if (scopeToAssistantUserId is long ownUserId)
         {
-            AssistantId = w.AssistantId,
-            AssistantName = w.Assistant?.User?.FullName ?? "Unknown",
-            CurrentBalance = w.CurrentBalance,
-            TotalCollected = w.TotalCollected,
-            TransactionCount = w.TransactionCount,
-            LastCollectionAt = w.LastCollectionAt
-        }).ToList();
+            var own = await _unitOfWork.PaymentsRepo.GetAssistantWalletByUserIdAsync(teacherId, ownUserId);
+            var ownList = own is null
+                ? new List<AssistantWalletDto>()
+                : new List<AssistantWalletDto> { MapWalletDto(own) };
+
+            return Result<AssistantWalletsSummaryDto>.Success(new AssistantWalletsSummaryDto
+            {
+                TotalCurrentBalance = own?.CurrentBalance ?? 0m,
+                Assistants = ownList
+            }, _localizer, PaymentConstants.Messages.Success);
+        }
+
+        var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
+        var dtos = wallets.Select(MapWalletDto).ToList();
 
         var summary = new AssistantWalletsSummaryDto
         {
@@ -988,22 +1015,22 @@ public class PaymentService : IPaymentService
     }
 
     /// <inheritdoc />
-    public async Task<Result<AssistantWalletDto>> GetWalletDetailAsync(long teacherId, long assistantId)
+    public async Task<Result<AssistantWalletDto>> GetWalletDetailAsync(
+        long teacherId, long assistantId, long? restrictToAssistantUserId = null)
     {
-        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
+        // TODO(assistant-dashboard): interim own-scoping. When an assistant calls, the requested
+        // assistantId is IGNORED and their OWN wallet (by user id) is returned so they can never read
+        // a peer's. Teacher/SuperAdmin (restrict null) resolve the requested assistant as before.
+        var wallet = restrictToAssistantUserId is long ownUserId
+            ? await _unitOfWork.PaymentsRepo.GetAssistantWalletByUserIdAsync(teacherId, ownUserId)
+            : await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
+
         if (wallet is null)
             return Result<AssistantWalletDto>.Failure(
                 _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
 
-        return Result<AssistantWalletDto>.Success(new AssistantWalletDto
-        {
-            AssistantId = wallet.AssistantId,
-            AssistantName = wallet.Assistant?.User?.FullName ?? "Unknown",
-            CurrentBalance = wallet.CurrentBalance,
-            TotalCollected = wallet.TotalCollected,
-            TransactionCount = wallet.TransactionCount,
-            LastCollectionAt = wallet.LastCollectionAt
-        }, _localizer, PaymentConstants.Messages.Success);
+        return Result<AssistantWalletDto>.Success(
+            MapWalletDto(wallet), _localizer, PaymentConstants.Messages.Success);
     }
 
     /// <inheritdoc />
@@ -1139,8 +1166,48 @@ public class PaymentService : IPaymentService
 
     /// <inheritdoc />
     public async Task<Result<PaymentDashboardDto>> GetDashboardAsync(
-        long teacherId, PaymentDashboardFilterDto filter)
+        long teacherId, PaymentDashboardFilterDto filter, long? scopeToCollectorUserId = null)
     {
+        // TODO(assistant-dashboard): interim own-scoping. An assistant caller gets a dashboard scoped
+        // to THEIR OWN collections only: CollectedRevenue = what they personally collected, and every
+        // teacher-wide figure (expected / remaining / per-session) is returned NULL — not 0 — so the
+        // client can render an assistant view without mistaking "not yours" for a real zero. A proper
+        // assistant dashboard (with its own expected/target semantics) is to be designed and built
+        // end-to-end by frontend + backend.
+        if (scopeToCollectorUserId is long ownUserId)
+        {
+            var collectors = await _unitOfWork.PaymentsRepo
+                .GetDashboardPerCollectorAsync(teacherId, filter.StartDate, filter.EndDate);
+            // GetDashboardPerCollectorAsync returns value tuples, so match explicitly rather than
+            // relying on a null FirstOrDefault.
+            var mineRows = collectors.Where(c => c.UserId == ownUserId).ToList();
+            bool hasMine = mineRows.Count > 0;
+            var mine = hasMine ? mineRows[0] : default;
+
+            var scoped = new PaymentDashboardDto
+            {
+                ExpectedRevenue = null,   // teacher-wide — not applicable to an assistant
+                RemainingRevenue = null,  // teacher-wide — not applicable to an assistant
+                CollectedRevenue = hasMine ? mine.Collected : 0m,
+                PerSessionBreakdown = null, // teacher-wide — not applicable to an assistant
+                PerCollectorBreakdown = hasMine
+                    ? new List<CollectorRevenueBreakdownDto>
+                    {
+                        new()
+                        {
+                            UserId = mine.UserId,
+                            UserName = mine.UserName,
+                            Collected = mine.Collected,
+                            TransactionCount = mine.TransactionCount
+                        }
+                    }
+                    : new List<CollectorRevenueBreakdownDto>()
+            };
+
+            return Result<PaymentDashboardDto>.Success(
+                scoped, _localizer, PaymentConstants.Messages.DashboardLoaded);
+        }
+
         var (expected, collected, remaining) = await _unitOfWork.PaymentsRepo
             .GetDashboardAggregatesAsync(
                 teacherId, filter.SessionId, filter.SessionGroupId,
