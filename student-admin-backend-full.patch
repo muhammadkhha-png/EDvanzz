@@ -1,0 +1,342 @@
+diff --git a/Edvanz.API/Controllers/TeacherStudentLinksController.cs b/Edvanz.API/Controllers/TeacherStudentLinksController.cs
+index bf2de0e..9e89570 100644
+--- a/Edvanz.API/Controllers/TeacherStudentLinksController.cs
++++ b/Edvanz.API/Controllers/TeacherStudentLinksController.cs
+@@ -142,6 +142,28 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
+         return ToResponse(result);
+     }
+ 
++    /// <summary>
++    /// SuperAdmin-only: lists a teacher's Active links that are NOT yet bound to any
++    /// roster record — the pool of connected student accounts available to attach to
++    /// a Student Management row. Pass the returned LinkId to <see cref="BindStudentForAdmin"/>
++    /// with the target <c>teacherStudentId</c> to complete the link.
++    /// </summary>
++    /// <response code="200">Unbound Active links for the teacher (possibly empty).</response>
++    /// <response code="401">JWT missing or expired.</response>
++    /// <response code="403">Caller is not a SuperAdmin.</response>
++    /// <response code="404">Teacher not found.</response>
++    [HttpGet("admin/teachers/{teacherId:long}/unbound-links")]
++    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetUnboundActiveLinksForAdmin([FromRoute] long teacherId)
++    {
++        var result = await _linkService.GetUnboundActiveLinksForAdminAsync(teacherId);
++        return ToResponse(result);
++    }
++
+     /// <summary>
+     /// Admin variant of <see cref="BindStudent"/> — links (or re-links) an accepted
+     /// connection to one of the owning teacher's students, with no tenant scope.
+diff --git a/Edvanz.Application/Dtos/TeacherStudent/TeacherStudentDtos.cs b/Edvanz.Application/Dtos/TeacherStudent/TeacherStudentDtos.cs
+index f98f47e..06ed523 100644
+--- a/Edvanz.Application/Dtos/TeacherStudent/TeacherStudentDtos.cs
++++ b/Edvanz.Application/Dtos/TeacherStudent/TeacherStudentDtos.cs
+@@ -273,6 +273,14 @@ public class TeacherStudentDto
+     /// (populated only in the student-list path).
+     /// </summary>
+     public string? SessionName { get; set; }
++
++    /// <summary>
++    /// Display name of the owning teacher. Null in the teacher-scoped app (the caller
++    /// already knows their own name) and populated only on the SuperAdmin-facing
++    /// list/profile paths (GetStudentListForAdminAsync, GetStudentByIdForAdminAsync)
++    /// — same "enriched only where needed" convention as SessionName.
++    /// </summary>
++    public string? TeacherName { get; set; }
+ }
+ 
+ /// <summary>
+diff --git a/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs b/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
+index 77fcd98..6085344 100644
+--- a/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
++++ b/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
+@@ -102,6 +102,17 @@ public interface ITeacherStudentLinkService
+     Task<Result<PaginatedResponse<List<LinkedStudentListItemDto>>>> GetLinkedStudentsAsync(
+         long teacherId, int page, int pageSize);
+ 
++    /// <summary>
++    /// SUPER-ADMIN ONLY: lists a teacher's Active links that are NOT yet bound to
++    /// any roster record — the pool of connected student accounts a SuperAdmin can
++    /// attach to a Student Management roster row via <see cref="BindStudentLinkForAdminAsync"/>.
++    /// Powers the "Link" picker on the Admin Portal's student list; teacherId is an
++    /// explicit route parameter (not JWT-resolved) since the caller is choosing which
++    /// tenant's pool to browse, not acting as that tenant. Must only be reachable
++    /// behind a roleOnly SuperAdmin gate.
++    /// </summary>
++    Task<Result<List<LinkedStudentListItemDto>>> GetUnboundActiveLinksForAdminAsync(long teacherId);
++
+     /// <summary>
+     /// Removes one or many linked students (LinkStatus = RemovedByTeacher).
+     /// Ids that are not owned by this teacher or not Active are skipped and
+diff --git a/Edvanz.Application/Services/TeacherStudentLinkService.cs b/Edvanz.Application/Services/TeacherStudentLinkService.cs
+index a042f0e..376736d 100644
+--- a/Edvanz.Application/Services/TeacherStudentLinkService.cs
++++ b/Edvanz.Application/Services/TeacherStudentLinkService.cs
+@@ -340,6 +340,33 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
+         return Result<PaginatedResponse<List<LinkedStudentListItemDto>>>.Success(response, _localizer);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<Result<List<LinkedStudentListItemDto>>> GetUnboundActiveLinksForAdminAsync(
++        long teacherId)
++    {
++        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
++        if (teacher is null)
++            return Result<List<LinkedStudentListItemDto>>.Failure(
++                _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
++
++        var rows = await _unitOfWork.Users.GetUnboundActiveLinksForTeacherAsync(teacherId);
++
++        var items = rows.Select(r => new LinkedStudentListItemDto
++        {
++            LinkId = r.LinkId,
++            LinkedAt = r.LinkedAt,
++            StudentAccountCode = r.StudentAccountCode,
++            StudentFullName = r.StudentFullName,
++            StudentPhoneNumber = r.StudentPhoneNumber,
++            TeacherStudentId = null,
++            RosterStudentName = null,
++            RosterStudentCode = null,
++            IsLinked = false
++        }).ToList();
++
++        return Result<List<LinkedStudentListItemDto>>.Success(items, _localizer);
++    }
++
+     /// <inheritdoc />
+     public async Task<Result<RemoveLinkedStudentsResultDto>> RemoveLinkedStudentsAsync(
+         long teacherId, long actingUserId, RemoveLinkedStudentsDto dto)
+diff --git a/Edvanz.Application/Services/TeacherStudentService.cs b/Edvanz.Application/Services/TeacherStudentService.cs
+index 588cfd7..8892578 100644
+--- a/Edvanz.Application/Services/TeacherStudentService.cs
++++ b/Edvanz.Application/Services/TeacherStudentService.cs
+@@ -235,7 +235,17 @@ public class TeacherStudentService : ITeacherStudentService
+ 
+         // Delegate to the teacher-scoped method now that TeacherId is known —
+         // reuses the exact profile-assembly logic, zero duplication.
+-        return await GetStudentByIdAsync(student.TeacherId, studentId);
++        var result = await GetStudentByIdAsync(student.TeacherId, studentId);
++
++        // Admin-only enrichment: the mobile/teacher-scoped path above deliberately skips this
++        // lookup (the caller there already knows their own name); the SuperAdmin profile
++        // screen needs it, so it's added here as a single extra row fetch, not on the hot path.
++        if (result.IsSuccess && result.Data is not null)
++        {
++            result.Data.TeacherName = await _unitOfWork.Users.GetTeacherDisplayNameAsync(student.TeacherId);
++        }
++
++        return result;
+     }
+ 
+     /// <inheritdoc />
+@@ -1132,7 +1142,8 @@ public class TeacherStudentService : ITeacherStudentService
+     }
+ 
+     /// <summary>Shared base-field mapping for every TeacherStudent output DTO.</summary>
+-    private static void PopulateBase(TeacherStudentDto dto, TeacherStudent student, string? sessionName)
++    private static void PopulateBase(
++        TeacherStudentDto dto, TeacherStudent student, string? sessionName, string? teacherName = null)
+     {
+         dto.Id = student.Id;
+         dto.TeacherId = student.TeacherId;
+@@ -1144,6 +1155,7 @@ public class TeacherStudentService : ITeacherStudentService
+         dto.Barcode = student.StudentCode; // canonical scan key (see StudentBarcodeService)
+         dto.SessionId = student.SessionId;
+         dto.SessionName = sessionName;
++        dto.TeacherName = teacherName;
+         dto.CreatedAt = student.CreateAt;
+         // REQ-STU-UX-007: Complete = all optional fields filled
+         dto.IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
+@@ -1166,7 +1178,9 @@ public class TeacherStudentService : ITeacherStudentService
+     /// null when the student is unassigned or the map is not provided.
+     /// </summary>
+     private static TeacherStudentDto MapToDto(
+-        TeacherStudent student, IReadOnlyDictionary<long, string>? sessionNames)
++        TeacherStudent student,
++        IReadOnlyDictionary<long, string>? sessionNames,
++        IReadOnlyDictionary<long, string>? teacherNames = null)
+     {
+         string? sessionName = null;
+         if (student.SessionId.HasValue && sessionNames is not null
+@@ -1175,6 +1189,12 @@ public class TeacherStudentService : ITeacherStudentService
+             sessionName = name;
+         }
+ 
++        string? teacherName = null;
++        if (teacherNames is not null && teacherNames.TryGetValue(student.TeacherId, out var tName))
++        {
++            teacherName = tName;
++        }
++
+         return new TeacherStudentDto
+         {
+             Id = student.Id,
+@@ -1187,6 +1207,7 @@ public class TeacherStudentService : ITeacherStudentService
+             Barcode = student.StudentCode, // canonical scan key (see StudentBarcodeService)
+             SessionId = student.SessionId,
+             SessionName = sessionName,
++            TeacherName = teacherName,
+             CreatedAt = student.CreateAt,
+             // REQ-STU-UX-007: Complete = all optional fields filled
+             IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
+@@ -1336,7 +1357,15 @@ public class TeacherStudentService : ITeacherStudentService
+             ? new Dictionary<long, string>()
+             : await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, sessionIds);
+ 
+-        var dtos = students.Select(s => MapToDto(s, sessionNames)).ToList();
++        // Enrich the owning-teacher name — only meaningful here because this path can span
++        // every teacher on the platform; the teacher-scoped list already knows its own name
++        // client-side and doesn't need it.
++        var teacherIds = students.Select(s => s.TeacherId).Distinct().ToList();
++        IReadOnlyDictionary<long, string> teacherNames = teacherIds.Count == 0
++            ? new Dictionary<long, string>()
++            : await _unitOfWork.Users.GetTeacherNamesByIdsAsync(teacherIds);
++
++        var dtos = students.Select(s => MapToDto(s, sessionNames, teacherNames)).ToList();
+ 
+         var response = new PaginatedResponse<List<TeacherStudentDto>>
+         {
+diff --git a/Edvanz.Domain/Interfaces/IUserRepo.cs b/Edvanz.Domain/Interfaces/IUserRepo.cs
+index 6beb74a..f89641c 100644
+--- a/Edvanz.Domain/Interfaces/IUserRepo.cs
++++ b/Edvanz.Domain/Interfaces/IUserRepo.cs
+@@ -135,6 +135,16 @@ namespace Edvanz.Domain.Interfaces
+         /// </summary>
+         Task<IReadOnlyList<Teacher>> GetAllTeachersAsync();
+ 
++        /// <summary>
++        /// Bulk-resolves display names (User.FullName) for a set of TeacherIds in a single
++        /// round-trip — mirrors ISessionRepo.GetSessionNamesByIdsAsync's contract. Used to
++        /// enrich the SuperAdmin's platform-wide student list (REQ: show which teacher owns
++        /// each roster row) without an N+1 per page. Ids with no matching active Teacher are
++        /// simply absent from the result — callers must treat a missing key as "name unknown"
++        /// rather than throwing.
++        /// </summary>
++        Task<IReadOnlyDictionary<long, string>> GetTeacherNamesByIdsAsync(IEnumerable<long> teacherIds);
++
+         /// <summary>
+         /// Adds a new Teacher entity.
+         /// </summary>
+@@ -377,6 +387,16 @@ namespace Edvanz.Domain.Interfaces
+         Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize);
+ 
++        /// <summary>
++        /// All of a teacher's Active links that are NOT currently bound to any roster
++        /// record (TeacherStudentId is null) — the pool of "connected but not yet
++        /// linked" student accounts a SuperAdmin can attach to a roster row. No
++        /// pagination: this pool is small by construction (bounded by how many
++        /// students requested a connection and haven't been bound yet), unlike the
++        /// full linked-students list.
++        /// </summary>
++        Task<IReadOnlyList<TeacherLinkedStudentRow>> GetUnboundActiveLinksForTeacherAsync(long teacherId);
++
+         /// <summary>
+         /// Finds a link row by Id scoped to the teacher (tracked, for accept/reject).
+         /// </summary>
+@@ -404,6 +424,16 @@ namespace Edvanz.Domain.Interfaces
+         /// </summary>
+         Task<bool> IsTeacherStudentActivelyLinkedAsync(long teacherStudentId);
+ 
++        /// <summary>
++        /// Of the given roster record ids, returns the LinkId of whichever Active
++        /// StudentTeacherLink currently claims each one (at most one per record — see
++        /// IsTeacherStudentActivelyLinkedAsync). Ids with no claiming link are absent
++        /// from the result. Powers a per-row "Unlink" action on the Admin Portal's
++        /// student list without an N+1 lookup.
++        /// </summary>
++        Task<IReadOnlyDictionary<long, long>> GetActiveLinkIdsByTeacherStudentIdsAsync(
++            IReadOnlyCollection<long> teacherStudentIds);
++
+         /// <summary>
+         /// Of the given roster record ids, returns the subset already claimed by an
+         /// Active link. Batch variant used to flag suggestions on the requests inbox.
+diff --git a/Edvanz.Infrastructure/Repositories/UserRepo.cs b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+index 501d326..641864e 100644
+--- a/Edvanz.Infrastructure/Repositories/UserRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+@@ -620,6 +620,36 @@ namespace Edvanz.Infrastructure.Repositories
+             return (items, total);
+         }
+ 
++        /// <inheritdoc />
++        public async Task<IReadOnlyList<TeacherLinkedStudentRow>> GetUnboundActiveLinksForTeacherAsync(
++            long teacherId)
++        {
++            return await _context.Set<StudentTeacherLink>()
++                .AsNoTracking()
++                .Where(l => l.TeacherId == teacherId
++                         && l.LinkStatus == LinkStatus.Active
++                         && l.TeacherStudentId == null)
++                .OrderByDescending(l => l.LinkedAt)
++                .Join(_context.Set<StudentUser>(),
++                    l => l.StudentUserId, su => su.Id,
++                    (l, su) => new { l, su })
++                .Join(_context.Set<User>(),
++                    x => x.su.UserId, u => u.Id,
++                    (x, u) => new { x.l, x.su, u })
++                .Select(x => new TeacherLinkedStudentRow
++                {
++                    LinkId = x.l.Id,
++                    LinkedAt = x.l.LinkedAt,
++                    StudentAccountCode = x.su.StudentAccountCode,
++                    StudentFullName = x.u.FullName,
++                    StudentPhoneNumber = x.u.PhoneNumber,
++                    TeacherStudentId = null,
++                    RosterStudentName = null,
++                    RosterStudentCode = null
++                })
++                .ToListAsync();
++        }
++
+         /// <inheritdoc />
+         public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize)
+@@ -693,6 +723,19 @@ namespace Edvanz.Infrastructure.Repositories
+         }
+ 
+         /// <inheritdoc />
++        public async Task<IReadOnlyDictionary<long, long>> GetActiveLinkIdsByTeacherStudentIdsAsync(
++            IReadOnlyCollection<long> teacherStudentIds)
++        {
++            if (teacherStudentIds.Count == 0) return new Dictionary<long, long>();
++
++            return await _context.Set<StudentTeacherLink>()
++                .AsNoTracking()
++                .Where(l => l.TeacherStudentId != null &&
++                            teacherStudentIds.Contains(l.TeacherStudentId.Value) &&
++                            l.LinkStatus == LinkStatus.Active)
++                .ToDictionaryAsync(l => l.TeacherStudentId!.Value, l => l.Id);
++        }
++
+         public async Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
+             IReadOnlyCollection<long> teacherStudentIds)
+         {
+@@ -1171,6 +1214,23 @@ namespace Edvanz.Infrastructure.Repositories
+                 .AsNoTracking()
+                 .ToDictionaryAsync(u => u.Id, u => u.FullName);
+         }
++        /// <inheritdoc />
++        public async Task<IReadOnlyDictionary<long, string>> GetTeacherNamesByIdsAsync(
++            IEnumerable<long> teacherIds)
++        {
++            var ids = teacherIds.Distinct().ToList();
++            if (ids.Count == 0) return new Dictionary<long, string>();
++
++            return await _context.Set<Teacher>()
++                .Where(t => ids.Contains(t.Id))
++                .Join(_context.Users.AsNoTracking(),
++                    t => t.UserId,
++                    u => u.Id,
++                    (t, u) => new { t.Id, u.FullName })
++                .AsNoTracking()
++                .ToDictionaryAsync(x => x.Id, x => x.FullName);
++        }
++
+         /// <inheritdoc />
+         public async Task<IReadOnlyList<TeacherNameLookupProjection>> GetTeacherNameLookupAsync()
+         {

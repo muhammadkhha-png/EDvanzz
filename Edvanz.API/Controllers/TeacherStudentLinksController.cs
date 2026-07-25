@@ -143,6 +143,28 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     }
 
     /// <summary>
+    /// SuperAdmin-only: lists a teacher's Active links that are NOT yet bound to any
+    /// roster record — the pool of connected student accounts available to attach to
+    /// a Student Management row. Pass the returned LinkId to <see cref="BindStudentForAdmin"/>
+    /// with the target <c>teacherStudentId</c> to complete the link.
+    /// </summary>
+    /// <response code="200">Unbound Active links for the teacher (possibly empty).</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">Teacher not found.</response>
+    [HttpGet("admin/teachers/{teacherId:long}/unbound-links")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUnboundActiveLinksForAdmin([FromRoute] long teacherId)
+    {
+        var result = await _linkService.GetUnboundActiveLinksForAdminAsync(teacherId);
+        return ToResponse(result);
+    }
+
+    /// <summary>
     /// Admin variant of <see cref="BindStudent"/> — links (or re-links) an accepted
     /// connection to one of the owning teacher's students, with no tenant scope.
     /// SuperAdmin only.

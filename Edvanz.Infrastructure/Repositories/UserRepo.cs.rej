@@ -1,0 +1,45 @@
+diff a/Edvanz.Infrastructure/Repositories/UserRepo.cs b/Edvanz.Infrastructure/Repositories/UserRepo.cs	(rejected hunks)
+@@ -693,6 +723,19 @@ namespace Edvanz.Infrastructure.Repositories
+         }
+ 
+         /// <inheritdoc />
++        public async Task<IReadOnlyDictionary<long, long>> GetActiveLinkIdsByTeacherStudentIdsAsync(
++            IReadOnlyCollection<long> teacherStudentIds)
++        {
++            if (teacherStudentIds.Count == 0) return new Dictionary<long, long>();
++
++            return await _context.Set<StudentTeacherLink>()
++                .AsNoTracking()
++                .Where(l => l.TeacherStudentId != null &&
++                            teacherStudentIds.Contains(l.TeacherStudentId.Value) &&
++                            l.LinkStatus == LinkStatus.Active)
++                .ToDictionaryAsync(l => l.TeacherStudentId!.Value, l => l.Id);
++        }
++
+         public async Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
+             IReadOnlyCollection<long> teacherStudentIds)
+         {
+@@ -1171,6 +1214,23 @@ namespace Edvanz.Infrastructure.Repositories
+                 .AsNoTracking()
+                 .ToDictionaryAsync(u => u.Id, u => u.FullName);
+         }
++        /// <inheritdoc />
++        public async Task<IReadOnlyDictionary<long, string>> GetTeacherNamesByIdsAsync(
++            IEnumerable<long> teacherIds)
++        {
++            var ids = teacherIds.Distinct().ToList();
++            if (ids.Count == 0) return new Dictionary<long, string>();
++
++            return await _context.Set<Teacher>()
++                .Where(t => ids.Contains(t.Id))
++                .Join(_context.Users.AsNoTracking(),
++                    t => t.UserId,
++                    u => u.Id,
++                    (t, u) => new { t.Id, u.FullName })
++                .AsNoTracking()
++                .ToDictionaryAsync(x => x.Id, x => x.FullName);
++        }
++
+         /// <inheritdoc />
+         public async Task<IReadOnlyList<TeacherNameLookupProjection>> GetTeacherNameLookupAsync()
+         {

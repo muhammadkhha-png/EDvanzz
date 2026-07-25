@@ -341,6 +341,33 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
     }
 
     /// <inheritdoc />
+    public async Task<Result<List<LinkedStudentListItemDto>>> GetUnboundActiveLinksForAdminAsync(
+        long teacherId)
+    {
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+            return Result<List<LinkedStudentListItemDto>>.Failure(
+                _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        var rows = await _unitOfWork.Users.GetUnboundActiveLinksForTeacherAsync(teacherId);
+
+        var items = rows.Select(r => new LinkedStudentListItemDto
+        {
+            LinkId = r.LinkId,
+            LinkedAt = r.LinkedAt,
+            StudentAccountCode = r.StudentAccountCode,
+            StudentFullName = r.StudentFullName,
+            StudentPhoneNumber = r.StudentPhoneNumber,
+            TeacherStudentId = null,
+            RosterStudentName = null,
+            RosterStudentCode = null,
+            IsLinked = false
+        }).ToList();
+
+        return Result<List<LinkedStudentListItemDto>>.Success(items, _localizer);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<RemoveLinkedStudentsResultDto>> RemoveLinkedStudentsAsync(
         long teacherId, long actingUserId, RemoveLinkedStudentsDto dto)
     {

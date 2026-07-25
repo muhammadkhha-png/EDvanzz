@@ -136,6 +136,16 @@ namespace Edvanz.Domain.Interfaces
         Task<IReadOnlyList<Teacher>> GetAllTeachersAsync();
 
         /// <summary>
+        /// Bulk-resolves display names (User.FullName) for a set of TeacherIds in a single
+        /// round-trip — mirrors ISessionRepo.GetSessionNamesByIdsAsync's contract. Used to
+        /// enrich the SuperAdmin's platform-wide student list (REQ: show which teacher owns
+        /// each roster row) without an N+1 per page. Ids with no matching active Teacher are
+        /// simply absent from the result — callers must treat a missing key as "name unknown"
+        /// rather than throwing.
+        /// </summary>
+        Task<IReadOnlyDictionary<long, string>> GetTeacherNamesByIdsAsync(IEnumerable<long> teacherIds);
+
+        /// <summary>
         /// Adds a new Teacher entity.
         /// </summary>
         Task AddTeacherAsync(Teacher teacher);
@@ -378,6 +388,16 @@ namespace Edvanz.Domain.Interfaces
             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize);
 
         /// <summary>
+        /// All of a teacher's Active links that are NOT currently bound to any roster
+        /// record (TeacherStudentId is null) — the pool of "connected but not yet
+        /// linked" student accounts a SuperAdmin can attach to a roster row. No
+        /// pagination: this pool is small by construction (bounded by how many
+        /// students requested a connection and haven't been bound yet), unlike the
+        /// full linked-students list.
+        /// </summary>
+        Task<IReadOnlyList<TeacherLinkedStudentRow>> GetUnboundActiveLinksForTeacherAsync(long teacherId);
+
+        /// <summary>
         /// Finds a link row by Id scoped to the teacher (tracked, for accept/reject).
         /// </summary>
         Task<StudentTeacherLink?> GetStudentTeacherLinkByIdForTeacherAsync(long linkId, long teacherId);
@@ -403,6 +423,16 @@ namespace Edvanz.Domain.Interfaces
         /// One roster record can be bound to at most one student account (accept-time guard).
         /// </summary>
         Task<bool> IsTeacherStudentActivelyLinkedAsync(long teacherStudentId);
+
+        /// <summary>
+        /// Of the given roster record ids, returns the LinkId of whichever Active
+        /// StudentTeacherLink currently claims each one (at most one per record — see
+        /// IsTeacherStudentActivelyLinkedAsync). Ids with no claiming link are absent
+        /// from the result. Powers a per-row "Unlink" action on the Admin Portal's
+        /// student list without an N+1 lookup.
+        /// </summary>
+        Task<IReadOnlyDictionary<long, long>> GetActiveLinkIdsByTeacherStudentIdsAsync(
+            IReadOnlyCollection<long> teacherStudentIds);
 
         /// <summary>
         /// Of the given roster record ids, returns the subset already claimed by an

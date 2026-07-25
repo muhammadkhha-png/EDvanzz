@@ -235,7 +235,17 @@ public class TeacherStudentService : ITeacherStudentService
 
         // Delegate to the teacher-scoped method now that TeacherId is known —
         // reuses the exact profile-assembly logic, zero duplication.
-        return await GetStudentByIdAsync(student.TeacherId, studentId);
+        var result = await GetStudentByIdAsync(student.TeacherId, studentId);
+
+        // Admin-only enrichment: the mobile/teacher-scoped path above deliberately skips this
+        // lookup (the caller there already knows their own name); the SuperAdmin profile
+        // screen needs it, so it's added here as a single extra row fetch, not on the hot path.
+        if (result.IsSuccess && result.Data is not null)
+        {
+            result.Data.TeacherName = await _unitOfWork.Users.GetTeacherDisplayNameAsync(student.TeacherId);
+        }
+
+        return result;
     }
 
     /// <inheritdoc />
@@ -452,7 +462,15 @@ public class TeacherStudentService : ITeacherStudentService
             ? new Dictionary<long, string>()
             : await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, sessionIds);
 
-        var dtos = students.Select(s => MapToDto(s, sessionNames)).ToList();
+        // Enrich the owning-teacher name — only meaningful here because this path can span
+        // every teacher on the platform; the teacher-scoped list already knows its own name
+        // client-side and doesn't need it.
+        var teacherIds = students.Select(s => s.TeacherId).Distinct().ToList();
+        IReadOnlyDictionary<long, string> teacherNames = teacherIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _unitOfWork.Users.GetTeacherNamesByIdsAsync(teacherIds);
+
+        var dtos = students.Select(s => MapToDto(s, sessionNames, teacherNames)).ToList();
 
         var response = new PaginatedResponse<List<TeacherStudentDto>>
         {
@@ -1132,7 +1150,8 @@ public class TeacherStudentService : ITeacherStudentService
     }
 
     /// <summary>Shared base-field mapping for every TeacherStudent output DTO.</summary>
-    private static void PopulateBase(TeacherStudentDto dto, TeacherStudent student, string? sessionName)
+    private static void PopulateBase(
+        TeacherStudentDto dto, TeacherStudent student, string? sessionName, string? teacherName = null)
     {
         dto.Id = student.Id;
         dto.TeacherId = student.TeacherId;
@@ -1144,6 +1163,7 @@ public class TeacherStudentService : ITeacherStudentService
         dto.Barcode = student.StudentCode; // canonical scan key (see StudentBarcodeService)
         dto.SessionId = student.SessionId;
         dto.SessionName = sessionName;
+        dto.TeacherName = teacherName;
         dto.CreatedAt = student.CreateAt;
         // REQ-STU-UX-007: Complete = all optional fields filled
         dto.IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
@@ -1166,13 +1186,21 @@ public class TeacherStudentService : ITeacherStudentService
     /// null when the student is unassigned or the map is not provided.
     /// </summary>
     private static TeacherStudentDto MapToDto(
-        TeacherStudent student, IReadOnlyDictionary<long, string>? sessionNames)
+        TeacherStudent student,
+        IReadOnlyDictionary<long, string>? sessionNames,
+        IReadOnlyDictionary<long, string>? teacherNames = null)
     {
         string? sessionName = null;
         if (student.SessionId.HasValue && sessionNames is not null
             && sessionNames.TryGetValue(student.SessionId.Value, out var name))
         {
             sessionName = name;
+        }
+
+        string? teacherName = null;
+        if (teacherNames is not null && teacherNames.TryGetValue(student.TeacherId, out var tName))
+        {
+            teacherName = tName;
         }
 
         return new TeacherStudentDto
@@ -1187,6 +1215,7 @@ public class TeacherStudentService : ITeacherStudentService
             Barcode = student.StudentCode, // canonical scan key (see StudentBarcodeService)
             SessionId = student.SessionId,
             SessionName = sessionName,
+            TeacherName = teacherName,
             CreatedAt = student.CreateAt,
             // REQ-STU-UX-007: Complete = all optional fields filled
             IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
@@ -1336,7 +1365,15 @@ public class TeacherStudentService : ITeacherStudentService
             ? new Dictionary<long, string>()
             : await _unitOfWork.SessionsRepo.GetSessionNamesByIdsAsync(teacherId, sessionIds);
 
-        var dtos = students.Select(s => MapToDto(s, sessionNames)).ToList();
+        // Enrich the owning-teacher name — only meaningful here because this path can span
+        // every teacher on the platform; the teacher-scoped list already knows its own name
+        // client-side and doesn't need it.
+        var teacherIds = students.Select(s => s.TeacherId).Distinct().ToList();
+        IReadOnlyDictionary<long, string> teacherNames = teacherIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _unitOfWork.Users.GetTeacherNamesByIdsAsync(teacherIds);
+
+        var dtos = students.Select(s => MapToDto(s, sessionNames, teacherNames)).ToList();
 
         var response = new PaginatedResponse<List<TeacherStudentDto>>
         {

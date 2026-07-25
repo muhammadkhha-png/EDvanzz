@@ -273,6 +273,14 @@ public class TeacherStudentDto
     /// (populated only in the student-list path).
     /// </summary>
     public string? SessionName { get; set; }
+
+    /// <summary>
+    /// Display name of the owning teacher. Null in the teacher-scoped app (the caller
+    /// already knows their own name) and populated only on the SuperAdmin-facing
+    /// list/profile paths (GetStudentListForAdminAsync, GetStudentByIdForAdminAsync)
+    /// — same "enriched only where needed" convention as SessionName.
+    /// </summary>
+    public string? TeacherName { get; set; }
 }
 
 /// <summary>

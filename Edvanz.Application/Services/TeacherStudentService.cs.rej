@@ -1,0 +1,70 @@
+diff a/Edvanz.Application/Services/TeacherStudentService.cs b/Edvanz.Application/Services/TeacherStudentService.cs	(rejected hunks)
+@@ -235,7 +235,17 @@ public class TeacherStudentService : ITeacherStudentService
+ 
+         // Delegate to the teacher-scoped method now that TeacherId is known —
+         // reuses the exact profile-assembly logic, zero duplication.
+-        return await GetStudentByIdAsync(student.TeacherId, studentId);
++        var result = await GetStudentByIdAsync(student.TeacherId, studentId);
++
++        // Admin-only enrichment: the mobile/teacher-scoped path above deliberately skips this
++        // lookup (the caller there already knows their own name); the SuperAdmin profile
++        // screen needs it, so it's added here as a single extra row fetch, not on the hot path.
++        if (result.IsSuccess && result.Data is not null)
++        {
++            result.Data.TeacherName = await _unitOfWork.Users.GetTeacherDisplayNameAsync(student.TeacherId);
++        }
++
++        return result;
+     }
+ 
+     /// <inheritdoc />
+@@ -1132,7 +1142,8 @@ public class TeacherStudentService : ITeacherStudentService
+     }
+ 
+     /// <summary>Shared base-field mapping for every TeacherStudent output DTO.</summary>
+-    private static void PopulateBase(TeacherStudentDto dto, TeacherStudent student, string? sessionName)
++    private static void PopulateBase(
++        TeacherStudentDto dto, TeacherStudent student, string? sessionName, string? teacherName = null)
+     {
+         dto.Id = student.Id;
+         dto.TeacherId = student.TeacherId;
+@@ -1144,6 +1155,7 @@ public class TeacherStudentService : ITeacherStudentService
+         dto.Barcode = student.StudentCode; // canonical scan key (see StudentBarcodeService)
+         dto.SessionId = student.SessionId;
+         dto.SessionName = sessionName;
++        dto.TeacherName = teacherName;
+         dto.CreatedAt = student.CreateAt;
+         // REQ-STU-UX-007: Complete = all optional fields filled
+         dto.IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)
+@@ -1166,7 +1178,9 @@ public class TeacherStudentService : ITeacherStudentService
+     /// null when the student is unassigned or the map is not provided.
+     /// </summary>
+     private static TeacherStudentDto MapToDto(
+-        TeacherStudent student, IReadOnlyDictionary<long, string>? sessionNames)
++        TeacherStudent student,
++        IReadOnlyDictionary<long, string>? sessionNames,
++        IReadOnlyDictionary<long, string>? teacherNames = null)
+     {
+         string? sessionName = null;
+         if (student.SessionId.HasValue && sessionNames is not null
+@@ -1175,6 +1189,12 @@ public class TeacherStudentService : ITeacherStudentService
+             sessionName = name;
+         }
+ 
++        string? teacherName = null;
++        if (teacherNames is not null && teacherNames.TryGetValue(student.TeacherId, out var tName))
++        {
++            teacherName = tName;
++        }
++
+         return new TeacherStudentDto
+         {
+             Id = student.Id,
+@@ -1187,6 +1207,7 @@ public class TeacherStudentService : ITeacherStudentService
+             Barcode = student.StudentCode, // canonical scan key (see StudentBarcodeService)
+             SessionId = student.SessionId,
+             SessionName = sessionName,
++            TeacherName = teacherName,
+             CreatedAt = student.CreateAt,
+             // REQ-STU-UX-007: Complete = all optional fields filled
+             IsComplete = !string.IsNullOrWhiteSpace(student.StudentPhoneNumber)

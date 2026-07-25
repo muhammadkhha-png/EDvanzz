@@ -103,6 +103,17 @@ public interface ITeacherStudentLinkService
         long teacherId, int page, int pageSize);
 
     /// <summary>
+    /// SUPER-ADMIN ONLY: lists a teacher's Active links that are NOT yet bound to
+    /// any roster record — the pool of connected student accounts a SuperAdmin can
+    /// attach to a Student Management roster row via <see cref="BindStudentLinkForAdminAsync"/>.
+    /// Powers the "Link" picker on the Admin Portal's student list; teacherId is an
+    /// explicit route parameter (not JWT-resolved) since the caller is choosing which
+    /// tenant's pool to browse, not acting as that tenant. Must only be reachable
+    /// behind a roleOnly SuperAdmin gate.
+    /// </summary>
+    Task<Result<List<LinkedStudentListItemDto>>> GetUnboundActiveLinksForAdminAsync(long teacherId);
+
+    /// <summary>
     /// Removes one or many linked students (LinkStatus = RemovedByTeacher).
     /// Ids that are not owned by this teacher or not Active are skipped and
     /// reported back. Notifies each affected student post-commit, best-effort.
