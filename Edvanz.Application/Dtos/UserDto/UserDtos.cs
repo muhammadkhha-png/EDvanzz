@@ -29,11 +29,6 @@ namespace Edvanz.Application.Dtos.UserDto
 
         [Required]
         [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be at least 8 characters")]
-
-        [RegularExpression(
-        @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).+$",
-        ErrorMessage = "Password must contain at least one uppercase, one lowercase, one number, and one special character"
-    )]
         public string password { get; set; }
 
         [Required]

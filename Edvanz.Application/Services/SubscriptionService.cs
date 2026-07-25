@@ -105,7 +105,7 @@ public class SubscriptionService : ISubscriptionService
             Id = projection.SubscriptionId,
             StartDate = projection.StartDate,
             EndDate = projection.EndDate,
-            DaysRemaining = ComputeDaysRemaining(projection.EndDate),
+            DaysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(subForStatus, DateTime.UtcNow),
             Status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow),
             RenewalAmountEGP = renewalAmount
         };
@@ -724,17 +724,5 @@ public class SubscriptionService : ISubscriptionService
                            ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
 
         return sqlException is { Number: 2601 or 2627 };
-    }
-    /// <summary>
-    /// Days remaining until <paramref name="endDateUtc"/>, clamped to zero on
-    /// the day-of-expiry and beyond. Used by GetCurrentAsync — the helper class
-    /// SubscriptionStatusCalculator does not expose a DaysRemaining method, so
-    /// the calculation lives here next to the only consumer.
-    /// </summary>
-    private static int ComputeDaysRemaining(DateTime endDateUtc)
-    {
-        TimeSpan delta = endDateUtc - DateTime.UtcNow;
-        if (delta <= TimeSpan.Zero) return 0;
-        return (int)Math.Ceiling(delta.TotalDays);
     }
 }
