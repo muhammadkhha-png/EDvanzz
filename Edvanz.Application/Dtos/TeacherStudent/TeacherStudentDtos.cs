@@ -281,6 +281,12 @@ public class TeacherStudentDto
     /// — same "enriched only where needed" convention as SessionName.
     /// </summary>
     public string? TeacherName { get; set; }
+    /// <summary>
+    /// Id of the Active StudentTeacherLink currently bound to this roster record, if
+    /// any — null when no student account is linked. Drives the Admin Portal's
+    /// per-row "Unlink" action.
+    /// </summary>
+    public long? LinkId { get; set; }
 }
 
 /// <summary>

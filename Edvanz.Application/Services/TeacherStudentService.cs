@@ -243,6 +243,8 @@ public class TeacherStudentService : ITeacherStudentService
         if (result.IsSuccess && result.Data is not null)
         {
             result.Data.TeacherName = await _unitOfWork.Users.GetTeacherDisplayNameAsync(student.TeacherId);
+            var linkIds = await _unitOfWork.Users.GetActiveLinkIdsByTeacherStudentIdsAsync(new[] { studentId });
+            result.Data.LinkId = linkIds.TryGetValue(studentId, out var linkId) ? linkId : null;
         }
 
         return result;
@@ -1151,7 +1153,8 @@ public class TeacherStudentService : ITeacherStudentService
 
     /// <summary>Shared base-field mapping for every TeacherStudent output DTO.</summary>
     private static void PopulateBase(
-        TeacherStudentDto dto, TeacherStudent student, string? sessionName, string? teacherName = null)
+          TeacherStudentDto dto, TeacherStudent student, string? sessionName,
+          string? teacherName = null, long? linkId = null)
     {
         dto.Id = student.Id;
         dto.TeacherId = student.TeacherId;
@@ -1186,9 +1189,10 @@ public class TeacherStudentService : ITeacherStudentService
     /// null when the student is unassigned or the map is not provided.
     /// </summary>
     private static TeacherStudentDto MapToDto(
-        TeacherStudent student,
-        IReadOnlyDictionary<long, string>? sessionNames,
-        IReadOnlyDictionary<long, string>? teacherNames = null)
+          TeacherStudent student,
+          IReadOnlyDictionary<long, string>? sessionNames,
+          IReadOnlyDictionary<long, string>? teacherNames = null,
+          IReadOnlyDictionary<long, long>? activeLinkIds = null)
     {
         string? sessionName = null;
         if (student.SessionId.HasValue && sessionNames is not null
@@ -1202,6 +1206,11 @@ public class TeacherStudentService : ITeacherStudentService
         {
             teacherName = tName;
         }
+        long? linkId = null;
+        if (activeLinkIds is not null && activeLinkIds.TryGetValue(student.Id, out var lId))
+        {
+            linkId = lId;
+        }
 
         return new TeacherStudentDto
         {
@@ -1211,6 +1220,7 @@ public class TeacherStudentService : ITeacherStudentService
             StudentCode = student.StudentCode,
             HashedToken = student.HashedToken,
             StudentPhoneNumber = student.StudentPhoneNumber,
+            LinkId = linkId,
             ParentPhoneNumber = student.ParentPhoneNumber,
             Barcode = student.StudentCode, // canonical scan key (see StudentBarcodeService)
             SessionId = student.SessionId,
@@ -1372,8 +1382,12 @@ public class TeacherStudentService : ITeacherStudentService
         IReadOnlyDictionary<long, string> teacherNames = teacherIds.Count == 0
             ? new Dictionary<long, string>()
             : await _unitOfWork.Users.GetTeacherNamesByIdsAsync(teacherIds);
+        var studentIds = students.Select(s => s.Id).ToList();
+        IReadOnlyDictionary<long, long> activeLinkIds = studentIds.Count == 0
+            ? new Dictionary<long, long>()
+            : await _unitOfWork.Users.GetActiveLinkIdsByTeacherStudentIdsAsync(studentIds);
 
-        var dtos = students.Select(s => MapToDto(s, sessionNames, teacherNames)).ToList();
+        var dtos = students.Select(s => MapToDto(s, sessionNames, teacherNames,activeLinkIds)).ToList();
 
         var response = new PaginatedResponse<List<TeacherStudentDto>>
         {
