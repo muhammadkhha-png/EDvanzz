@@ -82,7 +82,10 @@ public class StudentBarcodeService : IStudentBarcodeService
         // Distinct, positive ids only — defends the repo query and de-dupes the export.
         var ids = studentIds.Where(id => id > 0).Distinct().ToList();
         if (ids.Count == 0)
-            return Result<byte[]>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
+            // Dedicated message: this endpoint is invoked per-session, so an empty roster means the
+            // session has no students (not a missing manual selection). Distinct from the shared
+            // NoStudentsSelected used by bulk delete/restore.
+            return Result<byte[]>.Failure(_localizer, "NoStudentsInSession", HttpStatusCode.BadRequest);
 
         // Tenant-scoped fetch: foreign ids simply do not come back, so no IDOR leak.
         var students = await _unitOfWork.Students.GetActiveByIdsAndTeacherAsync(teacherId, ids);

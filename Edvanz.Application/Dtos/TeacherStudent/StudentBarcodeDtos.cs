@@ -34,7 +34,12 @@ public class StudentBarcodeCard
 /// </summary>
 public class ExportStudentBarcodesRequest
 {
-    [Required]
-    [MinLength(1)]
+    /// <summary>
+    /// The student ids to export. Deliberately NOT annotated with <c>[Required]/[MinLength(1)]</c>:
+    /// a session with an empty roster legitimately posts an empty list, and model-level validation
+    /// would short-circuit that into a raw <c>problem+json</c> 400 (opaque to the client, which is
+    /// downloading a PDF blob). Letting it through means the service returns a clean, localized
+    /// <c>NoStudentsInSession</c> envelope instead. Foreign/duplicate/zero ids are filtered there too.
+    /// </summary>
     public List<long> StudentIds { get; set; } = new();
 }

@@ -181,9 +181,9 @@ public class TeacherStudentController : ModuleSixApiBaseController
     /// TENANCY: teacherId from JWT — ids not owned by the resolved teacher are silently dropped
     /// (IDOR-safe). Page direction follows the request UI culture (Accept-Language).
     /// </remarks>
-    /// <param name="request">The student ids to export (at least one).</param>
+    /// <param name="request">The student ids to export. An empty roster returns a localized 400, not a PDF.</param>
     /// <response code="200">Returns an <c>application/pdf</c> file of barcode cards.</response>
-    /// <response code="400">No student ids supplied.</response>
+    /// <response code="400">No student ids supplied (e.g. the session has no students) — localized <c>NoStudentsInSession</c>.</response>
     /// <response code="401">JWT missing or expired.</response>
     /// <response code="403">Caller lacks the <c>Student / ViewProfile</c> permission.</response>
     /// <response code="404">None of the supplied ids belong to this teacher.</response>
@@ -200,7 +200,10 @@ public class TeacherStudentController : ModuleSixApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         bool rtl = System.Globalization.CultureInfo.CurrentUICulture.TextInfo.IsRightToLeft;
-        var result = await _barcodeService.ExportBarcodesPdfAsync(teacherId.Value, request.StudentIds, rtl);
+        // Null-coalesce so an explicit "studentIds": null (or an omitted body) reaches the service
+        // as an empty list and yields the localized NoStudentsSelected message rather than a 500.
+        var result = await _barcodeService.ExportBarcodesPdfAsync(
+            teacherId.Value, request.StudentIds ?? new List<long>(), rtl);
         if (!result.IsSuccess) return ToResponse(result);
 
         return File(result.Data!, "application/pdf", "student-barcodes.pdf");
