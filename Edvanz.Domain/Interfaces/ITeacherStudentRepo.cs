@@ -31,6 +31,14 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     Task<TeacherStudent?> GetActiveByIdAndTeacherAsync(long studentId, long teacherId);
 
     /// <summary>
+    /// Finds an active (non-deleted) student by Id only — no teacher scope.
+    /// SUPER-ADMIN ONLY: backs the admin single-record GET/PUT endpoints, where
+    /// the caller has no JWT-derived teacherId. Callers must read TeacherId off
+    /// the returned entity before delegating to any tenant-scoped service method.
+    /// </summary>
+    Task<TeacherStudent?> GetActiveByIdAsync(long studentId);
+
+    /// <summary>
     /// Finds a student by Id and teacher, including soft-deleted records.
     /// Used for recycle bin restore and permanent delete operations.
     /// REQ-STU-029: View, restore, or permanently delete from recycle bin.

@@ -58,6 +58,17 @@ public interface ITeacherStudentLinkService
         long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto);
 
     /// <summary>
+    /// SUPER-ADMIN variant of <see cref="BindStudentLinkAsync"/> — no tenant
+    /// scope. Resolves the owning TeacherId from the link row itself (the
+    /// linkId already fully identifies the tenant, so no TeacherId needs to
+    /// be supplied or guessed by the caller), then delegates to the identical
+    /// bind logic. Must only be reachable behind a roleOnly SuperAdmin gate.
+    /// </summary>
+    /// <param name="actingUserId">User.Id of the SuperAdmin performing the bind (audit).</param>
+    Task<Result<LinkedStudentListItemDto>> BindStudentLinkForAdminAsync(
+        long linkId, long actingUserId, BindStudentLinkDto dto);
+
+    /// <summary>
     /// Removes the student-record binding from an accepted link. The connection
     /// stays Active (the student remains accepted) but loses data access until it is
     /// re-linked. Idempotent when already unbound. Fails 404 when the link is missing
@@ -66,6 +77,16 @@ public interface ITeacherStudentLinkService
     /// <param name="actingUserId">User.Id of the teacher/assistant performing the unlink (audit).</param>
     Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
         long teacherId, long linkId, long actingUserId);
+
+    /// <summary>
+    /// SUPER-ADMIN variant of <see cref="UnbindStudentLinkAsync"/> — no tenant
+    /// scope. Resolves the owning TeacherId from the link row itself, then
+    /// delegates to the identical unbind logic. Must only be reachable behind
+    /// a roleOnly SuperAdmin gate.
+    /// </summary>
+    /// <param name="actingUserId">User.Id of the SuperAdmin performing the unbind (audit).</param>
+    Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkForAdminAsync(
+        long linkId, long actingUserId);
 
     /// <summary>
     /// Rejects a Pending request (terminal, kept for audit — the student may send

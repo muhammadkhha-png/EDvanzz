@@ -37,6 +37,15 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
     }
 
     /// <inheritdoc />
+    public async Task<TeacherStudent?> GetActiveByIdAsync(long studentId)
+    {
+        // Global query filter already excludes IsDeleted == true. No TeacherId
+        // predicate — SUPER-ADMIN ONLY, see interface doc.
+        return await _context.TeacherStudents
+            .FirstOrDefaultAsync(ts => ts.Id == studentId);
+    }
+
+    /// <inheritdoc />
     public async Task<TeacherStudent?> GetByIdAndTeacherIgnoreFiltersAsync(long studentId, long teacherId)
     {
         // IgnoreQueryFilters to access soft-deleted records in the recycle bin

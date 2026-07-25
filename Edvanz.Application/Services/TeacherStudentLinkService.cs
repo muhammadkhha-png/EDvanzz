@@ -172,6 +172,20 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
     }
 
     /// <inheritdoc />
+    public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkForAdminAsync(
+        long linkId, long actingUserId, BindStudentLinkDto dto)
+    {
+        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
+        if (link is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Delegate to the teacher-scoped method now that the owning TeacherId
+        // is known — reuses the exact bind/re-point/claim-check logic, zero
+        // duplication.
+        return await BindStudentLinkAsync(link.TeacherId, linkId, actingUserId, dto);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
         long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto)
     {
@@ -220,6 +234,19 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
         var item = await BuildLinkedStudentItemAsync(link, rosterStudent);
         return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkBound");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkForAdminAsync(
+        long linkId, long actingUserId)
+    {
+        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
+        if (link is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Delegate to the teacher-scoped method now that the owning TeacherId
+        // is known — reuses the exact unbind logic, zero duplication.
+        return await UnbindStudentLinkAsync(link.TeacherId, linkId, actingUserId);
     }
 
     /// <inheritdoc />

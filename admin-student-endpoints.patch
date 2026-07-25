@@ -1,0 +1,375 @@
+diff --git a/Edvanz.API/Controllers/TeacherStudentController.cs b/Edvanz.API/Controllers/TeacherStudentController.cs
+index e06b841..2abf2a4 100644
+--- a/Edvanz.API/Controllers/TeacherStudentController.cs
++++ b/Edvanz.API/Controllers/TeacherStudentController.cs
+@@ -598,4 +598,61 @@ public class TeacherStudentController : ModuleSixApiBaseController
+         var result = await _studentService.GetStudentListForAdminAsync(request.TeacherId, request);
+         return ToResponse(result);
+     }
++
++    /// <summary>Returns a single student record by its primary key, with no tenant scope. SuperAdmin only.</summary>
++    /// <remarks>
++    /// Admin variant of <see cref="GetStudentById"/> — resolves the owning teacher from the
++    /// student record itself, so no TeacherId needs to be supplied or guessed by the caller.
++    /// AUTH: SuperAdmin role only (roleOnly gate).
++    /// TENANCY: none — studentId alone identifies the record; the resolved TeacherId is used
++    /// internally to assemble the profile (assigned-session card, etc.).
++    /// </remarks>
++    /// <param name="studentId">Primary key of the TeacherStudent record.</param>
++    /// <response code="200">Returns the <c>TeacherStudentProfileDto</c> for the requested student.</response>
++    /// <response code="401">JWT missing or expired.</response>
++    /// <response code="403">Caller is not a SuperAdmin.</response>
++    /// <response code="404">Student not found or soft-deleted.</response>
++    [HttpGet("admin/students/{studentId:long}")]
++    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentProfileDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetStudentByIdForAdmin([FromRoute] long studentId)
++    {
++        var result = await _studentService.GetStudentByIdForAdminAsync(studentId);
++        return ToResponse(result);
++    }
++
++    /// <summary>Updates an existing student record, with no tenant scope. SuperAdmin only.</summary>
++    /// <remarks>
++    /// Admin variant of <see cref="UpdateStudent"/> — identical validation and update behavior
++    /// (student code rules, session reassignment, RowVersion concurrency), resolving the owning
++    /// teacher from the student record itself.
++    /// AUTH: SuperAdmin role only (roleOnly gate).
++    /// TENANCY: none — studentId alone identifies the record.
++    /// </remarks>
++    /// <param name="studentId">Primary key of the student record to update.</param>
++    /// <param name="dto">Updated student fields. <c>StudentName</c> is mandatory.</param>
++    /// <response code="200">Student updated successfully. Returns the updated <c>TeacherStudentDto</c>.</response>
++    /// <response code="400">Validation failure (e.g. empty name, invalid student code format).</response>
++    /// <response code="401">JWT missing or expired.</response>
++    /// <response code="403">Caller is not a SuperAdmin.</response>
++    /// <response code="404">Student not found.</response>
++    /// <response code="409">Optimistic concurrency conflict — record was modified by another request. Refresh and retry.</response>
++    [HttpPut("admin/students/{studentId:long}")]
++    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> UpdateStudentForAdmin(
++        [FromRoute] long studentId,
++        [FromBody] UpdateTeacherStudentDto dto)
++    {
++        var result = await _studentService.UpdateStudentForAdminAsync(studentId, dto);
++        return ToResponse(result);
++    }
+ }
+diff --git a/Edvanz.API/Controllers/TeacherStudentLinksController.cs b/Edvanz.API/Controllers/TeacherStudentLinksController.cs
+index d55e768..bf2de0e 100644
+--- a/Edvanz.API/Controllers/TeacherStudentLinksController.cs
++++ b/Edvanz.API/Controllers/TeacherStudentLinksController.cs
+@@ -142,6 +142,64 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
+         return ToResponse(result);
+     }
+ 
++    /// <summary>
++    /// Admin variant of <see cref="BindStudent"/> — links (or re-links) an accepted
++    /// connection to one of the owning teacher's students, with no tenant scope.
++    /// SuperAdmin only.
++    /// </summary>
++    /// <remarks>
++    /// The linkId already fully identifies the owning teacher, so no TeacherId is
++    /// supplied or guessed — it is resolved from the link row itself, then the
++    /// identical bind/re-point/claim-check logic runs.
++    /// AUTH: SuperAdmin role only (roleOnly gate).
++    /// </remarks>
++    /// <response code="200">Linked; returns the updated linked-student row (IsLinked = true).</response>
++    /// <response code="400">No bind target supplied.</response>
++    /// <response code="401">JWT missing or expired.</response>
++    /// <response code="403">Caller is not a SuperAdmin.</response>
++    /// <response code="404">Link, or the selected student record, not found.</response>
++    /// <response code="409">Link is not Active, or the record is already linked to another account.</response>
++    [HttpPost("admin/{linkId:long}/bind")]
++    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> BindStudentForAdmin(
++        [FromRoute] long linkId, [FromBody] BindStudentLinkDto dto)
++    {
++        var result = await _linkService.BindStudentLinkForAdminAsync(linkId, GetActingUserId(), dto);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Admin variant of <see cref="UnbindStudent"/> — removes the student-record
++    /// binding from an accepted link, with no tenant scope. SuperAdmin only.
++    /// </summary>
++    /// <remarks>
++    /// The owning teacher is resolved from the link row itself. AUTH: SuperAdmin
++    /// role only (roleOnly gate).
++    /// </remarks>
++    /// <response code="200">Unlinked; returns the updated row (now Not linked).</response>
++    /// <response code="401">JWT missing or expired.</response>
++    /// <response code="403">Caller is not a SuperAdmin.</response>
++    /// <response code="404">Link not found.</response>
++    /// <response code="409">Link is not Active.</response>
++    [HttpPost("admin/{linkId:long}/unbind")]
++    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> UnbindStudentForAdmin([FromRoute] long linkId)
++    {
++        var result = await _linkService.UnbindStudentLinkForAdminAsync(linkId, GetActingUserId());
++        return ToResponse(result);
++    }
++
+     /// <summary>
+     /// Removes the student-record binding from an accepted link. The student stays
+     /// connected (Accepted) but loses access until re-linked. Requires <c>Student / Edit</c>.
+diff --git a/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs b/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
+index 0e59a26..77fcd98 100644
+--- a/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
++++ b/Edvanz.Application/ServiceContract/ITeacherStudentLinkService.cs
+@@ -57,6 +57,17 @@ public interface ITeacherStudentLinkService
+     Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
+         long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto);
+ 
++    /// <summary>
++    /// SUPER-ADMIN variant of <see cref="BindStudentLinkAsync"/> — no tenant
++    /// scope. Resolves the owning TeacherId from the link row itself (the
++    /// linkId already fully identifies the tenant, so no TeacherId needs to
++    /// be supplied or guessed by the caller), then delegates to the identical
++    /// bind logic. Must only be reachable behind a roleOnly SuperAdmin gate.
++    /// </summary>
++    /// <param name="actingUserId">User.Id of the SuperAdmin performing the bind (audit).</param>
++    Task<Result<LinkedStudentListItemDto>> BindStudentLinkForAdminAsync(
++        long linkId, long actingUserId, BindStudentLinkDto dto);
++
+     /// <summary>
+     /// Removes the student-record binding from an accepted link. The connection
+     /// stays Active (the student remains accepted) but loses data access until it is
+@@ -67,6 +78,16 @@ public interface ITeacherStudentLinkService
+     Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
+         long teacherId, long linkId, long actingUserId);
+ 
++    /// <summary>
++    /// SUPER-ADMIN variant of <see cref="UnbindStudentLinkAsync"/> — no tenant
++    /// scope. Resolves the owning TeacherId from the link row itself, then
++    /// delegates to the identical unbind logic. Must only be reachable behind
++    /// a roleOnly SuperAdmin gate.
++    /// </summary>
++    /// <param name="actingUserId">User.Id of the SuperAdmin performing the unbind (audit).</param>
++    Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkForAdminAsync(
++        long linkId, long actingUserId);
++
+     /// <summary>
+     /// Rejects a Pending request (terminal, kept for audit — the student may send
+     /// a new request later). Notifies the student post-commit, best-effort.
+diff --git a/Edvanz.Application/ServiceContract/ITeacherStudentService.cs b/Edvanz.Application/ServiceContract/ITeacherStudentService.cs
+index f195628..303fe88 100644
+--- a/Edvanz.Application/ServiceContract/ITeacherStudentService.cs
++++ b/Edvanz.Application/ServiceContract/ITeacherStudentService.cs
+@@ -35,6 +35,14 @@ public interface ITeacherStudentService
+     /// </summary>
+     Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId);
+ 
++    /// <summary>
++    /// SUPER-ADMIN variant of <see cref="GetStudentByIdAsync"/> — no tenant
++    /// scope. Resolves TeacherId from the student record itself (via an
++    /// unscoped lookup), then delegates to the identical profile-assembly
++    /// logic. Must only be reachable behind a roleOnly SuperAdmin gate.
++    /// </summary>
++    Task<Result<TeacherStudentProfileDto>> GetStudentByIdForAdminAsync(long studentId);
++
+     /// <summary>
+     /// Resolves a scanned/typed per-teacher <c>StudentCode</c> to its student — the canonical
+     /// scan-resolution contract shared by every scanning surface (session/exam attendance,
+@@ -53,6 +61,14 @@ public interface ITeacherStudentService
+     /// </summary>
+     Task<Result<TeacherStudentDto>> UpdateStudentAsync(long teacherId, long studentId, UpdateTeacherStudentDto dto);
+ 
++    /// <summary>
++    /// SUPER-ADMIN variant of <see cref="UpdateStudentAsync"/> — no tenant
++    /// scope. Resolves TeacherId from the student record itself, then
++    /// delegates to the identical update/validation logic. Must only be
++    /// reachable behind a roleOnly SuperAdmin gate.
++    /// </summary>
++    Task<Result<TeacherStudentDto>> UpdateStudentForAdminAsync(long studentId, UpdateTeacherStudentDto dto);
++
+     // ══════════════════════════════════════════════
+     // STUDENT LIST (SEARCH + FILTER + PAGINATION)
+     // ══════════════════════════════════════════════
+diff --git a/Edvanz.Application/Services/TeacherStudentLinkService.cs b/Edvanz.Application/Services/TeacherStudentLinkService.cs
+index be70fac..a042f0e 100644
+--- a/Edvanz.Application/Services/TeacherStudentLinkService.cs
++++ b/Edvanz.Application/Services/TeacherStudentLinkService.cs
+@@ -171,6 +171,20 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
+         return Result<LinkedStudentListItemDto>.Success(item, _localizer, acceptMsg);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkForAdminAsync(
++        long linkId, long actingUserId, BindStudentLinkDto dto)
++    {
++        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
++        if (link is null)
++            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
++
++        // Delegate to the teacher-scoped method now that the owning TeacherId
++        // is known — reuses the exact bind/re-point/claim-check logic, zero
++        // duplication.
++        return await BindStudentLinkAsync(link.TeacherId, linkId, actingUserId, dto);
++    }
++
+     /// <inheritdoc />
+     public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
+         long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto)
+@@ -222,6 +236,19 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
+         return Result<LinkedStudentListItemDto>.Success(item, _localizer, "LinkBound");
+     }
+ 
++    /// <inheritdoc />
++    public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkForAdminAsync(
++        long linkId, long actingUserId)
++    {
++        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
++        if (link is null)
++            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
++
++        // Delegate to the teacher-scoped method now that the owning TeacherId
++        // is known — reuses the exact unbind logic, zero duplication.
++        return await UnbindStudentLinkAsync(link.TeacherId, linkId, actingUserId);
++    }
++
+     /// <inheritdoc />
+     public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
+         long teacherId, long linkId, long actingUserId)
+diff --git a/Edvanz.Application/Services/TeacherStudentService.cs b/Edvanz.Application/Services/TeacherStudentService.cs
+index a56ca62..588cfd7 100644
+--- a/Edvanz.Application/Services/TeacherStudentService.cs
++++ b/Edvanz.Application/Services/TeacherStudentService.cs
+@@ -226,6 +226,18 @@ public class TeacherStudentService : ITeacherStudentService
+         return Result<TeacherStudentProfileDto>.Success(MapToProfileDto(student, session), _localizer);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<Result<TeacherStudentProfileDto>> GetStudentByIdForAdminAsync(long studentId)
++    {
++        var student = await _unitOfWork.Students.GetActiveByIdAsync(studentId);
++        if (student is null)
++            return Result<TeacherStudentProfileDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
++
++        // Delegate to the teacher-scoped method now that TeacherId is known —
++        // reuses the exact profile-assembly logic, zero duplication.
++        return await GetStudentByIdAsync(student.TeacherId, studentId);
++    }
++
+     /// <inheritdoc />
+     public async Task<Result<StudentCodeResolveDto>> ResolveByCodeAsync(long teacherId, string code)
+     {
+@@ -260,6 +272,20 @@ public class TeacherStudentService : ITeacherStudentService
+         }, _localizer, "Success");
+     }
+ 
++    /// <inheritdoc />
++    public async Task<Result<TeacherStudentDto>> UpdateStudentForAdminAsync(
++        long studentId, UpdateTeacherStudentDto dto)
++    {
++        var student = await _unitOfWork.Students.GetActiveByIdAsync(studentId);
++        if (student is null)
++            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
++
++        // Delegate to the teacher-scoped method now that TeacherId is known —
++        // reuses the exact validation/update logic (code rules, session
++        // reassignment, RowVersion concurrency), zero duplication.
++        return await UpdateStudentAsync(student.TeacherId, studentId, dto);
++    }
++
+     /// <inheritdoc />
+     public async Task<Result<TeacherStudentDto>> UpdateStudentAsync(
+         long teacherId, long studentId, UpdateTeacherStudentDto dto)
+diff --git a/Edvanz.Domain/Interfaces/ITeacherStudentRepo.cs b/Edvanz.Domain/Interfaces/ITeacherStudentRepo.cs
+index 0edd173..50c3de4 100644
+--- a/Edvanz.Domain/Interfaces/ITeacherStudentRepo.cs
++++ b/Edvanz.Domain/Interfaces/ITeacherStudentRepo.cs
+@@ -30,6 +30,14 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
+     /// </summary>
+     Task<TeacherStudent?> GetActiveByIdAndTeacherAsync(long studentId, long teacherId);
+ 
++    /// <summary>
++    /// Finds an active (non-deleted) student by Id only — no teacher scope.
++    /// SUPER-ADMIN ONLY: backs the admin single-record GET/PUT endpoints, where
++    /// the caller has no JWT-derived teacherId. Callers must read TeacherId off
++    /// the returned entity before delegating to any tenant-scoped service method.
++    /// </summary>
++    Task<TeacherStudent?> GetActiveByIdAsync(long studentId);
++
+     /// <summary>
+     /// Finds a student by Id and teacher, including soft-deleted records.
+     /// Used for recycle bin restore and permanent delete operations.
+diff --git a/Edvanz.Domain/Interfaces/IUserRepo.cs b/Edvanz.Domain/Interfaces/IUserRepo.cs
+index c32981d..6beb74a 100644
+--- a/Edvanz.Domain/Interfaces/IUserRepo.cs
++++ b/Edvanz.Domain/Interfaces/IUserRepo.cs
+@@ -382,6 +382,15 @@ namespace Edvanz.Domain.Interfaces
+         /// </summary>
+         Task<StudentTeacherLink?> GetStudentTeacherLinkByIdForTeacherAsync(long linkId, long teacherId);
+ 
++        /// <summary>
++        /// Finds a link row by Id only — no teacher scope (tracked). SUPER-ADMIN
++        /// ONLY: backs the admin bind/unbind endpoints, where the caller has no
++        /// JWT-derived teacherId. The link's own TeacherId column is the source
++        /// of truth for which tenant it belongs to; callers resolve it from here
++        /// and delegate to the teacher-scoped bind/unbind logic.
++        /// </summary>
++        Task<StudentTeacherLink?> GetStudentTeacherLinkByIdAsync(long linkId);
++
+         /// <summary>
+         /// Loads the Active link rows matching the given ids under a teacher
+         /// (tracked, for bulk removal). Ids not owned or not Active are ignored.
+diff --git a/Edvanz.Infrastructure/Repositories/TeacherStudentRepo.cs b/Edvanz.Infrastructure/Repositories/TeacherStudentRepo.cs
+index 2d1970b..e983c25 100644
+--- a/Edvanz.Infrastructure/Repositories/TeacherStudentRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/TeacherStudentRepo.cs
+@@ -36,6 +36,15 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
+             .FirstOrDefaultAsync(ts => ts.Id == studentId && ts.TeacherId == teacherId);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<TeacherStudent?> GetActiveByIdAsync(long studentId)
++    {
++        // Global query filter already excludes IsDeleted == true. No TeacherId
++        // predicate — SUPER-ADMIN ONLY, see interface doc.
++        return await _context.TeacherStudents
++            .FirstOrDefaultAsync(ts => ts.Id == studentId);
++    }
++
+     /// <inheritdoc />
+     public async Task<TeacherStudent?> GetByIdAndTeacherIgnoreFiltersAsync(long studentId, long teacherId)
+     {
+diff --git a/Edvanz.Infrastructure/Repositories/UserRepo.cs b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+index 72bcdd6..501d326 100644
+--- a/Edvanz.Infrastructure/Repositories/UserRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+@@ -665,6 +665,14 @@ namespace Edvanz.Infrastructure.Repositories
+                 .FirstOrDefaultAsync(l => l.Id == linkId && l.TeacherId == teacherId);
+         }
+ 
++        /// <inheritdoc />
++        public async Task<StudentTeacherLink?> GetStudentTeacherLinkByIdAsync(long linkId)
++        {
++            // No TeacherId predicate — SUPER-ADMIN ONLY, see interface doc.
++            return await _context.Set<StudentTeacherLink>()
++                .FirstOrDefaultAsync(l => l.Id == linkId);
++        }
++
+         /// <inheritdoc />
+         public async Task<IReadOnlyList<StudentTeacherLink>> GetActiveLinksByIdsForTeacherAsync(
+             long teacherId, IReadOnlyCollection<long> linkIds)

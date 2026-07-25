@@ -143,6 +143,64 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     }
 
     /// <summary>
+    /// Admin variant of <see cref="BindStudent"/> — links (or re-links) an accepted
+    /// connection to one of the owning teacher's students, with no tenant scope.
+    /// SuperAdmin only.
+    /// </summary>
+    /// <remarks>
+    /// The linkId already fully identifies the owning teacher, so no TeacherId is
+    /// supplied or guessed — it is resolved from the link row itself, then the
+    /// identical bind/re-point/claim-check logic runs.
+    /// AUTH: SuperAdmin role only (roleOnly gate).
+    /// </remarks>
+    /// <response code="200">Linked; returns the updated linked-student row (IsLinked = true).</response>
+    /// <response code="400">No bind target supplied.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">Link, or the selected student record, not found.</response>
+    /// <response code="409">Link is not Active, or the record is already linked to another account.</response>
+    [HttpPost("admin/{linkId:long}/bind")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> BindStudentForAdmin(
+        [FromRoute] long linkId, [FromBody] BindStudentLinkDto dto)
+    {
+        var result = await _linkService.BindStudentLinkForAdminAsync(linkId, GetActingUserId(), dto);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Admin variant of <see cref="UnbindStudent"/> — removes the student-record
+    /// binding from an accepted link, with no tenant scope. SuperAdmin only.
+    /// </summary>
+    /// <remarks>
+    /// The owning teacher is resolved from the link row itself. AUTH: SuperAdmin
+    /// role only (roleOnly gate).
+    /// </remarks>
+    /// <response code="200">Unlinked; returns the updated row (now Not linked).</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">Link not found.</response>
+    /// <response code="409">Link is not Active.</response>
+    [HttpPost("admin/{linkId:long}/unbind")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UnbindStudentForAdmin([FromRoute] long linkId)
+    {
+        var result = await _linkService.UnbindStudentLinkForAdminAsync(linkId, GetActingUserId());
+        return ToResponse(result);
+    }
+
+    /// <summary>
     /// Removes the student-record binding from an accepted link. The student stays
     /// connected (Accepted) but loses access until re-linked. Requires <c>Student / Edit</c>.
     /// </summary>

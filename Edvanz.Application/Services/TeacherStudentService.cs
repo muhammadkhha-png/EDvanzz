@@ -227,6 +227,18 @@ public class TeacherStudentService : ITeacherStudentService
     }
 
     /// <inheritdoc />
+    public async Task<Result<TeacherStudentProfileDto>> GetStudentByIdForAdminAsync(long studentId)
+    {
+        var student = await _unitOfWork.Students.GetActiveByIdAsync(studentId);
+        if (student is null)
+            return Result<TeacherStudentProfileDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        // Delegate to the teacher-scoped method now that TeacherId is known —
+        // reuses the exact profile-assembly logic, zero duplication.
+        return await GetStudentByIdAsync(student.TeacherId, studentId);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<StudentCodeResolveDto>> ResolveByCodeAsync(long teacherId, string code)
     {
         // Canonical scan resolver. EXACT match on StudentCode (not the partial roster search the
@@ -258,6 +270,20 @@ public class TeacherStudentService : ITeacherStudentService
             SessionId = student.SessionId,
             SessionName = sessionName
         }, _localizer, "Success");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<TeacherStudentDto>> UpdateStudentForAdminAsync(
+        long studentId, UpdateTeacherStudentDto dto)
+    {
+        var student = await _unitOfWork.Students.GetActiveByIdAsync(studentId);
+        if (student is null)
+            return Result<TeacherStudentDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        // Delegate to the teacher-scoped method now that TeacherId is known —
+        // reuses the exact validation/update logic (code rules, session
+        // reassignment, RowVersion concurrency), zero duplication.
+        return await UpdateStudentAsync(student.TeacherId, studentId, dto);
     }
 
     /// <inheritdoc />

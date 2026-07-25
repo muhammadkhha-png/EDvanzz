@@ -601,4 +601,61 @@ public class TeacherStudentController : ModuleSixApiBaseController
         var result = await _studentService.GetStudentListForAdminAsync(request.TeacherId, request);
         return ToResponse(result);
     }
+
+    /// <summary>Returns a single student record by its primary key, with no tenant scope. SuperAdmin only.</summary>
+    /// <remarks>
+    /// Admin variant of <see cref="GetStudentById"/> — resolves the owning teacher from the
+    /// student record itself, so no TeacherId needs to be supplied or guessed by the caller.
+    /// AUTH: SuperAdmin role only (roleOnly gate).
+    /// TENANCY: none — studentId alone identifies the record; the resolved TeacherId is used
+    /// internally to assemble the profile (assigned-session card, etc.).
+    /// </remarks>
+    /// <param name="studentId">Primary key of the TeacherStudent record.</param>
+    /// <response code="200">Returns the <c>TeacherStudentProfileDto</c> for the requested student.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">Student not found or soft-deleted.</response>
+    [HttpGet("admin/students/{studentId:long}")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentProfileDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentByIdForAdmin([FromRoute] long studentId)
+    {
+        var result = await _studentService.GetStudentByIdForAdminAsync(studentId);
+        return ToResponse(result);
+    }
+
+    /// <summary>Updates an existing student record, with no tenant scope. SuperAdmin only.</summary>
+    /// <remarks>
+    /// Admin variant of <see cref="UpdateStudent"/> — identical validation and update behavior
+    /// (student code rules, session reassignment, RowVersion concurrency), resolving the owning
+    /// teacher from the student record itself.
+    /// AUTH: SuperAdmin role only (roleOnly gate).
+    /// TENANCY: none — studentId alone identifies the record.
+    /// </remarks>
+    /// <param name="studentId">Primary key of the student record to update.</param>
+    /// <param name="dto">Updated student fields. <c>StudentName</c> is mandatory.</param>
+    /// <response code="200">Student updated successfully. Returns the updated <c>TeacherStudentDto</c>.</response>
+    /// <response code="400">Validation failure (e.g. empty name, invalid student code format).</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    /// <response code="404">Student not found.</response>
+    /// <response code="409">Optimistic concurrency conflict — record was modified by another request. Refresh and retry.</response>
+    [HttpPut("admin/students/{studentId:long}")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherStudent.TeacherStudentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateStudentForAdmin(
+        [FromRoute] long studentId,
+        [FromBody] UpdateTeacherStudentDto dto)
+    {
+        var result = await _studentService.UpdateStudentForAdminAsync(studentId, dto);
+        return ToResponse(result);
+    }
 }

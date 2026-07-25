@@ -383,6 +383,15 @@ namespace Edvanz.Domain.Interfaces
         Task<StudentTeacherLink?> GetStudentTeacherLinkByIdForTeacherAsync(long linkId, long teacherId);
 
         /// <summary>
+        /// Finds a link row by Id only — no teacher scope (tracked). SUPER-ADMIN
+        /// ONLY: backs the admin bind/unbind endpoints, where the caller has no
+        /// JWT-derived teacherId. The link's own TeacherId column is the source
+        /// of truth for which tenant it belongs to; callers resolve it from here
+        /// and delegate to the teacher-scoped bind/unbind logic.
+        /// </summary>
+        Task<StudentTeacherLink?> GetStudentTeacherLinkByIdAsync(long linkId);
+
+        /// <summary>
         /// Loads the Active link rows matching the given ids under a teacher
         /// (tracked, for bulk removal). Ids not owned or not Active are ignored.
         /// </summary>

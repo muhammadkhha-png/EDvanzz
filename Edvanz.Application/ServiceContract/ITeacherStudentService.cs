@@ -36,6 +36,14 @@ public interface ITeacherStudentService
     Task<Result<TeacherStudentProfileDto>> GetStudentByIdAsync(long teacherId, long studentId);
 
     /// <summary>
+    /// SUPER-ADMIN variant of <see cref="GetStudentByIdAsync"/> — no tenant
+    /// scope. Resolves TeacherId from the student record itself (via an
+    /// unscoped lookup), then delegates to the identical profile-assembly
+    /// logic. Must only be reachable behind a roleOnly SuperAdmin gate.
+    /// </summary>
+    Task<Result<TeacherStudentProfileDto>> GetStudentByIdForAdminAsync(long studentId);
+
+    /// <summary>
     /// Resolves a scanned/typed per-teacher <c>StudentCode</c> to its student — the canonical
     /// scan-resolution contract shared by every scanning surface (session/exam attendance,
     /// future link scans). EXACT match on <c>StudentCode</c> (not the partial roster search),
@@ -52,6 +60,14 @@ public interface ITeacherStudentService
     /// REQ-STU-048: Barcode never changes even if other fields are modified.
     /// </summary>
     Task<Result<TeacherStudentDto>> UpdateStudentAsync(long teacherId, long studentId, UpdateTeacherStudentDto dto);
+
+    /// <summary>
+    /// SUPER-ADMIN variant of <see cref="UpdateStudentAsync"/> — no tenant
+    /// scope. Resolves TeacherId from the student record itself, then
+    /// delegates to the identical update/validation logic. Must only be
+    /// reachable behind a roleOnly SuperAdmin gate.
+    /// </summary>
+    Task<Result<TeacherStudentDto>> UpdateStudentForAdminAsync(long studentId, UpdateTeacherStudentDto dto);
 
     // ══════════════════════════════════════════════
     // STUDENT LIST (SEARCH + FILTER + PAGINATION)

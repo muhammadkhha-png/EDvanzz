@@ -666,6 +666,14 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetStudentTeacherLinkByIdAsync(long linkId)
+        {
+            // No TeacherId predicate — SUPER-ADMIN ONLY, see interface doc.
+            return await _context.Set<StudentTeacherLink>()
+                .FirstOrDefaultAsync(l => l.Id == linkId);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<StudentTeacherLink>> GetActiveLinksByIdsForTeacherAsync(
             long teacherId, IReadOnlyCollection<long> linkIds)
         {
