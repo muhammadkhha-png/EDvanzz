@@ -840,6 +840,9 @@
   <data name="AssistantSuspended" xml:space="preserve">
     <value>Assistant Suspended</value>
   </data>
+  <data name="AssistantDeleted" xml:space="preserve">
+    <value>Assistant account removed</value>
+  </data>
   <data name="Assistant Deactivated" xml:space="preserve">
     <value>Assistant Account Moved To Recycle Bin </value>
   </data>

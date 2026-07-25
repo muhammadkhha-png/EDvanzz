@@ -36,6 +36,11 @@ namespace Edvanz.Infrastructure.Repositories
                 .Include(a => a.Teacher).ThenInclude(t=>t.User);
 
             // ── FILTERS ──
+            // Soft-deleted assistants (Delete action → DeletedAt set) must never appear in the
+            // teacher list: they are hidden immediately and purged by AssistantCleanupJob.
+            // Deactivated (Inactive) assistants keep DeletedAt == null, so they stay listed.
+            query = query.Where(a => a.DeletedAt == null);
+
             if (teacherId.HasValue)
                 query = query.Where(a => a.TeacherAccountId == teacherId.Value);
 

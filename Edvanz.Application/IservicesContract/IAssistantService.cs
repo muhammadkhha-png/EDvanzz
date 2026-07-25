@@ -20,6 +20,15 @@ namespace Edvanz.Application.IservicesContract
 
         public Task<Result<string?>> UpdateAssistantAsync( UpdateAssistantRequest dto);
         public Task<Result<string>> ToggleStatus(ToggleAccountStatus req);
+
+        /// <summary>
+        /// Soft-deletes an assistant (the teacher "Delete" action): marks it deleted, blocks login,
+        /// and invalidates its session. The row is hidden from the teacher list immediately and
+        /// purged by <c>AssistantCleanupJob</c>. Idempotent — deleting an already-deleted assistant
+        /// returns success rather than an error. Distinct from <see cref="ToggleStatus"/>, which is
+        /// the reversible deactivate/activate flow.
+        /// </summary>
+        public Task<Result<string>> SoftDeleteAssistantAsync(long assistantId);
         public Task<Result<List<LoginActivityDto>>> GetLoginActivityAsync(long assistantId);
         public Task RecordLoginActivityAsync(long assistantId, LoginAcitvityActionType actionType, HttpContext httpContext);
         public Task ValidateTeacherScopeAsync(long teacherId, HashSet<long> permissionIds);

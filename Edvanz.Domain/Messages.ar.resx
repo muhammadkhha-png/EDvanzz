@@ -840,6 +840,9 @@
   <data name="AssistantSuspended" xml:space="preserve">
     <value>تم إيقاف تشغيل الحساب مؤقتا</value>
   </data>
+  <data name="AssistantDeleted" xml:space="preserve">
+    <value>اتشال حساب المساعد</value>
+  </data>
   <data name="Assistant Deactivated" xml:space="preserve">
     <value>تم نقل الحساب لسلة المحذوفات سيتم حذفه في غضون عشرة أيام نهائيا </value>
   </data>

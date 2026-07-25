@@ -525,12 +525,15 @@ for (int attempt = 1; ; attempt++)
             job => job.RunAsync(),
             Cron.Hourly);
 
-        // assistant-cleanup runs at 01:00 Africa/Cairo — off-peak, avoids DTU
-        // contention with the 06:00 materializer and 09:00 reminder dispatcher.
+        // assistant-cleanup runs every 10 minutes so a teacher-deleted (soft-deleted)
+        // assistant is purged promptly — freeing its username/phone for reuse shortly
+        // after deletion. Each purge is a small, isolated transaction (see the job), so
+        // the frequent cadence is cheap. (Was daily 01:00, which left deleted rows —
+        // hidden from the list but still holding their unique username — for up to a day.)
         RecurringJob.AddOrUpdate<AssistantCleanupJob>(
             "assistant-cleanup-job",
             job => job.ExecuteAsync(),
-            "0 1 * * *",
+            "*/10 * * * *",
             new RecurringJobOptions
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo")

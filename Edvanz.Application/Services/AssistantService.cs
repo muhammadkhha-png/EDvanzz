@@ -623,7 +623,56 @@ namespace Edvanz.Application.Services
                 throw;
             }
         }
-      
+
+        /// <inheritdoc />
+        public async Task<Result<string>> SoftDeleteAssistantAsync(long assistantId)
+        {
+            // -- 1. Fetch assistant ---------------------------------------------------
+            var assistant = await _unitOfWork.AssistantRepo.GetByIdAsync(assistantId);
+            if (assistant is null)
+                return Result<string>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
+
+            // -- 2. Tenant guard: only the owning teacher (or SuperAdmin) may delete ----
+            if (!await CallerOwnsAssistantAsync(assistant))
+                return Result<string>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
+
+            // -- 3. Idempotent: already deleted → succeed (no "already in status" error) --
+            // The row is already hidden from the list; a repeat Delete must not error.
+            if (assistant.DeletedAt is not null)
+                return Result<string>.Success("AssistantDeleted", localizer);
+
+            var user = await _unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
+            if (user is null)
+                return Result<string>.Failure(localizer, "UserNotFound");
+
+            // -- 4. Soft-delete: hidden from the list now (DeletedAt), login blocked, ----
+            //       flagged Suspended so AssistantCleanupJob picks it up for purge.
+            assistant.AccountStatus = AccountStatus.Suspended;
+            assistant.DeletedAt = DateTime.UtcNow;
+            user.IsActive = false;
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await _unitOfWork.AssistantRepo.UpdateAsync(assistant);
+                await _unitOfWork.Users.UpdateAsync(user);
+
+                // Bump SecurityStamp + drop the Redis snapshot so the deleted assistant
+                // cannot keep using an already-issued token (mirrors ToggleStatus).
+                await _authInvalidation.InvalidateUserAsync(user.Id);
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitAsync();
+
+                return Result<string>.Success("AssistantDeleted", localizer);
+            }
+            catch
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
 
         public async Task<Result<List<LoginActivityDto>>> GetLoginActivityAsync(long assistantId)
         {

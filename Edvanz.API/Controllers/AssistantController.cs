@@ -138,12 +138,9 @@ namespace Edvanz.API.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(long id)
         {
-            var result = await assistantService.ToggleStatus(new ToggleAccountStatus
-            {
-                accountId = id,
-                targetStatus = AccountStatus.Suspended
-            });
-
+            // Delete = soft-delete (hide now, purge via AssistantCleanupJob). Idempotent, so a
+            // repeat click no longer errors. Distinct from /deactivate (reversible Inactive).
+            var result = await assistantService.SoftDeleteAssistantAsync(id);
             return ToResponse(result);
         }
 
