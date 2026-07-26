@@ -330,6 +330,30 @@ builder.Services.AddRateLimiter(o =>
         opts.QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst;
     });
 
+    // Chat message send: PARTITIONED per caller (JWT NameIdentifier), unlike the
+    // two global policies above. One user flooding POST …/messages must only
+    // throttle that user — not every other participant on the platform.
+    // Falls back to remote IP for the (should-never-happen, since the endpoint
+    // requires [Authorize]) case where the partitioner runs against an
+    // unauthenticated request.
+    o.AddPolicy("chat-send", httpContext =>
+    {
+        string partitionKey = httpContext.User.Identity?.IsAuthenticated == true
+            ? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? "anonymous"
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromSeconds(30),
+                PermitLimit = 20,
+                QueueLimit = 0,
+                QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst
+            });
+    });
+
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -625,13 +649,14 @@ app.Use(async (ctx, next) =>
 app.UseCors(SpaCors);
 
 
+
+app.UseAuthentication();
+
 // Rate limiting — applied before auth so unauthenticated callers are
 // throttled on the login/register surface. Policy "auth" is registered
 // in AddRateLimiter above and applied via [EnableRateLimiting("auth")]
 // on AuthController endpoints.
 app.UseRateLimiter();
-
-app.UseAuthentication();
 
 // Live permission / module-revocation enforcement (REQ-USR-013 / REQ-USR-027 /
 // REQ-USR-008 / BR-ADM-010). Runs after UseAuthentication so HttpContext.User

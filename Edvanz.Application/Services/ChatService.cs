@@ -5,7 +5,9 @@ using Edvanz.Domain.Entities.Chat;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
+using Microsoft.EntityFrameworkCore;   // ← added: DbUpdateException
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace Edvanz.Application.Services;
@@ -32,17 +34,19 @@ public sealed class ChatService : IChatService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IChatPushDispatcher _dispatcher;
     private readonly IStringLocalizer<Messages> _localizer;
+    private readonly ILogger<ChatService> _logger;
 
     public ChatService(
         IUnitOfWork unitOfWork,
         IChatPushDispatcher dispatcher,
-        IStringLocalizer<Messages> localizer)
+        IStringLocalizer<Messages> localizer,
+        ILogger<ChatService> logger)
     {
         _unitOfWork = unitOfWork;
         _dispatcher = dispatcher;
         _localizer = localizer;
+        _logger = logger;
     }
-
     // ════════════════════════════════════════════════
     // GET OR CREATE CONVERSATION
     // ════════════════════════════════════════════════
@@ -81,8 +85,27 @@ public sealed class ChatService : IChatService
             CreateAt = now
         };
 
-        await _unitOfWork.ChatRepo.InsertConversationAsync(conversation);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.ChatRepo.InsertConversationAsync(conversation);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // ── Concurrent first-contact race ──
+            // UX_Conversations_Participants rejected our insert because another
+            // request for this exact pair committed first (double-tap, client
+            // retry, or two participants opening the chat simultaneously).
+            // The conversation now exists — this call becomes a get, not a create.
+            var winner = await _unitOfWork.ChatRepo.GetByParticipantsAsync(a, b);
+            if (winner is null)
+                throw; // not a pair-uniqueness conflict — rethrow, let it surface as-is
+
+            return Result<ConversationDto>.Success(
+                MapConversation(winner, callerUserId,
+                    eligibility.TargetName!, eligibility.TargetUserType!.Value),
+                _localizer);
+        }
 
         return Result<ConversationDto>.Success(
             MapConversation(conversation, callerUserId,
@@ -151,7 +174,22 @@ public sealed class ChatService : IChatService
         await _unitOfWork.SaveChangesAsync();
 
         // ── Fire-and-forget push after durable commit ──
-        _dispatcher.Dispatch(conversationId, senderName, preview, recipientUserId);
+        // The message is already durable at this point. A dispatch failure
+        // (broker blip, storage outage) must never fail this response — that
+        // would 500 a call whose write actually succeeded and invite a client
+        // retry that duplicates the message. Best-effort only: log and move on.
+        try
+        {
+            _dispatcher.Dispatch(conversationId, senderName, preview, recipientUserId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "ChatService: failed to enqueue push notification for message in " +
+                "conversation {ConversationId} to recipient {RecipientUserId}. " +
+                "Message was committed successfully; push delivery was skipped.",
+                conversationId, recipientUserId);
+        }
 
         return Result<ChatMessageDto>.Success(
             MapMessage(message, senderName, callerUserId),

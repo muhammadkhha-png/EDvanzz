@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos.Chat;
 using Edvanz.Application.IservicesContract;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Edvanz.API.Controllers;
 
@@ -104,13 +105,15 @@ public sealed class ChatController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("conversations/{conversationId:long}/messages")]
+    [EnableRateLimiting("chat-send")]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Chat.ChatMessageDto>), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> SendMessage(
-        [FromRoute] long conversationId,
-        [FromBody] SendMessageRequest request)
+           [FromRoute] long conversationId,
+           [FromBody] SendMessageRequest request)
     {
         long? callerUserId = _currentUser.UserId;
         if (callerUserId is null) return UserNotResolved();

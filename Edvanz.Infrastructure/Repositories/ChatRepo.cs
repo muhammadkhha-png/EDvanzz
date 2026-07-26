@@ -1,4 +1,5 @@
-﻿using Edvanz.Domain.Entities.Chat;
+﻿using DocumentFormat.OpenXml.Office2010.Excel;
+using Edvanz.Domain.Entities.Chat;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -123,7 +124,7 @@ public class ChatRepo : GenericRepo<Conversation, long>, IChatRepo
         var query = _context.Set<ChatMessage>()
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
-            .OrderByDescending(m => m.SentAt);
+            .OrderByDescending(m => m.SentAt).ThenByDescending(m=>m.Id);
 
         int totalCount = await query.CountAsync();
         if (totalCount == 0)
