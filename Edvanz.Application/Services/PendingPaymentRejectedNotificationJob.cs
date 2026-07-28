@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.IservicesContract;
+﻿using Edvanz.Application.Dtos.Notifications;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
@@ -62,10 +63,17 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
         string body = string.Format(
             CultureInfo.CurrentCulture,
             bodyTemplate,
+
+
             rejectionReason);
 
         // ── Push fan-out ──
-        await SendPushAsync(teacher.UserId, title, body);
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.PaymentRejected,
+            Screen = "/subscription/renew"
+        };
+        await SendPushAsync(teacher.UserId, title, body, pushPayload);
 
         // ── Persist the inbox record ──
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
@@ -87,21 +95,20 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
     // PRIVATE HELPERS (mirror RenewalNotificationJob)
     // ════════════════════════════════════════════════
 
-    private async Task SendPushAsync(long userId, string title, string body)
+    private async Task SendPushAsync(long userId, string title, string body, PushPayload payload)
     {
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return;
 
         foreach (var token in tokens)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, "/subscription/renew");
+            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
             if (!result.Success && result.ShouldDeactivateToken)
             {
                 await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
             }
         }
     }
-
     private static void SetCurrentCulture(string? languagePreference)
     {
         string code = languagePreference?.Trim().ToLowerInvariant() switch

@@ -1,6 +1,9 @@
-﻿using Edvanz.Application.IservicesContract;
+﻿using Edvanz.Application.Dtos.Notifications;
+using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace Edvanz.Application.Services;
 
@@ -57,14 +60,24 @@ public class ChatPushJob : IChatPushJob
         }
 
         // Deep-link payload: Flutter parses this to route directly to the thread on tap.
-        string deepLink = $"{{\"screen\":\"chat\",\"conversationId\":{conversationId}}}";
+        // Structured payload: Category = DirectMessage lets the client tell a
+        // person-to-person message apart from an app-generated notification; the
+        // adapter serializes Screen + Args into the deep-link JSON for tap routing.
+        var payload = new PushPayload
+        {
+            Category = NotificationCategory.DirectMessage,
+            Screen = "chat",
+            Args = new Dictionary<string, string>
+            {
+                ["conversationId"] = conversationId.ToString(CultureInfo.InvariantCulture)
+            }
+        };
         string title = $"New message from {senderName}";
 
         foreach (var token in tokens)
         {
             var result = await _pushSender.SendAsync(
-                token.FcmToken, title, messagePreview, deepLink);
-
+                token.FcmToken, title, messagePreview, payload);
             if (result.Success) continue;
 
             if (result.ShouldDeactivateToken)

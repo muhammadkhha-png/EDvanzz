@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Notifications;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
@@ -111,7 +112,13 @@ public class SubscriptionReminderService : ISubscriptionReminderService
         // ── Send across channels and aggregate which succeeded ──
         SubscriptionAlertChannel channelsSent = SubscriptionAlertChannel.None;
 
-        bool pushSucceeded = await SendPushAsync(teacher.UserId, title, body);
+        
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.SubscriptionReminder,
+            Screen = "/subscription/renew"
+        };
+        bool pushSucceeded = await SendPushAsync(teacher.UserId, title, body, pushPayload);
         if (pushSucceeded) channelsSent |= SubscriptionAlertChannel.Push;
 
         // WhatsApp deliberately disabled until v2 (per directive). Real WhatsApp
@@ -222,7 +229,7 @@ public class SubscriptionReminderService : ISubscriptionReminderService
     /// SubscriptionAlertChannel purposes. Tokens reported as unregistered are flipped
     /// to IsActive = false (EC-11).
     /// </summary>
-    private async Task<bool> SendPushAsync(long userId, string title, string body)
+    private async Task<bool> SendPushAsync(long userId, string title, string body, PushPayload payload)
     {
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return false;
@@ -230,7 +237,7 @@ public class SubscriptionReminderService : ISubscriptionReminderService
         bool anySucceeded = false;
         foreach (var token in tokens)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, "/subscription/renew");
+            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
 
             if (result.Success)
             {

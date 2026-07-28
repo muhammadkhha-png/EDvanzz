@@ -7,6 +7,7 @@ using Edvanz.Domain.Resources;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using Edvanz.Application.Dtos.Notifications;
 
 namespace Edvanz.Application.Services;
 
@@ -79,7 +80,13 @@ public class RenewalNotificationJob : IRenewalNotificationJob
             subscription.EndDate.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture));
 
         // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
-        await SendPushAsync(teacher.UserId, title, body);
+        // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.RenewalConfirmed,
+            Screen = "/subscription/current"
+        };
+        await SendPushAsync(teacher.UserId, title, body, pushPayload);
 
         // ── Persist the inbox record ──
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
@@ -100,15 +107,14 @@ public class RenewalNotificationJob : IRenewalNotificationJob
     // ════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ════════════════════════════════════════════════
-
-    private async Task SendPushAsync(long userId, string title, string body)
+    private async Task SendPushAsync(long userId, string title, string body, PushPayload payload)
     {
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return;
 
         foreach (var token in tokens)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, "/subscription/current");
+            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
 
             if (!result.Success && result.ShouldDeactivateToken)
             {

@@ -28,5 +28,13 @@ public enum NotificationCategory : byte
     CapacityRequestApproved = 5,
 
     /// <summary>Capacity-increase request rejected (body carries the reason).</summary>
-    CapacityRequestRejected = 6
+    CapacityRequestRejected = 6,
+         /// <summary>
+         /// 1:1 direct-chat message. Push-only (D-05 — chat is NOT persisted to the
+         /// UserNotification inbox). Emitted as data["type"] = "DirectMessage" so the
+         /// Flutter client can route to the conversation thread and distinguish a
+         /// person-to-person message from an app-generated notification.
+         /// </summary>
+    DirectMessage = 7,
+    removeLink=8
 }

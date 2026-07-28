@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.Dtos.Subscription;
+﻿using Edvanz.Application.Dtos.Notifications;
+using Edvanz.Application.Dtos.Subscription;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Options;
 using FirebaseAdmin;
@@ -7,6 +8,7 @@ using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Builder.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace Edvanz.Infrastructure.Services;
 
@@ -27,7 +29,9 @@ namespace Edvanz.Infrastructure.Services;
 /// </summary>
 public class FirebasePushNotificationSender : IPushNotificationSender
 {
+    private const string TypeDataKey = "type";
     private const string DeepLinkDataKey = "deepLink";
+    private const string ScreenKey = "screen";
 
     private readonly FirebaseOptions _options;
     private readonly ILogger<FirebasePushNotificationSender> _logger;
@@ -47,7 +51,7 @@ public class FirebasePushNotificationSender : IPushNotificationSender
 
     /// <inheritdoc />
     public async Task<PushNotificationSendResult> SendAsync(
-        string fcmToken, string title, string body, string? deepLinkPayload)
+          string fcmToken, string title, string body, PushPayload payload)
     {
         EnsureFirebaseInitialized();
 
@@ -59,9 +63,8 @@ public class FirebasePushNotificationSender : IPushNotificationSender
                 Title = title,
                 Body = body
             },
-            Data = BuildDataPayload(deepLinkPayload)
+            Data = BuildDataPayload(payload)
         };
-
         try
         {
             string messageId = await FirebaseMessaging.DefaultInstance.SendAsync(message);
@@ -166,15 +169,47 @@ public class FirebasePushNotificationSender : IPushNotificationSender
             : GoogleCredential.FromFile(_options.CredentialsPath);
     }
 
-    private static Dictionary<string, string>? BuildDataPayload(string? deepLinkPayload)
+    /// <summary>
+    /// Builds the FCM data map from the structured payload. Emits two keys:
+    ///   - "type"     : the NotificationCategory name (always present) — the client's
+    ///                  discriminator between a person-to-person chat message and an
+    ///                  app-generated notification.
+    ///   - "deepLink" : a canonical JSON object {"screen":...,<args>} for tap routing
+    ///                  (present only when the payload specifies a Screen).
+    /// </summary>
+    private static Dictionary<string, string> BuildDataPayload(PushPayload payload)
     {
-        if (string.IsNullOrWhiteSpace(deepLinkPayload))
+        var data = new Dictionary<string, string>
+        {
+            [TypeDataKey] = payload.Category.ToString()
+        };
+
+        string? deepLink = BuildDeepLink(payload);
+        if (deepLink is not null)
+            data[DeepLinkDataKey] = deepLink;
+
+        return data;
+    }
+
+    /// <summary>
+    /// Serializes Screen + Args into a single canonical deep-link JSON object,
+    /// e.g. {"screen":"chat","conversationId":"123"}. Args are written first so an
+    /// explicit Screen always wins the "screen" key. Returns null when no Screen is set.
+    /// </summary>
+    private static string? BuildDeepLink(PushPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.Screen))
             return null;
 
-        return new Dictionary<string, string>
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (payload.Args is not null)
         {
-            [DeepLinkDataKey] = deepLinkPayload
-        };
+            foreach (var kvp in payload.Args)
+                map[kvp.Key] = kvp.Value;
+        }
+        map[ScreenKey] = payload.Screen;
+
+        return JsonSerializer.Serialize(map);
     }
 
     /// <summary>

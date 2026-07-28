@@ -1,10 +1,11 @@
-using System.Globalization;
+using Edvanz.Application.Dtos.Notifications;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
+using System.Globalization;
 
 namespace Edvanz.Application.Services;
 
@@ -45,8 +46,11 @@ public class StudentLinkNotifier : IStudentLinkNotifier
 
         var (title, body) = RenderInCulture(teacher.LanguagePreference,
             "LinkRequestReceivedNotifTitle", "LinkRequestReceivedNotifBody", requestedStudentName);
-
-        await PersistAndPushAsync(teacher.UserId, title, body, TeacherDeepLink);
+        await PersistAndPushAsync(teacher.UserId, title, body, new PushPayload
+        {
+            Category = NotificationCategory.LinkRequest,
+            Screen = TeacherDeepLink
+        }); 
     }
 
     /// <inheritdoc />
@@ -60,7 +64,11 @@ public class StudentLinkNotifier : IStudentLinkNotifier
 
         var (title, body) = RenderInCulture(studentUser.LanguagePreference, titleKey, bodyKey, teacherName);
 
-        await PersistAndPushAsync(studentUser.UserId, title, body, StudentDeepLink);
+        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload
+        {
+            Category = NotificationCategory.LinkRequest,
+            Screen = StudentDeepLink
+        });
     }
 
     /// <inheritdoc />
@@ -72,7 +80,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
         var (title, body) = RenderInCulture(studentUser.LanguagePreference,
             "LinkRemovedByTeacherNotifTitle", "LinkRemovedByTeacherNotifBody", teacherName);
 
-        await PersistAndPushAsync(studentUser.UserId, title, body, StudentDeepLink);
+        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category=NotificationCategory.removeLink,Screen=StudentDeepLink});
     }
 
     /// <inheritdoc />
@@ -86,7 +94,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
 
         var (title, body) = RenderInCulture(studentUser.LanguagePreference, titleKey, bodyKey, teacherName);
 
-        await PersistAndPushAsync(studentUser.UserId, title, body, StudentDeepLink);
+        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category = NotificationCategory.LinkRequest, Screen = StudentDeepLink });
     }
 
     // ══════════════════════════════════════════════
@@ -134,18 +142,17 @@ public class StudentLinkNotifier : IStudentLinkNotifier
             CultureInfo.CurrentUICulture = original;
         }
     }
-
-    private async Task PersistAndPushAsync(long recipientUserId, string title, string body, string deepLink)
+    private async Task PersistAndPushAsync(long recipientUserId, string title, string body, PushPayload payload)
     {
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
         {
             UserId = recipientUserId,
             Title = title,
             Body = body,
-            DeepLinkPayload = deepLink,
+            DeepLinkPayload = payload.Screen,
             SentAt = DateTime.UtcNow,
             IsRead = false,
-            Category = NotificationCategory.LinkRequest,
+            Category = payload.Category,
             CreateAt = DateTime.UtcNow
         });
 
@@ -154,7 +161,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(recipientUserId);
         foreach (var token in tokens)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, deepLink);
+            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
 
             if (!result.Success && result.ShouldDeactivateToken)
             {
