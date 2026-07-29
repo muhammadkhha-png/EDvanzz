@@ -68,9 +68,12 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
 
         // ── Render localized title / body in the RECIPIENT's language ──
         SetCurrentCulture(teacher.LanguagePreference);
-
         string title, body;
-        NotificationCategory category;
+        // The enum collapse (msg / notification) removed the Approved/Rejected
+        // distinction — both branches now land on the same category. Kept as an
+        // explicit variable (not inlined) so a future third bucket only touches these
+        // two branches.
+        NotificationCategory category = NotificationCategory.notifiction;
         if (approved)
         {
             title = _localizer[SubscriptionConstants.Messages.CapacityRequestApprovedTitle];
@@ -78,7 +81,6 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
                 CultureInfo.CurrentCulture,
                 _localizer[SubscriptionConstants.Messages.CapacityRequestApprovedBody],
                 request.RequestedCapacity);
-            category = NotificationCategory.CapacityRequestApproved;
         }
         else
         {
@@ -87,18 +89,9 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
                 CultureInfo.CurrentCulture,
                 _localizer[SubscriptionConstants.Messages.CapacityRequestRejectedBody],
                 rejectionReason ?? request.RejectionReason ?? string.Empty);
-            category = NotificationCategory.CapacityRequestRejected;
         }
 
-        // ── Push fan-out ──
-        // ── Push fan-out ──
-        var pushPayload = new PushPayload
-        {
-            Category = category,
-            Screen = DeepLink
-        };
-        await SendPushAsync(teacher.UserId, title, body, pushPayload);
-        // ── Persist the inbox record ──
+        // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
         {
             UserId = teacher.UserId,
@@ -110,8 +103,18 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
             Category = category,
             CreateAt = DateTime.UtcNow
         });
-
         await _unitOfWork.SaveChangesAsync();
+
+        // ── Push fan-out — badge = unread bell-inbox count AFTER the insert above ──
+        int unreadNotificationCount =
+            await _unitOfWork.UserNotificationsRepo.GetUnreadCountByUserAsync(teacher.UserId);
+        var pushPayload = new PushPayload
+        {
+            Category = category,
+            Screen = DeepLink,
+            Badge = unreadNotificationCount
+        };
+        await SendPushAsync(teacher.UserId, title, body, pushPayload);
     }
 
     // ════════════════════════════════════════════════
@@ -122,12 +125,16 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return;
 
-        foreach (var token in tokens)
+        var tokenValues = new List<string>(tokens.Count);
+        foreach (var t in tokens) tokenValues.Add(t.FcmToken);
+
+        var results = await _pushSender.SendMulticastAsync(tokenValues, title, body, payload);
+
+        for (int i = 0; i < tokens.Count; i++)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
-            if (!result.Success && result.ShouldDeactivateToken)
+            if (!results[i].Success && results[i].ShouldDeactivateToken)
             {
-                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
+                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(tokens[i].Id);
             }
         }
     }

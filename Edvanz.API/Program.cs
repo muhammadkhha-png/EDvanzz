@@ -354,6 +354,28 @@ builder.Services.AddRateLimiter(o =>
             });
     });
 
+    // FCM device-token registration: partitioned per caller, mirrors "chat-send".
+    // A device registers rarely — 5/60s covers legitimate use while blocking a
+    // malicious authenticated user from spraying arbitrary tokens onto their own
+    // account (push-review 🟡 finding).
+    o.AddPolicy("fcm-register", httpContext =>
+    {
+        string partitionKey = httpContext.User.Identity?.IsAuthenticated == true
+            ? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                ?? "anonymous"
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromSeconds(60),
+                PermitLimit = 5,
+                QueueLimit = 0,
+                QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst
+            });
+    });
+
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -423,13 +445,29 @@ var app = builder.Build();
             "No runtime database connection string configured (ConnectionStrings__con).");
     }
 }
-
 if (keyVaultLoadError is not null)
 {
     app.Logger.LogCritical(keyVaultLoadError,
         "Azure Key Vault configuration failed to load — booting WITHOUT vault-sourced secrets " +
         "(AzureBlobStorage:ConnectionString). Blob-dependent features will fail until the vault " +
         "is reachable (check the app's 'Key Vault Secrets User' role and KeyVault__Uri), then restart.");
+}
+
+// ── Firebase credential visibility check (log-only — NEVER blocks boot, D5) ──
+// The adapter (FirebasePushNotificationSender) now fails soft per-call when
+// credentials are missing/broken, so this can't crash anything — it just surfaces
+// the misconfiguration once, loudly, at boot instead of silently inside push logs.
+{
+    var firebaseOpts = app.Services
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<Edvanz.Application.Options.FirebaseOptions>>().Value;
+    if (string.IsNullOrWhiteSpace(firebaseOpts.CredentialsPath))
+    {
+        app.Logger.LogWarning(
+            "Firebase:CredentialsPath is not configured — push notifications will no-op until it " +
+            "is set. Get a service-account JSON from Firebase Console → Project Settings → Service " +
+            "accounts → Generate new private key, then set Firebase__CredentialsPath (a file path " +
+            "locally, or the inline JSON via Key Vault in Azure) and Firebase__ProjectId.");
+    }
 }
 
 // Demo/baseline seeding runs only outside Production (prod already holds its real

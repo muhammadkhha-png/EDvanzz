@@ -78,30 +78,33 @@ public class RenewalNotificationJob : IRenewalNotificationJob
             CultureInfo.CurrentCulture,
             bodyTemplate,
             subscription.EndDate.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture));
+        const string deepLink = "/subscription/current";
 
-        // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
-        // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
-        var pushPayload = new PushPayload
-        {
-            Category = NotificationCategory.RenewalConfirmed,
-            Screen = "/subscription/current"
-        };
-        await SendPushAsync(teacher.UserId, title, body, pushPayload);
-
-        // ── Persist the inbox record ──
+        // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
         {
             UserId = teacher.UserId,
             Title = title,
             Body = body,
-            DeepLinkPayload = "/subscription/current",
+            DeepLinkPayload = deepLink,
             SentAt = DateTime.UtcNow,
             IsRead = false,
-            Category = NotificationCategory.RenewalConfirmed,
+            Category = NotificationCategory.notifiction,
             CreateAt = DateTime.UtcNow
         });
-
         await _unitOfWork.SaveChangesAsync();
+
+        // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
+        // badge = unread bell-inbox count AFTER the insert above
+        int unreadNotificationCount =
+            await _unitOfWork.UserNotificationsRepo.GetUnreadCountByUserAsync(teacher.UserId);
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.notifiction,
+            Screen = deepLink,
+            Badge = unreadNotificationCount
+        };
+        await SendPushAsync(teacher.UserId, title, body, pushPayload);
     }
 
     // ════════════════════════════════════════════════
@@ -112,14 +115,17 @@ public class RenewalNotificationJob : IRenewalNotificationJob
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return;
 
-        foreach (var token in tokens)
-        {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
+        var tokenValues = new List<string>(tokens.Count);
+        foreach (var t in tokens) tokenValues.Add(t.FcmToken);
 
-            if (!result.Success && result.ShouldDeactivateToken)
+        var results = await _pushSender.SendMulticastAsync(tokenValues, title, body, payload);
+
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            if (!results[i].Success && results[i].ShouldDeactivateToken)
             {
                 // EC-11: stale FCM token — deactivate so future runs skip it.
-                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
+                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(tokens[i].Id);
             }
         }
     }

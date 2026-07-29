@@ -106,69 +106,86 @@ public class SubscriptionReminderService : ISubscriptionReminderService
         }
 
         // ── Render localized title/body ──
+        // ── Render localized title/body ──
         SetCurrentCulture(teacher.LanguagePreference);
         (string title, string body) = RenderReminderContent(endDate, alertDay);
+        const string deepLink = "/subscription/renew";
 
-        // ── Send across channels and aggregate which succeeded ──
-        SubscriptionAlertChannel channelsSent = SubscriptionAlertChannel.None;
-
-        
-        var pushPayload = new PushPayload
+        // ── Persist UserNotification + SubscriptionAlert FIRST, push AFTER ──
+        // Reordered from the original push-then-persist. Two reasons:
+        //   1. Badge accuracy — the notification-category badge counts unread
+        //      UserNotification rows, so that row must be committed before it's queried.
+        //   2. Race safety — previously, if two workers raced past HasAlertBeenSentAsync,
+        //      BOTH sent a push before the loser's SaveChanges failed on the unique index,
+        //      i.e. the teacher could receive a duplicate push. Now only the winning
+        //      worker ever reaches the push call.
+        // ChannelsSent starts at None and is corrected with a small follow-up update on
+        // the same tracked entity if push succeeds — not mixed into the race-guarded insert.
+        var notification = new UserNotification
         {
-            Category = NotificationCategory.SubscriptionReminder,
-            Screen = "/subscription/renew"
+            UserId = teacher.UserId,
+            Title = title,
+            Body = body,
+            DeepLinkPayload = deepLink,
+            SentAt = DateTime.UtcNow,
+            IsRead = false,
+            Category = NotificationCategory.notifiction,
+            CreateAt = DateTime.UtcNow
         };
-        bool pushSucceeded = await SendPushAsync(teacher.UserId, title, body, pushPayload);
-        if (pushSucceeded) channelsSent |= SubscriptionAlertChannel.Push;
+        var alert = new SubscriptionAlert
+        {
+            TeacherId = teacherId,
+            SubscriptionEndDate = endDate.Date,
+            AlertDay = alertDay,
+            SentAt = DateTime.UtcNow,
+            ChannelsSent = SubscriptionAlertChannel.None,
+            CreateAt = DateTime.UtcNow
+        };
 
-        // WhatsApp deliberately disabled until v2 (per directive). Real WhatsApp
-        // dispatch goes through the existing IMessageDispatcher with a configured
-        // SubscriptionExpiry trigger + template. Until that integration ships,
-        // ChannelsSent will never carry the WhatsApp bit.
-        // bool whatsAppSucceeded = await SendWhatsAppAsync(teacher, body);
-        // if (whatsAppSucceeded) channelsSent |= SubscriptionAlertChannel.WhatsApp;
-
-        // ── Persist UserNotification (push record only — D-05) + SubscriptionAlert ──
-        // The unique index on (TeacherId, EndDate.Date, AlertDay) is the race winner.
-        // If another worker beat us to it, SaveChanges throws on 2601 — catch + exit success.
         try
         {
-            await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
-            {
-                UserId = teacher.UserId,
-                Title = title,
-                Body = body,
-                DeepLinkPayload = "/subscription/renew",
-                SentAt = DateTime.UtcNow,
-                IsRead = false,
-                Category = NotificationCategory.SubscriptionReminder,
-                CreateAt = DateTime.UtcNow
-            });
-
-            await _unitOfWork.SubscriptionAlertsRepo.InsertAlertAsync(new SubscriptionAlert
-            {
-                TeacherId = teacherId,
-                SubscriptionEndDate = endDate.Date,
-                AlertDay = alertDay,
-                SentAt = DateTime.UtcNow,
-                ChannelsSent = channelsSent,
-                CreateAt = DateTime.UtcNow
-            });
-
+            await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(notification);
+            await _unitOfWork.SubscriptionAlertsRepo.InsertAlertAsync(alert);
             await _unitOfWork.SaveChangesAsync();
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            // Another worker won the race. The teacher already received the notification.
+            // Another worker won the race. The teacher already received the notification —
+            // do NOT send push here, that would duplicate it.
             _logger.LogInformation(
                 "SubscriptionAlert unique-violation for teacher {TeacherId} day {AlertDay} — competing worker won",
                 teacherId, alertDay);
             return Result<bool>.Success(true, _localizer);
         }
 
+        // ── Push fan-out — badge = unread bell-inbox count AFTER the insert above ──
+        int unreadNotificationCount =
+            await _unitOfWork.UserNotificationsRepo.GetUnreadCountByUserAsync(teacher.UserId);
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.notifiction,
+            Screen = deepLink,
+            Badge = unreadNotificationCount
+        };
+        bool pushSucceeded = await SendPushAsync(teacher.UserId, title, body, pushPayload);
+
+        // WhatsApp deliberately disabled until v2 (per directive). Real WhatsApp
+        // dispatch goes through the existing IMessageDispatcher with a configured
+        // SubscriptionExpiry trigger + template. Until that integration ships,
+        // ChannelsSent will never carry the WhatsApp bit.
+        // bool whatsAppSucceeded = await SendWhatsAppAsync(teacher, body);
+        // if (whatsAppSucceeded) alert.ChannelsSent |= SubscriptionAlertChannel.WhatsApp;
+
+        if (pushSucceeded)
+        {
+            // 'alert' is still tracked from the insert above (same unit of work) — this
+            // is a plain property update + SaveChanges, not a second insert.
+            alert.ChannelsSent |= SubscriptionAlertChannel.Push;
+            await _unitOfWork.SaveChangesAsync();
+        }
+
         return Result<bool>.Success(true, _localizer);
     }
-
     // ════════════════════════════════════════════════
     // PRIVATE: CONTENT RENDERING
     // ════════════════════════════════════════════════
@@ -234,21 +251,24 @@ public class SubscriptionReminderService : ISubscriptionReminderService
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return false;
 
-        bool anySucceeded = false;
-        foreach (var token in tokens)
-        {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
+        var tokenValues = new List<string>(tokens.Count);
+        foreach (var t in tokens) tokenValues.Add(t.FcmToken);
 
-            if (result.Success)
+        var results = await _pushSender.SendMulticastAsync(tokenValues, title, body, payload);
+
+        bool anySucceeded = false;
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            if (results[i].Success)
             {
                 anySucceeded = true;
                 continue;
             }
 
-            if (result.ShouldDeactivateToken)
+            if (results[i].ShouldDeactivateToken)
             {
                 // EC-11: stale FCM token — deactivate so future runs skip it.
-                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
+                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(tokens[i].Id);
             }
         }
 

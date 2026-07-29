@@ -59,14 +59,17 @@ public class ChatPushJob : IChatPushJob
             return;
         }
 
+        // Badge = total unread chat messages for the recipient across ALL
+        // conversations (not just this one) — per-category rule: msg badge counts
+        // unread chats only, never bell-notification unreads.
+        int unreadChatCount = await _unitOfWork.ChatRepo.GetTotalUnreadCountAsync(recipientUserId);
+
         // Deep-link payload: Flutter parses this to route directly to the thread on tap.
-        // Structured payload: Category = DirectMessage lets the client tell a
-        // person-to-person message apart from an app-generated notification; the
-        // adapter serializes Screen + Args into the deep-link JSON for tap routing.
         var payload = new PushPayload
         {
             Category = NotificationCategory.msg,
             Screen = "chat",
+            Badge = unreadChatCount,
             Args = new Dictionary<string, string>
             {
                 ["conversationId"] = conversationId.ToString(CultureInfo.InvariantCulture)
@@ -74,10 +77,16 @@ public class ChatPushJob : IChatPushJob
         };
         string title = $"New message from {senderName}";
 
-        foreach (var token in tokens)
+        var tokenValues = new List<string>(tokens.Count);
+        foreach (var t in tokens) tokenValues.Add(t.FcmToken);
+
+        // One FCM call for every device this recipient has registered, instead of
+        // N sequential SendAsync round-trips (all devices share the same badge/category).
+        var results = await _pushSender.SendMulticastAsync(tokenValues, title, messagePreview, payload);
+
+        for (int i = 0; i < tokens.Count; i++)
         {
-            var result = await _pushSender.SendAsync(
-                token.FcmToken, title, messagePreview, payload);
+            var result = results[i];
             if (result.Success) continue;
 
             if (result.ShouldDeactivateToken)
@@ -88,9 +97,9 @@ public class ChatPushJob : IChatPushJob
                 _logger.LogInformation(
                     "ChatPushJob: deactivating stale FCM token {TokenId} " +
                     "for recipient {RecipientUserId} (EC-11, errorCode {ErrorCode})",
-                    token.Id, recipientUserId, result.ErrorCode);
+                    tokens[i].Id, recipientUserId, result.ErrorCode);
 
-                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
+                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(tokens[i].Id);
             }
             else
             {
@@ -101,7 +110,7 @@ public class ChatPushJob : IChatPushJob
                 _logger.LogWarning(
                     "ChatPushJob: push failed for token {TokenId}, " +
                     "recipient {RecipientUserId}, errorCode {ErrorCode}",
-                    token.Id, recipientUserId, result.ErrorCode);
+                    tokens[i].Id, recipientUserId, result.ErrorCode);
             }
         }
     }

@@ -57,38 +57,35 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
 
         // ── Render localized title / body ──
         SetCurrentCulture(teacher.LanguagePreference);
-
         string title = _localizer[SubscriptionConstants.Messages.PaymentRejectedTitle];
         string bodyTemplate = _localizer[SubscriptionConstants.Messages.PaymentRejectedBody];
-        string body = string.Format(
-            CultureInfo.CurrentCulture,
-            bodyTemplate,
+        string body = string.Format(CultureInfo.CurrentCulture, bodyTemplate, rejectionReason);
+        const string deepLink = "/subscription/renew";
 
-
-            rejectionReason);
-
-        // ── Push fan-out ──
-        var pushPayload = new PushPayload
-        {
-            Category = NotificationCategory.PaymentRejected,
-            Screen = "/subscription/renew"
-        };
-        await SendPushAsync(teacher.UserId, title, body, pushPayload);
-
-        // ── Persist the inbox record ──
+        // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
         await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
         {
             UserId = teacher.UserId,
             Title = title,
             Body = body,
-            DeepLinkPayload = "/subscription/renew",
+            DeepLinkPayload = deepLink,
             SentAt = DateTime.UtcNow,
             IsRead = false,
-            Category = NotificationCategory.PaymentRejected,
+            Category = NotificationCategory.notifiction,
             CreateAt = DateTime.UtcNow
         });
-
         await _unitOfWork.SaveChangesAsync();
+
+        // ── Push fan-out — badge = unread bell-inbox count AFTER the insert above ──
+        int unreadNotificationCount =
+            await _unitOfWork.UserNotificationsRepo.GetUnreadCountByUserAsync(teacher.UserId);
+        var pushPayload = new PushPayload
+        {
+            Category = NotificationCategory.notifiction,
+            Screen = deepLink,
+            Badge = unreadNotificationCount
+        };
+        await SendPushAsync(teacher.UserId, title, body, pushPayload);
     }
 
     // ════════════════════════════════════════════════
@@ -100,12 +97,16 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
         var tokens = await _unitOfWork.UserDeviceTokensRepo.GetActiveTokensForUserAsync(userId);
         if (tokens.Count == 0) return;
 
-        foreach (var token in tokens)
+        var tokenValues = new List<string>(tokens.Count);
+        foreach (var t in tokens) tokenValues.Add(t.FcmToken);
+
+        var results = await _pushSender.SendMulticastAsync(tokenValues, title, body, payload);
+
+        for (int i = 0; i < tokens.Count; i++)
         {
-            var result = await _pushSender.SendAsync(token.FcmToken, title, body, payload);
-            if (!result.Success && result.ShouldDeactivateToken)
+            if (!results[i].Success && results[i].ShouldDeactivateToken)
             {
-                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(token.Id);
+                await _unitOfWork.UserDeviceTokensRepo.DeactivateTokenAsync(tokens[i].Id);
             }
         }
     }

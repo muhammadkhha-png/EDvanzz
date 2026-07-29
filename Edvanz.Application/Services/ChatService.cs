@@ -29,7 +29,7 @@ namespace Edvanz.Application.Services;
 public sealed class ChatService : IChatService
 {
     private const int MaxBodyLength = 4000;
-    private const int PreviewTruncateLength = 100;
+    private const int PreviewTruncateLength = 200;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IChatPushDispatcher _dispatcher;

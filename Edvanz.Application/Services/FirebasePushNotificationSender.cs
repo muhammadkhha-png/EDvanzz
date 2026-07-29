@@ -2,6 +2,7 @@
 using Edvanz.Application.Dtos.Subscription;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.Options;
+using Edvanz.Domain.Enums;
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Google.Apis.Auth.OAuth2;
@@ -32,6 +33,7 @@ public class FirebasePushNotificationSender : IPushNotificationSender
     private const string TypeDataKey = "type";
     private const string DeepLinkDataKey = "deepLink";
     private const string ScreenKey = "screen";
+    private const string BadgeDataKey = "badge";
 
     private readonly FirebaseOptions _options;
     private readonly ILogger<FirebasePushNotificationSender> _logger;
@@ -50,10 +52,29 @@ public class FirebasePushNotificationSender : IPushNotificationSender
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
     public async Task<PushNotificationSendResult> SendAsync(
           string fcmToken, string title, string body, PushPayload payload)
     {
-        EnsureFirebaseInitialized();
+        try
+        {
+            EnsureFirebaseInitialized();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // D5: fail soft, never throw out of the adapter. A missing/malformed
+            // Firebase:CredentialsPath becomes a normal failed-send result instead of
+            // an unhandled exception that Hangfire retries against a config that will
+            // never fix itself on its own.
+            _logger.LogError(ex,
+                "Firebase not initialized — push skipped (suffix {TokenSuffix})", Suffix(fcmToken));
+            return new PushNotificationSendResult
+            {
+                Success = false,
+                ShouldDeactivateToken = false,
+                ErrorCode = "firebase-not-configured"
+            };
+        }
 
         var message = new Message
         {
@@ -63,7 +84,9 @@ public class FirebasePushNotificationSender : IPushNotificationSender
                 Title = title,
                 Body = body
             },
-            Data = BuildDataPayload(payload)
+            Data = BuildDataPayload(payload),
+            Android = BuildAndroidConfig(payload),
+            Apns = BuildApnsConfig(payload)
         };
         try
         {
@@ -116,6 +139,187 @@ public class FirebasePushNotificationSender : IPushNotificationSender
                 ErrorCode = "unexpected"
             };
         }
+    }
+
+    // ════════════════════════════════════════════════
+    // PRIVATE HELPERS
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<TokenSendResult>> SendMulticastAsync(
+        IReadOnlyList<string> fcmTokens, string title, string body, PushPayload payload)
+    {
+        if (fcmTokens.Count == 0)
+            return Array.Empty<TokenSendResult>();
+
+        try
+        {
+            EnsureFirebaseInitialized();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex,
+                "Firebase not initialized — multicast push skipped ({TokenCount} tokens)",
+                fcmTokens.Count);
+
+            var notConfigured = new List<TokenSendResult>(fcmTokens.Count);
+            foreach (var token in fcmTokens)
+            {
+                notConfigured.Add(new TokenSendResult
+                {
+                    FcmToken = token,
+                    Success = false,
+                    ShouldDeactivateToken = false,
+                    ErrorCode = "firebase-not-configured"
+                });
+            }
+            return notConfigured;
+        }
+
+        // NOTE: MulticastMessage.Tokens — verify this property's exact type against the
+        // installed FirebaseAdmin 3.5.0 (expected IReadOnlyList<string>). If the build
+        // complains, change to `fcmTokens.ToList()`.
+        var message = new MulticastMessage
+        {
+            Tokens = fcmTokens,
+            Notification = new Notification { Title = title, Body = body },
+            Data = BuildDataPayload(payload),
+            Android = BuildAndroidConfig(payload),
+            Apns = BuildApnsConfig(payload)
+        };
+
+        BatchResponse batch;
+        try
+        {
+            batch = await FirebaseMessaging.DefaultInstance.SendEachForMulticastAsync(message);
+        }
+        catch (Exception ex)
+        {
+            // Failure before per-token results existed (network/transport level) —
+            // caller's Polly retry handles re-attempts. Mark all as failed-not-stale
+            // so nothing is wrongly deactivated off a transport error.
+            _logger.LogError(ex,
+                "Multicast push send unexpected failure ({TokenCount} tokens)", fcmTokens.Count);
+
+            var failed = new List<TokenSendResult>(fcmTokens.Count);
+            foreach (var token in fcmTokens)
+            {
+                failed.Add(new TokenSendResult
+                {
+                    FcmToken = token,
+                    Success = false,
+                    ShouldDeactivateToken = false,
+                    ErrorCode = "unexpected"
+                });
+            }
+            return failed;
+        }
+
+        var results = new List<TokenSendResult>(fcmTokens.Count);
+        for (int i = 0; i < fcmTokens.Count; i++)
+        {
+            var response = batch.Responses[i];
+            if (response.IsSuccess)
+            {
+                results.Add(new TokenSendResult { FcmToken = fcmTokens[i], Success = true });
+                continue;
+            }
+
+            var ex = response.Exception;
+            bool shouldDeactivate = ex is FirebaseMessagingException fme &&
+                (fme.MessagingErrorCode == MessagingErrorCode.Unregistered ||
+                 fme.MessagingErrorCode == MessagingErrorCode.InvalidArgument);
+
+            if (shouldDeactivate)
+            {
+                _logger.LogInformation(
+                    "Push token unregistered (suffix {TokenSuffix}) — flagging for deactivation",
+                    Suffix(fcmTokens[i]));
+            }
+            else
+            {
+                _logger.LogWarning(ex,
+                    "Multicast push failed for token suffix {TokenSuffix}", Suffix(fcmTokens[i]));
+            }
+
+            results.Add(new TokenSendResult
+            {
+                FcmToken = fcmTokens[i],
+                Success = false,
+                ShouldDeactivateToken = shouldDeactivate,
+                ErrorCode = (ex as FirebaseMessagingException)?.MessagingErrorCode.ToString() ?? "unexpected"
+            });
+        }
+
+        return results;
+    }
+
+    // ════════════════════════════════════════════════
+    // PLATFORM CONFIG (Android / iOS) + WIRE-VALUE MAPPING
+    // ════════════════════════════════════════════════
+
+    /// <summary>
+    /// Explicit FCM data["type"] wire value per category — deliberately NOT
+    /// Category.ToString(), so a C# enum-member rename or typo never changes what
+    /// ships to a device without an explicit, reviewed change here.
+    /// </summary>
+    private static string CategoryWireValue(NotificationCategory category) => category switch
+    {
+        NotificationCategory.msg => "msg",
+        NotificationCategory.notifiction => "notification",
+        _ => category.ToString()
+    };
+
+    /// <summary>
+    /// Android notification channel id. Per product: SEPARATE channels for msg vs
+    /// notification — the Flutter app must register NotificationChannel("msg") and
+    /// NotificationChannel("notification") with matching ids or the OS silently
+    /// falls back to a default channel (sound/importance/grouping all wrong).
+    /// </summary>
+    private static string ChannelId(NotificationCategory category) => category switch
+    {
+        NotificationCategory.msg => "msg",
+        NotificationCategory.notifiction => "notification",
+        _ => "notification"
+    };
+
+    /// <summary>
+    /// Android delivery config. High priority on both categories — with only two
+    /// buckets left after the enum collapse, "notification" now covers every
+    /// remaining app-generated alert (payment rejected, capacity resolved, renewal
+    /// confirmed, subscription reminder), not just the low-urgency daily reminder,
+    /// so normal priority would under-deliver several of them.
+    /// NOTE: AndroidNotification.NotificationCount — verify this member exists on
+    /// the installed FirebaseAdmin 3.5.0. If not, drop this line; data["badge"] in
+    /// BuildDataPayload still carries the value for the Flutter side to apply.
+    /// </summary>
+    private static AndroidConfig BuildAndroidConfig(PushPayload payload) => new()
+    {
+        Priority = Priority.High,
+        Notification = new AndroidNotification
+        {
+            ChannelId = ChannelId(payload.Category),
+            NotificationCount = payload.Badge
+        }
+    };
+
+    /// <summary>
+    /// iOS delivery config. apns-priority:10 for immediate delivery on both
+    /// categories. No interruptionLevel/time-sensitive — the app does NOT hold the
+    /// Time-Sensitive entitlement, so setting it would be silently ignored/rejected
+    /// by APNs; default "active" interruption level is correct without it.
+    /// </summary>
+    private static ApnsConfig BuildApnsConfig(PushPayload payload)
+    {
+        var aps = new Aps();
+        if (payload.Badge.HasValue)
+            aps.Badge = payload.Badge.Value;
+
+        return new ApnsConfig
+        {
+            Headers = new Dictionary<string, string> { ["apns-priority"] = "10" },
+            Aps = aps
+        };
     }
 
     // ════════════════════════════════════════════════
@@ -181,12 +385,18 @@ public class FirebasePushNotificationSender : IPushNotificationSender
     {
         var data = new Dictionary<string, string>
         {
-            [TypeDataKey] = payload.Category.ToString()
+            [TypeDataKey] = CategoryWireValue(payload.Category)
         };
 
         string? deepLink = BuildDeepLink(payload);
         if (deepLink is not null)
             data[DeepLinkDataKey] = deepLink;
+
+        // Android has no reliable server-authoritative badge API — some launchers
+        // ignore AndroidNotification.NotificationCount. Sending the raw value in data
+        // lets the Flutter client set the badge itself via a local badger plugin.
+        if (payload.Badge.HasValue)
+            data[BadgeDataKey] = payload.Badge.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         return data;
     }

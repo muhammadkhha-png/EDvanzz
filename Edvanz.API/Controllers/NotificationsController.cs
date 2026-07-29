@@ -4,6 +4,7 @@ using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
 
 namespace Edvanz.API.Controllers;
@@ -122,8 +123,10 @@ public class NotificationsController : ApiBaseController
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("register-fcm-token")]
+    [EnableRateLimiting("fcm-register")]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> RegisterFcmToken([FromBody] RegisterFcmTokenRequest request)
     {
         long? userId = _currentUser.UserId;
