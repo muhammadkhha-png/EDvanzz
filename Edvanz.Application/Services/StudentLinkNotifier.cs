@@ -48,7 +48,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
             "LinkRequestReceivedNotifTitle", "LinkRequestReceivedNotifBody", requestedStudentName);
         await PersistAndPushAsync(teacher.UserId, title, body, new PushPayload
         {
-            Category = NotificationCategory.LinkRequest,
+            Category = NotificationCategory.notifiction,
             Screen = TeacherDeepLink
         }); 
     }
@@ -66,7 +66,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
 
         await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload
         {
-            Category = NotificationCategory.LinkRequest,
+            Category = NotificationCategory.notifiction,
             Screen = StudentDeepLink
         });
     }
@@ -80,7 +80,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
         var (title, body) = RenderInCulture(studentUser.LanguagePreference,
             "LinkRemovedByTeacherNotifTitle", "LinkRemovedByTeacherNotifBody", teacherName);
 
-        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category=NotificationCategory.removeLink,Screen=StudentDeepLink});
+        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category=NotificationCategory.notifiction,Screen=StudentDeepLink});
     }
 
     /// <inheritdoc />
@@ -94,7 +94,7 @@ public class StudentLinkNotifier : IStudentLinkNotifier
 
         var (title, body) = RenderInCulture(studentUser.LanguagePreference, titleKey, bodyKey, teacherName);
 
-        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category = NotificationCategory.LinkRequest, Screen = StudentDeepLink });
+        await PersistAndPushAsync(studentUser.UserId, title, body, new PushPayload { Category = NotificationCategory.notifiction, Screen = StudentDeepLink });
     }
 
     // ══════════════════════════════════════════════

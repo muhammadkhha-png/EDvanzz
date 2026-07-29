@@ -70,5 +70,5 @@ public class UserNotification : BaseEntity
     /// for future notification types without breaking the schema.
     /// No index on this column for v1 (M-3 — add only when a filter query exists).
     /// </summary>
-    public NotificationCategory Category { get; set; } = NotificationCategory.SubscriptionReminder;
+    public NotificationCategory Category { get; set; } = NotificationCategory.notifiction;
 }

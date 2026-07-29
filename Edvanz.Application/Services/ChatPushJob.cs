@@ -65,7 +65,7 @@ public class ChatPushJob : IChatPushJob
         // adapter serializes Screen + Args into the deep-link JSON for tap routing.
         var payload = new PushPayload
         {
-            Category = NotificationCategory.DirectMessage,
+            Category = NotificationCategory.msg,
             Screen = "chat",
             Args = new Dictionary<string, string>
             {
