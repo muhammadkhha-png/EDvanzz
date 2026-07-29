@@ -1851,4 +1851,10 @@
 <data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
   <value>اتسجّل حاضر في حصة مرتبطة (نفس الحصة) واتشال الغياب اللي فات.</value>
 </data>
+<data name="Chat_PushTitle" xml:space="preserve">
+    <value>رسالة جديدة من {0}</value>
+  </data>
+   <data name="Chat_MarkedRead" xml:space="preserve">
+    <value>تم تعليم الرسائل كمقروءة.</value>
+  </data>
 </root>

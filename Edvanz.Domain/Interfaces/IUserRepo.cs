@@ -772,6 +772,15 @@ namespace Edvanz.Domain.Interfaces
         /// (e.g. Super Admin filters) where the full TeacherListItemDto shape is unnecessary.
         /// </summary>
         Task<IReadOnlyList<TeacherNameLookupProjection>> GetTeacherNameLookupAsync();
+        /// <summary>
+        /// Returns the recipient's <c>LanguagePreference</c> ("ar"/"en") for a single
+        /// User.Id. <c>LanguagePreference</c> lives on the role entity, not User, so this
+        /// resolves the role via User.UserType then reads the matching role row. Null when
+        /// the user does not exist, has no role-level preference, or is a role that carries
+        /// none (e.g. SuperAdmin); callers treat null as the default culture.
+        /// Used by <c>ChatPushJob</c> to render the push title under the recipient's culture (🔴-2).
+        /// </summary>
+        Task<string?> GetUserLanguagePreferenceByUserIdAsync(long userId);
 
 
     }

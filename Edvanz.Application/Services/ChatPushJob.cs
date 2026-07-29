@@ -2,6 +2,7 @@
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
+using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 
@@ -18,6 +19,12 @@ namespace Edvanz.Application.Services;
 /// tokens (EC-11), log per-device outcomes individually, and let unexpected
 /// exceptions bubble so Hangfire retries (3 attempts, exponential back-off).
 ///
+/// LOCALIZATION (🔴-2): the notification TITLE is rendered under the RECIPIENT's
+/// LanguagePreference via the RenderInCulture pattern (see StudentLinkNotifier).
+/// The HTTP request culture belongs to the SENDER and is the wrong language for
+/// the recipient's push. The BODY stays the raw message preview — it is the
+/// literal message text and must not be localized.
+///
 /// NO SaveChangesAsync: DeactivateTokenAsync uses ExecuteUpdateAsync (direct SQL),
 /// so no EF-tracked changes are staged and no SaveChanges is required.
 ///
@@ -28,18 +35,22 @@ public class ChatPushJob : IChatPushJob
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPushNotificationSender _pushSender;
+    private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly ILogger<ChatPushJob> _logger;
 
     public ChatPushJob(
         IUnitOfWork unitOfWork,
         IPushNotificationSender pushSender,
+        IStringLocalizer<Domain.Resources.Messages> localizer,
         ILogger<ChatPushJob> logger)
     {
         _unitOfWork = unitOfWork;
         _pushSender = pushSender;
+        _localizer = localizer;
         _logger = logger;
     }
 
+    /// <inheritdoc />
     /// <inheritdoc />
     public async Task SendAsync(
         long conversationId,
@@ -59,9 +70,14 @@ public class ChatPushJob : IChatPushJob
             return;
         }
 
-        // Badge = total unread chat messages for the recipient across ALL
-        // conversations (not just this one) — per-category rule: msg badge counts
-        // unread chats only, never bell-notification unreads.
+        // 🔴-2: render the title under the RECIPIENT's culture, not the ambient HTTP
+        // request culture (which belongs to the sender). Body stays the raw preview.
+        string? recipientLanguage = await _unitOfWork.Users
+            .GetUserLanguagePreferenceByUserIdAsync(recipientUserId);
+        string title = RenderTitleInCulture(recipientLanguage, senderName);
+
+        // Badge = total unread chat messages for the recipient across ALL conversations
+        // (not just this one) — msg badge counts unread chats only, never bell-notification unreads.
         int unreadChatCount = await _unitOfWork.ChatRepo.GetTotalUnreadCountAsync(recipientUserId);
 
         // Deep-link payload: Flutter parses this to route directly to the thread on tap.
@@ -75,7 +91,6 @@ public class ChatPushJob : IChatPushJob
                 ["conversationId"] = conversationId.ToString(CultureInfo.InvariantCulture)
             }
         };
-        string title = $"New message from {senderName}";
 
         var tokenValues = new List<string>(tokens.Count);
         foreach (var t in tokens) tokenValues.Add(t.FcmToken);
@@ -105,13 +120,38 @@ public class ChatPushJob : IChatPushJob
             {
                 // Transient Firebase error — log at Warning.
                 // Hangfire retries the whole job (3 attempts) so transient failures
-                // are retried automatically. Per-token non-fatal failures are logged
-                // only; they do not throw.
+                // are retried automatically. Per-token non-fatal failures are logged only.
                 _logger.LogWarning(
                     "ChatPushJob: push failed for token {TokenId}, " +
                     "recipient {RecipientUserId}, errorCode {ErrorCode}",
                     tokens[i].Id, recipientUserId, result.ErrorCode);
             }
+        }
+    }
+
+    /// <summary>
+    /// Renders <c>Chat_PushTitle</c> under the RECIPIENT's culture, then restores the
+    /// ambient culture in a finally block. Mirrors StudentLinkNotifier.RenderInCulture:
+    /// the HTTP request culture belongs to the message SENDER, which is the wrong
+    /// language for the recipient's push. Null / unknown preference falls back to "en".
+    /// </summary>
+    private string RenderTitleInCulture(string? languagePreference, string senderName)
+    {
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            var culture = new CultureInfo(
+                languagePreference?.Trim().ToLowerInvariant() == "ar" ? "ar" : "en");
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+
+            return _localizer["Chat_PushTitle", senderName];
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
         }
     }
 }

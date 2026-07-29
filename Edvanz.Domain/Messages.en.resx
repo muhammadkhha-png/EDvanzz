@@ -1863,4 +1863,10 @@
 <data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
   <value>Marked present in a linked session (same class); the earlier absence was cleared.</value>
 </data>
+<data name="Chat_PushTitle" xml:space="preserve">
+    <value>New message from {0}</value>
+  </data>
+  <data name="Chat_MarkedRead" xml:space="preserve">
+    <value>Messages marked as read.</value>
+  </data>
 </root>

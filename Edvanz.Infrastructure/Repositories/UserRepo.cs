@@ -1248,5 +1248,37 @@ namespace Edvanz.Infrastructure.Repositories
                 .OrderBy(x => x.FullName)
                 .ToListAsync();
         }
+        /// <inheritdoc />
+        public async Task<string?> GetUserLanguagePreferenceByUserIdAsync(long userId)
+        {
+            // LanguagePreference is not on User — it lives on the role entity. Resolve the
+            // role via UserType (single-column read), then read the matching role row's
+            // preference. Mirrors the UserType switch used elsewhere in this repo.
+            var userType = await _context.Users
+                .Where(u => u.Id == userId)
+                .Select(u => (UserType?)u.UserType)
+                .FirstOrDefaultAsync();
+
+            return userType switch
+            {
+                UserType.Teacher => await _context.Set<Teacher>()
+                    .AsNoTracking().Where(t => t.UserId == userId)
+                    .Select(t => t.LanguagePreference).FirstOrDefaultAsync(),
+
+                UserType.Assistant => await _context.Set<Assistant>()
+                    .AsNoTracking().Where(a => a.UserId == userId)
+                    .Select(a => a.LanguagePreference).FirstOrDefaultAsync(),
+
+                UserType.Student => await _context.Set<StudentUser>()
+                    .AsNoTracking().Where(s => s.UserId == userId)
+                    .Select(s => s.LanguagePreference).FirstOrDefaultAsync(),
+
+                UserType.Parent => await _context.Set<ParentUser>()
+                    .AsNoTracking().Where(p => p.UserId == userId)
+                    .Select(p => p.LanguagePreference).FirstOrDefaultAsync(),
+
+                _ => null
+            };
+        }
     }
 }
