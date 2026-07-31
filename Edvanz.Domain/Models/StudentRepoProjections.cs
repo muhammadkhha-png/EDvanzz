@@ -54,3 +54,17 @@ public sealed class SessionSummaryRow
     public PaymentType PaymentType { get; set; }
     public decimal SessionAmount { get; set; }
 }
+/// <summary>
+/// A resolved scope target (session or session-group) with its display name and
+/// current active-student count. Backs <c>GET /api/video-units/{unitId}</c> so the
+/// scope picker shows who a target actually reaches, not just its raw id.
+/// StudentCount reflects <c>TeacherStudent</c> rows only (global !IsDeleted filter
+/// applies automatically) — a student assigned to the target session, or to any
+/// session inside the target group.
+/// </summary>
+public sealed class ScopeTargetSummaryRow
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = null!;
+    public int StudentCount { get; set; }
+}

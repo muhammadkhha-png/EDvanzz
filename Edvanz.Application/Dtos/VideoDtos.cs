@@ -953,6 +953,31 @@ public sealed class VideoAnalyticsRowDto
     /// <summary>Uncapped; values &gt; 100 indicate rewatching.</summary>
     public int? RawWatchPct { get; set; }
 }
+/// <summary>
+/// One resolved scope target (a session or a session-group) with its display name
+/// and current active-student count. Populates <see cref="VideoUnitScopeDto.Target"/>.
+/// </summary>
+public sealed class VideoScopeTargetDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = null!;
+    public int StudentCount { get; set; }
+}
+
+/// <summary>
+/// One read-only scope row on <see cref="VideoUnitResponse"/> — scope type plus its
+/// resolved target, enriched with name and student count. To edit the underlying
+/// scope, send <see cref="VideoScopeInputDto"/> rows to
+/// <c>PUT /api/video-units/{unitId}/scopes</c> — that request shape is unchanged.
+/// </summary>
+public sealed class VideoUnitScopeDto
+{
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VideoScopeType ScopeType { get; set; }
+
+    public VideoScopeTargetDto Target { get; set; } = null!;
+}
+
 public sealed class VideoUnitResponse
 {
     public long Id { get; set; }
@@ -960,13 +985,19 @@ public sealed class VideoUnitResponse
     public string? Description { get; set; }
 
     /// <summary>
-    /// The unit's scope rows (the sessions/groups the unit targets). Edit them with
-    /// <c>PUT /api/video-units/{unitId}/scopes</c> (send the full desired set — an
-    /// empty list clears the scope).
+    /// Deduplicated count of active students reachable across every scope row below —
+    /// a session also covered by a scoped group is counted once, not twice.
     /// </summary>
-    public List<VideoScopeInputDto> Scopes { get; set; } = new();
-}
+    public int TotalStudentsInScope { get; set; }
 
+    /// <summary>
+    /// The unit's scope rows (the sessions/groups the unit targets), each enriched
+    /// with the resolved target's display name and student count. Edit the underlying
+    /// scope with <c>PUT /api/video-units/{unitId}/scopes</c> (send the full desired
+    /// set — an empty list clears the scope) using <see cref="VideoScopeInputDto"/>.
+    /// </summary>
+    public List<VideoUnitScopeDto> Scopes { get; set; } = new();
+}
 /// <summary>
 /// The sessions and session-groups a video is ALLOWED to be scoped to, derived
 /// from the target scope of the unit(s) it belongs to. Backs

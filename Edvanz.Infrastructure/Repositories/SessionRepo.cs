@@ -361,6 +361,7 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .ToDictionaryAsync(g => g.Id, g => g.GroupName);
     }
     /// <inheritdoc />
+    /// <inheritdoc />
     public async Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId)
     {
         return await _context.Sessions
@@ -376,6 +377,67 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .AsNoTracking()
             .FirstOrDefaultAsync();
     }
+
+    // ══════════════════════════════════════════════
+    // SCOPE TARGET SUMMARIES (name + student count, batched)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ScopeTargetSummaryRow>> GetSessionTargetSummariesAsync(
+        long teacherId, IEnumerable<long> sessionIds)
+    {
+        var ids = sessionIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<ScopeTargetSummaryRow>();
+
+        return await _context.Sessions
+            .Where(s => s.TeacherId == teacherId && ids.Contains(s.Id))
+            .Select(s => new ScopeTargetSummaryRow
+            {
+                Id = s.Id,
+                Name = s.SessionName,
+                StudentCount = _context.TeacherStudents.Count(ts => ts.SessionId == s.Id),
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ScopeTargetSummaryRow>> GetGroupTargetSummariesAsync(
+        long teacherId, IEnumerable<long> groupIds)
+    {
+        var ids = groupIds.Distinct().ToList();
+        if (ids.Count == 0) return new List<ScopeTargetSummaryRow>();
+
+        return await _context.SessionGroups
+            .Where(g => g.TeacherId == teacherId && ids.Contains(g.Id))
+            .Select(g => new ScopeTargetSummaryRow
+            {
+                Id = g.Id,
+                Name = g.GroupName,
+                StudentCount = _context.TeacherStudents.Count(ts =>
+                    ts.Session != null && ts.Session.SessionGroupId == g.Id),
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> CountStudentsInTargetsAsync(
+        long teacherId, IEnumerable<long> sessionIds, IEnumerable<long> groupIds)
+    {
+        var sIds = sessionIds.Distinct().ToList();
+        var gIds = groupIds.Distinct().ToList();
+        if (sIds.Count == 0 && gIds.Count == 0) return 0;
+
+        return await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId
+                      && ts.SessionId.HasValue
+                      && (sIds.Contains(ts.SessionId!.Value)
+                          || (ts.Session != null && ts.Session.SessionGroupId.HasValue
+                              && gIds.Contains(ts.Session.SessionGroupId.Value))))
+            .CountAsync();
+    }
+
     // Repo
     public async Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(
         long? teacherId, IEnumerable<long> sessionIds)

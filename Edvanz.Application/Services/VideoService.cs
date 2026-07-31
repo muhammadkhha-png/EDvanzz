@@ -1878,29 +1878,6 @@ public sealed class VideoService : IVideoService
         }
     }
 
-    public async Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId)
-    {
-        var unit = await _unitOfWork.VideoUnitsRepo.GetUnitWithScopesAsync(unitId, teacherId);
-        if (unit is null)
-            return Result<VideoUnitResponse>.Failure(
-                _localizer, VideoConstants.Messages.VideoUnitNotFound,
-                HttpStatusCode.NotFound);
-
-        var response = new VideoUnitResponse
-        {
-            Id = unit.Id,
-            Title = unit.Title,
-            Description = unit.Description,
-            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
-            {
-                ScopeType = s.ScopeType,
-                SessionId = s.SessionId,
-                SessionGroupId = s.SessionGroupId,
-            }).ToList(),
-        };
-
-        return Result<VideoUnitResponse>.Success(response, _localizer, "Success",HttpStatusCode.OK);
-    }
 
     
     /// <summary>

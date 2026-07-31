@@ -30,10 +30,19 @@ public interface IVideoUnitService
     Task<Result<PaginatedResponse<List<TeacherVideoUnitListItemDto>>>>
         GetTeacherUnitsAsync(long teacherId, TeacherVideoUnitListRequest request);
 
-    /// <summary>Paged list of videos inside a specific unit. Backs the S6 drill-down.</summary>
     Task<Result<PaginatedResponse<List<TeacherVideoListItemDto>>>>
-        GetVideosInUnitAsync(long teacherId, long unitId, TeacherVideoListRequest request);
-    public Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId);
+          GetVideosInUnitAsync(long teacherId, long unitId, TeacherVideoListRequest request);
+
+    /// <summary>
+    /// Returns a unit's details together with its scope rows, each enriched with the
+    /// resolved target's display name and current active-student count, plus a
+    /// deduplicated <c>TotalStudentsInScope</c> across all rows. Backs
+    /// <c>GET /api/video-units/{unitId}</c>.
+    /// </summary>
+    Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId);
+
+    /// <summary>
+    /// Appends session/group targets to a unit's scope (idempotent on duplicates).
 
     /// <summary>
     /// Appends session/group targets to a unit's scope (idempotent on duplicates).

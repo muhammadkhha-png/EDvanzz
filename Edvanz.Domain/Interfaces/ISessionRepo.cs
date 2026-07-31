@@ -217,6 +217,34 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// materializing the full Session entity.
     /// </summary>
     Task<SessionSummaryRow?> GetSessionSummaryByIdAsync(long teacherId, long sessionId);
+
+    // ══════════════════════════════════════════════
+    // SCOPE TARGET SUMMARIES (name + student count, batched)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Batch-resolves sessions to <see cref="ScopeTargetSummaryRow"/> (name + active
+    /// student count), scoped to the teacher. Used to enrich unit/video scope reads.
+    /// </summary>
+    Task<IReadOnlyList<ScopeTargetSummaryRow>> GetSessionTargetSummariesAsync(
+        long teacherId, IEnumerable<long> sessionIds);
+
+    /// <summary>
+    /// Batch-resolves session-groups to <see cref="ScopeTargetSummaryRow"/> (name +
+    /// active student count across all sessions in the group), scoped to the teacher.
+    /// </summary>
+    Task<IReadOnlyList<ScopeTargetSummaryRow>> GetGroupTargetSummariesAsync(
+        long teacherId, IEnumerable<long> groupIds);
+
+    /// <summary>
+    /// Deduplicated count of active students reachable across a mixed set of session
+    /// and session-group targets — a student assigned to a session that is ALSO
+    /// covered by a scoped group is counted once, not twice (a student has exactly
+    /// one <c>SessionId</c>, so no DISTINCT is needed).
+    /// </summary>
+    Task<int> CountStudentsInTargetsAsync(
+        long teacherId, IEnumerable<long> sessionIds, IEnumerable<long> groupIds);
+
     // Interface
     Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long? teacherId, IEnumerable<long> sessionIds);
 }

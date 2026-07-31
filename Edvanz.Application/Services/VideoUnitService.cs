@@ -225,6 +225,7 @@ public sealed class VideoUnitService : IVideoUnitService
         return Result<PaginatedResponse<List<TeacherVideoListItemDto>>>.Success(response, _localizer);
     }
 
+    /// <inheritdoc />
     public async Task<Result<VideoUnitResponse>> GetUnitWithScopesAsync(long unitId, long teacherId)
     {
         var unit = await _unitOfWork.VideoUnitsRepo.GetUnitWithScopesAsync(unitId, teacherId);
@@ -233,22 +234,78 @@ public sealed class VideoUnitService : IVideoUnitService
                 _localizer, VideoConstants.Messages.VideoUnitNotFound,
                 HttpStatusCode.NotFound);
 
+        var sessionIds = unit.Scopes
+            .Where(s => s.ScopeType == VideoScopeType.Session && s.SessionId.HasValue)
+            .Select(s => s.SessionId!.Value)
+            .Distinct()
+            .ToList();
+
+        var groupIds = unit.Scopes
+            .Where(s => s.ScopeType == VideoScopeType.SessionGroup && s.SessionGroupId.HasValue)
+            .Select(s => s.SessionGroupId!.Value)
+            .Distinct()
+            .ToList();
+
+        // Batch-resolve names + student counts — one round trip per target type,
+        // skipped entirely when the unit has no scope of that type.
+        var sessionSummaries = sessionIds.Count > 0
+            ? await _unitOfWork.SessionsRepo.GetSessionTargetSummariesAsync(teacherId, sessionIds)
+            : new List<ScopeTargetSummaryRow>();
+        var groupSummaries = groupIds.Count > 0
+            ? await _unitOfWork.SessionsRepo.GetGroupTargetSummariesAsync(teacherId, groupIds)
+            : new List<ScopeTargetSummaryRow>();
+
+        var sessionById = sessionSummaries.ToDictionary(r => r.Id);
+        var groupById = groupSummaries.ToDictionary(r => r.Id);
+
+        var scopeDtos = unit.Scopes.Select(s =>
+        {
+            if (s.ScopeType == VideoScopeType.Session && s.SessionId.HasValue)
+            {
+                var row = sessionById.TryGetValue(s.SessionId.Value, out var r)
+                    ? r
+                    : new ScopeTargetSummaryRow { Id = s.SessionId.Value, Name = $"#{s.SessionId.Value}", StudentCount = 0 };
+
+                return new VideoUnitScopeDto
+                {
+                    ScopeType = s.ScopeType,
+                    Target = new VideoScopeTargetDto { Id = row.Id, Name = row.Name, StudentCount = row.StudentCount },
+                };
+            }
+
+            var groupRow = s.SessionGroupId.HasValue && groupById.TryGetValue(s.SessionGroupId.Value, out var g)
+                ? g
+                : new ScopeTargetSummaryRow { Id = s.SessionGroupId ?? 0, Name = $"#{s.SessionGroupId}", StudentCount = 0 };
+
+            return new VideoUnitScopeDto
+            {
+                ScopeType = s.ScopeType,
+                Target = new VideoScopeTargetDto { Id = groupRow.Id, Name = groupRow.Name, StudentCount = groupRow.StudentCount },
+            };
+        }).ToList();
+
+        int totalStudentsInScope = (sessionIds.Count > 0 || groupIds.Count > 0)
+            ? await _unitOfWork.SessionsRepo.CountStudentsInTargetsAsync(teacherId, sessionIds, groupIds)
+            : 0;
+
         var response = new VideoUnitResponse
         {
             Id = unit.Id,
             Title = unit.Title,
             Description = unit.Description,
-            Scopes = unit.Scopes.Select(s => new VideoScopeInputDto
-            {
-                ScopeType = s.ScopeType,
-                SessionId = s.SessionId,
-                SessionGroupId = s.SessionGroupId,
-            }).ToList(),
+            TotalStudentsInScope = totalStudentsInScope,
+            Scopes = scopeDtos,
         };
 
         return Result<VideoUnitResponse>.Success(response, _localizer, "Success", HttpStatusCode.OK);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // UNIT SCOPE CRUD (append / replace / delete a unit's session/group targets)
+    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+    // UNIT SCOPE CRUD (append / replace / delete a unit's session/group targets)
+    // ══════════════════════════════════════════════════════════════════════════
     // ══════════════════════════════════════════════════════════════════════════
     // UNIT SCOPE CRUD (append / replace / delete a unit's session/group targets)
     // ══════════════════════════════════════════════════════════════════════════
