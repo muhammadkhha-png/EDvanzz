@@ -147,6 +147,10 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
 
         int absencesWritten = 0, heldRolled = 0, processed = 0, slotsSkipped = 0;
 
+        // One connected-group resolution per sweep run: if two home sessions in this teacher's
+        // candidate set belong to the same linked group (both rostered AND mutually linked), the
+        // group only needs resolving once — index every member id to the same resolved list.
+        var groupCache = new Dictionary<long, List<long>>();
         // Process one home session at a time — each in its own transaction so a failure isolates to that
         // session and Hangfire's retry re-sweeps only the unfinished work (already-written slots skip).
         foreach (var sessionGroup in candidateOccurrences
@@ -156,9 +160,14 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
             long sessionId = sessionGroup.Key;
             var session = sessionGroup.First().Session!;
 
-            var linked = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
-            var linkedSessionIds = linked.Select(l => l.Id).ToList();
-            var groupSessionIds = linkedSessionIds.Append(sessionId).ToList();
+            if (!groupCache.TryGetValue(sessionId, out var groupSessionIds))
+            {
+                var connectedGroup = await _unitOfWork.SessionsRepo
+                    .GetConnectedSessionGroupAsync(sessionId, teacherId);
+                groupSessionIds = connectedGroup.Select(s => s.Id).ToList(); // already includes sessionId
+                foreach (var memberId in groupSessionIds)
+                    groupCache[memberId] = groupSessionIds;
+            }
 
             // Active roster of THIS home session (skip soft-deleted students — their nav is filtered out).
             var assignments = (await _unitOfWork.AttendanceRepo
@@ -329,7 +338,7 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
             }
 
             foreach (var occ in occurrencesToRefresh)
-                await RefreshOccurrenceStatusAsync(occ);
+                await RefreshOccurrenceStatusAsync(occ, assignmentByStudent.Count);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -469,15 +478,17 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
     /// active roster — same rule as AttendanceService.UpdateOccurrenceStatusAsync (Held excluded; only
     /// this occurrence's own home roster counts).
     /// </summary>
-    private async Task RefreshOccurrenceStatusAsync(SessionOccurrence occurrence)
+    /// <summary>
+    /// C1 perf fix: <paramref name="totalStudents"/> is passed in instead of re-querying
+    /// GetActiveAssignmentsBySessionAsync — the caller (SweepSessionAsync) already holds the
+    /// session's active roster in assignmentByStudent, loaded once per session, not once per occurrence.
+    /// </summary>
+    private async Task RefreshOccurrenceStatusAsync(SessionOccurrence occurrence, int totalStudents)
     {
         var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
-        var assignments = await _unitOfWork.AttendanceRepo
-            .GetActiveAssignmentsBySessionAsync(occurrence.SessionId);
 
         int markedCount = records.Count(r =>
             r.Status != AttendanceStatus.Held && r.SessionId == occurrence.SessionId);
-        int totalStudents = assignments.Count;
 
         if (markedCount == 0)
             occurrence.Status = OccurrenceStatus.Pending;
@@ -488,7 +499,6 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
 
         await _unitOfWork.AttendanceRepo.UpdateOccurrenceAsync(occurrence);
     }
-
     private static void TrackLatestAbsence(
         Dictionary<long, (DateTime date, string sessionName, long sessionId)> map,
         long studentId, DateTime date, Session session)

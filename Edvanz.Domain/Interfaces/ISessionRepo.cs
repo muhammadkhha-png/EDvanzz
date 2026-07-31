@@ -163,6 +163,20 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     /// REQ-SES-035: A session may be linked to more than one session.
     /// </summary>
     Task<IReadOnlyList<Session>> GetLinkedSessionsAsync(long sessionId);
+    /// <summary>
+    /// Resolves the FULL connected group of sessions reachable from <paramref name="sessionId"/> through
+    /// any chain of SessionLinks — the transitive closure, not just direct (one-hop) links — INCLUDING
+    /// the seed session itself. REQ-SES-035/036 plus the attendance module's equivalence logic (auto-absent
+    /// gate 1, MarkAttendanceAsync's cross-session flip, absence overview) require the whole connected
+    /// component: links can form a chain (A↔B, B↔C) with no direct A↔C row, and
+    /// <see cref="GetLinkedSessionsAsync"/>'s one-hop lookup misses C when resolving from A.
+    ///
+    /// <paramref name="teacherId"/> is a defense-in-depth tenant guard (same pattern as
+    /// GetRecordsBySessionAndDateRangeAsync's Step 5.2 fix) — SessionLinks can only ever connect two
+    /// sessions owned by the same teacher (enforced at CreateLinkAsync), so this cannot change which group
+    /// is resolved; it only rejects a caller-side teacher/session id mismatch.
+    /// </summary>
+    Task<IReadOnlyList<Session>> GetConnectedSessionGroupAsync(long sessionId, long teacherId);
 
     /// <summary>
     /// Checks if a link already exists between two sessions (order-independent).

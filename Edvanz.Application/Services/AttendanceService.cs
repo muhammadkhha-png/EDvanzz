@@ -530,11 +530,15 @@ public class AttendanceService : IAttendanceService
             }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
         }
 
-        // 7. Resolve the active assignment + cross-session landing target via the SHARED helper
+        
+        // Resolve the active assignment + cross-session landing target via the SHARED helper
         // (the same one bulk / add / hold use, so behaviour is identical everywhere).
-        var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-        var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
-        var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
+        // Transitive closure — a linked session's own linked session (chain, not just direct) must
+        // also be considered, or a two-hop equivalence check / auto-absent flip can be missed.
+        var connectedGroup = await _unitOfWork.SessionsRepo
+            .GetConnectedSessionGroupAsync(dto.SessionId, dto.TeacherId);
+        var allLinkedSessionIds = connectedGroup.Select(s => s.Id).ToList();           // includes dto.SessionId
+        var linkedSessionIds = allLinkedSessionIds.Where(id => id != dto.SessionId).ToList();
 
         var activeAssignment = await _unitOfWork.AttendanceRepo.GetActiveAssignmentAsync(dto.TeacherStudentId);
         if (activeAssignment is null)
@@ -797,9 +801,10 @@ public class AttendanceService : IAttendanceService
                 .GetAbsenceCountersBatchAsync(dto.TeacherId, studentIds);
 
             // Step 2.1: Batch equivalence duplicate check across the linked group (by slot, not date).
-            var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-            var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
-            var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
+            var connectedGroup = await _unitOfWork.SessionsRepo
+                .GetConnectedSessionGroupAsync(dto.SessionId, dto.TeacherId);
+            var allLinkedSessionIds = connectedGroup.Select(s => s.Id).ToList();       // includes dto.SessionId
+            var linkedSessionIds = allLinkedSessionIds.Where(id => id != dto.SessionId).ToList();
             var equivalentOccurrenceIds = await _unitOfWork.AttendanceRepo
                 .GetEquivalentOccurrenceIdsAsync(dto.SessionId, date, allLinkedSessionIds);
             var crossSessionDuplicates = await _unitOfWork.AttendanceRepo
@@ -1542,9 +1547,11 @@ public class AttendanceService : IAttendanceService
                 _localizer, AttendanceConstants.Messages.AttendanceStudentNotAssigned, HttpStatusCode.BadRequest);
 
         // Cross-session landing target via the SHARED helper (same design as mark / bulk).
-        var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(dto.SessionId);
-        var linkedSessionIds = linkedSessions.Select(ls => ls.Id).ToList();
-        var allLinkedSessionIds = linkedSessionIds.Append(dto.SessionId).ToList();
+        // Cross-session landing target via the SHARED helper (same design as mark / bulk).
+        var connectedGroup = await _unitOfWork.SessionsRepo
+            .GetConnectedSessionGroupAsync(dto.SessionId, dto.TeacherId);
+        var allLinkedSessionIds = connectedGroup.Select(s => s.Id).ToList();           // includes dto.SessionId
+        var linkedSessionIds = allLinkedSessionIds.Where(id => id != dto.SessionId).ToList();
 
         var target = await ResolveMarkTargetAsync(occurrence, session, assignment, linkedSessionIds, occDate);
         if (target is null)
@@ -1763,9 +1770,10 @@ public class AttendanceService : IAttendanceService
             return Result<PaginatedResponse<List<AbsenceOverviewStudentDto>>>.Failure(
                 _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
-        // Include linked sessions for cross-session absence view (REQ-ATT-033)
-        var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
-        var allSessionIds = linkedSessions.Select(s => s.Id).Append(sessionId).ToList();
+        // Include the full connected group (direct + transitive links) for cross-session absence
+        // view (REQ-ATT-033) — a chained link (A↔B, B↔C) must surface C's absences from A's overview.
+        var connectedGroup = await _unitOfWork.SessionsRepo.GetConnectedSessionGroupAsync(sessionId, teacherId);
+        var allSessionIds = connectedGroup.Select(s => s.Id).ToList(); // already includes sessionId
 
         // AUDIT FIX Step 12 (REQ-ATT-035): If a specific date is requested,
         // query AttendanceRecords for that date instead of global counters

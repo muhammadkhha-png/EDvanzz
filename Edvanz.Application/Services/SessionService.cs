@@ -1012,7 +1012,12 @@ public class SessionService : ISessionService
     private async Task<SessionDto> BuildSessionDtoAsync(Session session)
     {
         int studentCount = await _unitOfWork.SessionsRepo.CountStudentsBySessionAsync(session.Id);
-        var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(session.Id);
+        // REQ-SES-034/035: full connected group (direct + transitive links via chained SessionLinks),
+        // excluding this session itself. Was GetLinkedSessionsAsync (one-hop only) — a chain (A↔B, B↔C)
+        // used to show only B when viewing A, now shows the whole group.
+        var connectedGroup = await _unitOfWork.SessionsRepo
+            .GetConnectedSessionGroupAsync(session.Id, session.TeacherId);
+        var linkedSessions = connectedGroup.Where(s => s.Id != session.Id).ToList();
 
         // Load group name if grouped
         string? groupName = null;

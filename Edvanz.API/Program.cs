@@ -183,12 +183,12 @@ builder.Services.AddHangfireServer(options =>
     {
         "default",
         SubscriptionConstants.NotificationsQueue,
-        "assignment-materialization"
+        "assignment-materialization",
+        AttendanceConstants.AutoAbsentQueue
     };
     options.WorkerCount = 4;
     options.ServerName = $"edvanz-{Environment.MachineName}";
 });
-
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {

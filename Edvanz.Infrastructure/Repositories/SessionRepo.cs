@@ -454,4 +454,63 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
             .AsNoTracking()
             .ToDictionaryAsync(s => s.Id, s => s.SessionName);
     }
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Session>> GetConnectedSessionGroupAsync(long sessionId, long teacherId)
+    {
+        // 1. Every link edge touching this teacher's sessions — one round trip. Checking only the
+        //    canonical (lower-id) side's TeacherId is sufficient: a link's two sessions are always owned
+        //    by the same teacher (enforced at creation, CreateLinkAsync), so this is not a partial filter.
+        var edges = await _context.SessionLinks
+            .Where(sl => sl.Session!.TeacherId == teacherId)
+            .Select(sl => new { sl.SessionId, sl.LinkedSessionId })
+            .ToListAsync();
+
+        // 2. Pure in-memory BFS — no further DB round trips for the traversal itself.
+        var connectedIds = ResolveConnectedComponent(
+            sessionId, edges.Select(e => (e.SessionId, e.LinkedSessionId)));
+
+        // 3. Materialize the resolved id set as full Session rows — one round trip.
+        return await _context.Sessions
+            .Where(s => s.TeacherId == teacherId && connectedIds.Contains(s.Id))
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Pure BFS over an undirected edge list. No DB dependency — unit-testable with a hand-built edge
+    /// list, no SQL Server required. Returns the connected component containing
+    /// <paramref name="seedSessionId"/>, INCLUDING the seed.
+    /// </summary>
+    private static HashSet<long> ResolveConnectedComponent(
+        long seedSessionId, IEnumerable<(long SessionId, long LinkedSessionId)> edges)
+    {
+        var adjacency = new Dictionary<long, List<long>>();
+        void AddEdge(long a, long b)
+        {
+            if (!adjacency.TryGetValue(a, out var list))
+                adjacency[a] = list = new List<long>();
+            list.Add(b);
+        }
+        foreach (var (a, b) in edges)
+        {
+            AddEdge(a, b);
+            AddEdge(b, a); // links are symmetric — REQ-SES-036
+        }
+
+        var visited = new HashSet<long> { seedSessionId };
+        var queue = new Queue<long>();
+        queue.Enqueue(seedSessionId);
+
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!adjacency.TryGetValue(current, out var neighbors))
+                continue;
+
+            foreach (var neighbor in neighbors)
+                if (visited.Add(neighbor))
+                    queue.Enqueue(neighbor);
+        }
+
+        return visited;
+    }
 }

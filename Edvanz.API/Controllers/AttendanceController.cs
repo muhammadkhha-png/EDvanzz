@@ -226,7 +226,8 @@ public class AttendanceController : ModuleSixApiBaseController
         dto.TeacherId = teacherId.Value;
         dto.RecordedByUserId = GetActingUserId();
 
-        var result = await _attendanceService.BulkMarkAttendanceAsync(dto);
+        var result = await _attendanceService.BulkMarkAttendanceAsync
+            (dto);
         return ToResponse(result);
     }
     /// ══════════════════════════════════════════════════════════════════════════
