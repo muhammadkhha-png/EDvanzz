@@ -167,7 +167,7 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
+                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
@@ -709,7 +709,7 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
+                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,

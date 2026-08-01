@@ -12,7 +12,7 @@ namespace Edvanz.API.Middleware;
 ///
 /// On every AUTHENTICATED request this pushes the caller's refresh-token idle deadline
 /// (<see cref="Edvanz.Domain.Entities.RefreshToken.ExpiryDate"/>) forward to
-/// <c>now + Jwt:RefreshTokenMinutes</c>. A session therefore stays alive as long as the
+/// <c>now + Jwt:  </c>. A session therefore stays alive as long as the
 /// app keeps calling endpoints, and expires after that many minutes with NO authenticated
 /// requests — at which point <c>AuthService.Refresh</c> rejects the now past-dated token
 /// and the user must log in again.
