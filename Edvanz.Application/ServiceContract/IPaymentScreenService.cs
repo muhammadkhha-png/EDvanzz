@@ -26,7 +26,12 @@ public interface IPaymentScreenService
     /// <summary>
     /// Screen: AssistantWallet. Wallet card + paginated recent collections for one assistant.
     /// Reuses <c>GetAssistantWalletAsync</c> (tenant-scoped → 404 if not this teacher's) and
-    /// <c>GetCollectorTransactionsPagedAsync</c>.
+    /// <c>GetCollectorTransactionsInRangeAsync</c> / <c>GetCollectorRefundsInRangeAsync</c>.
+    /// BUGFIX (2026-08-01): Collections is scoped SINCE THE ASSISTANT'S LAST WALLET HANDOVER
+    /// (reset or withdraw -- <c>GetLastWalletResetAtAsync</c>), not the current calendar month.
+    /// The old month-based scope went empty on every month rollover even with a real balance held,
+    /// and drifted on local/UTC boundaries near midnight. The new window reconciles by
+    /// construction: TotalCashCollected − TotalRefunded == WalletBalance.
     /// When <paramref name="restrictToAssistantUserId"/> is supplied (assistant caller) the
     /// requested <paramref name="assistantId"/> is IGNORED and the caller's OWN wallet (resolved by
     /// their user id) is returned — an assistant can only open their own wallet, never a peer's.

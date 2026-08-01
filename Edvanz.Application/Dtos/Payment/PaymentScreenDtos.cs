@@ -68,8 +68,14 @@ public class AssistantWalletAssistantDto
 
 public class AssistantWalletInfoDto
 {
+    /// <summary>Gross collections since the last handover (reset or withdraw).</summary>
     public decimal TotalCashCollected { get; set; }
+    /// <summary>Gross refunds taken back from this collector since the last handover.</summary>
+    public decimal TotalRefunded { get; set; }
     public decimal WalletBalance { get; set; }
+    /// <summary>Lifetime collected -- never reduced by a reset/withdraw. REQ-PAY-035.</summary>
+    public decimal TotalCollectedAllTime { get; set; }
+    /// <summary>Lifetime transaction count -- NOT scoped to the Collections window below.</summary>
     public int CollectionsCount { get; set; }
     public DateTime? LastActivityAt { get; set; }
 }
@@ -79,6 +85,11 @@ public class AssistantWalletCollectionsDto
     public int Total { get; set; }
     public int Page { get; set; }
     public int Limit { get; set; }
+    /// <summary>
+    /// Start of the window below -- the last handover, or null if there has never been one
+    /// (in which case this is the assistant's full lifetime history).
+    /// </summary>
+    public DateTime? SinceAt { get; set; }
     public List<AssistantWalletCollectionItemDto> Items { get; set; } = new();
 }
 

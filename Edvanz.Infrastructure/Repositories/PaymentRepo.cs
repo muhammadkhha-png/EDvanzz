@@ -1,4 +1,4 @@
-﻿using Edvanz.Domain.Constants;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -14,7 +14,7 @@ namespace Edvanz.Infrastructure.Repositories;
 /// ARCHITECTURAL NOTE:
 /// Inherits GenericRepo&lt;PaymentTransaction, long&gt; for basic CRUD on the primary entity.
 /// All other entities (PaymentPeriod, StudentPaymentCounter, AssistantWallet, etc.) are
-/// accessed via _context directly through named methods — keeping query logic in one place.
+/// accessed via _context directly through named methods � keeping query logic in one place.
 ///
 /// QUERY PATTERNS:
 /// - Paged queries use CountAsync + Skip/Take (same as AttendanceRepo).
@@ -35,9 +35,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .CountAsync(e => e.TeacherId == teacherId && !e.IsDeleted);
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // PAYMENT TRANSACTION QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<PaymentTransaction?> GetTransactionByIdAndTeacherAsync(
@@ -207,9 +207,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return (items, totalCount);
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // PAYMENT PERIOD QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<PaymentPeriod?> GetEarliestUnpaidPeriodAsync(
@@ -232,7 +232,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     public async Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
         long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
     {
-        // Tracked (NOT AsNoTracking) — the caller mutates AmountPaid/PaymentStatus and saves.
+        // Tracked (NOT AsNoTracking) � the caller mutates AmountPaid/PaymentStatus and saves.
         // Earliest-first, and only periods that start on/before the cutoff (current month, or
         // current+1 when paying one month in advance). Ordered so a payment fills the oldest
         // debt first and cascades forward.
@@ -314,7 +314,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return await _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
             // Eager-load non-deleted transactions so the payment-view period rows can surface each
-            // paid period's collection(s) — incl. the collector (CollectedByUserId) — without an N+1.
+            // paid period's collection(s) � incl. the collector (CollectedByUserId) � without an N+1.
             .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
             .OrderBy(p => p.SessionName)
             .ThenBy(p => p.PeriodSequence)
@@ -354,7 +354,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
 
         return await query
             // Eager-load non-deleted transactions so the history screen's period rows carry their
-            // collection(s) — incl. the collector (CollectedByUserId) — without an N+1 per period.
+            // collection(s) � incl. the collector (CollectedByUserId) � without an N+1 per period.
             .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
             .OrderBy(p => p.SessionName)
             .ThenBy(p => p.PeriodSequence)
@@ -384,7 +384,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
     {
         // Money that came IN this window: collections the collector took, at the amount recorded.
-        // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) —
+        // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) �
         // its AmountPaid is preserved on delete, so pairing it with its negative refund entry nets
         // to zero for a same-window collect-then-refund.
         return await _context.PaymentTransactions
@@ -487,7 +487,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         long teacherId, DateTime selectedMonthEnd)
     {
         // Buckets reconcile to the tracking screen's TotalStudents: only students CURRENTLY
-        // assigned to a session (SessionId != null — same population as CountAssignedStudentsAsync)
+        // assigned to a session (SessionId != null � same population as CountAssignedStudentsAsync)
         // are classified, so paid + prorated + unpaid always sums to that total. Formerly-assigned
         // students that still carry historical periods are intentionally excluded here (they would
         // otherwise inflate the buckets past the assigned headcount).
@@ -552,9 +552,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         await Task.CompletedTask;
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // PAYMENT TRANSACTION ALLOCATION LEDGER (PAY-1)
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddPaymentTransactionAllocationsRangeAsync(
@@ -584,9 +584,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         await Task.CompletedTask;
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // STUDENT PAYMENT COUNTER QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<StudentPaymentCounter?> GetPaymentCounterAsync(
@@ -609,7 +609,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     {
         // A counter created earlier in this same unit of work is still in the Added
         // state with a temporary key; forcing it to Modified throws. Leave Added entities
-        // as-is — SaveChanges INSERTs them with the totals already set on the instance.
+        // as-is � SaveChanges INSERTs them with the totals already set on the instance.
         // Only already-tracked/persisted rows need the explicit Modified flag.
         var entry = _context.Entry(counter);
         if (entry.State != EntityState.Added)
@@ -683,9 +683,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         return await query.SumAsync(c => c.TotalOutstanding);
     }
 
-    // ══════════════════════════════════════════════
-    // SCREEN QUERIES (api/v1 — frontend payment.json)
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
+    // SCREEN QUERIES (api/v1 � frontend payment.json)
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
@@ -717,7 +717,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         int totalCount = await filtered.CountAsync();
 
         // Page first, then LEFT-join each row to its counter (correlated TOP-1 subquery,
-        // bounded to pageSize rows — no N+1 across the full set).
+        // bounded to pageSize rows � no N+1 across the full set).
         var raw = await filtered
             .OrderBy(ts => ts.StudentName)
             .Skip((page - 1) * pageSize)
@@ -733,7 +733,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
                     .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
                     .Select(c => c.CustomPaymentAmount)
                     .FirstOrDefault(),
-                // Unpaid status is judged THROUGH the current month only — future pre-generated
+                // Unpaid status is judged THROUGH the current month only � future pre-generated
                 // periods must not make an otherwise-caught-up student read as unpaid.
                 UnpaidMonths = _context.PaymentPeriods
                     .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
@@ -773,7 +773,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
             .Select(ts => ts.Id);
 
-        // Everything is judged THROUGH the selected month — periods that start after the
+        // Everything is judged THROUGH the selected month � periods that start after the
         // month end (pre-generated future months) are excluded from every bucket and total.
         var withPeriods = _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
@@ -808,7 +808,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         else if (string.Equals(status, "partial", StringComparison.OrdinalIgnoreCase))
         {
             // "Part Paid" chip: students with a period IN the requested month that is
-            // partially settled (0 < AmountPaid < AmountDue). Month-scoped by design —
+            // partially settled (0 < AmountPaid < AmountDue). Month-scoped by design �
             // the screen header is month-relative ("monthly collected (march)").
             targetIds = await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId
@@ -998,7 +998,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     {
         var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
 
-        // Resolution priority: QR/barcode → student code → name (first match).
+        // Resolution priority: QR/barcode ? student code ? name (first match).
         if (!string.IsNullOrWhiteSpace(qr))
         {
             string barcode = qr.Trim();
@@ -1053,9 +1053,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         };
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // ASSISTANT WALLET QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<AssistantWallet?> GetAssistantWalletAsync(
@@ -1072,7 +1072,15 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     public async Task<AssistantWallet?> GetAssistantWalletByUserIdAsync(
         long teacherId, long assistantUserId)
     {
+        // BUGFIX (2026-08-01): Include added so assistant.name is populated on the AssistantWallet
+        // screen for an assistant caller (this method -- not GetAssistantWalletAsync -- resolves
+        // their own wallet; see PaymentScreenService.GetAssistantWalletScreenAsync). Deliberately
+        // NOT AsNoTracking: this method also sits on the collect hot path
+        // (UpdateAssistantWalletAfterCollectionAsync / AdjustAssistantWalletAsync), which needs the
+        // returned entity tracked for the RowVersion concurrency-retry loop.
         return await _context.AssistantWallets
+            .Include(w => w.Assistant)
+                .ThenInclude(a => a.User)
             .FirstOrDefaultAsync(w => w.TeacherId == teacherId
                 && w.AssistantUserId == assistantUserId);
     }
@@ -1102,9 +1110,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
         await Task.CompletedTask;
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // WALLET RESET LOG QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddWalletResetLogAsync(WalletResetLog log)
@@ -1123,9 +1131,19 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    /// <inheritdoc />
+    public async Task<DateTime?> GetLastWalletResetAtAsync(long teacherId, long assistantId)
+    {
+        return await _context.WalletResetLogs
+            .Where(l => l.TeacherId == teacherId && l.AssistantId == assistantId)
+            .OrderByDescending(l => l.ResetAt)
+            .Select(l => (DateTime?)l.ResetAt)
+            .FirstOrDefaultAsync();
+    }
+
+    // ----------------------------------------------
     // PAYMENT EDIT LOG QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddPaymentEditLogAsync(PaymentEditLog log)
@@ -1144,9 +1162,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // DEPARTURE QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddStudentDepartureAsync(StudentDeparture departure)
@@ -1165,9 +1183,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // SESSION TRANSFER QUERIES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddSessionTransferEventAsync(SessionTransferEvent transferEvent)
@@ -1186,9 +1204,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // DASHBOARD AGGREGATES
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<(decimal Expected, decimal Collected, decimal Remaining)>
@@ -1198,7 +1216,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             PaymentType? paymentType,
             DateTime? startDate, DateTime? endDate)
     {
-        // Exclude orphaned periods (TeacherStudentId nulled when a student is permanently purged) —
+        // Exclude orphaned periods (TeacherStudentId nulled when a student is permanently purged) �
         // they are no active student's obligation and must never inflate expected/collected.
         var periodQuery = _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null);
@@ -1238,7 +1256,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             PaymentType? paymentType,
             DateTime? startDate, DateTime? endDate)
     {
-        // Exclude orphaned periods (student purged → TeacherStudentId nulled) from per-session totals.
+        // Exclude orphaned periods (student purged ? TeacherStudentId nulled) from per-session totals.
         var query = _context.PaymentPeriods
             .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue && p.TeacherStudentId != null);
 
@@ -1371,9 +1389,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToList();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // EVENT QUERIES (Module 5)
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task AddPaymentEventAsync(PaymentEvent paymentEvent)
@@ -1545,9 +1563,9 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // TARGET SCOPE RESOLUTION (Module 5)
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
     public async Task<List<long>> GetStudentIdsBySessionAsync(long teacherId, long sessionId)
@@ -1582,12 +1600,12 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
             .ToListAsync();
     }
 
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
     // INTEGRATION HOOKS (bulk FK nullification)
-    // ══════════════════════════════════════════════
+    // ----------------------------------------------
 
     /// <inheritdoc />
-    /// Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+    /// Uses ExecuteUpdateAsync � single SQL UPDATE, no in-memory loading.
     /// Same pattern as AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync (Step 1.2).
     public async Task<long?> GetLatestCollectorUserIdForStudentSessionAsync(
         long teacherId, long teacherStudentId, long sessionId)
@@ -1631,7 +1649,7 @@ public class PaymentRepo : GenericRepo<PaymentTransaction, long>, IPaymentRepo
     }
 
     /// <inheritdoc />
-    /// Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+    /// Uses ExecuteUpdateAsync � single SQL UPDATE, no in-memory loading.
     /// Same pattern as AttendanceRepo.NullifyStudentReferencesOnRecordsAsync (Step 1.1).
     /// Denormalized StudentName and StudentCode remain intact for historical display.
     public async Task NullifyStudentReferencesOnPaymentRecordsAsync(long teacherStudentId)

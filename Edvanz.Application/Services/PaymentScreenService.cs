@@ -133,28 +133,35 @@ public class PaymentScreenService : IPaymentScreenService
 
         (page, limit) = NormalizePaging(page, limit);
 
-        // The assistant log is scoped to the current local month: the collections they took this
-        // month. "Total cash collected" (below) is the same window, net of refunds.
-        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
-        var walletMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
-        var monthEndExclusive = walletMonthStart.AddMonths(1);
+        // BUGFIX (2026-08-01): was scoped to the CURRENT CALENDAR MONTH, which went empty on every
+        // month rollover even with a real balance held, and drifted on UTC/local boundaries near
+        // midnight. Now scoped to SINCE THE LAST WALLET HANDOVER (reset or withdraw both write a
+        // WalletResetLog), which reconciles with WalletBalance by construction: collected − refunded
+        // == balance held. No handover yet → DateTime.MinValue, i.e. the assistant's full lifetime
+        // history (bounded in practice; a SQL-side paged query is a documented follow-up if a single
+        // collector's un-reset history ever grows past a few hundred rows).
+        DateTime sinceAt = await _unitOfWork.PaymentsRepo
+            .GetLastWalletResetAtAsync(teacherId, wallet.AssistantId) ?? DateTime.MinValue;
+        DateTime nowUtc = DateTime.UtcNow;
 
-        // The log mixes collections and refunds for the month in one chronological list. Collections
-        // are positive; a refund taken back from this collector is a NEGATIVE-amount entry dated
-        // when it was refunded. Merged and paged in-memory (a single collector's month is bounded).
-        var monthTxns = await _unitOfWork.PaymentsRepo
-            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
-        var monthRefunds = await _unitOfWork.PaymentsRepo
-            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, walletMonthStart, monthEndExclusive);
+        // The log mixes collections and refunds since the handover in one chronological list.
+        // Collections are positive; a refund taken back from this collector is a NEGATIVE-amount
+        // entry dated when it was refunded. Merged and paged in-memory (bounded per collector/window).
+        // Both queries stay on the UTC CollectedAt/EditedAt columns: PaymentEditLog has no local-time
+        // twin, and an instant-based window (vs. the old calendar-month one) has no local/UTC
+        // boundary to correct in the first place.
+        var periodTxns = await _unitOfWork.PaymentsRepo
+            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, sinceAt, nowUtc);
+        var periodRefunds = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, sinceAt, nowUtc);
 
-        // "Total cash collected" = money in (collections this month) minus money out (refunds this
-        // month). A same-month collect-then-refund nets to zero; a refund of an earlier month's
-        // collection shows this month as negative net.
-        decimal monthCashCollected =
-            monthTxns.Sum(t => t.AmountPaid) - monthRefunds.Sum(r => r.RefundAmount);
+        // Gross collected and gross refunded are reported separately (not netted) so the card
+        // explains the list below it directly: collected X, refunded Y, holding Z = X − Y.
+        decimal periodCollected = periodTxns.Sum(t => t.AmountPaid);
+        decimal periodRefunded = periodRefunds.Sum(r => r.RefundAmount);
 
-        var merged = new List<AssistantWalletCollectionItemDto>(monthTxns.Count + monthRefunds.Count);
-        merged.AddRange(monthTxns.Select(tx => new AssistantWalletCollectionItemDto
+        var merged = new List<AssistantWalletCollectionItemDto>(periodTxns.Count + periodRefunds.Count);
+        merged.AddRange(periodTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
             Id = tx.Id.ToString(CultureInfo.InvariantCulture),
             StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
@@ -164,7 +171,7 @@ public class PaymentScreenService : IPaymentScreenService
             Amount = tx.AmountPaid,
             CollectedAt = tx.CollectedAt
         }));
-        merged.AddRange(monthRefunds.Select(r => new AssistantWalletCollectionItemDto
+        merged.AddRange(periodRefunds.Select(r => new AssistantWalletCollectionItemDto
         {
             Id = $"refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
             StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
@@ -194,8 +201,10 @@ public class PaymentScreenService : IPaymentScreenService
             },
             Wallet = new AssistantWalletInfoDto
             {
-                TotalCashCollected = monthCashCollected,
+                TotalCashCollected = periodCollected,
+                TotalRefunded = periodRefunded,
                 WalletBalance = wallet.CurrentBalance,
+                TotalCollectedAllTime = wallet.TotalCollected,
                 CollectionsCount = wallet.TransactionCount,
                 LastActivityAt = wallet.LastCollectionAt
             },
@@ -204,6 +213,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Total = total,
                 Page = page,
                 Limit = limit,
+                SinceAt = sinceAt == DateTime.MinValue ? (DateTime?)null : sinceAt,
                 Items = items
             }
         };

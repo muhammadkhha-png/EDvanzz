@@ -637,4 +637,6 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
 
     /// <summary>Counts the (non-deleted) payment events owned by a teacher (free-tier quota).</summary>
     Task<int> CountEventsByTeacherAsync(long teacherId);
+    Task<DateTime?> GetLastWalletResetAtAsync(long teacherId, long assistantId);
+
 }
