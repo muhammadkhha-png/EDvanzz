@@ -329,10 +329,9 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
             }
 
             foreach (var occ in occurrencesToRefresh)
-                await RefreshOccurrenceStatusAsync(occ);
+                await RefreshOccurrenceStatusAsync(occ, assignmentByStudent.Count);
 
             await _unitOfWork.SaveChangesAsync();
-
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
@@ -463,21 +462,17 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
         return counter.ConsecutiveAbsences;
     }
-
     /// <summary>
-    /// Recomputes an occurrence's <see cref="OccurrenceStatus"/> from its (flushed) records vs its
-    /// active roster — same rule as AttendanceService.UpdateOccurrenceStatusAsync (Held excluded; only
-    /// this occurrence's own home roster counts).
+    /// C1 perf fix: <paramref name="totalStudents"/> is passed in instead of re-querying
+    /// GetActiveAssignmentsBySessionAsync — the caller (SweepSessionAsync) already holds the
+    /// session's active roster in assignmentByStudent, loaded once per session, not once per occurrence.
     /// </summary>
-    private async Task RefreshOccurrenceStatusAsync(SessionOccurrence occurrence)
+    private async Task RefreshOccurrenceStatusAsync(SessionOccurrence occurrence, int totalStudents)
     {
         var records = await _unitOfWork.AttendanceRepo.GetRecordsByOccurrenceAsync(occurrence.Id);
-        var assignments = await _unitOfWork.AttendanceRepo
-            .GetActiveAssignmentsBySessionAsync(occurrence.SessionId);
 
         int markedCount = records.Count(r =>
             r.Status != AttendanceStatus.Held && r.SessionId == occurrence.SessionId);
-        int totalStudents = assignments.Count;
 
         if (markedCount == 0)
             occurrence.Status = OccurrenceStatus.Pending;
