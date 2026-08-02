@@ -37,9 +37,13 @@ public interface IPaymentScreenService
     /// their user id) is returned — an assistant can only open their own wallet, never a peer's.
     /// TODO(assistant-dashboard): interim own-scoping; the dedicated assistant dashboard is to be
     /// built end-to-end by frontend + backend.
+    /// <para>B2: <paramref name="search"/> (optional) filters the returned
+    /// <c>collections.items</c> by student name OR studentCode (case-insensitive). The wallet
+    /// totals stay authoritative (unfiltered); only the listed rows are narrowed.</para>
     /// </summary>
     Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
-        long teacherId, long assistantId, int page, int limit, long? restrictToAssistantUserId = null);
+        long teacherId, long assistantId, int page, int limit,
+        long? restrictToAssistantUserId = null, string? search = null);
 
     /// <summary>
     /// Screen: CollectPayment. Searchable/filterable (all|assigned|unassigned) paginated
@@ -51,11 +55,17 @@ public interface IPaymentScreenService
 
     /// <summary>
     /// Screen: PaymentTracking "View" cards. Paginated students filtered by status
-    /// (paid|prorated|unpaid) for a month (YYYY-MM), with per-student month amounts and
+    /// (paid|prorated|unpaid|partial) for a month (YYYY-MM), with per-student month amounts and
     /// group totals. Reuses <c>GetStudentsByPaymentStatusPagedAsync</c>. 422 on bad month/status.
+    ///
+    /// <para>B1: <paramref name="status"/> is OPTIONAL — when omitted, ALL of the (session-scoped)
+    /// roster is returned with each student carrying its OWN status. <paramref name="sessionId"/>
+    /// (optional) restricts to one session's assigned students; <paramref name="search"/> (optional)
+    /// filters by student name OR studentCode (case-insensitive).</para>
     /// </summary>
     Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
-        long teacherId, string? month, string? status, int page, int limit);
+        long teacherId, string? month, string? status, int page, int limit,
+        long? sessionId = null, string? search = null);
 
     /// <summary>
     /// Screen: SessionPaymentCollectedByYear. Per-student month-by-month collection matrix for a

@@ -356,15 +356,25 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// PaymentTracking "students by status" list: students whose current status
     /// (by the earliest-outstanding-period rule, same as
     /// <see cref="GetStudentPaymentStatusCountsAsync"/>) matches
-    /// <paramref name="status"/> (paid | prorated | unpaid), paginated, each with that
+    /// <paramref name="status"/> (paid | prorated | unpaid | partial), paginated, each with that
     /// month's paid/due amounts and their counter's outstanding/unpaid-months. Also
     /// returns the group's month-scoped collected/expected totals and total outstanding.
+    ///
+    /// <para><paramref name="status"/> is OPTIONAL: when null, ALL of the (assigned) scope's
+    /// students are returned, each carrying its OWN computed status on
+    /// <see cref="StudentByStatusRow.Status"/> (a per-session mixed-status roster in one call).
+    /// When supplied, behaviour is unchanged (rows are filtered to that status).</para>
+    ///
+    /// <para><paramref name="sessionId"/> (optional) restricts the assigned-scope to a single
+    /// session; <paramref name="search"/> (optional) filters by student name OR studentCode
+    /// (case-insensitive). Both intersect with — never replace — the assigned-only gating.</para>
     /// </summary>
     Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
         GetStudentsByPaymentStatusPagedAsync(
-            long teacherId, string status,
+            long teacherId, string? status,
             DateTime monthStart, DateTime monthEnd,
-            int page, int pageSize);
+            int page, int pageSize,
+            long? sessionId = null, string? search = null);
 
     /// <summary>
     /// SessionPaymentCollectedByYear matrix: students who have at least one payment period in

@@ -76,6 +76,14 @@ public sealed class StudentByStatusRow
     /// (<c>PaymentTransaction.CollectedAt</c>). Null when nothing was paid.
     /// </summary>
     public DateTime? PaidOn { get; set; }
+
+    /// <summary>
+    /// The student's own computed status (<c>paid | prorated | unpaid</c>) by the
+    /// earliest-outstanding-period rule. Populated ONLY when the caller omits a status filter
+    /// (the per-session mixed-status roster); when a status filter is supplied every row already
+    /// matches it, so the service uses the requested status instead.
+    /// </summary>
+    public string? Status { get; set; }
 }
 
 /// <summary>

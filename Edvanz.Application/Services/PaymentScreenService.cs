@@ -118,7 +118,8 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
-        long teacherId, long assistantId, int page, int limit, long? restrictToAssistantUserId = null)
+        long teacherId, long assistantId, int page, int limit,
+        long? restrictToAssistantUserId = null, string? search = null)
     {
         // Tenant-scoped lookup: a wallet belonging to another teacher's assistant returns null → 404.
         // TODO(assistant-dashboard): interim own-scoping. When an assistant calls, resolve THEIR OWN
@@ -181,6 +182,19 @@ public class PaymentScreenService : IPaymentScreenService
             Amount = -r.RefundAmount, // negative → refund
             CollectedAt = r.RefundedAt
         }));
+
+        // B2: filter the LISTED rows by student name OR studentCode (case-insensitive). Applied
+        // AFTER the totals above are computed from the full (unfiltered) reads, so the wallet card
+        // (TotalCashCollected / TotalRefunded / WalletBalance) stays authoritative — only the
+        // collections list (and its Total) is narrowed. Omitted → the full list, as before.
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string searchLower = search.Trim().ToLowerInvariant();
+            merged = merged.Where(m =>
+                (m.StudentName is not null && m.StudentName.ToLowerInvariant().Contains(searchLower))
+                || (m.StudentCode is not null && m.StudentCode.ToLowerInvariant().Contains(searchLower)))
+                .ToList();
+        }
 
         int total = merged.Count;
         var items = merged
@@ -268,7 +282,8 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<StudentsByStatusResponse>> GetStudentsByStatusAsync(
-        long teacherId, string? month, string? status, int page, int limit)
+        long teacherId, string? month, string? status, int page, int limit,
+        long? sessionId = null, string? search = null)
     {
         // PAY-2: default to the teacher's current local month when omitted (only 422 on malformed).
         if (!TryResolveMonth(teacherId, month, out int year, out int mon))
@@ -276,8 +291,12 @@ public class PaymentScreenService : IPaymentScreenService
                 _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
                 HttpStatusCode.UnprocessableEntity);
 
+        // B1: status is now OPTIONAL. Null → the whole (session-scoped) roster, each student
+        // carrying its own status. A SUPPLIED status still behaves exactly as before (422 on a
+        // value that is neither paid|partial|prorated|unpaid).
         status = string.IsNullOrWhiteSpace(status) ? null : status.Trim().ToLowerInvariant();
-        if (status != "paid" && status != "partial" && status != "prorated" && status != "unpaid")
+        if (status is not null
+            && status != "paid" && status != "partial" && status != "prorated" && status != "unpaid")
             return Result<StudentsByStatusResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentInvalidStatusFilter,
                 HttpStatusCode.UnprocessableEntity);
@@ -286,7 +305,8 @@ public class PaymentScreenService : IPaymentScreenService
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
 
         var (rows, total, groupCollected, groupExpected, groupUnpaid) = await _unitOfWork.PaymentsRepo
-            .GetStudentsByPaymentStatusPagedAsync(teacherId, status, monthStart, monthEnd, page, limit);
+            .GetStudentsByPaymentStatusPagedAsync(
+                teacherId, status, monthStart, monthEnd, page, limit, sessionId, search);
 
         var students = new List<StudentByStatusDto>(rows.Count);
         foreach (var r in rows)
@@ -296,7 +316,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
                 Name = r.StudentName,
                 AvatarUrl = null,
-                Status = status,
+                // With a filter every row matches the requested status; without one each row
+                // carries its own repo-computed status (falls back to "unpaid" defensively).
+                Status = status ?? r.Status ?? "unpaid",
                 AmountPerMonth = r.AmountPerMonth,
                 AmountPaid = r.AmountPaid,
                 AmountDue = r.AmountDue,
@@ -312,7 +334,8 @@ public class PaymentScreenService : IPaymentScreenService
         {
             Month = $"{year:D4}-{mon:D2}",
             MonthLabel = monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
-            Status = status,
+            // Top-level status echoes the filter; "all" when the roster is mixed (no filter).
+            Status = status ?? "all",
             TotalCollected = groupCollected,
             MonthAmount = groupExpected,
             // Ambiguous top-level "default fee": no single value exists (per-session/per-student).

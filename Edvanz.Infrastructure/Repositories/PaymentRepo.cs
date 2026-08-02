@@ -904,17 +904,31 @@
         /// <inheritdoc />
         public async Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
             GetStudentsByPaymentStatusPagedAsync(
-                long teacherId, string status,
+                long teacherId, string? status,
                 DateTime monthStart, DateTime monthEnd,
-                int page, int pageSize)
+                int page, int pageSize,
+                long? sessionId = null, string? search = null)
         {
             // Only students CURRENTLY assigned to a session (SessionId != null) are classified,
             // so these lists reconcile with GetStudentPaymentStatusCountsAsync / the tracking
             // screen's TotalStudents. Formerly-assigned students with lingering historical periods
             // are excluded from every bucket.
-            var assignedStudentIds = _context.TeacherStudents
-                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
-                .Select(ts => ts.Id);
+            //
+            // B1: sessionId (optional) narrows the assigned scope to ONE session — powering a
+            // per-session paid/unpaid roster — and search (optional) filters by name OR studentCode.
+            // Both intersect with (never replace) the assigned-only gating above.
+            var assignedQuery = _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null);
+            if (sessionId.HasValue)
+                assignedQuery = assignedQuery.Where(ts => ts.SessionId == sessionId.Value);
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                string searchLower = search.Trim().ToLower();
+                assignedQuery = assignedQuery.Where(ts =>
+                    ts.StudentName.ToLower().Contains(searchLower)
+                    || (ts.StudentCode != null && ts.StudentCode.ToLower().Contains(searchLower)));
+            }
+            var assignedStudentIds = assignedQuery.Select(ts => ts.Id);
 
             // Everything is judged THROUGH the selected month � periods that start after the
             // month end (pre-generated future months) are excluded from every bucket and total.
@@ -936,8 +950,16 @@
 
             // Materialize the target student-id set for the requested status (bounded to the
             // teacher's students; avoids deeply-nested subqueries the provider may not translate).
+            //
+            // B1: when status is null, the caller wants the WHOLE (assigned) scope with each
+            // student carrying its own status — so target every scope student (including those
+            // with no period yet, who read as "paid") and stamp each row's status below.
             List<long> targetIds;
-            if (string.Equals(status, "paid", StringComparison.OrdinalIgnoreCase))
+            if (status is null)
+            {
+                targetIds = await assignedStudentIds.ToListAsync();
+            }
+            else if (string.Equals(status, "paid", StringComparison.OrdinalIgnoreCase))
             {
                 var allIds = await withPeriods.Select(p => p.TeacherStudentId!.Value).Distinct().ToListAsync();
                 var outstanding = (await earliestOutstanding.Select(e => e.StudentId).ToListAsync()).ToHashSet();
@@ -1062,6 +1084,23 @@
                 })
                 .AsNoTracking()
                 .ToListAsync();
+
+            // B1: when no status filter was supplied, stamp each row with its OWN computed status
+            // (paid | prorated | unpaid) by the earliest-outstanding-period rule, so a single call
+            // returns a mixed-status roster. A student with an outstanding period through the month
+            // is prorated (when that earliest period is prorated) or unpaid; otherwise paid. With a
+            // status filter, every row already matches it and the service uses the requested status.
+            if (status is null && items.Count > 0)
+            {
+                var outstandingMap = (await earliestOutstanding.ToListAsync())
+                    .ToDictionary(e => e.StudentId, e => e.IsProRated);
+                foreach (var row in items)
+                {
+                    row.Status = outstandingMap.TryGetValue(row.TeacherStudentId, out bool isProRated)
+                        ? (isProRated ? "prorated" : "unpaid")
+                        : "paid";
+                }
+            }
 
             return (items, totalCount, groupCollected, groupExpected, groupUnpaid);
         }

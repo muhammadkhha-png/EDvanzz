@@ -88,14 +88,16 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     public async Task<IActionResult> GetAssistantWallet(
         long assistantId,
         [FromQuery] int page = 1,
-        [FromQuery] int limit = 20)
+        [FromQuery] int limit = 20,
+        [FromQuery] string? search = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         // Assistant → forced to their own wallet; Teacher/SuperAdmin → the requested assistant.
+        // B2: optional `search` filters the collections list by student name/code.
         var result = await _screenService.GetAssistantWalletScreenAsync(
-            teacherId.Value, assistantId, page, limit, AssistantScopeUserId());
+            teacherId.Value, assistantId, page, limit, AssistantScopeUserId(), search);
         return ToResponse(result);
     }
 
@@ -127,7 +129,10 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: PaymentTracking (students by status)
-    // GET /api/v1/payments/students?month=YYYY-MM&status=paid|prorated|unpaid&page=&limit=
+    // GET /api/v1/payments/students?month=YYYY-MM&status=paid|prorated|unpaid&sessionId=&search=&page=&limit=
+    // B1: `status` is OPTIONAL — omitted returns the whole (session-scoped) roster, each student
+    //   carrying its own status (paid|prorated|unpaid). `sessionId` restricts to one session's
+    //   assigned students; `search` filters by student name OR studentCode (case-insensitive).
     // AUTH: Teacher (module) OR Assistant with Payment.ViewUnpaidStudents.
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/students")]
@@ -140,6 +145,8 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     public async Task<IActionResult> GetStudentsByStatus(
         [FromQuery] string? month,
         [FromQuery] string? status,
+        [FromQuery] long? sessionId = null,
+        [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20)
     {
@@ -147,7 +154,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetStudentsByStatusAsync(
-            teacherId.Value, month, status, page, limit);
+            teacherId.Value, month, status, page, limit, sessionId, search);
         return ToResponse(result);
     }
 
