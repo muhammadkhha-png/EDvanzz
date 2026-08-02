@@ -1063,7 +1063,7 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount)>
+    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount)>
         GetPagedAttendanceStudentListAsync(
             long teacherId, long sessionId, DateTime occurrenceDate,
             IEnumerable<long> linkedSessionIds,
@@ -1111,7 +1111,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 Counter = _context.StudentAbsenceCounters
                     .Where(c => c.TeacherId == teacherId
                         && c.TeacherStudentId == a.TeacherStudentId)
-                    .Select(c => new { c.ConsecutiveAbsences, c.TotalAbsences })
+                    .Select(c => new
+                    {
+                        c.ConsecutiveAbsences,
+                        c.TotalAbsences,
+                        c.LastAbsenceDate,
+                        c.LastAbsenceSessionName
+                    })
                     .FirstOrDefault()
             });
 
@@ -1136,6 +1142,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         int assignedCount = await rowQuery.CountAsync(r => !r.IsFromLinkedSession);
         int notAssignedCount = totalCount - assignedCount;
 
+        // hold_count = students whose CURRENT status on this occurrence is Held (REQ-ATT-061), across
+        // the whole filtered set (not just the returned page) — same scope as assigned/not-assigned.
+        int holdCount = await rowQuery.CountAsync(
+            r => r.AttendanceRecord != null && r.AttendanceRecord.Status == AttendanceStatus.Held);
+
         var pagedResults = await rowQuery
             .OrderBy(r => r.AttendanceRecord != null ? 1 : 0)
             .ThenBy(r => r.StudentName)
@@ -1155,10 +1166,12 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             IsMarked = r.AttendanceRecord != null,
             CurrentStatus = r.AttendanceRecord != null ? r.AttendanceRecord.Status : null,
             ConsecutiveAbsences = r.Counter?.ConsecutiveAbsences ?? 0,
-            TotalAbsences = r.Counter?.TotalAbsences ?? 0
+            TotalAbsences = r.Counter?.TotalAbsences ?? 0,
+            LastAbsenceDate = r.Counter?.LastAbsenceDate,
+            LastAbsenceSessionName = r.Counter?.LastAbsenceSessionName
         }).ToList();
 
-        return (items, totalCount, assignedCount, notAssignedCount);
+        return (items, totalCount, assignedCount, notAssignedCount, holdCount);
     }
 
     // ══════════════════════════════════════════════

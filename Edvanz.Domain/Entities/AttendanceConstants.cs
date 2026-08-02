@@ -143,6 +143,12 @@ public static class AttendanceConstants
         /// <summary>ATT-5: mark-bulk recorded only some students; others were skipped (see per-student results).</summary>
         public const string AttendanceBulkMarkedPartial = "AttendanceBulkMarkedPartial";
 
+        /// <summary>
+        /// mark-bulk received neither the new <c>items</c> list nor the legacy <c>teacherStudentIds</c>
+        /// list — nothing to mark. Exactly one of the two shapes must be supplied.
+        /// </summary>
+        public const string AttendanceBulkTargetsRequired = "AttendanceBulkTargetsRequired";
+
         /// <summary>ATT-5: per-student skip reason — a cross-session visitor cannot be marked Absent here.</summary>
         public const string AttendanceCrossSessionCannotBeAbsent = "AttendanceCrossSessionCannotBeAbsent";
 

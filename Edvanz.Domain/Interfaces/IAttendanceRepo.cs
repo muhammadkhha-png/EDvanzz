@@ -557,11 +557,14 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
 
     /// <summary>
     /// Retrieves the paginated student list for Take Attendance entirely in the database.
-    /// REQ-ATT-008/014/015/036/054. Also returns AssignedCount (students in THIS session) and
-    /// NotAssignedCount (students shown from linked sessions); the two split the result set and
-    /// sum to TotalCount. Soft-deleted students are excluded (no more "Unknown" rows).
+    /// REQ-ATT-008/014/015/036/054. Also returns AssignedCount (students in THIS session),
+    /// NotAssignedCount (students shown from linked sessions) — the two split the result set and
+    /// sum to TotalCount — and HoldCount (students whose current status on this occurrence is Held,
+    /// across the whole filtered set, not just the page). Soft-deleted students are excluded
+    /// (no more "Unknown" rows). Each row also carries the student's absence-counter snapshot
+    /// (ConsecutiveAbsences / TotalAbsences / LastAbsenceDate / LastAbsenceSessionName).
     /// </summary>
-    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount)> GetPagedAttendanceStudentListAsync(
+    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount)> GetPagedAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime occurrenceDate,
         IEnumerable<long> linkedSessionIds,
         string? search, bool unmarkedOnly,
@@ -708,4 +711,6 @@ public class PagedAttendanceStudentRow
     public AttendanceStatus? CurrentStatus { get; set; }
     public int ConsecutiveAbsences { get; set; }
     public int TotalAbsences { get; set; }
+    public DateTime? LastAbsenceDate { get; set; }
+    public string? LastAbsenceSessionName { get; set; }
 }

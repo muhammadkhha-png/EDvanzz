@@ -207,6 +207,14 @@ public class AttendanceController : ModuleSixApiBaseController
     ///   REQ-ATT-006 Method 2 / REQ-ATT-055: Multi-select and Mark All Present.
     ///   REQ-ATT-056: Returns completion summary.
     ///
+    ///   Accepts TWO shapes (backward compatible — see <see cref="BulkMarkAttendanceDto"/>):
+    ///     • NEW per-student: <c>items: [{ teacherStudentId, status }]</c> — status may be
+    ///       Present / Absent / Held, so one call drives a mixed "absent last session → Present/Hold"
+    ///       batch. Held mirrors the single-student Hold flow (writes a Held record, no counter update,
+    ///       skipped-and-reported when a record already exists for the occurrence).
+    ///     • LEGACY: <c>teacherStudentIds: []</c> + a single top-level <c>status</c> (Present / Absent).
+    ///   Items wins when both are sent; neither is a 400. Per-student outcomes are in <c>results[]</c>.
+    ///
     /// TABLES WRITTEN: AttendanceRecords, StudentAbsenceCounters, SessionOccurrences (status)
     /// TABLES READ: Sessions, TeacherStudents, SessionOccurrences, StudentSessionAssignments
     ///

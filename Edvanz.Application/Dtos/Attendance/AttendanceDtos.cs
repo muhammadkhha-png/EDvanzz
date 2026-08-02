@@ -100,6 +100,15 @@ public class MarkAttendanceDto
 /// Input DTO for marking multiple students' attendance in one action.
 /// REQ-ATT-006 Method 2: Multi-select from student list.
 /// REQ-ATT-055: "Mark All Present" uses this with all student Ids.
+///
+/// TWO ACCEPTED SHAPES (backward-compatible):
+///   1. NEW per-student shape — <see cref="Items"/>: <c>[{ teacherStudentId, status }]</c>, where each
+///      status may be <c>Present</c> / <c>Absent</c> / <c>Held</c>. This lets one call drive a mixed
+///      "absent last session → Present/Hold" batch. <c>Held</c> is accepted ONLY through this items path.
+///   2. LEGACY shape — <see cref="TeacherStudentIds"/> plus a single top-level <see cref="Status"/>
+///      (<c>Present</c> / <c>Absent</c> only) applied to every id.
+/// Exactly one shape must be supplied; when BOTH are sent, <see cref="Items"/> wins and the legacy
+/// fields are ignored. Sending neither is a 400 (<c>AttendanceBulkTargetsRequired</c>).
 /// </summary>
 public class BulkMarkAttendanceDto
 {
@@ -111,13 +120,24 @@ public class BulkMarkAttendanceDto
     [Required]
     public long SessionId { get; set; }
 
-    /// <summary>List of student Ids to mark.</summary>
-    [Required]
-    public List<long> TeacherStudentIds { get; set; } = new();
+    /// <summary>
+    /// NEW per-student shape: one entry per student carrying its own status (Present / Absent / Held).
+    /// Preferred over the legacy <see cref="TeacherStudentIds"/> + <see cref="Status"/> pair; when both
+    /// are supplied this list wins. Repeated ids collapse to the last entry.
+    /// </summary>
+    public List<BulkMarkAttendanceItemDto>? Items { get; set; }
 
     /// <summary>
-    /// The status to apply to all selected students. NULLABLE ON PURPOSE (ATT-2 / CC-6) — see
+    /// LEGACY shape: list of student Ids to mark with the single top-level <see cref="Status"/>. Kept
+    /// for backward compatibility; ignored when <see cref="Items"/> is provided.
+    /// </summary>
+    public List<long>? TeacherStudentIds { get; set; }
+
+    /// <summary>
+    /// LEGACY shape: the status to apply to all <see cref="TeacherStudentIds"/> (Present / Absent only —
+    /// <c>Held</c> is rejected here, use <see cref="Items"/>). NULLABLE ON PURPOSE (ATT-2 / CC-6) — see
     /// <see cref="MarkAttendanceDto.Status"/>; the service rejects a missing status with a clear 400.
+    /// Ignored when <see cref="Items"/> is provided.
     /// </summary>
     public AttendanceStatus? Status { get; set; }
 
@@ -130,6 +150,28 @@ public class BulkMarkAttendanceDto
 
     /// <summary>Who is recording.</summary>
     public long? RecordedByUserId { get; set; }
+}
+
+/// <summary>
+/// One student's target status within the NEW per-student <see cref="BulkMarkAttendanceDto.Items"/>
+/// shape. Lets a single mark-bulk call carry a mix of Present / Absent / Held per student.
+/// </summary>
+public class BulkMarkAttendanceItemDto
+{
+    /// <summary>The student to mark.</summary>
+    [Required]
+    public long TeacherStudentId { get; set; }
+
+    /// <summary>
+    /// The status for THIS student — one of <c>Present</c>, <c>Absent</c>, or <c>Held</c> (serialized as a
+    /// string via the global <c>JsonStringEnumConverter</c>). NULLABLE ON PURPOSE (CC-6): a missing value
+    /// is rejected with a clear 400 (<c>AttendanceStatusRequired</c>) instead of silently defaulting to
+    /// <c>Absent</c>; an out-of-range value is rejected with <c>InvalidAttendanceStatus</c>. <c>Held</c>
+    /// mirrors the single-student Hold flow (writes a Held record, never touches the absence counter, and
+    /// is skipped when the student already has a record for the occurrence).
+    /// </summary>
+    [Required]
+    public AttendanceStatus? Status { get; set; }
 }
 
 // ══════════════════════════════════════════════
@@ -771,6 +813,26 @@ public class AttendanceStudentRowDto
 
     /// <summary>Total absences for display.</summary>
     public int TotalAbsences { get; set; }
+
+    /// <summary>
+    /// True when the student is currently carrying an absence streak (<see cref="ConsecutiveAbsences"/>
+    /// &gt; 0) — i.e. they were absent last session. Lets the app render the "was absent last session"
+    /// warning straight from the roster row without a second lookup. REQ-ATT-028/029.
+    /// Sourced from <c>StudentAbsenceCounter</c> (the same source as <c>MarkAttendanceResultDto</c>).
+    /// </summary>
+    public bool WasAbsentLastSession { get; set; }
+
+    /// <summary>
+    /// Date of the student's most recent absence, or null if they have none. REQ-ATT-028.
+    /// From <c>StudentAbsenceCounter.LastAbsenceDate</c>.
+    /// </summary>
+    public DateTime? LastAbsenceDate { get; set; }
+
+    /// <summary>
+    /// Session name where the student's most recent absence occurred, or null if none. REQ-ATT-060.
+    /// From <c>StudentAbsenceCounter.LastAbsenceSessionName</c>.
+    /// </summary>
+    public string? LastAbsenceSessionName { get; set; }
 }
 
 /// <summary>
@@ -787,6 +849,14 @@ public class AttendanceStudentListDto : PaginatedResponse<List<AttendanceStudent
     /// <summary>Students shown from LINKED sessions (attending but not assigned to this session).</summary>
     [JsonPropertyName("not_assigned_count")]
     public int NotAssignedCount { get; set; }
+
+    /// <summary>
+    /// Count of students currently on "hold" for this occurrence (<c>currentStatus == Held</c>), across the
+    /// WHOLE filtered roster — not just the returned page — so the app can badge the held bucket without a
+    /// second call. REQ-ATT-061. Not part of the assigned/not-assigned split.
+    /// </summary>
+    [JsonPropertyName("hold_count")]
+    public int HoldCount { get; set; }
 }
 
 /// <summary>

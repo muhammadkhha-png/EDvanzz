@@ -330,7 +330,7 @@ public class AttendanceService : IAttendanceService
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
         var linkedSessionIds = linkedSessions.Select(s => s.Id).ToList();
 
-        var (items, totalCount, assignedCount, notAssignedCount) =
+        var (items, totalCount, assignedCount, notAssignedCount, holdCount) =
             await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
                 teacherId, sessionId, date, linkedSessionIds,
                 request.Search, request.UnmarkedOnly,
@@ -348,7 +348,12 @@ public class AttendanceService : IAttendanceService
             IsCrossSessionStudent = row.IsFromLinkedSession,
             SourceSessionName = row.SourceSessionName,
             ConsecutiveAbsences = row.ConsecutiveAbsences,
-            TotalAbsences = row.TotalAbsences
+            TotalAbsences = row.TotalAbsences,
+            // "Was absent last session" warning, straight from the counter — same source
+            // MarkAttendanceResultDto uses (REQ-ATT-028/029/060), so no second lookup is needed.
+            WasAbsentLastSession = row.ConsecutiveAbsences > 0,
+            LastAbsenceDate = row.LastAbsenceDate,
+            LastAbsenceSessionName = row.LastAbsenceSessionName
         }).ToList();
 
         var response = new AttendanceStudentListDto
@@ -359,7 +364,8 @@ public class AttendanceService : IAttendanceService
             totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
             data = dtos,
             AssignedCount = assignedCount,
-            NotAssignedCount = notAssignedCount
+            NotAssignedCount = notAssignedCount,
+            HoldCount = holdCount
         };
 
         return Result<AttendanceStudentListDto>.Success(
@@ -729,19 +735,43 @@ public class AttendanceService : IAttendanceService
         // AUDIT FIX Step 11: Default RecordedByUserId to TeacherId for audit trail
         dto.RecordedByUserId ??= dto.TeacherId;
 
-        // ATT-2 / ATT-3: status must be supplied and one of Present/Absent (see MarkAttendanceAsync).
-        var statusError = ValidateCallerStatus(dto.Status);
-        if (statusError is not null)
+        // Normalize the two accepted shapes into ONE per-student (id → status) map.
+        //   • NEW: dto.Items — each entry carries its own status (Present / Absent / Held). Held is
+        //     accepted ONLY here (ValidateBulkItemStatus), never via the single/add/edit/legacy paths.
+        //   • LEGACY: dto.TeacherStudentIds + a single top-level dto.Status (Present / Absent only).
+        // Items wins when BOTH are supplied; neither → 400. ATT-4: repeated ids collapse (dictionary
+        // key), so a duplicate id is a no-op instead of a unique-constraint 409.
+        Dictionary<long, AttendanceStatus> itemStatuses;
+        if (dto.Items is { Count: > 0 })
+        {
+            itemStatuses = new Dictionary<long, AttendanceStatus>();
+            foreach (var item in dto.Items)
+            {
+                var itemStatusError = ValidateBulkItemStatus(item.Status);
+                if (itemStatusError is not null)
+                    return Result<BulkMarkAttendanceResultDto>.Failure(
+                        _localizer, itemStatusError, HttpStatusCode.BadRequest);
+                itemStatuses[item.TeacherStudentId] = item.Status!.Value; // last entry wins on repeats
+            }
+        }
+        else if (dto.TeacherStudentIds is { Count: > 0 })
+        {
+            // ATT-2 / ATT-3: legacy status must be supplied and one of Present/Absent (see MarkAttendanceAsync).
+            var statusError = ValidateCallerStatus(dto.Status);
+            if (statusError is not null)
+                return Result<BulkMarkAttendanceResultDto>.Failure(
+                    _localizer, statusError, HttpStatusCode.BadRequest);
+            itemStatuses = dto.TeacherStudentIds
+                .Distinct()
+                .ToDictionary(id => id, _ => dto.Status!.Value);
+        }
+        else
+        {
             return Result<BulkMarkAttendanceResultDto>.Failure(
-                _localizer, statusError, HttpStatusCode.BadRequest);
-        var bulkStatus = dto.Status!.Value;
+                _localizer, AttendanceConstants.Messages.AttendanceBulkTargetsRequired, HttpStatusCode.BadRequest);
+        }
 
-        // ATT-4: dedupe the requested ids up front. Two identical ids in one batch used to BOTH pass
-        // the pre-loop duplicate check (which can't see a same-batch insert) → unique-constraint
-        // violation on save → the WHOLE batch rolled back with an opaque 409. Collapsing duplicates
-        // makes a repeated id a no-op instead, matching single-mark's graceful behaviour. Every batch
-        // load and the loop below use this deduped set.
-        var studentIds = dto.TeacherStudentIds.Distinct().ToList();
+        var studentIds = itemStatuses.Keys.ToList();
 
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(dto.TeacherId);
         if (teacher is null)
@@ -823,11 +853,19 @@ public class AttendanceService : IAttendanceService
                 if (!studentMap.ContainsKey(studentId))
                     continue; // not an active student — the loop reports StudentNotFound
 
+                var prePassStatus = itemStatuses[studentId];
+
+                // Held mirrors HoldStudentAsync — it neither overwrites an auto-absent nor flips an
+                // equivalent Absent (those are real-mark reconciliations). A Held whose student already
+                // has a record is simply skipped by the main loop's existing-record guard.
+                if (prePassStatus == AttendanceStatus.Held)
+                    continue;
+
                 if (sameOccRecords.TryGetValue(studentId, out var occRec))
                 {
                     if (occRec.IsAutoAbsent && occRec.Status == AttendanceStatus.Absent)
                     {
-                        await ApplyReconciliationAsync(occRec, bulkStatus,
+                        await ApplyReconciliationAsync(occRec, prePassStatus,
                             AttendanceConstants.Messages.AutoAbsentOverwrittenByMark,
                             isCrossFlip: false, null, null, null, dto.RecordedByUserId);
                         reconciledStudentIds.Add(studentId);
@@ -836,7 +874,7 @@ public class AttendanceService : IAttendanceService
                     continue; // any same-occ record → not eligible for the equivalent-flip below
                 }
 
-                if (bulkStatus == AttendanceStatus.Present
+                if (prePassStatus == AttendanceStatus.Present
                     && crossSessionDuplicates.TryGetValue(studentId, out var crossRec)
                     && crossRec.Status == AttendanceStatus.Absent)
                 {
@@ -872,10 +910,58 @@ public class AttendanceService : IAttendanceService
                     continue;
                 }
 
-                // Check same-occurrence duplicate
+                var itemStatus = itemStatuses[studentId];
+
+                // Check same-occurrence duplicate. A Held whose student already has a record is reported
+                // with the Hold-specific "already marked" message (mirrors HoldStudentAsync's 409 turned
+                // into a graceful per-student skip); other statuses keep the duplicate message.
                 if (existingStudentIds.Contains(studentId))
                 {
-                    Skip(studentId, AttendanceConstants.Messages.AttendanceDuplicateDetected);
+                    Skip(studentId, itemStatus == AttendanceStatus.Held
+                        ? AttendanceConstants.Messages.AttendanceAlreadyMarked
+                        : AttendanceConstants.Messages.AttendanceDuplicateDetected);
+                    continue;
+                }
+
+                // Held mirrors HoldStudentAsync: needs an active assignment, writes a Held record on THIS
+                // occurrence (no cross-session remap, no equivalence dedup) and NEVER touches the absence
+                // counter. Short-circuit before the cross-session / counter machinery below.
+                if (itemStatus == AttendanceStatus.Held)
+                {
+                    if (!assignmentMap.TryGetValue(studentId, out var holdAssignment))
+                    {
+                        Skip(studentId, AttendanceConstants.Messages.AttendanceStudentNotAssigned);
+                        continue;
+                    }
+
+                    var holdRecord = new AttendanceRecord
+                    {
+                        TeacherId = dto.TeacherId,
+                        SessionOccurrenceId = occurrence.Id,
+                        TeacherStudentId = studentId,
+                        StudentSessionAssignmentId = holdAssignment.Id,
+                        StudentName = student.StudentName,
+                        StudentCode = student.StudentCode,
+                        SessionId = dto.SessionId,
+                        SessionName = session.SessionName,
+                        SessionGroupId = session.SessionGroupId,
+                        OccurrenceDate = date,
+                        Status = AttendanceStatus.Held,
+                        AttendanceMethod = dto.AttendanceMethod,
+                        IsCrossSession = false,
+                        RecordedAt = DateTime.UtcNow,
+                        RecordedByUserId = dto.RecordedByUserId,
+                        IsEdited = false,
+                        CreateAt = DateTime.UtcNow
+                    };
+
+                    await _unitOfWork.AttendanceRepo.AddAttendanceRecordAsync(holdRecord);
+                    // Refresh the selected occurrence's status (Held is excluded from the marked count,
+                    // so this is a no-op for a pure-Held occurrence — added for consistency).
+                    affectedOccurrences.Add(occurrence);
+
+                    successCount++;
+                    studentResults.Add(new BulkMarkStudentResultDto { TeacherStudentId = studentId, Success = true });
                     continue;
                 }
 
@@ -907,12 +993,12 @@ public class AttendanceService : IAttendanceService
 
                 // A cross-session mark is always CrossSessionPresent (the visitor attended). Marking a
                 // visitor ABSENT is meaningless in a session that isn't theirs, so skip those.
-                if (mt.IsCrossSession && bulkStatus == AttendanceStatus.Absent)
+                if (mt.IsCrossSession && itemStatus == AttendanceStatus.Absent)
                 {
                     Skip(studentId, AttendanceConstants.Messages.AttendanceCrossSessionCannotBeAbsent);
                     continue;
                 }
-                var effectiveStatus = mt.IsCrossSession ? AttendanceStatus.CrossSessionPresent : bulkStatus;
+                var effectiveStatus = mt.IsCrossSession ? AttendanceStatus.CrossSessionPresent : itemStatus;
 
                 // FIX H6 (BR-ATT-001): No retroactive attendance before the assignment date.
                 if (mt.RecordOccurrenceDate.Date < assignment.AssignedAt.Date)
@@ -1054,11 +1140,17 @@ public class AttendanceService : IAttendanceService
             // One OnStudentsAbsentAsync call issues a single DispatchRequest that
             // the dispatcher fans out per student (BR-MSG-003) — replaces the old
             // per-alert loop that fired N individual stub calls pre-commit.
-            if (ownsTransaction && bulkStatus == AttendanceStatus.Absent && absenceAlerts.Count > 0)
+            // Per-item statuses: notify ONLY the alerted students actually marked Absent this batch
+            // (Present/Held marks never fire an absence notification). Equivalent to the old
+            // bulkStatus == Absent gate when every item shares one status.
+            var absentAlertsToNotify = absenceAlerts
+                .Where(a => itemStatuses[a.TeacherStudentId] == AttendanceStatus.Absent)
+                .ToList();
+            if (ownsTransaction && absentAlertsToNotify.Count > 0)
             {
                 await _attendanceNotifier.OnStudentsAbsentAsync(
                     dto.TeacherId, dto.SessionId, session.SessionName, date,
-                    absenceAlerts
+                    absentAlertsToNotify
                         .Select(a => (a.TeacherStudentId, a.ConsecutiveAbsences))
                         .ToList());
             }
@@ -2628,6 +2720,23 @@ public class AttendanceService : IAttendanceService
         if (status is null)
             return AttendanceConstants.Messages.AttendanceStatusRequired;
         if (status is not (AttendanceStatus.Present or AttendanceStatus.Absent))
+            return AttendanceConstants.Messages.InvalidAttendanceStatus;
+        return null;
+    }
+
+    /// <summary>
+    /// Per-item status validation for the NEW <c>mark-bulk</c> <c>items</c> path ONLY. Unlike
+    /// <see cref="ValidateCallerStatus"/> (single mark / add / edit / legacy bulk — Present/Absent only),
+    /// this ALSO accepts <c>Held</c>, since Hold-in-bulk is driven per item here. <c>CrossSessionPresent</c>
+    /// and any out-of-range value stay rejected. Returns a message key on failure, null when valid:
+    ///   • null → <c>AttendanceStatusRequired</c> (omission stays detectable — CC-6).
+    ///   • not Present/Absent/Held → <c>InvalidAttendanceStatus</c>.
+    /// </summary>
+    private static string? ValidateBulkItemStatus(AttendanceStatus? status)
+    {
+        if (status is null)
+            return AttendanceConstants.Messages.AttendanceStatusRequired;
+        if (status is not (AttendanceStatus.Present or AttendanceStatus.Absent or AttendanceStatus.Held))
             return AttendanceConstants.Messages.InvalidAttendanceStatus;
         return null;
     }
