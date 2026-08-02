@@ -121,6 +121,22 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             .Where(s => s.TemplateId == templateId)
             .ExecuteDeleteAsync();
     }
+
+    /// <inheritdoc />
+    public async Task PurgeStudentAssignmentDataAsync(long teacherStudentId)
+    {
+        // Leaf-first: the audit log's FK to the obligation is Restrict, so it blocks the
+        // obligation delete, which in turn blocks the roster record's hard delete.
+        await _context.StudentObligationAuditLogs
+            .IgnoreQueryFilters()
+            .Where(l => l.StudentObligation.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        await _context.StudentAssignmentObligations
+            .IgnoreQueryFilters()
+            .Where(o => o.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+    }
     /// <inheritdoc />
     /// <inheritdoc />
     public async Task<(IReadOnlyList<StudentOfflineExamRow> Items, int TotalCount)> GetOfflineExamsForStudentPagedAsync(

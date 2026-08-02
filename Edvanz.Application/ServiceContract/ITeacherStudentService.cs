@@ -94,17 +94,29 @@ public interface ITeacherStudentService
     // ══════════════════════════════════════════════
 
     /// <summary>
-    /// Soft-deletes a single student, moving it to the recycle bin.
+    /// Soft-deletes a single student, moving it to the recycle bin, AND tears the record's
+    /// live enrolment down: session cleared, session assignments deactivated, and the student
+    /// ACCOUNT link (plus any Method-B parent link) ended as <c>RemovedByTeacher</c>.
+    /// Without the teardown the student app keeps listing the teacher forever and the
+    /// live-row filtered unique index blocks a new link request (see
+    /// <see cref="IStudentTeardownService"/>).
     /// REQ-STU-021: Single delete from profile or list.
     /// REQ-STU-025: Moved to recycle bin, not permanently deleted.
     /// </summary>
-    Task<Result<bool>> SoftDeleteStudentAsync(long teacherId, long studentId);
+    /// <param name="actingUserId">
+    /// User.Id recorded as the account that ENDED the link (audit column
+    /// <c>StudentTeacherLink.RemovedByUserId</c>). Controllers pass the JWT user id;
+    /// background callers pass null.
+    /// </param>
+    Task<Result<bool>> SoftDeleteStudentAsync(long teacherId, long studentId, long? actingUserId = null);
 
     /// <summary>
-    /// Soft-deletes multiple students in a single operation.
+    /// Soft-deletes multiple students in a single operation, applying the same
+    /// unassign + unlink teardown as <see cref="SoftDeleteStudentAsync"/> to each.
     /// REQ-STU-022: Bulk delete via checkbox selection.
     /// </summary>
-    Task<Result<int>> BulkSoftDeleteStudentsAsync(long teacherId, BulkStudentIdsDto dto);
+    Task<Result<int>> BulkSoftDeleteStudentsAsync(
+        long teacherId, BulkStudentIdsDto dto, long? actingUserId = null);
 
     /// <summary>
     /// Retrieves the paginated recycle bin contents for a teacher.
@@ -118,6 +130,10 @@ public interface ITeacherStudentService
     /// Restores a single student from the recycle bin.
     /// REQ-STU-026: Restore at any time during 10-day window.
     /// REQ-STU-031: Restored with all original data intact.
+    /// NOTE: restore deliberately does NOT resurrect the enrolment — the record comes back
+    /// UNASSIGNED (no session) and UNLINKED (the account link stays terminal). Re-assign the
+    /// session and re-accept/bind the link explicitly; silently re-granting a student account
+    /// access to a teacher's content on a restore would be a privacy regression.
     /// </summary>
     Task<Result<TeacherStudentDto>> RestoreStudentAsync(long teacherId, long studentId);
 

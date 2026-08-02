@@ -414,6 +414,12 @@
   <data name="StudentPermanentlyDeleted" xml:space="preserve">
     <value>Student permanently deleted. This action cannot be undone</value>
   </data>
+  <data name="StudentDeleteFailed" xml:space="preserve">
+    <value>Could not delete the student. Nothing was changed — please try again</value>
+  </data>
+  <data name="StudentPermanentDeleteFailed" xml:space="preserve">
+    <value>Could not permanently delete the student. Nothing was changed — please try again</value>
+  </data>
   <data name="RecycleBinStudentNotFound" xml:space="preserve">
     <value>Student not found in the recycle bin</value>
   </data>
@@ -776,6 +782,21 @@
   </data>
   <data name="DepartureStudentNotAssigned" xml:space="preserve">
     <value>Student is not currently assigned to any session.</value>
+  </data>
+  <data name="DepartureOverrideAmountInvalid" xml:space="preserve">
+    <value>The entered amount is not valid. It cannot be negative or greater than the calculated amount.</value>
+  </data>
+  <data name="DepartureOutcomeRefundDueLabel" xml:space="preserve">
+    <value>Amount to refund to student: {0} EGP</value>
+  </data>
+  <data name="DepartureOutcomeAmountOwedLabel" xml:space="preserve">
+    <value>Amount student still owes: {0} EGP</value>
+  </data>
+  <data name="DepartureOutcomeNoObligationLabel" xml:space="preserve">
+    <value>No financial obligation</value>
+  </data>
+  <data name="DepartureRefundReversalReason" xml:space="preserve">
+    <value>Refund on student departure</value>
   </data>
   <data name="TransferSummaryLoaded" xml:space="preserve">
     <value>Transfer summary calculated successfully.</value>

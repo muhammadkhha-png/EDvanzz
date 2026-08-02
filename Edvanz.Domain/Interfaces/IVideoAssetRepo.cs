@@ -512,6 +512,26 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
     /// </summary>
     Task DeleteAllVideosForTeacherAsync(long teacherId);
 
+    /// <summary>
+    /// Clears every VCM row that would BLOCK the hard delete of a roster record
+    /// (<c>TeacherStudent</c>), called by the student permanent-purge flow.
+    ///
+    /// <c>VideoAnalytics.TeacherStudentId</c> and <c>VideoWatchEvent.TeacherStudentId</c> are
+    /// NON-nullable with a <c>NoAction</c> FK, and <c>VideoScope.TeacherStudentId</c> is
+    /// <c>NoAction</c> too — SQL Server does NOT clean any of them, so purging a student who
+    /// ever watched a video used to fail with an FK violation (500). Per the entities' own
+    /// contract ("student permanent-purge takes their scope/watch rows with them") these are
+    /// DELETED rather than nulled: a per-student scope row cannot survive without its student
+    /// (it would break the scope's exactly-one-target semantics), and watch history is
+    /// meaningless once the student is gone.
+    ///
+    /// Also removes the student's <c>StudentVideoExamReport</c> rows (answers/options cascade
+    /// at the DB level) so no orphan attempt survives the student.
+    ///
+    /// Set-based (ExecuteDelete) and idempotent — a second call deletes zero rows.
+    /// </summary>
+    Task PurgeStudentVideoDataAsync(long teacherStudentId);
+
     // Attachments and video photos are now central-registry FileObjects (referenced by
     // VideoAsset.VideoPhotoFileId / FileObject.VideoAssetId). See IFileObjectRepo.
 

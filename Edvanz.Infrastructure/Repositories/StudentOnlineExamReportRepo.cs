@@ -158,6 +158,27 @@ public class StudentOnlineExamReportRepo : GenericRepo<StudentOnlineExamReport, 
             .Where(r => r.OnlineExamId == onlineExamId)
             .ExecuteDeleteAsync();
     }
+
+    /// <inheritdoc />
+    public async Task PurgeReportsForStudentAsync(long teacherStudentId)
+    {
+        // Same leaf-first order as PurgeReportsForExamAsync — StudentQuestionAnswer →
+        // StudentOnlineExamReport is NoAction, so the children must go first.
+        await _context.StudentQuestionAnswerOptions
+            .IgnoreQueryFilters()
+            .Where(o => o.StudentQuestionAnswer.StudentReport.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        await _context.StudentQuestionAnswers
+            .IgnoreQueryFilters()
+            .Where(a => a.StudentReport.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        await _context.StudentOnlineExamReports
+            .IgnoreQueryFilters()
+            .Where(r => r.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+    }
     /// <inheritdoc />
     public async Task<IReadOnlyList<StudentOnlineExamReport>> GetReportsForExamAsync(long onlineExamId)
     {

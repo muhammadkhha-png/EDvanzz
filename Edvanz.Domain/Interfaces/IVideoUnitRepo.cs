@@ -102,6 +102,16 @@ public interface IVideoUnitRepo : IGenericRepo<VideoUnit, long>
     Task DeleteUnitScopesByGroupAsync(long sessionGroupId);
 
     /// <summary>
+    /// Hard-deletes every <c>VideoUnitScope</c> row targeting a given roster record
+    /// (<c>ScopeType = Student</c>). Called by the student permanent-purge flow: the
+    /// <c>VideoUnitScopes.TeacherStudentId</c> FK is <c>NoAction</c> and would otherwise
+    /// block the hard delete. The row is DELETED rather than nulled because
+    /// <c>CK_VideoUnitScopes_ExactlyOneTarget</c> forbids a scope with no target.
+    /// Idempotent — a second call deletes zero rows.
+    /// </summary>
+    Task DeleteUnitScopesByStudentAsync(long teacherStudentId);
+
+    /// <summary>
     /// Hard-deletes a single unit-scope row, scoped to the teacher. Returns
     /// <c>false</c> if the row does not exist or belongs to a different
     /// teacher.

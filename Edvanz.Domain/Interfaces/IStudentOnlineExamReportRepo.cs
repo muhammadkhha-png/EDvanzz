@@ -33,6 +33,15 @@ public interface IStudentOnlineExamReportRepo : IGenericRepo<StudentOnlineExamRe
 
     /// <summary>Purges a report graph leaf-first — called before <c>IOnlineExamRepo.PurgeExamGraphAsync</c> (§3.7).</summary>
     Task PurgeReportsForExamAsync(long onlineExamId);
+
+    /// <summary>
+    /// Purges a STUDENT's report graph leaf-first (answer options → answers → reports) —
+    /// called by the student permanent-purge flow. <c>StudentOnlineExamReports.TeacherStudentId</c>
+    /// is NON-nullable with a <c>NoAction</c> FK, so SQL Server does not clean it and the
+    /// roster record's hard delete used to fail with an FK violation (500) for any student who
+    /// had ever been assigned an online exam. Idempotent — a second call deletes zero rows.
+    /// </summary>
+    Task PurgeReportsForStudentAsync(long teacherStudentId);
     /// <summary>T7 grid — full report rows for an exam, TeacherStudent included (needed for case-3 name display).</summary>
     Task<IReadOnlyList<StudentOnlineExamReport>> GetReportsForExamAsync(long onlineExamId);
 

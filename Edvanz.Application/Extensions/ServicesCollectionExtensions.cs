@@ -55,6 +55,10 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();
         // Student Module (Module 1: teacher-scoped student records CRUD)
         services.AddScoped<ITeacherStudentService, TeacherStudentService>();
+        // Shared student teardown (unassign + end account/parent links on delete; blocking-FK
+        // cleanup before a permanent purge). Depends only on IUnitOfWork + the link notifier so
+        // it can be reused by the student, departure and recycle-bin-purge flows without a cycle.
+        services.AddScoped<IStudentTeardownService, StudentTeardownService>();
         // Student barcode presentation (in-app SVG + printable PDF export, REQ-STU-052)
         services.AddScoped<IStudentBarcodeService, StudentBarcodeService>();
         services.AddScoped<ITeacherService, TeacherService>();

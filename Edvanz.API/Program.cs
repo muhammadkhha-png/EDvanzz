@@ -587,6 +587,22 @@ for (int attempt = 1; ; attempt++)
             job => job.RunAsync(),
             Cron.Hourly);
 
+        // ── Student recycle-bin purge (REQ-STU-027/028) ──
+        // Permanently deletes roster records soft-deleted more than 10 days ago. The service
+        // method existed but had NO caller and NO registration, so the retention window the
+        // recycle-bin UI advertises never actually expired anything. Daily at 03:00
+        // Africa/Cairo — off-peak, and before the 06:00 assignment materializer so a purged
+        // student is gone before the day's obligations are generated. Idempotent (§6.4): each
+        // student is purged in its own transaction, so a partial run just resumes next day.
+        RecurringJob.AddOrUpdate<RecycleBinPurgeJob>(
+            recurringJobId: "recycle-bin-purge",
+            methodCall: job => job.RunAsync(),
+            cronExpression: "0 3 * * *",
+            options: new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+            });
+
         // assistant-cleanup runs every 10 minutes so a teacher-deleted (soft-deleted)
         // assistant is purged promptly — freeing its username/phone for reuse shortly
         // after deletion. Each purge is a small, isolated transaction (see the job), so

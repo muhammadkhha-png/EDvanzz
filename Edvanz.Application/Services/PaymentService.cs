@@ -40,17 +40,25 @@ public class PaymentService : IPaymentService
     private readonly IPaymentNotifier _paymentNotifier;              // ← Phase 4
     private readonly ILogger<PaymentService> _logger;          // ← strengthen batch exception handling
 
+    // Shared roster teardown (unassign + END the student ACCOUNT link) used when a departure is
+    // confirmed with DeleteStudent. Safe to inject: IStudentTeardownService depends only on
+    // IUnitOfWork/IStudentLinkNotifier/IStringLocalizer, so there is NO cycle (TeacherStudentService
+    // → IPaymentService already exists, which is why this must never be ITeacherStudentService).
+    private readonly IStudentTeardownService _studentTeardown;
+
     public PaymentService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
-        IPaymentNotifier paymentNotifier, ILogger<PaymentService> logger)                            // ← Phase 4
+        IPaymentNotifier paymentNotifier, ILogger<PaymentService> logger,                            // ← Phase 4
+        IStudentTeardownService studentTeardown)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
         _paymentNotifier = paymentNotifier;
         _logger = logger;// ← Phase 4
+        _studentTeardown = studentTeardown;
     }
 
     // ══════════════════════════════════════════════
@@ -1534,95 +1542,92 @@ public class PaymentService : IPaymentService
             return Result<DepartureSummaryDto>.Failure(
                 _localizer, PaymentConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
-        // Get current period
-        var period = await _unitOfWork.PaymentsRepo
-            .GetEarliestUnpaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
+        // ── Anchor month: the month of the student's LATEST PAID period in this session ──
+        // The refund is a correction on ONE month's money — the last month the student actually
+        // paid for — never a cumulative since-they-joined figure. When they never paid anything in
+        // this session there is no cash to give back, so we anchor on the teacher-local CURRENT
+        // month and treat the paid amount as 0 (the outcome is then owed / nothing).
+        var paidPeriod = await _unitOfWork.PaymentsRepo
+            .GetLatestPaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
 
-        // Get occurrence data for pro-rating
-        var localDate = _timeZoneService.GetTeacherLocalDate(teacherId);
-        DateTime periodStart, periodEnd;
-        if (session.PaymentType == PaymentType.Monthly)
+        DateTime monthStart;
+        decimal paidAmount;
+        if (paidPeriod is not null)
         {
-            periodStart = new DateTime(localDate.Year, localDate.Month, 1);
-            periodEnd = periodStart.AddMonths(1).AddDays(-1);
+            monthStart = new DateTime(paidPeriod.PeriodStart.Year, paidPeriod.PeriodStart.Month, 1);
+            paidAmount = paidPeriod.AmountPaid;
         }
         else
         {
-            periodStart = period?.PeriodStart ?? localDate;
-            periodEnd = period?.PeriodEnd ?? localDate;
+            var localDate = _timeZoneService.GetTeacherLocalDate(teacherId);
+            monthStart = new DateTime(localDate.Year, localDate.Month, 1);
+            paidAmount = 0m;
         }
+        DateTime monthEnd = monthStart.AddMonths(1).AddDays(-1);
 
-        var occurrences = await _unitOfWork.AttendanceRepo
-            .GetOccurrencesBySessionAsync(student.SessionId.Value);
-        var periodOccurrences = occurrences
-            .Where(o => o.OccurrenceDate >= periodStart && o.OccurrenceDate <= periodEnd)
-            .ToList();
+        // Reference period for the month's FULL price / status when nothing was paid yet.
+        var unpaidPeriod = paidPeriod is null
+            ? await _unitOfWork.PaymentsRepo
+                .GetEarliestUnpaidPeriodAsync(teacherId, teacherStudentId, student.SessionId)
+            : null;
 
-        // Count attended occurrences (BR-PAY-007)
-        // BR-PAY-007: "Unrecorded occurrences — where attendance was never taken —
-        // shall be excluded from both the numerator and denominator."
-        int totalRecordedOccurrences = 0;
-        int attendedOccurrences = 0;
-        foreach (var occ in periodOccurrences)
-        {
-            var records = await _unitOfWork.AttendanceRepo
-                .GetExistingAttendanceByStudentSessionAndDateAsync(
-                    teacherStudentId, student.SessionId.Value, occ.OccurrenceDate);
-            if (records is not null)
-            {
-                // This occurrence has a recorded attendance — include in denominator
-                totalRecordedOccurrences++;
-                if (records.Status != AttendanceStatus.Absent)
-                    attendedOccurrences++;
-            }
-            // If records is null, attendance was never taken — excluded per BR-PAY-007
-        }
-        int totalOccurrences = totalRecordedOccurrences;
+        // ── Y (denominator) = ALL scheduled class days in the anchored month ──
+        // DELIBERATE PRODUCT DECISION (overrides documented BR-PAY-007, which said unrecorded
+        // occurrences are excluded from BOTH sides of the ratio): the student paid for the whole
+        // month's schedule, so the month's whole schedule is what the refund is measured against.
+        // A day the tutor simply never took attendance on must NOT shrink the denominator — that
+        // used to inflate the attended ratio and silently shrink the refund. DO NOT "fix" this
+        // back to recorded-occurrences-only.
+        int totalOccurrences = await _unitOfWork.AttendanceRepo
+            .CountOccurrencesBySessionAndDateRangeAsync(student.SessionId.Value, monthStart, monthEnd);
 
-        // REQ-PAY-068: Pro-rated calculation
-        decimal fullAmount = period?.AmountDue ?? session.SessionAmount;
+        // ── X (numerator) = days the student actually showed up in that month ──
+        // ONE query for the whole month (the old code ran one query PER occurrence — an N+1).
+        // Anything that is not an explicit Absent counts as attended (Present, CrossSessionPresent,
+        // Held), matching how the attendance module reads a "showed up" record.
+        var monthRecords = await _unitOfWork.AttendanceRepo
+            .GetRecordsByStudentAndDateRangeAsync(teacherStudentId, monthStart, monthEnd);
+        int attendedOccurrences = monthRecords.Count(r =>
+            r.SessionId == student.SessionId.Value && r.Status != AttendanceStatus.Absent);
+
+        // ── Money ──
+        // Refund base = the cash actually paid for the anchored month (NOT the price list amount).
+        // ALWAYS attendance-based: the teacher's IsProratedPaymentEnabled flag (AAM-FR-04.4) is
+        // deliberately NOT consulted here — it is off by default and it used to discard this whole
+        // calculation and hand back the full paid amount. That flag governs period GENERATION
+        // (OnStudentAssignedToSessionAsync) only; it must never disable the departure math again.
+        decimal fullAmount = paidPeriod?.AmountDue ?? unpaidPeriod?.AmountDue ?? session.SessionAmount;
+        decimal basisAmount = paidAmount > 0m ? paidAmount : fullAmount;
         decimal proRatedAmount = totalOccurrences > 0
-            ? (attendedOccurrences / (decimal)totalOccurrences) * fullAmount
-            : 0;
+            ? Math.Round((attendedOccurrences / (decimal)totalOccurrences) * basisAmount, 2,
+                MidpointRounding.AwayFromZero)
+            : 0m;
 
-        var paymentStatus = period?.PaymentStatus ?? PaymentStatus.Paid;
-
-        // The proration setting (AAM-FR-04.4) drives the refund basis.
-        var teacherConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        bool prorationEnabled = teacherConfig?.IsProratedPaymentEnabled ?? false;
+        var paymentStatus = paidPeriod?.PaymentStatus ?? unpaidPeriod?.PaymentStatus ?? PaymentStatus.Paid;
 
         DepartureOutcome outcome;
         decimal finalAmount;
 
-        if (!prorationEnabled)
+        if (paidAmount > 0m)
         {
-            // Proration OFF: refund the FULL amount the student paid for their CURRENT month (or the
-            // most recent paid month if this month is unpaid) — not pro-rated, and NOT cumulative
-            // since they joined. The tutor may still override with a specific amount at confirm time.
-            var paidPeriod = await _unitOfWork.PaymentsRepo
-                .GetLatestPaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
-            finalAmount = paidPeriod?.AmountPaid ?? 0m;
-            proRatedAmount = 0m;
-            if (paidPeriod is not null) fullAmount = paidPeriod.AmountDue;
+            // REQ-PAY-069: refund = what they paid − what they consumed (attended share).
+            finalAmount = Math.Round(paidAmount - proRatedAmount, 2, MidpointRounding.AwayFromZero);
+            if (finalAmount < 0m) finalAmount = 0m;
             outcome = finalAmount > 0m ? DepartureOutcome.RefundDue : DepartureOutcome.NoObligation;
         }
-        else if (paymentStatus == PaymentStatus.Paid)
+        else if (attendedOccurrences > 0)
         {
-            // REQ-PAY-069: Refund = Full - ProRated
-            finalAmount = fullAmount - proRatedAmount;
-            outcome = finalAmount > 0 ? DepartureOutcome.RefundDue : DepartureOutcome.NoObligation;
-        }
-        else if (attendedOccurrences == 0)
-        {
-            // REQ-PAY-071: No obligation
-            finalAmount = 0;
-            outcome = DepartureOutcome.NoObligation;
+            // REQ-PAY-070 (preserved): nothing was paid for the anchored month yet but the student
+            // did attend — they OWE the attended share of that month's price. Kept so a departing
+            // debtor still shows the arrears the tutor is expected to collect.
+            finalAmount = proRatedAmount;
+            outcome = DepartureOutcome.AmountOwed;
         }
         else
         {
-            // REQ-PAY-070: Amount owed
-            finalAmount = proRatedAmount;
-            outcome = DepartureOutcome.AmountOwed;
+            // REQ-PAY-071: nothing paid, nothing attended — no obligation either way.
+            finalAmount = 0m;
+            outcome = DepartureOutcome.NoObligation;
         }
 
         return Result<DepartureSummaryDto>.Success(new DepartureSummaryDto
@@ -1630,7 +1635,7 @@ public class PaymentService : IPaymentService
             StudentName = student.StudentName,
             StudentCode = student.StudentCode,
             SessionName = session.SessionName,
-            CurrentPeriodLabel = FormatPeriodLabel(periodStart, periodEnd),
+            CurrentPeriodLabel = FormatPeriodLabel(monthStart, monthEnd),
             TotalOccurrencesInPeriod = totalOccurrences,
             AttendedOccurrences = attendedOccurrences,
             FullPeriodAmount = fullAmount,
@@ -1638,11 +1643,19 @@ public class PaymentService : IPaymentService
             PaymentStatusAtDeparture = paymentStatus,
             DepartureOutcome = outcome,
             FinalAmount = finalAmount,
+            PeriodStart = monthStart,
+            MonthLabel = monthStart.ToString("MMMM yyyy"),
+            PaymentPeriodId = paidPeriod?.Id,
+            PaidAmount = paidAmount,
             OutcomeLabel = outcome switch
             {
-                DepartureOutcome.RefundDue => $"Amount to refund to student: {finalAmount:F2} EGP",
-                DepartureOutcome.AmountOwed => $"Amount student still owes: {finalAmount:F2} EGP",
-                _ => "No financial obligation"
+                DepartureOutcome.RefundDue => _localizer[
+                    PaymentConstants.Messages.DepartureOutcomeRefundDueLabel,
+                    finalAmount.ToString("F2")].Value,
+                DepartureOutcome.AmountOwed => _localizer[
+                    PaymentConstants.Messages.DepartureOutcomeAmountOwedLabel,
+                    finalAmount.ToString("F2")].Value,
+                _ => _localizer[PaymentConstants.Messages.DepartureOutcomeNoObligationLabel].Value
             }
         }, _localizer, PaymentConstants.Messages.DepartureSummaryLoaded);
     }
@@ -1656,8 +1669,30 @@ public class PaymentService : IPaymentService
             return Result<StudentDepartureDto>.Failure(summaryResult);
 
         var summary = summaryResult.Data!;
+
+        // REQ-PAY-075: the tutor may override the calculated figure — but only DOWNWARD and never
+        // below zero. An unvalidated override was free money: a negative value flipped the wallet
+        // deduction into a credit, and an oversized one refunded cash that was never collected.
+        // Ceiling: a refund can never exceed the cash actually paid for the anchored month; an
+        // owed amount can never exceed that month's full price.
+        if (dto.OverrideAmount.HasValue)
+        {
+            decimal maxAllowedOverride = summary.DepartureOutcome == DepartureOutcome.AmountOwed
+                ? summary.FullPeriodAmount
+                : summary.PaidAmount;
+
+            if (dto.OverrideAmount.Value < 0m || dto.OverrideAmount.Value > maxAllowedOverride)
+                return Result<StudentDepartureDto>.Failure(
+                    _localizer, PaymentConstants.Messages.DepartureOverrideAmountInvalid,
+                    HttpStatusCode.UnprocessableEntity);
+        }
+
         decimal finalAmount = dto.OverrideAmount ?? summary.FinalAmount;
         bool isTutorOverride = dto.OverrideAmount.HasValue;
+
+        // Set inside the transaction when DeleteStudent tears the roster record down; the link
+        // notifications are fanned out AFTER the commit (best-effort, §5.1).
+        StudentTeardownOutcome? teardownOutcome = null;
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -1697,10 +1732,34 @@ public class PaymentService : IPaymentService
                 // Frontend choice: also soft-delete the student (recycle bin) on departure.
                 if (dto.DeleteStudent)
                 {
+                    // Route through the shared teardown so a departure-delete cleans up exactly
+                    // what a normal recycle-bin delete does — critically it ENDS the student
+                    // ACCOUNT link (RemovedByTeacher + audit + binding cleared). Without it the
+                    // student app would keep listing this teacher forever and the filtered unique
+                    // index would block a future link request. Runs inside THIS transaction; the
+                    // notification fires after the commit below.
+                    teardownOutcome = await _studentTeardown.UnassignAndUnlinkAsync(
+                        dto.TeacherId, dto.TeacherStudentId, dto.ConfirmedByUserId);
                     studentToUnassign.IsDeleted = true;
                     studentToUnassign.DeletedAt = DateTime.UtcNow;
                 }
                 await _unitOfWork.Students.UpdateAsync(studentToUnassign);
+            }
+
+            // Nulling TeacherStudent.SessionId alone left the StudentSessionAssignment row ACTIVE,
+            // so the departed student kept generating attendance obligations (and auto-absents) for
+            // a session they had left. Close the assignment period too — same two named repo calls
+            // AttendanceService.OnStudentUnassignedFromSessionAsync makes (PaymentService does not
+            // inject IAttendanceService; calling it would create a circular service dependency, and
+            // DeactivateAssignmentsByStudentAsync is the PURGE variant that also NULLs the student
+            // FK, which would orphan the attendance history — see BUG-8).
+            var activeAssignment = await _unitOfWork.AttendanceRepo
+                .GetActiveAssignmentAsync(dto.TeacherStudentId);
+            if (activeAssignment is not null)
+            {
+                activeAssignment.IsActive = false;
+                activeAssignment.UnassignedAt = DateTime.UtcNow;
+                await _unitOfWork.AttendanceRepo.UpdateAssignmentAsync(activeAssignment);
             }
 
             // REQ-PAY-073: Record refund/outstanding in payment history
@@ -1715,6 +1774,11 @@ public class PaymentService : IPaymentService
                     .GetLatestCollectorUserIdForStudentSessionAsync(
                         dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
                 await AdjustAssistantWalletAsync(dto.TeacherId, collectorUserId, -finalAmount);
+
+                // Reverse the refunded cash on the ANCHORED period as well. Without this the money
+                // left the wallet but the month still read Paid with its full AmountPaid, so the
+                // student's payment screen, arrears and dashboards all kept counting refunded cash.
+                await ReverseDeparturePeriodAsync(dto, summary, finalAmount);
             }
             else if (summary.DepartureOutcome == DepartureOutcome.AmountOwed && finalAmount > 0)
             {
@@ -1732,6 +1796,11 @@ public class PaymentService : IPaymentService
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
+
+            // Post-commit, best-effort: tell the student their link to this teacher ended.
+            // Never fails the departure (§5.1) — the service swallows its own errors.
+            if (teardownOutcome is not null)
+                await _studentTeardown.NotifyStudentUnlinkedAsync(dto.TeacherId, teardownOutcome);
 
             return Result<StudentDepartureDto>.Success(new StudentDepartureDto
             {
@@ -1755,6 +1824,81 @@ public class PaymentService : IPaymentService
                 await _unitOfWork.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Reverses a departure refund on the anchored <c>PaymentPeriod</c> (the latest PAID month the
+    /// summary calculated against) and on the student's payment counter, then writes a
+    /// <c>PaymentEditLog</c> audit row — mirroring how <see cref="EditPaymentAsync"/> /
+    /// <see cref="DeletePaymentAsync"/> reverse money.
+    ///
+    /// Runs INSIDE the caller's transaction (ConfirmDepartureAsync owns the commit boundary — §5.2:
+    /// no SaveChangesAsync here). No-ops when the student never paid (no anchored period id).
+    /// REQ-PAY-073.
+    /// </summary>
+    private async Task ReverseDeparturePeriodAsync(
+        ConfirmDepartureDto dto, DepartureSummaryDto summary, decimal refundAmount)
+    {
+        if (summary.PaymentPeriodId is null || refundAmount <= 0m) return;
+
+        var period = await _unitOfWork.PaymentsRepo
+            .GetPaymentPeriodByIdAsync(summary.PaymentPeriodId.Value);
+        // Tenant guard: the period must belong to this teacher AND this student.
+        if (period is null
+            || period.TeacherId != dto.TeacherId
+            || period.TeacherStudentId != dto.TeacherStudentId)
+            return;
+
+        // Never reverse more than the month actually holds (a tutor override is already capped at
+        // the paid amount, but the period may have moved since the summary was computed).
+        decimal reversal = Math.Min(refundAmount, period.AmountPaid);
+        if (reversal <= 0m) return;
+
+        decimal previousAmountPaid = period.AmountPaid;
+        var previousStatus = period.PaymentStatus;
+
+        period.AmountPaid -= reversal;
+        if (period.AmountPaid < 0m) period.AmountPaid = 0m;
+        period.PaymentStatus = RecomputePeriodStatus(period);
+        await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
+
+        // Counter: the refunded cash is no longer paid, and it goes back to outstanding.
+        var counter = await _unitOfWork.PaymentsRepo
+            .GetPaymentCounterAsync(dto.TeacherId, dto.TeacherStudentId);
+        if (counter is not null)
+        {
+            counter.TotalAmountPaid -= reversal;
+            if (counter.TotalAmountPaid < 0m) counter.TotalAmountPaid = 0m;
+            counter.TotalOutstanding += reversal;
+            if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
+            counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+                .RecalculateConsecutiveUnpaidAsync(dto.TeacherId, dto.TeacherStudentId);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+        }
+
+        // Audit: attach the log to the most recent transaction that settled this period when there
+        // is one (the FK is nullable + SET NULL, so a period with no surviving transaction still
+        // gets an auditable row).
+        var periodTransactions = await _unitOfWork.PaymentsRepo
+            .GetTransactionsByPeriodAsync(period.Id);
+        var latestTransaction = periodTransactions
+            .OrderByDescending(t => t.CollectedAt)
+            .ThenByDescending(t => t.Id)
+            .FirstOrDefault();
+
+        await _unitOfWork.PaymentsRepo.AddPaymentEditLogAsync(new PaymentEditLog
+        {
+            PaymentTransactionId = latestTransaction?.Id,
+            EditAction = PaymentEditAction.Reversed,
+            PreviousAmount = previousAmountPaid,
+            NewAmount = period.AmountPaid,
+            PreviousStatus = previousStatus,
+            NewStatus = period.PaymentStatus,
+            EditedByUserId = dto.ConfirmedByUserId,
+            EditedAt = DateTime.UtcNow,
+            EditReason = _localizer[PaymentConstants.Messages.DepartureRefundReversalReason].Value,
+            CreateAt = DateTime.UtcNow
+        });
     }
 
     // ══════════════════════════════════════════════

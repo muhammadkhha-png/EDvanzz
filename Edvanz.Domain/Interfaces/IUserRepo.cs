@@ -441,6 +441,41 @@ namespace Edvanz.Domain.Interfaces
         Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
             IReadOnlyCollection<long> teacherStudentIds);
 
+        /// <summary>
+        /// The single Active <see cref="StudentTeacherLink"/> that currently BINDS the given
+        /// roster record under the given teacher, tracked for update. At most one row can
+        /// match — the filtered unique index
+        /// <c>UX_StudentTeacherLinks_TeacherStudentId_Active</c> guarantees it (see §7.2b).
+        ///
+        /// Used by the student TEARDOWN path (roster record soft-deleted / purged): the
+        /// student account link must be ENDED, otherwise the student app keeps listing the
+        /// teacher forever and the live-row filtered index (<c>[LinkStatus] IN (1,3)</c>)
+        /// blocks a fresh link request for the same pair.
+        /// </summary>
+        Task<StudentTeacherLink?> GetActiveStudentTeacherLinkByTeacherStudentIdAsync(
+            long teacherId, long teacherStudentId);
+
+        /// <summary>
+        /// Active <see cref="ParentChildTeacherLink"/> rows (Method B parent links) bound to
+        /// the given roster record under the given teacher, tracked for update. Same teardown
+        /// reason as <see cref="GetActiveStudentTeacherLinkByTeacherStudentIdAsync"/>; there is
+        /// no uniqueness guarantee here (several children profiles could point at one record),
+        /// so this returns a list.
+        /// </summary>
+        Task<IReadOnlyList<ParentChildTeacherLink>> GetActiveParentChildTeacherLinksByTeacherStudentIdAsync(
+            long teacherId, long teacherStudentId);
+
+        /// <summary>
+        /// Final safety net before a roster record is HARD-deleted: clears
+        /// <c>TeacherStudentId</c> on every remaining <see cref="StudentTeacherLink"/> /
+        /// <see cref="ParentChildTeacherLink"/> row that still points at it, regardless of
+        /// status. Both FKs are configured <c>SetNull</c>, so the DB would do this anyway —
+        /// doing it explicitly (set-based, no tracking) keeps the app's in-memory graph and
+        /// the DB in agreement and means the purge never depends on cascade ordering.
+        /// Idempotent: a second call updates zero rows.
+        /// </summary>
+        Task DetachLinksFromPurgedStudentAsync(long teacherStudentId);
+
         // ══════════════════════════════════════════════
         // TEACHER STUDENT (TEACHER-SCOPED RECORD) QUERIES
         // ══════════════════════════════════════════════

@@ -7,6 +7,7 @@ using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -44,6 +45,15 @@ public class TeacherStudentService : ITeacherStudentService
     private readonly IPaymentService _paymentService;
     private readonly IAttendanceService _attendanceService;
     private readonly ISubscriptionGateService _subscriptionGate;
+    /// <summary>
+    /// Shared student teardown: unassign + END the student ACCOUNT link on soft delete, and
+    /// clear the blocking video/online-exam/homework FKs before a permanent delete. Lives in
+    /// its own service (not here) because <see cref="IPaymentService"/> — which this service
+    /// already injects — needs the same teardown for the departure flow; a hook on
+    /// ITeacherStudentService would have created a circular dependency.
+    /// </summary>
+    private readonly IStudentTeardownService _teardownService;
+    private readonly ILogger<TeacherStudentService> _logger;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     /// <summary>
@@ -58,6 +68,8 @@ public class TeacherStudentService : ITeacherStudentService
         IPaymentService paymentService,
         IAttendanceService attendanceService,
         ISubscriptionGateService subscriptionGate,
+        IStudentTeardownService teardownService,
+        ILogger<TeacherStudentService> logger,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
@@ -65,6 +77,8 @@ public class TeacherStudentService : ITeacherStudentService
         _paymentService = paymentService;
         _subscriptionGate = subscriptionGate;
         _attendanceService = attendanceService;
+        _teardownService = teardownService;
+        _logger = logger;
         _localizer = localizer;
     }
 
@@ -532,24 +546,60 @@ public class TeacherStudentService : ITeacherStudentService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<Result<bool>> SoftDeleteStudentAsync(long teacherId, long studentId)
+    /// <remarks>
+    /// Soft delete is NOT just a flag flip. Before this fix the record kept its session
+    /// assignment AND its student-ACCOUNT link stayed <c>LinkStatus.Active</c>, so:
+    ///   • the student app kept listing the teacher (and their content) forever, and
+    ///   • the filtered unique index (<c>[LinkStatus] IN (1,3)</c>) blocked the student from
+    ///     ever sending a fresh link request to that teacher.
+    /// The record still goes to the recycle bin (<c>IsDeleted</c>/<c>DeletedAt</c>, restorable
+    /// for the 10-day retention window) — but it is unassigned and unlinked while it sits
+    /// there. Restore brings the DATA back, never the link (see RestoreStudentAsync).
+    /// </remarks>
+    public async Task<Result<bool>> SoftDeleteStudentAsync(
+        long teacherId, long studentId, long? actingUserId = null)
     {
         var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
         if (student is null)
             return Result<bool>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
 
-        // REQ-STU-025: Move to recycle bin (soft-delete)
-        student.IsDeleted = true;
-        student.DeletedAt = DateTime.UtcNow;
+        // The flag flip and the teardown must be atomic — a half-deleted student (hidden from
+        // the roster but still linked to a live account) is exactly the broken state above.
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
 
-        await _unitOfWork.Students.UpdateAsync(student);
-        await _unitOfWork.SaveChangesAsync();
+        StudentTeardownOutcome outcome;
+        try
+        {
+            // REQ-STU-025: Move to recycle bin (soft-delete)
+            student.IsDeleted = true;
+            student.DeletedAt = DateTime.UtcNow;
+            await _unitOfWork.Students.UpdateAsync(student);
+
+            outcome = await _teardownService.UnassignAndUnlinkAsync(teacherId, student.Id, actingUserId);
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            _logger.LogError(ex,
+                "Soft delete failed for student {StudentId} of teacher {TeacherId}; rolled back.",
+                studentId, teacherId);
+            return Result<bool>.Failure(_localizer, "StudentDeleteFailed", HttpStatusCode.InternalServerError);
+        }
+
+        // Post-commit, best-effort (§5.1) — never fails the delete.
+        await _teardownService.NotifyStudentUnlinkedAsync(teacherId, outcome);
 
         return Result<bool>.Success(true, _localizer, "StudentDeletedSuccess");
     }
 
     /// <inheritdoc />
-    public async Task<Result<int>> BulkSoftDeleteStudentsAsync(long teacherId, BulkStudentIdsDto dto)
+    /// <remarks>Same unassign + unlink teardown as the single soft delete, per student.</remarks>
+    public async Task<Result<int>> BulkSoftDeleteStudentsAsync(
+        long teacherId, BulkStudentIdsDto dto, long? actingUserId = null)
     {
         if (dto.StudentIds.Count == 0)
             return Result<int>.Failure(_localizer, "NoStudentsSelected", HttpStatusCode.BadRequest);
@@ -559,15 +609,38 @@ public class TeacherStudentService : ITeacherStudentService
         if (students.Count == 0)
             return Result<int>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
 
-        var now = DateTime.UtcNow;
-        foreach (var student in students)
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+
+        var outcomes = new List<StudentTeardownOutcome>(students.Count);
+        try
         {
-            student.IsDeleted = true;
-            student.DeletedAt = now;
-            await _unitOfWork.Students.UpdateAsync(student);
+            var now = DateTime.UtcNow;
+            foreach (var student in students)
+            {
+                student.IsDeleted = true;
+                student.DeletedAt = now;
+                await _unitOfWork.Students.UpdateAsync(student);
+
+                outcomes.Add(await _teardownService.UnassignAndUnlinkAsync(
+                    teacherId, student.Id, actingUserId));
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            _logger.LogError(ex,
+                "Bulk soft delete failed for teacher {TeacherId}; rolled back {StudentCount} student(s).",
+                teacherId, students.Count);
+            return Result<int>.Failure(_localizer, "StudentDeleteFailed", HttpStatusCode.InternalServerError);
         }
 
-        await _unitOfWork.SaveChangesAsync();
+        // Post-commit, best-effort (§5.1).
+        foreach (var outcome in outcomes)
+            await _teardownService.NotifyStudentUnlinkedAsync(teacherId, outcome);
 
         return Result<int>.Success(students.Count, _localizer, "BulkDeleteSuccess");
     }
@@ -677,27 +750,62 @@ public class TeacherStudentService : ITeacherStudentService
         if (student is null || !student.IsDeleted)
             return Result<bool>.Failure(_localizer, "RecycleBinStudentNotFound", HttpStatusCode.NotFound);
 
-        // ── PAYMENT INTEGRATION: Sever student FK references on payment records ──
-        // Denormalized StudentName/StudentCode preserved on the audit records (PaymentTransactions,
-        // StudentDepartures, SessionTransferEvents, EventStudentObligations, EventPaymentTransactions).
-        // PaymentPeriods (the student's monthly bills) are DELETED so they can't orphan into
-        // dashboard aggregates; StudentPaymentCounter is deleted too.
-        await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
 
-        // ── ATTENDANCE INTEGRATION: clear the student's session assignments, absence counters and
-        // nullify attendance-record FKs BEFORE the hard delete. This hook existed but was never
-        // invoked here, which left dangling StudentSessionAssignment rows that could later block
-        // deletion of the session the purged student was assigned to (409 conflict).
-        await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+        try
+        {
+            // ── PAYMENT INTEGRATION: Sever student FK references on payment records ──
+            // Denormalized StudentName/StudentCode preserved on the audit records (PaymentTransactions,
+            // StudentDepartures, SessionTransferEvents, EventStudentObligations, EventPaymentTransactions).
+            // PaymentPeriods (the student's monthly bills) are DELETED so they can't orphan into
+            // dashboard aggregates; StudentPaymentCounter is deleted too.
+            await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
 
-        // WARNING: This is irreversible
-        await _unitOfWork.Students.DeleteAsync(student);
-        await _unitOfWork.SaveChangesAsync();
+            // ── ATTENDANCE INTEGRATION: clear the student's session assignments, absence counters and
+            // nullify attendance-record FKs BEFORE the hard delete. This hook existed but was never
+            // invoked here, which left dangling StudentSessionAssignment rows that could later block
+            // deletion of the session the purged student was assigned to (409 conflict).
+            await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+
+            // ── VIDEO / ONLINE-EXAM / EXAM-HOMEWORK / LINK INTEGRATION ──
+            // The modules that had NO purge hook at all. Their student FKs are non-nullable
+            // NoAction/Restrict (VideoAnalytics, VideoWatchEvent, StudentOnlineExamReport,
+            // StudentAssignmentObligation) or NoAction-nullable (VideoScope, VideoUnitScope), so
+            // SQL Server cleans none of them: without this, permanently deleting any student who
+            // had ever watched a video or been given an exam/homework threw an FK error (500).
+            await _teardownService.PurgeStudentDependentsAsync(teacherId, student.Id);
+
+            // WARNING: This is irreversible
+            await _unitOfWork.Students.DeleteAsync(student);
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            _logger.LogError(ex,
+                "Permanent delete failed for student {StudentId} of teacher {TeacherId}; rolled back.",
+                studentId, teacherId);
+            return Result<bool>.Failure(
+                _localizer, "StudentPermanentDeleteFailed", HttpStatusCode.InternalServerError);
+        }
 
         return Result<bool>.Success(true, _localizer, "StudentPermanentlyDeleted");
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Runs from the <c>recycle-bin-purge</c> Hangfire recurring job (registered in Program.cs).
+    /// It had ZERO callers before that, so the advertised 10-day retention never actually
+    /// expired anything and the recycle bin grew forever.
+    ///
+    /// IDEMPOTENT (§6.4): each pass re-reads the expired set, so a retry after a partial run
+    /// simply purges whatever is left. Each student is purged in its OWN transaction (mirrors
+    /// <c>AssistantCleanupJob</c>) so one residual FK / bad row can never abort the whole sweep —
+    /// it just stays soft-deleted and is retried on the next run.
+    /// </remarks>
     public async Task<int> PurgeExpiredRecycleBinRecordsAsync()
     {
         // REQ-STU-027/028: Purge records older than 10 days
@@ -706,17 +814,41 @@ public class TeacherStudentService : ITeacherStudentService
         if (expiredRecords.Count == 0)
             return 0;
 
-        // ── PAYMENT INTEGRATION: Nullify student FK references before bulk purge ──
+        int purged = 0;
         foreach (var student in expiredRecords)
         {
-            await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
-            await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+            try
+            {
+                await _unitOfWork.BeginTransactionAsync();
+
+                // ── PAYMENT / ATTENDANCE INTEGRATION: sever student FK references ──
+                await _paymentService.OnStudentPermanentlyDeletedAsync(student.Id);
+                await _attendanceService.OnStudentPermanentlyDeletedAsync(student.Id);
+
+                // ── VIDEO / ONLINE-EXAM / EXAM-HOMEWORK / LINK INTEGRATION ──
+                // Same blocking-FK cleanup as PermanentDeleteStudentAsync — without it the
+                // sweep would throw on the first student who ever watched a video.
+                await _teardownService.PurgeStudentDependentsAsync(student.TeacherId, student.Id);
+
+                await _unitOfWork.Students.DeleteAsync(student);
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitAsync();
+
+                purged++;
+            }
+            catch (Exception ex)
+            {
+                await _unitOfWork.RollbackAsync();
+                // Swallow: the row stays in the recycle bin and is retried on the next sweep.
+                // Logged so a row that keeps failing every night is visible instead of silent.
+                _logger.LogError(ex,
+                    "recycle-bin-purge: could not purge student {StudentId} of teacher {TeacherId}; " +
+                    "left in the recycle bin for the next sweep.",
+                    student.Id, student.TeacherId);
+            }
         }
 
-        await _unitOfWork.Students.DeleteRangeAsync(expiredRecords);
-        await _unitOfWork.SaveChangesAsync();
-
-        return expiredRecords.Count;
+        return purged;
     }
 
     // ══════════════════════════════════════════════

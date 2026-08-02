@@ -414,6 +414,12 @@
   <data name="StudentPermanentlyDeleted" xml:space="preserve">
     <value>تم حذف الطالب نهائياً. العملية دي مش ممكن التراجع عنها</value>
   </data>
+  <data name="StudentDeleteFailed" xml:space="preserve">
+    <value>مقدرناش نمسح الطالب. مفيش حاجة اتغيرت — جرّب تاني</value>
+  </data>
+  <data name="StudentPermanentDeleteFailed" xml:space="preserve">
+    <value>مقدرناش نمسح الطالب نهائياً. مفيش حاجة اتغيرت — جرّب تاني</value>
+  </data>
   <data name="RecycleBinStudentNotFound" xml:space="preserve">
     <value>الطالب مش موجود في سلة المحذوفات</value>
   </data>
@@ -776,6 +782,21 @@
   </data>
   <data name="DepartureStudentNotAssigned" xml:space="preserve">
     <value>الطالب مش مسجل في أي حصة حاليًا.</value>
+  </data>
+  <data name="DepartureOverrideAmountInvalid" xml:space="preserve">
+    <value>المبلغ اللي دخلته مش صحيح. مينفعش يكون بالسالب ولا أكبر من المبلغ المحسوب.</value>
+  </data>
+  <data name="DepartureOutcomeRefundDueLabel" xml:space="preserve">
+    <value>المبلغ اللي هيترد للطالب: {0} جنيه</value>
+  </data>
+  <data name="DepartureOutcomeAmountOwedLabel" xml:space="preserve">
+    <value>المبلغ اللي لسه على الطالب: {0} جنيه</value>
+  </data>
+  <data name="DepartureOutcomeNoObligationLabel" xml:space="preserve">
+    <value>مفيش أي مستحقات</value>
+  </data>
+  <data name="DepartureRefundReversalReason" xml:space="preserve">
+    <value>استرجاع فلوس عند مغادرة الطالب</value>
   </data>
   <data name="TransferSummaryLoaded" xml:space="preserve">
     <value>تم حساب ملخص النقل بنجاح.</value>

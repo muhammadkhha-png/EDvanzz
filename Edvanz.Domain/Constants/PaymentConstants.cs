@@ -153,6 +153,16 @@ public static class PaymentConstants
         public const string DepartureSummaryLoaded = "DepartureSummaryLoaded";
         public const string DepartureConfirmedSuccess = "DepartureConfirmedSuccess";
         public const string DepartureStudentNotAssigned = "DepartureStudentNotAssigned";
+        /// <summary>422 — the tutor override is negative or exceeds the refundable/paid amount.</summary>
+        public const string DepartureOverrideAmountInvalid = "DepartureOverrideAmountInvalid";
+        /// <summary>Localized outcome label: "Amount to refund to student: {0} EGP".</summary>
+        public const string DepartureOutcomeRefundDueLabel = "DepartureOutcomeRefundDueLabel";
+        /// <summary>Localized outcome label: "Amount student still owes: {0} EGP".</summary>
+        public const string DepartureOutcomeAmountOwedLabel = "DepartureOutcomeAmountOwedLabel";
+        /// <summary>Localized outcome label: "No financial obligation".</summary>
+        public const string DepartureOutcomeNoObligationLabel = "DepartureOutcomeNoObligationLabel";
+        /// <summary>Audit reason stored on the PaymentEditLog written by the departure refund reversal.</summary>
+        public const string DepartureRefundReversalReason = "DepartureRefundReversalReason";
 
         // Transfer
         public const string TransferSummaryLoaded = "TransferSummaryLoaded";

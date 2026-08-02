@@ -325,7 +325,9 @@ public class TeacherStudentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _studentService.SoftDeleteStudentAsync(teacherId.Value, studentId);
+        // actingUserId = JWT user id → recorded as StudentTeacherLink.RemovedByUserId when the
+        // delete ends the student's account link (assistant deletes are attributed correctly).
+        var result = await _studentService.SoftDeleteStudentAsync(teacherId.Value, studentId, GetActingUserId());
         return ToResponse(result);
     }
 
@@ -353,7 +355,7 @@ public class TeacherStudentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _studentService.BulkSoftDeleteStudentsAsync(teacherId.Value, dto);
+        var result = await _studentService.BulkSoftDeleteStudentsAsync(teacherId.Value, dto, GetActingUserId());
         return ToResponse(result);
     }
 

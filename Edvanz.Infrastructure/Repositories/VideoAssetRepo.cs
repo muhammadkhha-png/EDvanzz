@@ -1108,6 +1108,37 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .ExecuteDeleteAsync();
     }
 
+    /// <inheritdoc />
+    public async Task PurgeStudentVideoDataAsync(long teacherStudentId)
+    {
+        // Order is leaf-first. Every FK below is NoAction, so SQL Server cleans NONE of
+        // them on the student's hard delete — without this the purge 500s for any student
+        // who ever opened a video (see IVideoAssetRepo remarks).
+
+        // Watch events: aggregate-detail rows, non-nullable student FK.
+        await _context.VideoWatchEvents
+            .Where(e => e.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        // Per-student analytics rollup, non-nullable student FK.
+        await _context.VideoAnalytics
+            .Where(a => a.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        // Per-student video scope rows: nullable FK, but nulling would leave a Student-typed
+        // scope with no target — delete the row (the video keeps its session/group scopes).
+        await _context.VideoScopes
+            .Where(s => s.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+
+        // Video-quiz attempts. TeacherStudentId here is a plain scalar (no FK), so it does not
+        // block the delete — it is purged for the same "no orphan attempt" reason as the
+        // online-exam reports. Answers/options cascade at the DB level.
+        await _context.StudentVideoExamReports
+            .Where(r => r.TeacherStudentId == teacherStudentId)
+            .ExecuteDeleteAsync();
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // ATTACHMENTS (Track F / §5)
     // ══════════════════════════════════════════════════════════════════════

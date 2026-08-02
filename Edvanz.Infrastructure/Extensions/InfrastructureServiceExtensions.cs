@@ -124,6 +124,8 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<PendingPaymentExpiryJob>();
         // Central file-registry garbage collector (reaps Pending/Detached FileObjects — blob + row).
         services.AddScoped<FileObjectGcJob>();
+        // Daily student recycle-bin purge (REQ-STU-027/028 10-day retention).
+        services.AddScoped<RecycleBinPurgeJob>();
         // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
         //  Hangfire dispatcher + worker (Phase 6) ──
         // Daily fan-out + per-template materialization workers.

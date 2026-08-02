@@ -739,6 +739,41 @@ namespace Edvanz.Infrastructure.Repositories
                 .ToDictionaryAsync(l => l.TeacherStudentId!.Value, l => l.Id);
         }
 
+        /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetActiveStudentTeacherLinkByTeacherStudentIdAsync(
+            long teacherId, long teacherStudentId)
+        {
+            // Tracked (no AsNoTracking) — the teardown path mutates and saves this row.
+            return await _context.Set<StudentTeacherLink>()
+                .FirstOrDefaultAsync(l => l.TeacherId == teacherId &&
+                                          l.TeacherStudentId == teacherStudentId &&
+                                          l.LinkStatus == LinkStatus.Active);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ParentChildTeacherLink>> GetActiveParentChildTeacherLinksByTeacherStudentIdAsync(
+            long teacherId, long teacherStudentId)
+        {
+            return await _context.Set<ParentChildTeacherLink>()
+                .Where(l => l.TeacherId == teacherId &&
+                            l.TeacherStudentId == teacherStudentId &&
+                            l.LinkStatus == LinkStatus.Active)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task DetachLinksFromPurgedStudentAsync(long teacherStudentId)
+        {
+            await _context.Set<StudentTeacherLink>()
+                .Where(l => l.TeacherStudentId == teacherStudentId)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.TeacherStudentId, (long?)null));
+
+            await _context.Set<ParentChildTeacherLink>()
+                .Where(l => l.TeacherStudentId == teacherStudentId)
+                .ExecuteUpdateAsync(s => s.SetProperty(l => l.TeacherStudentId, (long?)null));
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<long>> GetActivelyLinkedTeacherStudentIdsAsync(
             IReadOnlyCollection<long> teacherStudentIds)
         {

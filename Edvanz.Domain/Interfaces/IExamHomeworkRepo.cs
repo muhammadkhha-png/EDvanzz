@@ -152,6 +152,21 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task PurgeExamGraphAsync(long templateId);
 
     /// <summary>
+    /// Purges a STUDENT's exam/homework obligation graph leaf-first (obligation audit logs →
+    /// obligations) — called by the student permanent-purge flow.
+    /// <c>StudentAssignmentObligations.TeacherStudentId</c> is NON-nullable with a
+    /// <c>Restrict</c> FK (and <c>StudentObligationAuditLogs.StudentObligationId</c> is
+    /// <c>Restrict</c> too), so nothing is cleaned automatically and the roster record's hard
+    /// delete used to fail with an FK violation (500) for any student who had ever been given
+    /// an exam or homework.
+    ///
+    /// <c>AssignmentScopes.TeacherStudentId</c> is deliberately NOT touched — that FK is
+    /// <c>SetNull</c>, so the DB nulls it on delete and the template/occurrence chain survives
+    /// (the occurrence generator already skips null targets). Idempotent.
+    /// </summary>
+    Task PurgeStudentAssignmentDataAsync(long teacherStudentId);
+
+    /// <summary>
     /// Marks an occurrence as modified. Used by the scheduler to flip Status from
     /// Pending to Active or Completed.
     /// </summary>

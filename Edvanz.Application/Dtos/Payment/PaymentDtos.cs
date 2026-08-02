@@ -488,6 +488,29 @@ public class DepartureSummaryDto
     public DepartureOutcome DepartureOutcome { get; set; }
     public decimal FinalAmount { get; set; }
     public string OutcomeLabel { get; set; } = null!;
+
+    // ── Anchored-month disclosure (added with the attendance-based refund correction) ──
+    // The refund is always computed against ONE month: the month of the student's LATEST
+    // PAID period in this session (or the teacher-local current month when they never paid).
+    // These fields let the frontend show exactly which month the numbers describe.
+
+    /// <summary>First day of the anchored month the refund was calculated against.</summary>
+    public DateTime PeriodStart { get; set; }
+
+    /// <summary>Display label of the anchored month (e.g. "July 2026").</summary>
+    public string MonthLabel { get; set; } = null!;
+
+    /// <summary>
+    /// Id of the anchored <c>PaymentPeriod</c> (the latest paid month). Null when the student
+    /// never paid in this session — nothing to reverse at confirm time.
+    /// </summary>
+    public long? PaymentPeriodId { get; set; }
+
+    /// <summary>
+    /// Cash the student actually paid for the anchored month (<c>PaymentPeriod.AmountPaid</c>).
+    /// This is the refund base and the hard ceiling for a tutor override on a refund.
+    /// </summary>
+    public decimal PaidAmount { get; set; }
 }
 
 /// <summary>
