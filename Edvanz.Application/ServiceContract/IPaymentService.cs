@@ -300,6 +300,23 @@ public interface IPaymentService
     Task<Result<bool>> OnSessionAmountChangedAsync(long teacherId, long sessionId, decimal newAmount);
 
     /// <summary>
+    /// Called by SessionService after a session's date window changed. Billing periods are only
+    /// generated ONCE — when a student is assigned — and only as far as the session's end date AT
+    /// THAT MOMENT. Extending the end date afterwards therefore left the already-assigned students
+    /// with no obligation for the newly-covered months: the session silently vanished from the
+    /// payment screens for those months and its students read as "paid" with nothing due.
+    ///
+    /// This BACKFILLS the gap: for every currently assigned student of a <c>Monthly</c> session it
+    /// creates the missing monthly periods, from the month after their latest existing period through
+    /// the session's end month, at their effective price (custom amount, else the session amount).
+    /// Idempotent and additive — existing periods are never touched, nothing is created past the end
+    /// date, and a student who is already covered gets nothing. Safe to call on every session update,
+    /// so re-saving a session also REPAIRS historical gaps.
+    /// Runs on the caller's transaction (does not open/commit its own).
+    /// </summary>
+    Task<Result<bool>> BackfillSessionPeriodsThroughEndDateAsync(long teacherId, long sessionId);
+
+    /// <summary>
     /// Called by SessionService when a student is unassigned from a session.
     /// Preserves complete payment history.
     /// </summary>

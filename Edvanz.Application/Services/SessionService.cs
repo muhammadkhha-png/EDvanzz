@@ -246,6 +246,10 @@ public class SessionService : ISessionService
         bool amountChanged = session.SessionAmount != dto.SessionAmount
             && session.PaymentType == dto.PaymentType;
 
+        // ── Track an end-date change so the payment module can backfill the billing months the
+        // original assignment never generated (it only ran to the end date as it was back then). ──
+        bool endDateChanged = session.EndDate != dto.EndDate;
+
         // SES-1: the session mutation AND the occurrence rebuild must be one atomic unit. Previously the
         // session row was committed first and occurrence regeneration ran un-transacted afterwards, so a
         // slot-key collision left the session's day pattern out of sync with its generated occurrences
@@ -284,6 +288,20 @@ public class SessionService : ISessionService
             // Runs on THIS transaction so the price + re-pricing commit atomically.
             if (amountChanged)
                 await _paymentService.OnSessionAmountChangedAsync(teacherId, sessionId, dto.SessionAmount);
+
+            // ── PAYMENT INTEGRATION: billing periods are generated ONCE, at assignment, and only as
+            // far as the end date AT THAT TIME. Extending the window afterwards used to leave the
+            // already-assigned students with NO obligation for the new months, so the session dropped
+            // off the payment screens for those months and its students read as "paid" with nothing
+            // due. Backfill the gap.
+            //
+            // Gated on an end-date change: the backfill walks every assigned student, so running it on
+            // an unrelated edit (rename, price) would cost hundreds of queries for nothing. It is
+            // idempotent and additive (only missing months, never past the end date) and it resumes
+            // from each student's own latest period, so it ALSO repairs sessions whose window was
+            // extended before this fix shipped — re-save the session with its end date changed.
+            if (endDateChanged)
+                await _paymentService.BackfillSessionPeriodsThroughEndDateAsync(teacherId, sessionId);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
