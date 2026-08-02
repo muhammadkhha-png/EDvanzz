@@ -414,6 +414,29 @@ public class TeacherService : ITeacherService
         if (dto.ProratedTiers.Count > 3)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "MaxThreeProratedTiers", HttpStatusCode.BadRequest);
 
+        // Validate the prorated tier list when proration is enabled and tiers are supplied.
+        // NOTE (non-breaking): we deliberately do NOT require full-month coverage / no-gaps,
+        // so the common last tier (e.g. days 21-30) and the app's default tiers
+        // (1-10 @1.0000, 11-20 @0.6667, 21-31 @0.3333) still pass. Only the three checks below.
+        if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count > 0)
+        {
+            // (a) Each FractionRate is a fraction in (0, 1].
+            if (dto.ProratedTiers.Any(t => t.FractionRate <= 0m || t.FractionRate > 1m))
+                return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTierFractionInvalid", HttpStatusCode.BadRequest);
+
+            // (b) Each tier day range is valid: 1 <= Start <= End <= 31.
+            if (dto.ProratedTiers.Any(t => t.ThresholdDayStart < 1 || t.ThresholdDayEnd > 31 || t.ThresholdDayStart > t.ThresholdDayEnd))
+                return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTierDayRangeInvalid", HttpStatusCode.BadRequest);
+
+            // (c) Day ranges must not overlap across tiers (sorted by start, each next start > previous end).
+            var orderedTiers = dto.ProratedTiers.OrderBy(t => t.ThresholdDayStart).ToList();
+            for (int i = 1; i < orderedTiers.Count; i++)
+            {
+                if (orderedTiers[i].ThresholdDayStart <= orderedTiers[i - 1].ThresholdDayEnd)
+                    return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTiersOverlap", HttpStatusCode.BadRequest);
+            }
+        }
+
         // Capacity is admin-approved after onboarding (per-student pricing depends on it):
         // a configured teacher sending a DIFFERENT package id must use the capacity-increase
         // request flow. The same id (or none) is ignored — wire-compat for clients that

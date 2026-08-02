@@ -2204,6 +2204,20 @@ public class PaymentService : IPaymentService
                     .OrderBy(t => t.TierNumber)
                     .FirstOrDefault(t => joinDay >= t.ThresholdDayStart && joinDay <= t.ThresholdDayEnd);
 
+                // GAP FIX: previously, when the join day fell outside every configured tier
+                // range, matchingTier was null and the student was silently billed FULL price.
+                // Clamp to the nearest tier instead: a join day past every tier's end uses the
+                // tier with the max ThresholdDayEnd (e.g. a day-31 join in a 1-10/11-20/21-30
+                // config now uses the 0.3333 tier), and a join day before every tier's start
+                // uses the tier with the min ThresholdDayStart. Exact matches are unchanged.
+                if (matchingTier is null && tiers.Any())
+                {
+                    if (joinDay > tiers.Max(t => t.ThresholdDayEnd))
+                        matchingTier = tiers.OrderByDescending(t => t.ThresholdDayEnd).First();
+                    else if (joinDay < tiers.Min(t => t.ThresholdDayStart))
+                        matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
+                }
+
                 if (matchingTier is not null && matchingTier.FractionRate < 1.0m)
                 {
                     applyProRate = true;

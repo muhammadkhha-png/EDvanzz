@@ -165,6 +165,15 @@
   <data name="MaxThreeProratedTiers" xml:space="preserve">
     <value>You can set up to 3 prorated payment tiers</value>
   </data>
+  <data name="ProratedTierFractionInvalid" xml:space="preserve">
+    <value>Each prorated tier rate must be greater than 0 and at most 1 (for example 0.6667 for 66.67%)</value>
+  </data>
+  <data name="ProratedTierDayRangeInvalid" xml:space="preserve">
+    <value>Each prorated tier day range must be between 1 and 31, and the start day cannot be after the end day</value>
+  </data>
+  <data name="ProratedTiersOverlap" xml:space="preserve">
+    <value>Prorated tier day ranges cannot overlap. Please make sure each tier starts after the previous one ends</value>
+  </data>
   <data name="InvalidCapacityPackage" xml:space="preserve">
     <value>The selected student capacity package is not available. Please refresh and try again</value>
   </data>
@@ -683,6 +692,9 @@
   </data>
   <data name="AttendanceBulkMarkedPartial" xml:space="preserve">
     <value>Attendance was recorded for some of the selected students; the rest were skipped. See the per-student results for details.</value>
+  </data>
+  <data name="AttendanceBulkTargetsRequired" xml:space="preserve">
+    <value>No students were provided. Send either an items list or a list of student ids.</value>
   </data>
   <data name="AttendanceCrossSessionCannotBeAbsent" xml:space="preserve">
     <value>A visiting (cross-session) student can't be marked absent in this session.</value>

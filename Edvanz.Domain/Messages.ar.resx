@@ -165,6 +165,15 @@
   <data name="MaxThreeProratedTiers" xml:space="preserve">
     <value>تقدر تضيف ٣ شرائح للدفع التناسبي كحد أقصى</value>
   </data>
+  <data name="ProratedTierFractionInvalid" xml:space="preserve">
+    <value>نسبة كل شريحة لازم تكون أكبر من صفر وأقل من أو تساوي واحد (مثلاً ٠.٦٦٦٧ يعني ٦٦.٦٧٪)</value>
+  </data>
+  <data name="ProratedTierDayRangeInvalid" xml:space="preserve">
+    <value>مدى أيام كل شريحة لازم يكون بين ١ و٣١، ويوم البداية ما ينفعش يكون بعد يوم النهاية</value>
+  </data>
+  <data name="ProratedTiersOverlap" xml:space="preserve">
+    <value>مدى أيام الشرائح ما ينفعش يتداخل. اتأكد إن كل شريحة بتبدأ بعد ما تخلص اللي قبلها</value>
+  </data>
   <data name="InvalidCapacityPackage" xml:space="preserve">
     <value>باقة السعة اللي اخترتها مش متاحة. من فضلك حدّث الصفحة وحاول تاني</value>
   </data>
@@ -683,6 +692,9 @@
   </data>
   <data name="AttendanceBulkMarkedPartial" xml:space="preserve">
     <value>اتسجل الحضور لبعض الطلبة المختارين، والباقي اتعدّى. بُص على نتيجة كل طالب عشان التفاصيل.</value>
+  </data>
+  <data name="AttendanceBulkTargetsRequired" xml:space="preserve">
+    <value>مفيش طلبة اتبعتوا. ابعت إمّا قايمة العناصر (items) أو قايمة أرقام الطلبة.</value>
   </data>
   <data name="AttendanceCrossSessionCannotBeAbsent" xml:space="preserve">
     <value>الطالب الزائر (من حصة تانية) مينفعش يتسجل غايب في الحصة دي.</value>
