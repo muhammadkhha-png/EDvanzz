@@ -291,6 +291,15 @@ public interface IPaymentService
         string sessionName, DateTime assignedAt);
 
     /// <summary>
+    /// Called by SessionService when a session's <c>SessionAmount</c> changes. Re-prices every
+    /// FUTURE (next month onward, teacher-local) still-owed period of the session to
+    /// <paramref name="newAmount"/>, EXCEPT students who carry their own custom price (BR-PAY-003).
+    /// The current month and past/paid periods are left untouched. Runs on the caller's transaction
+    /// (does not open/commit its own).
+    /// </summary>
+    Task<Result<bool>> OnSessionAmountChangedAsync(long teacherId, long sessionId, decimal newAmount);
+
+    /// <summary>
     /// Called by SessionService when a student is unassigned from a session.
     /// Preserves complete payment history.
     /// </summary>

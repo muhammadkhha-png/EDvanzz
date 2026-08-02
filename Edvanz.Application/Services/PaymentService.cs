@@ -856,11 +856,162 @@ public class PaymentService : IPaymentService
             return Result<bool>.Failure(
                 _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
 
-        counter.CustomPaymentAmount = dto.CustomAmount;
-        await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
-        await _unitOfWork.SaveChangesAsync();
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            counter.CustomPaymentAmount = dto.CustomAmount;
+            await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+
+            // Propagate to the student's FUTURE (next month onward) still-owed periods so a price
+            // change is reflected on upcoming payments — not only on the next generation. The current
+            // month and any fully-paid periods are left untouched (user-confirmed scope).
+            var localDate = _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
+            var nextMonthStart = new DateTime(localDate.Year, localDate.Month, 1).AddMonths(1);
+
+            var periods = await _unitOfWork.PaymentsRepo
+                .GetRepriceableStudentPeriodsAsync(dto.TeacherId, dto.TeacherStudentId, nextMonthStart);
+
+            if (periods.Count > 0)
+            {
+                var sessionAmountCache = new Dictionary<long, decimal>();
+                decimal outstandingDelta = 0m;
+                int paidDelta = 0, unpaidDelta = 0;
+
+                foreach (var p in periods)
+                {
+                    // Custom set → that amount; cleared (null) → revert to the period's own session default.
+                    decimal newBase;
+                    if (dto.CustomAmount.HasValue)
+                    {
+                        newBase = dto.CustomAmount.Value;
+                    }
+                    else if (p.SessionId.HasValue)
+                    {
+                        if (!sessionAmountCache.TryGetValue(p.SessionId.Value, out newBase))
+                        {
+                            var session = await _unitOfWork.SessionsRepo
+                                .GetByIdAndTeacherAsync(p.SessionId.Value, dto.TeacherId);
+                            newBase = session?.SessionAmount ?? p.AmountDue; // no session → leave unchanged
+                            sessionAmountCache[p.SessionId.Value] = newBase;
+                        }
+                    }
+                    else
+                    {
+                        continue; // orphaned period with no session and no custom target — skip
+                    }
+
+                    var d = RepricePeriodInPlace(p, newBase);
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+                    outstandingDelta += d.OutstandingDelta;
+                    paidDelta += d.PaidPeriodsDelta;
+                    unpaidDelta += d.UnpaidPeriodsDelta;
+                }
+
+                // Flush period rewrites before the consecutive-unpaid recompute reads them.
+                await _unitOfWork.SaveChangesAsync();
+                await ApplyRepriceCounterDeltasAsync(
+                    dto.TeacherId, dto.TeacherStudentId, outstandingDelta, paidDelta, unpaidDelta);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
 
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.CustomAmountSetSuccess);
+    }
+
+    // ══════════════════════════════════════════════
+    // PRICE-CHANGE PROPAGATION (session amount / custom amount → upcoming periods)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> OnSessionAmountChangedAsync(
+        long teacherId, long sessionId, decimal newAmount)
+    {
+        // Future (next month onward, teacher-local) still-owed periods of the session, excluding
+        // custom-priced students (BR-PAY-003). Runs on the CALLER's transaction (SessionService) —
+        // it only mutates + SaveChanges, never opens/commits its own boundary (§5.2).
+        var localDate = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var nextMonthStart = new DateTime(localDate.Year, localDate.Month, 1).AddMonths(1);
+
+        var periods = await _unitOfWork.PaymentsRepo
+            .GetRepriceableSessionDefaultPeriodsAsync(teacherId, sessionId, nextMonthStart);
+        if (periods.Count == 0)
+            return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+
+        // Re-price in place, tallying counter deltas per affected student.
+        var deltas = new Dictionary<long, (decimal Outstanding, int Paid, int Unpaid)>();
+        foreach (var p in periods)
+        {
+            if (p.TeacherStudentId is null) continue;
+            var d = RepricePeriodInPlace(p, newAmount);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+
+            var acc = deltas.GetValueOrDefault(p.TeacherStudentId.Value);
+            deltas[p.TeacherStudentId.Value] = (
+                acc.Outstanding + d.OutstandingDelta,
+                acc.Paid + d.PaidPeriodsDelta,
+                acc.Unpaid + d.UnpaidPeriodsDelta);
+        }
+
+        // Flush period rewrites so the per-student consecutive-unpaid recompute reads fresh state.
+        await _unitOfWork.SaveChangesAsync();
+
+        foreach (var (studentId, d) in deltas)
+            await ApplyRepriceCounterDeltasAsync(teacherId, studentId, d.Outstanding, d.Paid, d.Unpaid);
+
+        await _unitOfWork.SaveChangesAsync();
+        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// Rewrites a still-owed period's <c>AmountDue</c> to the new base (re-applying its proration
+    /// fraction), recomputes its status from what's already paid, and returns how the owning
+    /// student's counter aggregates must move. Input periods are always Unpaid/PartiallyPaid, so
+    /// their old outstanding contribution is <c>AmountDue - AmountPaid</c>.
+    /// </summary>
+    private (decimal OutstandingDelta, int PaidPeriodsDelta, int UnpaidPeriodsDelta)
+        RepricePeriodInPlace(PaymentPeriod p, decimal newBase)
+    {
+        decimal oldOutstanding = p.AmountDue - p.AmountPaid;
+
+        decimal newDue = p.IsProRated ? Math.Round(newBase * p.ProRatedFraction, 2) : newBase;
+        p.AmountDue = newDue;
+        p.PaymentStatus = RecomputePeriodStatus(p);
+
+        bool nowPaid = p.PaymentStatus == PaymentStatus.Paid;
+        decimal newOutstanding = nowPaid ? 0m : p.AmountDue - p.AmountPaid;
+
+        return (newOutstanding - oldOutstanding, nowPaid ? 1 : 0, nowPaid ? -1 : 0);
+    }
+
+    /// <summary>
+    /// Applies accumulated re-price deltas to a student's counter and refreshes the
+    /// consecutive-unpaid count (recomputed from the now-flushed periods).
+    /// </summary>
+    private async Task ApplyRepriceCounterDeltasAsync(
+        long teacherId, long teacherStudentId,
+        decimal outstandingDelta, int paidPeriodsDelta, int unpaidPeriodsDelta)
+    {
+        var counter = await _unitOfWork.PaymentsRepo
+            .GetPaymentCounterAsync(teacherId, teacherStudentId);
+        if (counter is null) return;
+
+        counter.TotalOutstanding += outstandingDelta;
+        counter.TotalPaidPeriods += paidPeriodsDelta;
+        counter.TotalUnpaidPeriods += unpaidPeriodsDelta;
+        counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+            .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
+        await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
     }
 
     // ══════════════════════════════════════════════

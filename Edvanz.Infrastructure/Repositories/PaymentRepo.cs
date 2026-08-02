@@ -14,7 +14,7 @@
     /// ARCHITECTURAL NOTE:
     /// Inherits GenericRepo&lt;PaymentTransaction, long&gt; for basic CRUD on the primary entity.
     /// All other entities (PaymentPeriod, StudentPaymentCounter, AssistantWallet, etc.) are
-    /// accessed via _context directly through named methods — keeping query logic in one place.
+    /// accessed via _context directly through named methods ï¿½ keeping query logic in one place.
     ///
     /// QUERY PATTERNS:
     /// - Paged queries use CountAsync + Skip/Take (same as AttendanceRepo).
@@ -232,7 +232,7 @@
         public async Task<List<PaymentPeriod>> GetUnpaidPeriodsThroughAsync(
             long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
         {
-            // Tracked (NOT AsNoTracking) — the caller mutates AmountPaid/PaymentStatus and saves.
+            // Tracked (NOT AsNoTracking) ï¿½ the caller mutates AmountPaid/PaymentStatus and saves.
             // Earliest-first, and only periods that start on/before the cutoff (current month, or
             // current+1 when paying one month in advance). Ordered so a payment fills the oldest
             // debt first and cascades forward.
@@ -246,6 +246,45 @@
                 query = query.Where(p => p.SessionId == sessionId.Value);
 
             return await query.OrderBy(p => p.PeriodSequence).ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetRepriceableSessionDefaultPeriodsAsync(
+            long teacherId, long sessionId, DateTime fromMonthStart)
+        {
+            // Tracked ï¿½ the caller rewrites AmountDue/PaymentStatus. Only future (PeriodStart on/after
+            // next month) periods that are still owed (Unpaid/PartiallyPaid) ï¿½ Paid/Overpaid are left
+            // settled. Students with their own CustomPaymentAmount are excluded (BR-PAY-003): a session
+            // price change must not touch an individually-priced student.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.SessionId == sessionId
+                    && p.TeacherStudentId != null
+                    && p.PeriodStart >= fromMonthStart
+                    && (p.PaymentStatus == PaymentStatus.Unpaid
+                        || p.PaymentStatus == PaymentStatus.PartiallyPaid)
+                    && !_context.StudentPaymentCounters.Any(c =>
+                        c.TeacherId == teacherId
+                        && c.TeacherStudentId == p.TeacherStudentId
+                        && c.CustomPaymentAmount != null))
+                .OrderBy(p => p.TeacherStudentId)
+                .ThenBy(p => p.PeriodSequence)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetRepriceableStudentPeriodsAsync(
+            long teacherId, long teacherStudentId, DateTime fromMonthStart)
+        {
+            // Tracked. Future, still-owed periods for one student (per-student price change).
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId == teacherStudentId
+                    && p.PeriodStart >= fromMonthStart
+                    && (p.PaymentStatus == PaymentStatus.Unpaid
+                        || p.PaymentStatus == PaymentStatus.PartiallyPaid))
+                .OrderBy(p => p.PeriodSequence)
+                .ToListAsync();
         }
 
         /// <inheritdoc />
@@ -314,7 +353,7 @@
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
                 // Eager-load non-deleted transactions so the payment-view period rows can surface each
-                // paid period's collection(s) — incl. the collector (CollectedByUserId) — without an N+1.
+                // paid period's collection(s) ï¿½ incl. the collector (CollectedByUserId) ï¿½ without an N+1.
                 .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
                 .OrderBy(p => p.SessionName)
                 .ThenBy(p => p.PeriodSequence)
@@ -354,7 +393,7 @@
 
             return await query
                 // Eager-load non-deleted transactions so the history screen's period rows carry their
-                // collection(s) — incl. the collector (CollectedByUserId) — without an N+1 per period.
+                // collection(s) ï¿½ incl. the collector (CollectedByUserId) ï¿½ without an N+1 per period.
                 .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
                 .OrderBy(p => p.SessionName)
                 .ThenBy(p => p.PeriodSequence)
@@ -384,7 +423,7 @@
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
         {
             // Money that came IN this window: collections the collector took, at the amount recorded.
-            // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) —
+            // IgnoreQueryFilters includes a collection that was later fully refunded (soft-deleted) ï¿½
             // its AmountPaid is preserved on delete, so pairing it with its negative refund entry nets
             // to zero for a same-window collect-then-refund.
             return await _context.PaymentTransactions
@@ -487,7 +526,7 @@
             long teacherId, DateTime selectedMonthEnd)
         {
             // Buckets reconcile to the tracking screen's TotalStudents: only students CURRENTLY
-            // assigned to a session (SessionId != null — same population as CountAssignedStudentsAsync)
+            // assigned to a session (SessionId != null ï¿½ same population as CountAssignedStudentsAsync)
             // are classified, so paid + prorated + unpaid always sums to that total. Formerly-assigned
             // students that still carry historical periods are intentionally excluded here (they would
             // otherwise inflate the buckets past the assigned headcount).
@@ -609,7 +648,7 @@
         {
             // A counter created earlier in this same unit of work is still in the Added
             // state with a temporary key; forcing it to Modified throws. Leave Added entities
-            // as-is — SaveChanges INSERTs them with the totals already set on the instance.
+            // as-is ï¿½ SaveChanges INSERTs them with the totals already set on the instance.
             // Only already-tracked/persisted rows need the explicit Modified flag.
             var entry = _context.Entry(counter);
             if (entry.State != EntityState.Added)
@@ -788,7 +827,7 @@
         }
 
         // ----------------------------------------------
-        // SCREEN QUERIES (api/v1 — frontend payment.json)
+        // SCREEN QUERIES (api/v1 ï¿½ frontend payment.json)
         // ----------------------------------------------
 
         /// <inheritdoc />
@@ -821,7 +860,7 @@
             int totalCount = await filtered.CountAsync();
 
             // Page first, then LEFT-join each row to its counter (correlated TOP-1 subquery,
-            // bounded to pageSize rows — no N+1 across the full set).
+            // bounded to pageSize rows ï¿½ no N+1 across the full set).
             var raw = await filtered
                 .OrderBy(ts => ts.StudentName)
                 .Skip((page - 1) * pageSize)
@@ -837,7 +876,7 @@
                         .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
                         .Select(c => c.CustomPaymentAmount)
                         .FirstOrDefault(),
-                    // Unpaid status is judged THROUGH the current month only — future pre-generated
+                    // Unpaid status is judged THROUGH the current month only ï¿½ future pre-generated
                     // periods must not make an otherwise-caught-up student read as unpaid.
                     UnpaidMonths = _context.PaymentPeriods
                         .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
@@ -877,7 +916,7 @@
                 .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
                 .Select(ts => ts.Id);
 
-            // Everything is judged THROUGH the selected month — periods that start after the
+            // Everything is judged THROUGH the selected month ï¿½ periods that start after the
             // month end (pre-generated future months) are excluded from every bucket and total.
             var withPeriods = _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId.HasValue
@@ -912,7 +951,7 @@
             else if (string.Equals(status, "partial", StringComparison.OrdinalIgnoreCase))
             {
                 // "Part Paid" chip: students with a period IN the requested month that is
-                // partially settled (0 < AmountPaid < AmountDue). Month-scoped by design —
+                // partially settled (0 < AmountPaid < AmountDue). Month-scoped by design ï¿½
                 // the screen header is month-relative ("monthly collected (march)").
                 targetIds = await _context.PaymentPeriods
                     .Where(p => p.TeacherId == teacherId
@@ -1320,7 +1359,7 @@
                 PaymentType? paymentType,
                 DateTime? startDate, DateTime? endDate)
         {
-            // Exclude orphaned periods (TeacherStudentId nulled when a student is permanently purged) —
+            // Exclude orphaned periods (TeacherStudentId nulled when a student is permanently purged) ï¿½
             // they are no active student's obligation and must never inflate expected/collected.
             var periodQuery = _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null);
@@ -1709,7 +1748,7 @@
         // ----------------------------------------------
 
         /// <inheritdoc />
-        /// Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+        /// Uses ExecuteUpdateAsync ï¿½ single SQL UPDATE, no in-memory loading.
         /// Same pattern as AttendanceRepo.NullifySessionIdOnRecordsForSessionAsync (Step 1.2).
         public async Task<long?> GetLatestCollectorUserIdForStudentSessionAsync(
             long teacherId, long teacherStudentId, long sessionId)
@@ -1753,7 +1792,7 @@
         }
 
         /// <inheritdoc />
-        /// Uses ExecuteUpdateAsync — single SQL UPDATE, no in-memory loading.
+        /// Uses ExecuteUpdateAsync ï¿½ single SQL UPDATE, no in-memory loading.
         /// Same pattern as AttendanceRepo.NullifyStudentReferencesOnRecordsAsync (Step 1.1).
         /// Denormalized StudentName and StudentCode remain intact for historical display.
         public async Task NullifyStudentReferencesOnPaymentRecordsAsync(long teacherStudentId)

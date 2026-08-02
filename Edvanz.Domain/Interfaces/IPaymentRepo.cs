@@ -116,6 +116,24 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
 
     /// <summary>
+    /// FUTURE re-priceable periods for a SESSION (a session-price change): periods of
+    /// <paramref name="sessionId"/> whose PeriodStart is on/after <paramref name="fromMonthStart"/>
+    /// and are still Unpaid or PartiallyPaid, EXCLUDING students who carry an individual
+    /// CustomPaymentAmount (BR-PAY-003 — their price is not affected by session changes). Tracked
+    /// (the caller rewrites AmountDue/PaymentStatus and saves). Ordered by student then sequence.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetRepriceableSessionDefaultPeriodsAsync(
+        long teacherId, long sessionId, DateTime fromMonthStart);
+
+    /// <summary>
+    /// FUTURE re-priceable periods for one STUDENT (a per-student price change): the student's
+    /// periods whose PeriodStart is on/after <paramref name="fromMonthStart"/> and are still Unpaid
+    /// or PartiallyPaid. Tracked so the caller can rewrite AmountDue/PaymentStatus and save.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetRepriceableStudentPeriodsAsync(
+        long teacherId, long teacherStudentId, DateTime fromMonthStart);
+
+    /// <summary>
     /// Total arrears (sum of each unpaid month's remaining due) the student owes through
     /// <paramref name="throughMonthEnd"/> for the session. Server-owned "amount due" for the
     /// collect lookup and mark-paid; never includes months in advance.

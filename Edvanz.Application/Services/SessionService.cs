@@ -240,6 +240,12 @@ public class SessionService : ISessionService
             || session.StartDate != dto.StartDate
             || session.EndDate != dto.EndDate;
 
+        // ── Track a price change so the new amount flows to upcoming (future-month) unpaid periods. ──
+        // A PaymentType switch changes period STRUCTURE (monthly rows vs per-occurrence), not just the
+        // price, so propagation is limited to a pure amount change on the SAME payment type.
+        bool amountChanged = session.SessionAmount != dto.SessionAmount
+            && session.PaymentType == dto.PaymentType;
+
         // SES-1: the session mutation AND the occurrence rebuild must be one atomic unit. Previously the
         // session row was committed first and occurrence regeneration ran un-transacted afterwards, so a
         // slot-key collision left the session's day pattern out of sync with its generated occurrences
@@ -272,6 +278,12 @@ public class SessionService : ISessionService
             // history — and never violates the slot-key unique index. Runs on THIS transaction.
             if (datesOrRecurrenceChanged)
                 await _attendanceService.RegenerateOccurrencesAsync(teacherId, sessionId);
+
+            // ── PAYMENT INTEGRATION: re-price the session's FUTURE unpaid periods to the new amount
+            // (session-default students only; custom-priced students keep their price — BR-PAY-003).
+            // Runs on THIS transaction so the price + re-pricing commit atomically.
+            if (amountChanged)
+                await _paymentService.OnSessionAmountChangedAsync(teacherId, sessionId, dto.SessionAmount);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
