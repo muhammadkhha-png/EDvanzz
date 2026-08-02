@@ -95,7 +95,8 @@ public class PaymentScreenService : IPaymentScreenService
                 StudentName = tx.StudentName,
                 Amount = tx.AmountPaid,
                 Status = "collected",
-                SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
+                // Live session name; the transaction's copy is a stale-on-rename snapshot.
+                SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
                 CollectedAt = tx.CollectedAt
             });
         }
@@ -168,7 +169,10 @@ public class PaymentScreenService : IPaymentScreenService
             StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
             StudentName = tx.StudentName,
             StudentCode = tx.StudentCode,
-            SessionName = string.IsNullOrEmpty(tx.SessionName) ? null : tx.SessionName,
+            // Live session name (eager-loaded); the transaction's own copy is a collection-time
+            // snapshot that goes stale when the session is renamed, and is only the fallback for a
+            // session that no longer exists.
+            SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
             Amount = tx.AmountPaid,
             CollectedAt = tx.CollectedAt
         }));
@@ -774,6 +778,20 @@ public class PaymentScreenService : IPaymentScreenService
     /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>
     private static string FormatTime(TimeSpan t) =>
         new DateTime(1, 1, 1).Add(t).ToString("h:mm tt", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The session name to DISPLAY: the live <c>Session.SessionName</c> when the session still
+    /// exists, else the denormalized snapshot stored on the payment row. Payment rows copy the name
+    /// at write time, so a session renamed afterwards kept showing its OLD name on the payment
+    /// screens (and rows written either side of a rename listed one session under two names). The
+    /// snapshot is retained purely so a DELETED session still reads sensibly in the money history.
+    /// </summary>
+    private static string? ResolveSessionName(string? liveName, string? snapshotName)
+    {
+        if (!string.IsNullOrEmpty(liveName))
+            return liveName;
+        return string.IsNullOrEmpty(snapshotName) ? null : snapshotName;
+    }
 
     /// <summary>
     /// Resolves the "YYYY-MM" month selector, DEFAULTING to the teacher's current local

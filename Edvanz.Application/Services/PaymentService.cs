@@ -2213,7 +2213,10 @@ public class PaymentService : IPaymentService
 
         // Current session = the student's active (session-linked) period. Carried-forward periods
         // (SessionId null, from a transfer) are still shown in the timeline below.
-        var currentSession = periods.FirstOrDefault(p => p.SessionId.HasValue)?.SessionName ?? "Unknown";
+        var currentSessionPeriod = periods.FirstOrDefault(p => p.SessionId.HasValue);
+        var currentSession = currentSessionPeriod is null
+            ? "Unknown"
+            : DisplaySessionName(currentSessionPeriod);
 
         var counter = await _unitOfWork.PaymentsRepo
             .GetPaymentCounterAsync(teacherId, teacherStudentId);
@@ -2305,7 +2308,8 @@ public class PaymentService : IPaymentService
         {
             TeacherId = teacherId,
             CurrentSessionId = headerPeriod?.SessionId,
-            CurrentSessionName = headerPeriod?.SessionName,
+            // Live name when the session still exists (see DisplaySessionName).
+            CurrentSessionName = headerPeriod is null ? null : DisplaySessionName(headerPeriod),
             PaidProgressRatio = paidRatio,
             UpcomingPayment = upcoming,
             PaidSection = new PaymentSectionDto
@@ -2341,13 +2345,24 @@ public class PaymentService : IPaymentService
         };
     }
 
+    /// <summary>
+    /// The name to SHOW for a period's session: the live <c>Session.SessionName</c> when the session
+    /// still exists, falling back to the period's denormalized snapshot only when it does not.
+    /// The snapshot is written once, when the period is generated, so a session renamed afterwards
+    /// kept displaying its OLD name on the payment screens while the sessions screen showed the new
+    /// one. Keeping the snapshot as the fallback preserves the name for deleted sessions, which is
+    /// exactly what it is denormalized for.
+    /// </summary>
+    private static string DisplaySessionName(PaymentPeriod p) =>
+        p.Session?.SessionName ?? p.SessionName;
+
     /// <summary>Maps a period to a tracking-screen row with explicitly-named amounts.</summary>
     private static StudentPaymentPeriodDto BuildTrackingRow(
         PaymentPeriod p, decimal outstanding, DateTime? paidOn, int? monthsOverdue) => new()
     {
         PeriodId = p.Id,
         PeriodStartDate = p.PeriodStart,
-        SessionName = p.SessionName,
+        SessionName = DisplaySessionName(p),
         PeriodType = p.PeriodType,
         Status = p.PaymentStatus,
         AmountDue = p.AmountDue,
@@ -2953,7 +2968,7 @@ public class PaymentService : IPaymentService
     private static PaymentPeriodDto MapToPeriodDto(PaymentPeriod p) => new()
     {
         Id = p.Id,
-        SessionName = p.SessionName,
+        SessionName = DisplaySessionName(p),
         PeriodType = p.PeriodType,
         PeriodStart = p.PeriodStart,
         PeriodEnd = p.PeriodEnd,

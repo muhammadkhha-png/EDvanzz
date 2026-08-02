@@ -201,6 +201,9 @@
                 .OrderByDescending(t => t.CollectedAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
+                // Live session name for the collections ledger; the transaction's own SessionName is
+                // a collection-time snapshot that goes stale when the session is renamed.
+                .Include(t => t.Session)
                 .AsNoTracking()
                 .ToListAsync();
 
@@ -355,6 +358,9 @@
                 // Eager-load non-deleted transactions so the payment-view period rows can surface each
                 // paid period's collection(s) � incl. the collector (CollectedByUserId) � without an N+1.
                 .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
+                // Eager-load the session so the service can display its LIVE name; the period's own
+                // SessionName is a generation-time snapshot that goes stale on a rename.
+                .Include(p => p.Session)
                 .OrderBy(p => p.SessionName)
                 .ThenBy(p => p.PeriodSequence)
                 .AsNoTracking()
@@ -372,6 +378,8 @@
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
                 .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
+                // Live session name for display (the period's copy is a stale-on-rename snapshot).
+                .Include(p => p.Session)
                 .OrderBy(p => p.PeriodStart)
                 .AsNoTracking()
                 .ToListAsync();
@@ -431,6 +439,10 @@
                 .Where(t => t.TeacherId == teacherId
                     && t.CollectedByUserId == collectorUserId
                     && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+                // Eager-load the session so the wallet rows can show its LIVE name. The
+                // transaction's own SessionName is a collection-time snapshot, so collections taken
+                // either side of a rename would otherwise list the SAME session under two names.
+                .Include(t => t.Session)
                 .AsNoTracking()
                 .ToListAsync();
         }
@@ -457,7 +469,11 @@
                     StudentId = l.PaymentTransaction!.TeacherStudentId,
                     StudentName = l.PaymentTransaction.StudentName,
                     StudentCode = l.PaymentTransaction.StudentCode,
-                    SessionName = l.PaymentTransaction.SessionName,
+                    // Live session name; the transaction's copy is a stale-on-rename snapshot and is
+                    // only the fallback for a session that no longer exists.
+                    SessionName = l.PaymentTransaction.Session != null
+                        ? l.PaymentTransaction.Session.SessionName
+                        : l.PaymentTransaction.SessionName,
                     RefundAmount = l.PreviousAmount,
                     RefundedAt = l.EditedAt
                 })
@@ -1451,8 +1467,19 @@
             if (endDate.HasValue)
                 query = query.Where(p => p.PeriodStart <= endDate.Value);
 
+            // Group on the LIVE session name, not the denormalized copy on the period.
+            // PaymentPeriod.SessionName is a snapshot taken when the period was generated, so a
+            // session renamed afterwards kept showing its OLD name on the payment screens while the
+            // sessions screen showed the new one. Worse, periods written either side of a rename
+            // carry DIFFERENT names for the same SessionId, which split one session into two rows.
+            // The snapshot survives only as the fallback for a session that no longer exists
+            // (SessionId is SET NULL-ed / the row was hard-deleted), which is what it is for.
             var result = await query
-                .GroupBy(p => new { p.SessionId, p.SessionName })
+                .GroupBy(p => new
+                {
+                    p.SessionId,
+                    SessionName = p.Session != null ? p.Session.SessionName : p.SessionName
+                })
                 .Select(g => new
                 {
                     SessionId = g.Key.SessionId!.Value,
