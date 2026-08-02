@@ -277,7 +277,7 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     /// <response code="200">Paginated linked students.</response>
     [HttpGet]
     [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionViewList)]
-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentsPageResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

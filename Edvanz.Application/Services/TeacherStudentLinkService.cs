@@ -307,12 +307,12 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
     }
 
     /// <inheritdoc />
-    public async Task<Result<PaginatedResponse<List<LinkedStudentListItemDto>>>> GetLinkedStudentsAsync(
+    public async Task<Result<LinkedStudentsPageResponse>> GetLinkedStudentsAsync(
         long teacherId, int page, int pageSize)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
 
-        var (rows, totalCount) = await _unitOfWork.Users
+        var (rows, totalCount, linkedCount) = await _unitOfWork.Users
             .GetActiveLinkedStudentsForTeacherPagedAsync(teacherId, page, pageSize);
 
         var items = rows.Select(r => new LinkedStudentListItemDto
@@ -328,16 +328,18 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             IsLinked = r.TeacherStudentId.HasValue
         }).ToList();
 
-        var response = new PaginatedResponse<List<LinkedStudentListItemDto>>
+        var response = new LinkedStudentsPageResponse
         {
             data = items,
             page = page,
             pageSize = pageSize,
             totalCount = totalCount,
             totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+            linkedCount = linkedCount,
+            unlinkedCount = totalCount - linkedCount,
         };
 
-        return Result<PaginatedResponse<List<LinkedStudentListItemDto>>>.Success(response, _localizer);
+        return Result<LinkedStudentsPageResponse>.Success(response, _localizer);
     }
 
     /// <inheritdoc />

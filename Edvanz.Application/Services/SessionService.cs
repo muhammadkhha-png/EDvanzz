@@ -547,6 +547,11 @@ public class SessionService : ISessionService
                 teacherId, groupId: group.Id);
             int sessionCount = await _unitOfWork.SessionsRepo.CountAsync(sessionQuery);
 
+            // Distinct active students across the group's sessions (a TeacherStudent has at
+            // most one SessionId, so the target count is inherently deduplicated).
+            int studentCount = await _unitOfWork.SessionsRepo.CountStudentsInTargetsAsync(
+                teacherId, Array.Empty<long>(), new[] { group.Id });
+
             dtos.Add(new SessionGroupDto
             {
                 Id = group.Id,
@@ -554,6 +559,7 @@ public class SessionService : ISessionService
                 GroupName = group.GroupName,
                 Description = group.Description,
                 SessionCount = sessionCount,
+                StudentsNumber = studentCount,
                 CreatedAt = group.CreateAt
             });
         }

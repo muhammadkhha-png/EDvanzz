@@ -651,7 +651,7 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
-        public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+        public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount, int LinkedCount)>
             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize)
         {
             var query = _context.Set<StudentTeacherLink>()
@@ -659,6 +659,9 @@ namespace Edvanz.Infrastructure.Repositories
                 .Where(l => l.TeacherId == teacherId && l.LinkStatus == LinkStatus.Active);
 
             int total = await query.CountAsync();
+            // Linked = bound to a roster record; unlinked = accepted-but-unbound. Counted over
+            // the WHOLE Active set (not just the returned page) so the headcounts are correct.
+            int linked = await query.CountAsync(l => l.TeacherStudentId != null);
 
             // Left-join the roster record: it is null when the teacher deleted the
             // TeacherStudent after linking (SetNull FK — degraded enrollment state).
@@ -685,7 +688,7 @@ namespace Edvanz.Infrastructure.Repositories
                 })
                 .ToListAsync();
 
-            return (items, total);
+            return (items, total, linked);
         }
 
         /// <inheritdoc />

@@ -99,7 +99,7 @@ public interface ITeacherStudentLinkService
     /// Pages the teacher's linked students (Active links), newest first, with both
     /// the account identity and the bound roster record.
     /// </summary>
-    Task<Result<PaginatedResponse<List<LinkedStudentListItemDto>>>> GetLinkedStudentsAsync(
+    Task<Result<LinkedStudentsPageResponse>> GetLinkedStudentsAsync(
         long teacherId, int page, int pageSize);
 
     /// <summary>

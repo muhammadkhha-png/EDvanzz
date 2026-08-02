@@ -130,6 +130,22 @@ public class LinkedStudentListItemDto
 }
 
 /// <summary>
+/// Paginated linked-students envelope. Extends the shared <see cref="PaginatedResponse{T}"/>
+/// (keeping <c>totalCount</c>/<c>page</c>/<c>pageSize</c>/<c>totalPages</c>/<c>data</c>) with
+/// the two connection-status headcounts the mobile app reads: <c>linkedCount</c> (Active links
+/// bound to a roster record) and <c>unlinkedCount</c> (Active but Not linked). Both are counted
+/// across the WHOLE Active-link set, not just the current page.
+/// </summary>
+public class LinkedStudentsPageResponse : PaginatedResponse<List<LinkedStudentListItemDto>>
+{
+    /// <summary>Active links bound to a roster record (<c>TeacherStudentId != null</c>).</summary>
+    public int linkedCount { get; set; }
+
+    /// <summary>Active links not yet bound to a roster record (= totalCount − linkedCount).</summary>
+    public int unlinkedCount { get; set; }
+}
+
+/// <summary>
 /// Bulk remove body — one or many link ids (the user story allows removing
 /// a single linked student or several at once).
 /// </summary>

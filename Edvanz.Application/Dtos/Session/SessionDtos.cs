@@ -431,6 +431,14 @@ public class SessionGroupDto
     /// Number of sessions in this group.
     /// </summary>
     public int SessionCount { get; set; }
+
+    /// <summary>
+    /// Number of active students currently assigned to this group's sessions.
+    /// Serialized as <c>students_number</c> to match the mobile app's key.
+    /// </summary>
+    [JsonPropertyName("students_number")]
+    public int StudentsNumber { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
 

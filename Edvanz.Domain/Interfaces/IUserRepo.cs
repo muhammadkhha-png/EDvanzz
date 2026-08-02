@@ -384,7 +384,7 @@ namespace Edvanz.Domain.Interfaces
         /// Pages the Active links of a teacher (their linked students), newest first,
         /// joined to account identity and the bound TeacherStudent roster record.
         /// </summary>
-        Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount)>
+        Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount, int LinkedCount)>
             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize);
 
         /// <summary>
