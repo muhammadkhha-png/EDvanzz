@@ -255,6 +255,15 @@ public class UnpaidStudentsFilterDto
     public PaymentType? PaymentType { get; set; }
     public int? MinConsecutiveUnpaid { get; set; }
     public string? Search { get; set; }
+
+    /// <summary>
+    /// Optional arrears cutoff as <c>"YYYY-MM"</c>. Outstanding amounts and unpaid-period counts
+    /// are computed only through the END of this month (CLAUDE.md §7.4), so pre-generated future
+    /// periods are never reported as owed. Omitted → the teacher's current local (Africa/Cairo)
+    /// month. A malformed value returns 422.
+    /// </summary>
+    public string? AsOfMonth { get; set; }
+
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 20;
 }

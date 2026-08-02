@@ -871,26 +871,40 @@ public class PaymentService : IPaymentService
     public async Task<Result<PaginatedResponse<List<UnpaidStudentDto>>>> GetUnpaidStudentsAsync(
         long teacherId, UnpaidStudentsFilterDto filter)
     {
+        // Arrears must be judged THROUGH a cutoff month (CLAUDE.md §7.4): periods are pre-generated
+        // to the session end, so the previous counter-driven read reported every future month as
+        // owed and listed fully-paid students as unpaid. No explicit asOfMonth → the teacher's
+        // current local (Africa/Cairo) month, matching the api/v1 screens.
+        if (!TryResolveAsOfMonthEnd(teacherId, filter.AsOfMonth, out var throughMonthEnd))
+            return Result<PaginatedResponse<List<UnpaidStudentDto>>>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
+                HttpStatusCode.UnprocessableEntity);
+
         var (items, totalCount) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
             teacherId, filter.SessionId, filter.SessionGroupId,
             filter.PaymentType, filter.MinConsecutiveUnpaid,
-            filter.Search, filter.Page, filter.PageSize);
+            filter.Search, throughMonthEnd, filter.Page, filter.PageSize);
 
-        var dtos = new List<UnpaidStudentDto>();
-        foreach (var counter in items)
+        var dtos = new List<UnpaidStudentDto>(items.Count);
+        foreach (var row in items)
         {
-            var student = counter.TeacherStudent;
             dtos.Add(new UnpaidStudentDto
             {
-                TeacherStudentId = counter.TeacherStudentId,
-                StudentName = student?.StudentName ?? "Unknown",
-                StudentCode = student?.StudentCode ?? "Unknown",
-                SessionName = student?.Session?.SessionName,
-                SessionId = student?.SessionId,
-                ConsecutiveUnpaid = counter.ConsecutiveUnpaid,
-                TotalUnpaidPeriods = counter.TotalUnpaidPeriods,
-                TotalOutstanding = counter.TotalOutstanding,
-                LastPaymentDate = counter.LastPaymentDate
+                TeacherStudentId = row.TeacherStudentId,
+                StudentName = row.StudentName,
+                StudentCode = row.StudentCode,
+                SessionName = row.SessionName,
+                SessionId = row.SessionId,
+                // Unpaid periods through the cutoff are always a contiguous tail (collection
+                // cascades oldest-first), so the consecutive count IS the total count — BR-PAY-006.
+                // This is what finally makes REQ-PAY-029/030 (2+ consecutive) discriminate.
+                ConsecutiveUnpaid = row.UnpaidPeriodCount,
+                TotalUnpaidPeriods = row.UnpaidPeriodCount,
+                TotalOutstanding = row.TotalOutstanding,
+                LastPaymentDate = row.LastPaymentDate,
+                // REQ-PAY-031: this list was declared on the DTO but never assigned — every
+                // response shipped an empty array.
+                UnpaidPeriodLabels = row.UnpaidPeriods.Select(FormatUnpaidPeriodLabel).ToList()
             });
         }
 
@@ -906,6 +920,47 @@ public class PaymentService : IPaymentService
         return Result<PaginatedResponse<List<UnpaidStudentDto>>>.Success(
             response, _localizer, PaymentConstants.Messages.UnpaidStudentsLoaded);
     }
+
+    /// <summary>
+    /// Resolves the optional "YYYY-MM" arrears cutoff to that month's LAST day, defaulting to the
+    /// teacher's current local (Africa/Cairo) month when omitted (§7.4). Returns false ONLY when a
+    /// value was supplied but is malformed or out of range — the caller maps that to 422.
+    /// </summary>
+    private bool TryResolveAsOfMonthEnd(long teacherId, string? asOfMonth, out DateTime monthEnd)
+    {
+        int year;
+        int month;
+
+        if (string.IsNullOrWhiteSpace(asOfMonth))
+        {
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            year = today.Year;
+            month = today.Month;
+        }
+        else
+        {
+            var parts = asOfMonth.Trim().Split('-');
+            if (parts.Length != 2
+                || !int.TryParse(parts[0], out year) || year < 1 || year > 9999
+                || !int.TryParse(parts[1], out month) || month < 1 || month > 12)
+            {
+                monthEnd = default;
+                return false;
+            }
+        }
+
+        monthEnd = new DateTime(year, month, 1).AddMonths(1).AddDays(-1);
+        return true;
+    }
+
+    /// <summary>
+    /// Display label for one unpaid period: the calendar month for a Monthly obligation, the
+    /// occurrence date for a PerSession one.
+    /// </summary>
+    private static string FormatUnpaidPeriodLabel(UnpaidPeriodRef period) =>
+        period.PeriodType == PeriodType.Monthly
+            ? period.PeriodStart.ToString("MMMM yyyy")
+            : period.PeriodStart.ToString("yyyy-MM-dd");
 
     /// <inheritdoc />
     public async Task<Result<int>> GetUnpaidCountBySessionAsync(long teacherId, long sessionId)

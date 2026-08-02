@@ -1,0 +1,478 @@
+diff --git a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+index 1b0831d..c4fe7ac 100644
+--- a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
++++ b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+@@ -5,6 +5,15 @@ public class UnpaidStudentsFilterDto
+     public PaymentType? PaymentType { get; set; }
+     public int? MinConsecutiveUnpaid { get; set; }
+     public string? Search { get; set; }
++
++    /// <summary>
++    /// Optional arrears cutoff as <c>"YYYY-MM"</c>. Outstanding amounts and unpaid-period counts
++    /// are computed only through the END of this month (CLAUDE.md §7.4), so pre-generated future
++    /// periods are never reported as owed. Omitted → the teacher's current local (Africa/Cairo)
++    /// month. A malformed value returns 422.
++    /// </summary>
++    public string? AsOfMonth { get; set; }
++
+     public int Page { get; set; } = 1;
+     public int PageSize { get; set; } = 20;
+ }
+diff --git a/Edvanz.Application/Services/PaymentReportService.cs b/Edvanz.Application/Services/PaymentReportService.cs
+index c1beea7..f7620db 100644
+--- a/Edvanz.Application/Services/PaymentReportService.cs
++++ b/Edvanz.Application/Services/PaymentReportService.cs
+@@ -1,9 +1,9 @@
+             PaymentReportType.SessionGroupPayment => await GenerateSessionGroupReportAsync(
+                 teacherId, request.SessionGroupId ?? 0, startDate, endDate),
+             PaymentReportType.UnpaidStudents => await GenerateUnpaidStudentsReportAsync(
+-                teacherId, request),
++                teacherId, request, endDate),
+             PaymentReportType.ConsecutiveNonPayment => await GenerateConsecutiveNonPaymentReportAsync(
+-                teacherId, request),
++                teacherId, request, endDate),
+             PaymentReportType.CollectorPerformance => await GenerateCollectorPerformanceReportAsync(
+                 teacherId, startDate, endDate),
+             PaymentReportType.AssistantWalletHistory => await GenerateWalletHistoryReportAsync(
+@@ -22,24 +22,28 @@
+     }
+ 
+     private async Task<object> GenerateUnpaidStudentsReportAsync(
+-        long teacherId, PaymentReportRequestDto request)
++        long teacherId, PaymentReportRequestDto request, DateTime asOfMonthEnd)
+     {
++        // Arrears judged through the report period's END (CLAUDE.md §7.4), never all-time — the
++        // old call counted pre-generated future months as owed. The repo now returns
++        // UnpaidStudentRow projections, so this no longer leaks StudentPaymentCounter entities
++        // (and their Teacher/TeacherStudent graphs and RowVersion) into the serialized report.
+         var (items, total) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
+             teacherId, request.SessionId, request.SessionGroupId,
+             request.PaymentType, request.MinConsecutiveUnpaid,
+-            null, 1, 50000);
++            null, asOfMonthEnd, 1, 50000);
+ 
+         return new { UnpaidStudents = items, Total = total };
+     }
+ 
+     private async Task<object> GenerateConsecutiveNonPaymentReportAsync(
+-        long teacherId, PaymentReportRequestDto request)
++        long teacherId, PaymentReportRequestDto request, DateTime asOfMonthEnd)
+     {
+         var (items, total) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
+             teacherId, request.SessionId, request.SessionGroupId,
+             request.PaymentType,
+             request.MinConsecutiveUnpaid ?? PaymentConstants.DefaultConsecutiveUnpaidThreshold,
+-            null, 1, 50000);
++            null, asOfMonthEnd, 1, 50000);
+ 
+         return new { ConsecutiveNonPayment = items, Total = total };
+     }
+diff --git a/Edvanz.Application/Services/PaymentService.cs b/Edvanz.Application/Services/PaymentService.cs
+index 0570efe..008e819 100644
+--- a/Edvanz.Application/Services/PaymentService.cs
++++ b/Edvanz.Application/Services/PaymentService.cs
+@@ -6,26 +6,40 @@
+     public async Task<Result<PaginatedResponse<List<UnpaidStudentDto>>>> GetUnpaidStudentsAsync(
+         long teacherId, UnpaidStudentsFilterDto filter)
+     {
++        // Arrears must be judged THROUGH a cutoff month (CLAUDE.md §7.4): periods are pre-generated
++        // to the session end, so the previous counter-driven read reported every future month as
++        // owed and listed fully-paid students as unpaid. No explicit asOfMonth → the teacher's
++        // current local (Africa/Cairo) month, matching the api/v1 screens.
++        if (!TryResolveAsOfMonthEnd(teacherId, filter.AsOfMonth, out var throughMonthEnd))
++            return Result<PaginatedResponse<List<UnpaidStudentDto>>>.Failure(
++                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
++                HttpStatusCode.UnprocessableEntity);
++
+         var (items, totalCount) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
+             teacherId, filter.SessionId, filter.SessionGroupId,
+             filter.PaymentType, filter.MinConsecutiveUnpaid,
+-            filter.Search, filter.Page, filter.PageSize);
++            filter.Search, throughMonthEnd, filter.Page, filter.PageSize);
+ 
+-        var dtos = new List<UnpaidStudentDto>();
+-        foreach (var counter in items)
++        var dtos = new List<UnpaidStudentDto>(items.Count);
++        foreach (var row in items)
+         {
+-            var student = counter.TeacherStudent;
+             dtos.Add(new UnpaidStudentDto
+             {
+-                TeacherStudentId = counter.TeacherStudentId,
+-                StudentName = student?.StudentName ?? "Unknown",
+-                StudentCode = student?.StudentCode ?? "Unknown",
+-                SessionName = student?.Session?.SessionName,
+-                SessionId = student?.SessionId,
+-                ConsecutiveUnpaid = counter.ConsecutiveUnpaid,
+-                TotalUnpaidPeriods = counter.TotalUnpaidPeriods,
+-                TotalOutstanding = counter.TotalOutstanding,
+-                LastPaymentDate = counter.LastPaymentDate
++                TeacherStudentId = row.TeacherStudentId,
++                StudentName = row.StudentName,
++                StudentCode = row.StudentCode,
++                SessionName = row.SessionName,
++                SessionId = row.SessionId,
++                // Unpaid periods through the cutoff are always a contiguous tail (collection
++                // cascades oldest-first), so the consecutive count IS the total count — BR-PAY-006.
++                // This is what finally makes REQ-PAY-029/030 (2+ consecutive) discriminate.
++                ConsecutiveUnpaid = row.UnpaidPeriodCount,
++                TotalUnpaidPeriods = row.UnpaidPeriodCount,
++                TotalOutstanding = row.TotalOutstanding,
++                LastPaymentDate = row.LastPaymentDate,
++                // REQ-PAY-031: this list was declared on the DTO but never assigned — every
++                // response shipped an empty array.
++                UnpaidPeriodLabels = row.UnpaidPeriods.Select(FormatUnpaidPeriodLabel).ToList()
+             });
+         }
+ 
+@@ -42,6 +56,47 @@
+             response, _localizer, PaymentConstants.Messages.UnpaidStudentsLoaded);
+     }
+ 
++    /// <summary>
++    /// Resolves the optional "YYYY-MM" arrears cutoff to that month's LAST day, defaulting to the
++    /// teacher's current local (Africa/Cairo) month when omitted (§7.4). Returns false ONLY when a
++    /// value was supplied but is malformed or out of range — the caller maps that to 422.
++    /// </summary>
++    private bool TryResolveAsOfMonthEnd(long teacherId, string? asOfMonth, out DateTime monthEnd)
++    {
++        int year;
++        int month;
++
++        if (string.IsNullOrWhiteSpace(asOfMonth))
++        {
++            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
++            year = today.Year;
++            month = today.Month;
++        }
++        else
++        {
++            var parts = asOfMonth.Trim().Split('-');
++            if (parts.Length != 2
++                || !int.TryParse(parts[0], out year) || year < 1 || year > 9999
++                || !int.TryParse(parts[1], out month) || month < 1 || month > 12)
++            {
++                monthEnd = default;
++                return false;
++            }
++        }
++
++        monthEnd = new DateTime(year, month, 1).AddMonths(1).AddDays(-1);
++        return true;
++    }
++
++    /// <summary>
++    /// Display label for one unpaid period: the calendar month for a Monthly obligation, the
++    /// occurrence date for a PerSession one.
++    /// </summary>
++    private static string FormatUnpaidPeriodLabel(UnpaidPeriodRef period) =>
++        period.PeriodType == PeriodType.Monthly
++            ? period.PeriodStart.ToString("MMMM yyyy")
++            : period.PeriodStart.ToString("yyyy-MM-dd");
++
+     /// <inheritdoc />
+     public async Task<Result<int>> GetUnpaidCountBySessionAsync(long teacherId, long sessionId)
+     {
+diff --git a/Edvanz.Domain/Interfaces/IPaymentRepo.cs b/Edvanz.Domain/Interfaces/IPaymentRepo.cs
+index f96a128..a08ffe9 100644
+--- a/Edvanz.Domain/Interfaces/IPaymentRepo.cs
++++ b/Edvanz.Domain/Interfaces/IPaymentRepo.cs
+@@ -5,15 +5,24 @@
+     Task UpdatePaymentCounterAsync(StudentPaymentCounter counter);
+ 
+     /// <summary>
+-    /// Gets unpaid students with counters for the Unpaid Students Overview.
+-    /// REQ-PAY-031/032/033: Filterable by session, group, payment type, consecutive count.
++    /// Unpaid Students Overview rows (REQ-PAY-031/032/033), derived from <c>PaymentPeriods</c>
++    /// and judged ONLY through <paramref name="throughMonthEnd"/> (<c>PeriodStart &lt;= cutoff</c>)
++    /// per CLAUDE.md §7.4 — periods are pre-generated to the session end, so a counter-derived
++    /// read counts months that are not yet owed.
++    ///
++    /// Scoped by the PERIOD's session/group, not the student's current assignment: a student who
++    /// transferred out still owes the old session's arrears. Only ACTIVE (non-recycled) students
++    /// are returned. <paramref name="paymentType"/> maps onto <c>PaymentPeriod.PeriodType</c>.
++    /// <paramref name="minConsecutiveUnpaid"/> filters on the unpaid-period count, which — because
++    /// collection cascades oldest-first — is also the consecutive count (BR-PAY-006).
+     /// </summary>
+-    Task<(IReadOnlyList<StudentPaymentCounter> Items, int TotalCount)> GetUnpaidStudentsPagedAsync(
++    Task<(IReadOnlyList<UnpaidStudentRow> Items, int TotalCount)> GetUnpaidStudentsPagedAsync(
+         long teacherId,
+         long? sessionId, long? sessionGroupId,
+         PaymentType? paymentType,
+         int? minConsecutiveUnpaid,
+         string? search,
++        DateTime throughMonthEnd,
+         int page, int pageSize);
+ 
+     /// <summary>
+diff --git a/Edvanz.Domain/Models/UnpaidStudentRow.cs b/Edvanz.Domain/Models/UnpaidStudentRow.cs
+new file mode 100644
+index 0000000..c212082
+--- /dev/null
++++ b/Edvanz.Domain/Models/UnpaidStudentRow.cs
+@@ -0,0 +1,79 @@
++using Edvanz.Domain.Enums;
++
++namespace Edvanz.Domain.Interfaces;
++
++// ════════════════════════════════════════════════════════════════════════════
++// PAYMENT MODULE (MODULE 4) — UNPAID STUDENTS OVERVIEW PROJECTIONS
++// ════════════════════════════════════════════════════════════════════════════
++//
++// Same convention as PaymentRepoProjections.cs: projections live in the Domain
++// layer alongside the repo interface so the Application service maps them to
++// client-facing DTOs without the repo knowing about Application DTO types.
++//
++// Kept in a dedicated file rather than appended to PaymentRepoProjections.cs so
++// the change is additive and cannot conflict with edits to that file.
++// ════════════════════════════════════════════════════════════════════════════
++
++/// <summary>
++/// Projection row for the Unpaid Students Overview (REQ-PAY-031/032/033), derived from
++/// <c>PaymentPeriods</c> rather than the all-time <c>StudentPaymentCounter</c>.
++///
++/// Every figure here is judged THROUGH the caller's cutoff month
++/// (<c>PeriodStart &lt;= throughMonthEnd</c>), per CLAUDE.md §7.4: periods are pre-generated
++/// to the session end, so counter-derived arrears count months that are not yet owed.
++/// </summary>
++public sealed class UnpaidStudentRow
++{
++    public long TeacherStudentId { get; set; }
++
++    /// <summary>Live student name from the TeacherStudent record.</summary>
++    public string StudentName { get; set; } = null!;
++
++    /// <summary>Live student code from the TeacherStudent record.</summary>
++    public string StudentCode { get; set; } = null!;
++
++    /// <summary>The student's CURRENT session assignment (null when unassigned) — display only.
++    /// The rows themselves are scoped by the PERIOD's session, not by this field.</summary>
++    public long? SessionId { get; set; }
++
++    /// <summary>Name of the student's current session assignment. Null when unassigned.</summary>
++    public string? SessionName { get; set; }
++
++    /// <summary>
++    /// Number of unpaid periods through the cutoff month. Because the collection engine settles
++    /// oldest-first, these are always a contiguous tail — so this is simultaneously the total
++    /// unpaid count and the CONSECUTIVE unpaid count (BR-PAY-006 / REQ-PAY-029).
++    /// </summary>
++    public int UnpaidPeriodCount { get; set; }
++
++    /// <summary>Sum of <c>(AmountDue - AmountPaid)</c> over those periods.</summary>
++    public decimal TotalOutstanding { get; set; }
++
++    /// <summary>
++    /// Date of the student's last payment, from <c>StudentPaymentCounter</c>. A historical fact,
++    /// so it is not affected by the pre-generated-future-period problem.
++    /// </summary>
++    public DateTime? LastPaymentDate { get; set; }
++
++    /// <summary>
++    /// The individual unpaid periods behind <see cref="UnpaidPeriodCount"/>, earliest first.
++    /// Dates only — display formatting/localization belongs to the Application layer.
++    /// </summary>
++    public IReadOnlyList<UnpaidPeriodRef> UnpaidPeriods { get; set; } = Array.Empty<UnpaidPeriodRef>();
++}
++
++/// <summary>
++/// One unpaid billing period behind an <see cref="UnpaidStudentRow"/>. Monthly periods span a
++/// calendar month; PerSession periods collapse to a single occurrence date
++/// (<c>PeriodStart == PeriodEnd</c>).
++/// </summary>
++public sealed class UnpaidPeriodRef
++{
++    public PeriodType PeriodType { get; set; }
++    public DateTime PeriodStart { get; set; }
++    public DateTime PeriodEnd { get; set; }
++
++    /// <summary>Still owed on this period: <c>AmountDue - AmountPaid</c>. Partial payments show a
++    /// remainder smaller than the full due amount.</summary>
++    public decimal AmountRemaining { get; set; }
++}
+diff --git a/Edvanz.Infrastructure/Repositories/PaymentRepo.cs b/Edvanz.Infrastructure/Repositories/PaymentRepo.cs
+index 0901e5e..35f4f10 100644
+--- a/Edvanz.Infrastructure/Repositories/PaymentRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/PaymentRepo.cs
+@@ -14,54 +14,158 @@
+     }
+ 
+     /// <inheritdoc />
+-    public async Task<(IReadOnlyList<StudentPaymentCounter> Items, int TotalCount)>
++    public async Task<(IReadOnlyList<UnpaidStudentRow> Items, int TotalCount)>
+         GetUnpaidStudentsPagedAsync(
+             long teacherId,
+             long? sessionId, long? sessionGroupId,
+             PaymentType? paymentType,
+             int? minConsecutiveUnpaid,
+             string? search,
++            DateTime throughMonthEnd,
+             int page, int pageSize)
+     {
+-        var query = _context.StudentPaymentCounters
+-            .Where(c => c.TeacherId == teacherId && c.TotalOutstanding > 0)
+-            .Include(c => c.TeacherStudent)
+-                .ThenInclude(ts => ts!.Session);
++        // Active (non-deleted) students only — the global !IsDeleted filter applies. A student in
++        // the recycle bin cannot be collected from (PaymentStudentInRecycleBin), so listing their
++        // arrears in a "go collect" view is noise. Previously such rows surfaced as "Unknown".
++        var activeStudentIds = _context.TeacherStudents
++            .Where(ts => ts.TeacherId == teacherId)
++            .Select(ts => ts.Id);
+ 
+-        IQueryable<StudentPaymentCounter> filteredQuery = query;
++        // Arrears are judged ONLY through the cutoff month (CLAUDE.md §7.4). Periods are
++        // pre-generated to the session end, so an all-time scan reports every FUTURE month as
++        // owed — the defect this replaces. Orphaned periods (TeacherStudentId nulled on student
++        // purge) are excluded: they are nobody's obligation.
++        // Backed by IX_PP_TeacherId_Status_PeriodStart (TeacherId, PaymentStatus, PeriodStart).
++        var periods = _context.PaymentPeriods
++            .Where(p => p.TeacherId == teacherId
++                && p.TeacherStudentId != null
++                && activeStudentIds.Contains(p.TeacherStudentId!.Value)
++                && p.PaymentStatus != PaymentStatus.Paid
++                && p.PeriodStart <= throughMonthEnd);
+ 
++        // Scoped by the PERIOD's session/group — NOT the student's current assignment. A student
++        // who transferred out of a session still owes that session's arrears and must appear
++        // under it. Consistent with GetDashboardAggregatesAsync / GetDashboardPerSessionAsync.
+         if (sessionId.HasValue)
+-            filteredQuery = filteredQuery.Where(c =>
+-                c.TeacherStudent != null && c.TeacherStudent.SessionId == sessionId.Value);
++            periods = periods.Where(p => p.SessionId == sessionId.Value);
+ 
+         if (sessionGroupId.HasValue)
+-            filteredQuery = filteredQuery.Where(c =>
+-                c.TeacherStudent != null
+-                && c.TeacherStudent.Session != null
+-                && c.TeacherStudent.Session.SessionGroupId == sessionGroupId.Value);
++            periods = periods.Where(p =>
++                p.Session != null && p.Session.SessionGroupId == sessionGroupId.Value);
+ 
+-        if (minConsecutiveUnpaid.HasValue)
+-            filteredQuery = filteredQuery.Where(c =>
+-                c.ConsecutiveUnpaid >= minConsecutiveUnpaid.Value);
++        // PeriodType mirrors the session's PaymentType at generation time and shares its member
++        // values (Monthly = 1, PerSession = 2), so the filter maps by a direct cast. This
++        // parameter was previously accepted and silently ignored.
++        if (paymentType.HasValue)
++        {
++            var periodType = (PeriodType)(byte)paymentType.Value;
++            periods = periods.Where(p => p.PeriodType == periodType);
++        }
+ 
+         if (!string.IsNullOrWhiteSpace(search))
+         {
+             string searchLower = search.Trim().ToLower();
+-            filteredQuery = filteredQuery.Where(c =>
+-                c.TeacherStudent != null
+-                && (c.TeacherStudent.StudentName.ToLower().Contains(searchLower)
+-                    || c.TeacherStudent.StudentCode.ToLower().Contains(searchLower)));
++            periods = periods.Where(p =>
++                p.TeacherStudent != null
++                && (p.TeacherStudent.StudentName.ToLower().Contains(searchLower)
++                    || p.TeacherStudent.StudentCode.ToLower().Contains(searchLower)));
+         }
+ 
+-        int totalCount = await filteredQuery.CountAsync();
+-        var items = await filteredQuery
+-            .OrderByDescending(c => c.ConsecutiveUnpaid)
+-            .ThenByDescending(c => c.TotalOutstanding)
++        // One row per student: arrears and unpaid-period count THROUGH the cutoff. The collection
++        // engine settles oldest-first (cascade), so unpaid periods through a given month are
++        // always a contiguous tail — the unpaid count IS the consecutive count (BR-PAY-006).
++        var grouped = periods
++            .GroupBy(p => p.TeacherStudentId!.Value)
++            .Select(g => new
++            {
++                TeacherStudentId = g.Key,
++                TotalOutstanding = g.Sum(p => p.AmountDue - p.AmountPaid),
++                UnpaidPeriodCount = g.Count()
++            });
++
++        if (minConsecutiveUnpaid.HasValue)
++            grouped = grouped.Where(x => x.UnpaidPeriodCount >= minConsecutiveUnpaid.Value);
++
++        int totalCount = await grouped.CountAsync();
++
++        var pageRows = await grouped
++            .OrderByDescending(x => x.UnpaidPeriodCount)
++            .ThenByDescending(x => x.TotalOutstanding)
++            // Deterministic tiebreak — ties are common, and Skip/Take must be stable across pages.
++            .ThenBy(x => x.TeacherStudentId)
+             .Skip((page - 1) * pageSize)
+             .Take(pageSize)
++            .ToListAsync();
++
++        if (pageRows.Count == 0)
++            return (Array.Empty<UnpaidStudentRow>(), totalCount);
++
++        var pageIds = pageRows.Select(r => r.TeacherStudentId).ToList();
++
++        // Display fields for the PAGE's students only (bounded fan-out, no N+1). LastPaymentDate
++        // is a historical fact, so it is still read from the counter — unlike the arrears totals,
++        // it is not distorted by pre-generated future periods.
++        var students = await _context.TeacherStudents
++            .Where(ts => ts.TeacherId == teacherId && pageIds.Contains(ts.Id))
++            .Select(ts => new
++            {
++                ts.Id,
++                ts.StudentName,
++                ts.StudentCode,
++                ts.SessionId,
++                SessionName = ts.Session != null ? ts.Session.SessionName : null,
++                LastPaymentDate = _context.StudentPaymentCounters
++                    .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
++                    .Select(c => c.LastPaymentDate)
++                    .FirstOrDefault()
++            })
++            .AsNoTracking()
++            .ToDictionaryAsync(x => x.Id);
++
++        // The individual unpaid periods behind each row (REQ-PAY-031 detail). Same filters and
++        // cutoff as the aggregate above, so labels can never disagree with the counts. Formatting
++        // stays in the Application layer — the repo returns dates, not display strings.
++        var periodRefs = await periods
++            .Where(p => pageIds.Contains(p.TeacherStudentId!.Value))
++            .OrderBy(p => p.PeriodSequence)
++            .Select(p => new
++            {
++                StudentId = p.TeacherStudentId!.Value,
++                Ref = new UnpaidPeriodRef
++                {
++                    PeriodType = p.PeriodType,
++                    PeriodStart = p.PeriodStart,
++                    PeriodEnd = p.PeriodEnd,
++                    AmountRemaining = p.AmountDue - p.AmountPaid
++                }
++            })
+             .AsNoTracking()
+             .ToListAsync();
+ 
++        var refsByStudent = periodRefs
++            .GroupBy(x => x.StudentId)
++            .ToDictionary(g => g.Key, g => (IReadOnlyList<UnpaidPeriodRef>)g.Select(x => x.Ref).ToList());
++
++        var items = new List<UnpaidStudentRow>(pageRows.Count);
++        foreach (var row in pageRows)
++        {
++            students.TryGetValue(row.TeacherStudentId, out var student);
++            items.Add(new UnpaidStudentRow
++            {
++                TeacherStudentId = row.TeacherStudentId,
++                StudentName = student?.StudentName ?? string.Empty,
++                StudentCode = student?.StudentCode ?? string.Empty,
++                SessionId = student?.SessionId,
++                SessionName = student?.SessionName,
++                UnpaidPeriodCount = row.UnpaidPeriodCount,
++                TotalOutstanding = row.TotalOutstanding,
++                LastPaymentDate = student?.LastPaymentDate,
++                UnpaidPeriods = refsByStudent.TryGetValue(row.TeacherStudentId, out var refs)
++                    ? refs
++                    : Array.Empty<UnpaidPeriodRef>()
++            });
++        }
++
+         return (items, totalCount);
+     }
+ 

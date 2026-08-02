@@ -293,15 +293,24 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task UpdatePaymentCounterAsync(StudentPaymentCounter counter);
 
     /// <summary>
-    /// Gets unpaid students with counters for the Unpaid Students Overview.
-    /// REQ-PAY-031/032/033: Filterable by session, group, payment type, consecutive count.
+    /// Unpaid Students Overview rows (REQ-PAY-031/032/033), derived from <c>PaymentPeriods</c>
+    /// and judged ONLY through <paramref name="throughMonthEnd"/> (<c>PeriodStart &lt;= cutoff</c>)
+    /// per CLAUDE.md §7.4 — periods are pre-generated to the session end, so a counter-derived
+    /// read counts months that are not yet owed.
+    ///
+    /// Scoped by the PERIOD's session/group, not the student's current assignment: a student who
+    /// transferred out still owes the old session's arrears. Only ACTIVE (non-recycled) students
+    /// are returned. <paramref name="paymentType"/> maps onto <c>PaymentPeriod.PeriodType</c>.
+    /// <paramref name="minConsecutiveUnpaid"/> filters on the unpaid-period count, which — because
+    /// collection cascades oldest-first — is also the consecutive count (BR-PAY-006).
     /// </summary>
-    Task<(IReadOnlyList<StudentPaymentCounter> Items, int TotalCount)> GetUnpaidStudentsPagedAsync(
+    Task<(IReadOnlyList<UnpaidStudentRow> Items, int TotalCount)> GetUnpaidStudentsPagedAsync(
         long teacherId,
         long? sessionId, long? sessionGroupId,
         PaymentType? paymentType,
         int? minConsecutiveUnpaid,
         string? search,
+        DateTime throughMonthEnd,
         int page, int pageSize);
 
     /// <summary>

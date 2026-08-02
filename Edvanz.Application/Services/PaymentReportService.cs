@@ -14,7 +14,8 @@ namespace Edvanz.Application.Services;
 /// REQ-PAY-048 through REQ-PAY-065: Ten report types.
 /// REQ-PAY-051: All operations complete within 5 seconds for 50K students.
 ///
-/// Uses IPaymentRepo named methods for all queries — no raw expressions.
+/// Uses IPaymentRepo named methods for all queries — no raw expressions
+/// 
 /// Uses IPaymentReportExportService for PDF/Excel file generation.
 /// </summary>
 public class PaymentReportService : IPaymentReportService
@@ -58,9 +59,9 @@ public class PaymentReportService : IPaymentReportService
             PaymentReportType.SessionGroupPayment => await GenerateSessionGroupReportAsync(
                 teacherId, request.SessionGroupId ?? 0, startDate, endDate),
             PaymentReportType.UnpaidStudents => await GenerateUnpaidStudentsReportAsync(
-                teacherId, request),
+                teacherId, request, endDate),
             PaymentReportType.ConsecutiveNonPayment => await GenerateConsecutiveNonPaymentReportAsync(
-                teacherId, request),
+                teacherId, request,endDate),
             PaymentReportType.CollectorPerformance => await GenerateCollectorPerformanceReportAsync(
                 teacherId, startDate, endDate),
             PaymentReportType.AssistantWalletHistory => await GenerateWalletHistoryReportAsync(
@@ -177,28 +178,29 @@ public class PaymentReportService : IPaymentReportService
     }
 
     private async Task<object> GenerateUnpaidStudentsReportAsync(
-        long teacherId, PaymentReportRequestDto request)
+            long teacherId, PaymentReportRequestDto request, DateTime asOfMonthEnd)
     {
+        // Arrears judged through the report period's END (CLAUDE.md §7.4), never all-time — the
+        // old call counted pre-generated future months as owed. The repo now returns
+        // UnpaidStudentRow projections, so this no longer leaks StudentPaymentCounter entities
+        // (and their Teacher/TeacherStudent graphs and RowVersion) into the serialized report.
         var (items, total) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
             teacherId, request.SessionId, request.SessionGroupId,
             request.PaymentType, request.MinConsecutiveUnpaid,
-            null, 1, 50000);
+            null, asOfMonthEnd, 1, 50000);
 
         return new { UnpaidStudents = items, Total = total };
     }
-
     private async Task<object> GenerateConsecutiveNonPaymentReportAsync(
-        long teacherId, PaymentReportRequestDto request)
+           long teacherId, PaymentReportRequestDto request, DateTime asOfMonthEnd)
     {
         var (items, total) = await _unitOfWork.PaymentsRepo.GetUnpaidStudentsPagedAsync(
             teacherId, request.SessionId, request.SessionGroupId,
             request.PaymentType,
             request.MinConsecutiveUnpaid ?? PaymentConstants.DefaultConsecutiveUnpaidThreshold,
-            null, 1, 50000);
-
+            null, asOfMonthEnd, 1, 50000);
         return new { ConsecutiveNonPayment = items, Total = total };
     }
-
     private async Task<object> GenerateCollectorPerformanceReportAsync(
         long teacherId, DateTime startDate, DateTime endDate)
     {
