@@ -31,26 +31,21 @@ namespace Edvanz.API.Controllers;
 ///        Method B (ManualProfile):  active ParentChildTeacherLink(childId, teacherId).
 /// A parent reads attendance only for their own children, only under teachers actually
 /// linked to that child (REQ-ATT-NFR-003). Teacher-controlled parent visibility
-/// (AAM-FR-04.9) is enforced in the service via AttendanceViewerType.Parent.
+/// (AAM-FR-04.9) is enforced in the service via ContentViewerType.Parent.
 /// </summary>
 [Route("api/attendance/parent")]
 [Authorize]
-public sealed class ParentAttendanceController : ApiBaseController
+public sealed class ParentAttendanceController : ParentScopedApiBaseController
 {
     private readonly IAttendanceService _attendanceService;
-    private readonly ICurrentUserService _currentUser;
-    private readonly IUnitOfWork _unitOfWork;
-    private readonly IStringLocalizer<Messages> _localizer;
 
     public ParentAttendanceController(
         IAttendanceService attendanceService,
         ICurrentUserService currentUser,
         IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+        : base(currentUser, unitOfWork, localizer)
     {
         _attendanceService = attendanceService;
-        _currentUser = currentUser;
-        _unitOfWork = unitOfWork;
-        _localizer = localizer;
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -71,7 +66,7 @@ public sealed class ParentAttendanceController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _attendanceService.GetStudentViewAttendanceSummaryAsync(
-            teacherId, resolution.TeacherStudentId!.Value, AttendanceViewerType.Parent);
+            teacherId, resolution.TeacherStudentId!.Value, ContentViewerType.Parent);
         return ToResponse(result);
     }
 
@@ -94,88 +89,8 @@ public sealed class ParentAttendanceController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _attendanceService.GetStudentViewAttendanceAsync(
-            teacherId, resolution.TeacherStudentId!.Value, request, AttendanceViewerType.Parent);
+            teacherId, resolution.TeacherStudentId!.Value, request, ContentViewerType.Parent);
         return ToResponse(result);
     }
 
-    // ──────────────────────────────────────────────────────────────────────
-    // PRIVATE HELPERS
-    // Same shape as StudentAttendanceController / StudentVideosController, plus the
-    // Method-A/B branch. With three copies of this resolution pattern now in play,
-    // extracting a shared CallerScopedApiBaseController (error helpers + resolution
-    // struct + the StudentTeacherLink sub-step) is worth a dedicated refactor pass.
-    // ──────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Resolves the named child's TeacherStudent.Id under the named teacher, for the
-    /// calling parent. Verifies parent ownership of the child, then branches on link
-    /// method (AAM-FR-06.3). Returns either the resolved id or a 401/403/404 result.
-    /// </summary>
-    private async Task<ChildResolution> ResolveChildForParentAsync(long childId, long teacherId)
-    {
-        long? userId = _currentUser.UserId;
-        if (userId is null)
-            return ChildResolution.Error(Unauthorized());
-
-        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
-        if (parentUser is null)
-            return ChildResolution.Error(NotFoundError("ParentUserNotFound"));
-
-        var child = await _unitOfWork.Users.GetActiveChildAsync(parentUser.Id, childId);
-        if (child is null)
-            return ChildResolution.Error(NotFoundError("ChildNotFound"));
-
-        // Method A — child has a StudentUser account: reuse the student-teacher link.
-        if (child.LinkMethod == ChildLinkMethod.StudentAccount)
-        {
-            if (child.StudentUserId is null)
-                return ChildResolution.Error(ForbiddenError("ChildEnrollmentRemoved"));
-
-            var link = await _unitOfWork.Users
-                .GetActiveStudentTeacherLinkAsync(child.StudentUserId.Value, teacherId);
-            if (link is null || link.LinkStatus != LinkStatus.Active)
-                return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
-            if (link.TeacherStudentId is null)
-                return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
-
-            return ChildResolution.Ok(link.TeacherStudentId.Value);
-        }
-
-        // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
-        var parentLink = await _unitOfWork.Users
-            .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
-        if (parentLink is null || parentLink.LinkStatus != LinkStatus.Active)
-            return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
-        if (parentLink.TeacherStudentId is null)
-            return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
-
-        return ChildResolution.Ok(parentLink.TeacherStudentId.Value);
-    }
-
-    private IActionResult NotFoundError(string message) =>
-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
-        {
-            StatusCode = (int)HttpStatusCode.NotFound,
-        };
-
-    private IActionResult ForbiddenError(string message) =>
-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
-        {
-            StatusCode = (int)HttpStatusCode.Forbidden,
-        };
-
-    private readonly struct ChildResolution
-    {
-        public long? TeacherStudentId { get; }
-        public IActionResult? ErrorResponse { get; }
-
-        private ChildResolution(long? id, IActionResult? error)
-        {
-            TeacherStudentId = id;
-            ErrorResponse = error;
-        }
-
-        public static ChildResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
-        public static ChildResolution Error(IActionResult response) => new(null, response);
-    }
 }

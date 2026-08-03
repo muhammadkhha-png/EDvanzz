@@ -1,4 +1,4 @@
-using Edvanz.Domain.Resources;
+﻿using Edvanz.Domain.Resources;
 using Microsoft.Extensions.Localization;
 using System.Net;
 using Edvanz.API.Attributes;
@@ -12,23 +12,23 @@ using Microsoft.AspNetCore.Mvc;
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// Payment Module (Module 4) — student-facing read endpoint.
+/// Payment Module (Module 4) â€” student-facing read endpoint.
 ///
 /// SEPARATE CONTROLLER RATIONALE (mirrors <see cref="StudentAttendanceController"/>):
 /// students carry no module claim, and the service needs (teacherId, teacherStudentId),
 /// which this controller resolves from the active StudentTeacherLink.
 ///
-/// ONE SCREEN = ONE CALL: the tracking endpoint returns the ENTIRE Payment screen —
-/// header, the upcoming month, the paid section, and the overdue section — so the client
+/// ONE SCREEN = ONE CALL: the tracking endpoint returns the ENTIRE Payment screen â€”
+/// header, the upcoming month, the paid section, and the overdue section â€” so the client
 /// makes a single request (no separate summary/paid/overdue endpoints).
 ///
-/// AUTH: [ModulePermission(roles: ["Student"], roleOnly: true)] — student role only.
+/// AUTH: [ModulePermission(roles: ["Student"], roleOnly: true)] â€” student role only.
 ///
 /// SECURITY: the route's teacherId is untrusted. Before the service call the controller
 /// verifies an ACTIVE StudentTeacherLink for (studentUserId, teacherId) and resolves the
-/// caller's OWN teacherStudentId — a student can only ever read their own payments, only
+/// caller's OWN teacherStudentId â€” a student can only ever read their own payments, only
 /// under a teacher they're actually linked to. Teacher-controlled visibility
-/// (StudentVisibilityPayment) is enforced in the service via PaymentViewerType.Student.
+/// (StudentVisibilityPayment) is enforced in the service via ContentViewerType.Student.
 /// </summary>
 [Route("api/payment/student")]
 [Authorize]
@@ -50,10 +50,10 @@ public sealed class StudentPaymentController : ApiBaseController
         _localizer = localizer;
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // STUDENT PAYMENT TRACKING (whole screen)
     // GET /api/payment/student/teachers/{teacherId}/tracking
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     [HttpGet("teachers/{teacherId:long}/tracking")]
     [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentTrackingDto>), StatusCodes.Status200OK)]
@@ -66,21 +66,21 @@ public sealed class StudentPaymentController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _paymentService.GetStudentPaymentTrackingAsync(
-            teacherId, resolution.TeacherStudentId!.Value, PaymentViewerType.Student);
+            teacherId, resolution.TeacherStudentId!.Value, ContentViewerType.Student);
         return ToResponse(result);
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // PRIVATE HELPERS
     // Replicated from StudentAttendanceController / StudentVideosController. A shared
     // CallerScopedApiBaseController (holding this resolver + StudentResolution + the error
-    // helpers) would remove the duplication across the student controllers — proposed as a
+    // helpers) would remove the duplication across the student controllers â€” proposed as a
     // follow-up refactor.
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// Resolves the calling student's TeacherStudent.Id for the named teacher:
-    /// JWT User.Id → StudentUser → active StudentTeacherLink → TeacherStudentId.
+    /// JWT User.Id â†’ StudentUser â†’ active StudentTeacherLink â†’ TeacherStudentId.
     /// Returns either the resolved id or a 401/403/404 IActionResult.
     /// </summary>
     private async Task<StudentResolution> ResolveStudentForTeacherAsync(long teacherId)

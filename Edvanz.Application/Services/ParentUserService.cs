@@ -601,7 +601,9 @@ public class ParentUserService : IParentUserService
             VisibilityAttendance = config?.ParentVisibilityAttendance ?? true,
             VisibilityPayment = config?.ParentVisibilityPayment ?? true,
             VisibilityHomework = config?.ParentVisibilityHomework ?? true,
-            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? false
+            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? true,
+            VisibilityVideo = config?.ParentVisibilityVideo ?? true,
+            VisibilityOnlineExamDefault = config?.ParentVisibilityOnlineExamDefault ?? true
         };
     }
 }

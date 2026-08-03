@@ -1,4 +1,4 @@
-using Edvanz.Domain.Resources;
+﻿using Edvanz.Domain.Resources;
 using Microsoft.Extensions.Localization;
 using System.Net;
 using Edvanz.API.Attributes;
@@ -12,7 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Edvanz.API.Controllers;
 
 /// <summary>
-/// Payment Module (Module 4) — parent-facing read endpoint.
+/// Payment Module (Module 4) â€” parent-facing read endpoint.
 ///
 /// SEPARATE CONTROLLER RATIONALE: like <see cref="ParentAttendanceController"/>, parents
 /// carry no module claim and the service needs (teacherId, teacherStudentId). The parent
@@ -22,20 +22,20 @@ namespace Edvanz.API.Controllers;
 /// ONE SCREEN = ONE CALL: the tracking endpoint returns the ENTIRE Payment screen for the
 /// chosen child under the chosen teacher.
 ///
-/// AUTH: [ModulePermission(roles: ["Parent"], roleOnly: true)] — parent role only.
+/// AUTH: [ModulePermission(roles: ["Parent"], roleOnly: true)] â€” parent role only.
 ///
 /// SECURITY: route childId and teacherId are untrusted. Before the service call:
-///   1. JWT User.Id → ParentUser.
-///   2. (parentUserId, childId) → active ParentChild, scoped to THIS parent.
+///   1. JWT User.Id â†’ ParentUser.
+///   2. (parentUserId, childId) â†’ active ParentChild, scoped to THIS parent.
 ///   3. Resolve teacherStudentId for the named teacher:
-///        Method A (StudentAccount): child.StudentUserId → active StudentTeacherLink.
+///        Method A (StudentAccount): child.StudentUserId â†’ active StudentTeacherLink.
 ///        Method B (ManualProfile):  active ParentChildTeacherLink(childId, teacherId).
 /// Teacher-controlled parent visibility (ParentVisibilityPayment) is enforced in the
-/// service via PaymentViewerType.Parent.
+/// service via ContentViewerType.Parent.
 /// </summary>
 [Route("api/payment/parent")]
 [Authorize]
-public sealed class ParentPaymentController : ApiBaseController
+public sealed class ParentPaymentController : ParentScopedApiBaseController
 {
     private readonly IPaymentService _paymentService;
     private readonly ICurrentUserService _currentUser;
@@ -46,6 +46,7 @@ public sealed class ParentPaymentController : ApiBaseController
         IPaymentService paymentService,
         ICurrentUserService currentUser,
         IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+        : base(currentUser, unitOfWork, localizer)
     {
         _paymentService = paymentService;
         _currentUser = currentUser;
@@ -53,10 +54,10 @@ public sealed class ParentPaymentController : ApiBaseController
         _localizer = localizer;
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // CHILD PAYMENT TRACKING (whole screen, parent view)
     // GET /api/payment/parent/children/{childId}/teachers/{teacherId}/tracking
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     [HttpGet("children/{childId:long}/teachers/{teacherId:long}/tracking")]
     [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentTrackingDto>), StatusCodes.Status200OK)]
@@ -71,15 +72,15 @@ public sealed class ParentPaymentController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _paymentService.GetStudentPaymentTrackingAsync(
-            teacherId, resolution.TeacherStudentId!.Value, PaymentViewerType.Parent);
+            teacherId, resolution.TeacherStudentId!.Value, ContentViewerType.Parent);
         return ToResponse(result);
     }
 
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // PRIVATE HELPERS
     // Same shape as ParentAttendanceController, plus the Method-A/B branch. A shared
     // CallerScopedApiBaseController is the pending refactor to remove the duplication.
-    // ──────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// Resolves the named child's TeacherStudent.Id under the named teacher, for the calling
@@ -100,7 +101,7 @@ public sealed class ParentPaymentController : ApiBaseController
         if (child is null)
             return ChildResolution.Error(NotFoundError("ChildNotFound"));
 
-        // Method A — child has a StudentUser account: reuse the student-teacher link.
+        // Method A â€” child has a StudentUser account: reuse the student-teacher link.
         if (child.LinkMethod == ChildLinkMethod.StudentAccount)
         {
             if (child.StudentUserId is null)
@@ -116,7 +117,7 @@ public sealed class ParentPaymentController : ApiBaseController
             return ChildResolution.Ok(link.TeacherStudentId.Value);
         }
 
-        // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
+        // Method B â€” manual profile: teacher link lives on ParentChildTeacherLink.
         var parentLink = await _unitOfWork.Users
             .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
         if (parentLink is null || parentLink.LinkStatus != LinkStatus.Active)

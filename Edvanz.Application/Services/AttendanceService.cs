@@ -2581,7 +2581,7 @@ public class AttendanceService : IAttendanceService
 
     /// <inheritdoc />
     public async Task<Result<MonthlyAttendanceSummaryDto>> GetStudentViewAttendanceAsync(
-        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request, AttendanceViewerType viewer)
+        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request, ContentViewerType viewer)
     {
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         if (!IsAttendanceVisibleTo(config, viewer))
@@ -2592,7 +2592,7 @@ public class AttendanceService : IAttendanceService
     }
     /// <inheritdoc />
     public async Task<Result<StudentAttendanceSummaryDto>> GetStudentViewAttendanceSummaryAsync(
-        long teacherId, long teacherStudentId, AttendanceViewerType viewer)
+        long teacherId, long teacherStudentId, ContentViewerType viewer)
     {
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         if (!IsAttendanceVisibleTo(config, viewer))
@@ -3191,13 +3191,13 @@ public class AttendanceService : IAttendanceService
     /// Each caller is checked against only its own flag. Fail-closed when no
     /// configuration row exists (preserves the previous deny-on-null behavior).
     /// </summary>
-    private static bool IsAttendanceVisibleTo(TeacherConfiguration? config, AttendanceViewerType viewer)
+    private static bool IsAttendanceVisibleTo(TeacherConfiguration? config, ContentViewerType viewer)
     {
         if (config is null) return false;
         return viewer switch
         {
-            AttendanceViewerType.Student => config.StudentVisibilityAttendance,
-            AttendanceViewerType.Parent => config.ParentVisibilityAttendance,
+            ContentViewerType.Student => config.StudentVisibilityAttendance,
+            ContentViewerType.Parent => config.ParentVisibilityAttendance,
             _ => false
         };
     }

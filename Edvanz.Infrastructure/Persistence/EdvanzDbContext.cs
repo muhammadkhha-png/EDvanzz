@@ -452,6 +452,20 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithOne(t => t.Configuration)
                 .HasForeignKey<TeacherConfiguration>(tc => tc.TeacherId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            // Phase 2 (parent parity): explicit DB-level defaults so the ADD COLUMN
+            // migration backfills existing TeacherConfiguration rows with true (visible),
+            // not the bool CLR default of false. No sibling visibility column has this
+            // configured (they rely purely on the C# object-initializer + explicit
+            // service-layer assignment, which only affects NEWLY created rows) — these two
+            // are the exception because parity for teachers who registered before this
+            // migration specifically requires the existing rows to be backfilled, which
+            // only a DB-level default achieves.
+            entity.Property(tc => tc.ParentVisibilityVideo)
+                .HasDefaultValue(true);
+
+            entity.Property(tc => tc.ParentVisibilityOnlineExamDefault)
+                .HasDefaultValue(true);
         });
         #endregion
 

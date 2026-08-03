@@ -141,12 +141,31 @@ public class TeacherConfiguration : BaseEntity
     public bool ParentVisibilityHomework { get; set; } = true;
 
     /// <summary>
-    /// Default visibility for newly created exams in parent accounts.
-    /// AAM-BR-10: Per-exam visibility defaults to hidden unless explicitly enabled.
-    /// Per-exam overrides are stored in a separate ExamVisibility table (future module).
-    /// Default: false (hidden per AAM-BR-10).
+    /// Default visibility for newly created exams (offline / homework-track) in parent accounts.
+    /// Product decision (Phase 2, parent parity): flipped to VISIBLE by default to match the
+    /// student-side flip on StudentVisibilityExamDefault (2026-07-18) — a teacher can still hide
+    /// it per account by turning this off. Per-exam overrides remain a future ExamVisibility
+    /// module. Supersedes the original AAM-BR-10 "hidden by default".
+    /// NOTE: this C# default only governs newly-created configuration rows (set explicitly in
+    /// TeacherService.InitializeTeacherAsync's seed block) — it has no effect on rows that
+    /// already exist in the database.
+    /// Default: true (visible).
     /// </summary>
-    public bool ParentVisibilityExamDefault { get; set; } = false;
+    public bool ParentVisibilityExamDefault { get; set; } = true;
+
+    /// <summary>
+    /// Whether parents can see the Videos module.
+    /// Added Phase 2 (parent parity) to mirror StudentVisibilityVideo.
+    /// Default: true (visible).
+    /// </summary>
+    public bool ParentVisibilityVideo { get; set; } = true;
+
+    /// <summary>
+    /// Default visibility of online exams in parent accounts.
+    /// Added Phase 2 (parent parity) to mirror StudentVisibilityOnlineExamDefault.
+    /// Default: true (visible).
+    /// </summary>
+    public bool ParentVisibilityOnlineExamDefault { get; set; } = true;
 
     /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.

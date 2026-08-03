@@ -2245,7 +2245,7 @@ public class PaymentService : IPaymentService
 
     /// <inheritdoc />
     public async Task<Result<StudentPaymentTrackingDto>> GetStudentPaymentTrackingAsync(
-        long teacherId, long teacherStudentId, PaymentViewerType viewer)
+        long teacherId, long teacherStudentId, ContentViewerType viewer)
     {
         // Visibility gate — caller-specific, fail-closed when the config row is missing.
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
@@ -2334,13 +2334,13 @@ public class PaymentService : IPaymentService
     /// Caller-specific payment visibility, fail-closed on missing config.
     /// Mirrors <c>AttendanceService.IsAttendanceVisibleTo</c>.
     /// </summary>
-    private static bool IsPaymentVisibleTo(TeacherConfiguration? config, PaymentViewerType viewer)
+    private static bool IsPaymentVisibleTo(TeacherConfiguration? config, ContentViewerType viewer)
     {
         if (config is null) return false;
         return viewer switch
         {
-            PaymentViewerType.Student => config.StudentVisibilityPayment,
-            PaymentViewerType.Parent => config.ParentVisibilityPayment,
+            ContentViewerType.Student => config.StudentVisibilityPayment,
+            ContentViewerType.Parent => config.ParentVisibilityPayment,
             _ => false
         };
     }

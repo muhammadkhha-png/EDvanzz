@@ -244,13 +244,13 @@ public interface IAttendanceService
     /// Gated by TeacherConfiguration visibility settings.
     /// </summary>
     Task<Result<MonthlyAttendanceSummaryDto>> GetStudentViewAttendanceAsync(
-        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request, AttendanceViewerType viewer);
+        long teacherId, long teacherStudentId, StudentTimelineMonthRequest request, ContentViewerType viewer);
 
     /// <summary>
     /// Gets attendance summary for a student from the student/parent perspective.
     /// </summary>
     Task<Result<StudentAttendanceSummaryDto>> GetStudentViewAttendanceSummaryAsync(
-        long teacherId, long teacherStudentId, AttendanceViewerType viewer);
+        long teacherId, long teacherStudentId, ContentViewerType viewer);
 
     // ══════════════════════════════════════════════
     // INTEGRATION HOOKS (called by other modules)

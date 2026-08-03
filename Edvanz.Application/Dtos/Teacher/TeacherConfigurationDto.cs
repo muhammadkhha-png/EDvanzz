@@ -42,6 +42,8 @@ public class TeacherConfigurationDto
     public bool ParentVisibilityPayment { get; set; }
     public bool ParentVisibilityHomework { get; set; }
     public bool ParentVisibilityExamDefault { get; set; }
+    public bool ParentVisibilityVideo { get; set; }
+    public bool ParentVisibilityOnlineExamDefault { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
 }

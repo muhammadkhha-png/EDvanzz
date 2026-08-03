@@ -57,6 +57,12 @@ public class ParentChildTeacherDto
     public bool VisibilityPayment { get; set; }
     public bool VisibilityHomework { get; set; }
     public bool VisibilityExamDefault { get; set; }
+
+    /// <summary>Whether this teacher allows the parent to see the Videos module. Added Phase 2.</summary>
+    public bool VisibilityVideo { get; set; }
+
+    /// <summary>Default online-exam visibility for this teacher. Added Phase 2.</summary>
+    public bool VisibilityOnlineExamDefault { get; set; }
 }
 
 /// <summary>

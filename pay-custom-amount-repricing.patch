@@ -1,0 +1,341 @@
+From: Edvanz Backend
+Subject: [PATCH] PAY-016: re-price upcoming unpaid periods when a student's custom amount changes
+
+REQ-PAY-016 / BR-PAY-003.
+
+DEFECT
+  SetCustomAmountAsync wrote StudentPaymentCounter.CustomPaymentAmount and nothing else.
+  The only consumer of that field is OnStudentAssignedToSessionAsync, which pre-generates
+  EVERY PaymentPeriod from the assignment month through session.EndDate in one shot. So a
+  price change made AFTER enrolment (the actual tutor flow) had zero effect on any period,
+  including future ones: GetStudentPaymentStatusAsync reported hasCustomAmount=true with a
+  stale amountDue, and /collect still rejected the new price with
+  PaymentAmountExceedsAdvanceLimit. TotalOutstanding was never reconciled either.
+
+FIX (forward-only re-pricing)
+  SetCustomAmountAsync becomes transactional. After writing the counter it re-prices the
+  student's periods that (a) start on or after the current local month, (b) have received
+  no cash (AmountPaid == 0), and (c) were not carried forward from another session, then
+  adjusts TotalOutstanding by the delta.
+
+  Deliberately NOT re-priced: settled months, partially-settled months, past months, and
+  carried-forward balances — rewriting those would invalidate money already collected.
+  A pro-rated first period keeps its ProRatedFraction; only the base amount changes
+  (REQ-PAY-021/022).
+
+  The response now carries the re-priced count so the UI can confirm the change landed,
+  and PaymentStatusDto gains EffectiveAmount (the per-period price now in force) so the
+  frontend never has to reconcile customAmount against amountDue itself.
+
+NOT INCLUDED: Edvanz.Infrastructure/Repositories/PaymentRepo.cs — see the accompanying
+notes; GetRepriceablePeriodsAsync must be appended to that class by hand.
+
+---
+ Edvanz.Domain/Interfaces/IPaymentRepo.cs            | 12 +++
+ Edvanz.Application/ServiceContract/IPaymentService.cs |  9 ++-
+ Edvanz.Application/Dtos/Payment/PaymentDtos.cs      | 38 ++++++++-
+ Edvanz.Application/Services/PaymentService.cs       | 96 ++++++++++++++++----
+ Edvanz.API/Controllers/PaymentController.cs         |  4 +-
+ 5 files changed
+
+diff --git a/Edvanz.Domain/Interfaces/IPaymentRepo.cs b/Edvanz.Domain/Interfaces/IPaymentRepo.cs
+--- a/Edvanz.Domain/Interfaces/IPaymentRepo.cs
++++ b/Edvanz.Domain/Interfaces/IPaymentRepo.cs
+@@ -1,6 +1,18 @@
+     Task<PaymentPeriod?> GetLatestPaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
+ 
+     /// <summary>
++    /// Periods eligible for re-pricing when a student's custom payment amount changes
++    /// (REQ-PAY-016 / BR-PAY-003): the student's periods for the session that start on or after
++    /// <paramref name="fromPeriodStart"/>, have received no cash (<c>AmountPaid == 0</c>), and were
++    /// not carried forward from another session. Earliest-first by PeriodSequence.
++    ///
++    /// TRACKED (no AsNoTracking) — the caller rewrites <c>AmountDue</c> in place and lets the
++    /// UnitOfWork save, same contract as <see cref="GetUnpaidPeriodsThroughAsync"/>. Settled and
++    /// partially-settled periods are excluded by the AmountPaid filter: re-pricing a period that
++    /// already holds cash would invalidate money the tutor has collected.
++    /// </summary>
++    Task<List<PaymentPeriod>> GetRepriceablePeriodsAsync(
++        long teacherId, long teacherStudentId, long? sessionId, DateTime fromPeriodStart);
++
++    /// <summary>
+     /// Gets a payment period by ID.
+     /// </summary>
+     Task<PaymentPeriod?> GetPaymentPeriodByIdAsync(long paymentPeriodId);
+diff --git a/Edvanz.Application/ServiceContract/IPaymentService.cs b/Edvanz.Application/ServiceContract/IPaymentService.cs
+--- a/Edvanz.Application/ServiceContract/IPaymentService.cs
++++ b/Edvanz.Application/ServiceContract/IPaymentService.cs
+@@ -1,10 +1,15 @@
+     /// <summary>
+     /// Sets a custom payment amount for a student.
+     /// REQ-PAY-016: Overrides session default for all future collections.
+     /// BR-PAY-003: Not affected by session amount changes.
++    ///
++    /// Also RE-PRICES the student's upcoming untouched periods (current local month onward,
++    /// AmountPaid == 0, not carried forward) so the new price takes effect for an already
++    /// enrolled student, and reconciles StudentPaymentCounter.TotalOutstanding by the delta.
++    /// Passing a null amount clears the override and re-prices back to the session default.
+     /// </summary>
+-    Task<Result<bool>> SetCustomAmountAsync(SetCustomAmountDto dto);
++    Task<Result<SetCustomAmountResultDto>> SetCustomAmountAsync(SetCustomAmountDto dto);
+ 
+     // ══════════════════════════════════════════════
+     // UNPAID OVERVIEW (REQ-PAY-028 through 033)
+     // ══════════════════════════════════════════════
+diff --git a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+--- a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
++++ b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+@@ -1,6 +1,16 @@
+     public bool HasCustomAmount { get; set; }
+     public decimal? CustomAmount { get; set; }
++
++    /// <summary>
++    /// The per-period price now IN FORCE for this student: the custom amount when one is set,
++    /// otherwise the session's default amount. Null when the student has no session assignment.
++    ///
++    /// REQ-PAY-016: distinct from <see cref="AmountDue"/>, which is what the earliest OUTSTANDING
++    /// period actually charges — that period may be pro-rated (REQ-PAY-021) or partially settled,
++    /// so the two legitimately differ. Frontends should show AmountDue for "collect now" and
++    /// EffectiveAmount for "this student's price".
++    /// </summary>
++    public decimal? EffectiveAmount { get; set; }
+ }
+diff --git a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+--- a/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
++++ b/Edvanz.Application/Dtos/Payment/PaymentDtos.cs
+@@ -1,10 +1,38 @@
+ public class SetCustomAmountDto
+ {
+     public long TeacherId { get; set; }
+     public long TeacherStudentId { get; set; }
+     public decimal? CustomAmount { get; set; }
+ }
+ 
++/// <summary>
++/// Outcome of setting or clearing a student's custom payment amount.
++/// REQ-PAY-016: reports how many upcoming periods were actually re-priced, so the UI can
++/// confirm the change took effect ("Applied to N upcoming months") instead of silently
++/// storing a price the payment engine ignores.
++/// </summary>
++public class SetCustomAmountResultDto
++{
++    /// <summary>The override now stored; null means the override was cleared (session default).</summary>
++    public decimal? CustomAmount { get; set; }
++
++    /// <summary>
++    /// The price applied to the re-priced periods: the custom amount, or the session's default
++    /// when the override was cleared. Null when the student has no session assignment — the
++    /// override is still stored and will apply at the next assignment.
++    /// </summary>
++    public decimal? EffectiveAmount { get; set; }
++
++    /// <summary>Number of upcoming untouched periods whose AmountDue was rewritten. Zero is a
++    /// valid outcome (no session, nothing upcoming, or the price did not actually change).</summary>
++    public int RepricedPeriodCount { get; set; }
++
++    /// <summary>PeriodStart of the earliest re-priced period; null when none were re-priced.</summary>
++    public DateTime? EffectiveFrom { get; set; }
++
++    /// <summary>Signed change applied to StudentPaymentCounter.TotalOutstanding.</summary>
++    public decimal OutstandingDelta { get; set; }
++}
++
+ // ══════════════════════════════════════════════════════════════════════════
+ // UNPAID OVERVIEW DTOs
+ // ══════════════════════════════════════════════════════════════════════════
+diff --git a/Edvanz.Application/Services/PaymentService.cs b/Edvanz.Application/Services/PaymentService.cs
+--- a/Edvanz.Application/Services/PaymentService.cs
++++ b/Edvanz.Application/Services/PaymentService.cs
+@@ -1,12 +1,15 @@
+         // Session nav is not loaded by GetActiveByIdAndTeacherAsync — resolve separately
+         string? sessionName = null;
++        // REQ-PAY-016: the session default is also the fallback for EffectiveAmount below, so the
++        // amount is hoisted out of the block rather than re-querying the session a second time.
++        decimal? sessionAmount = null;
+         if (student.SessionId.HasValue)
+         {
+             var sessionForStatus = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(
+                 student.SessionId.Value, teacherId);
+             sessionName = sessionForStatus?.SessionName;
++            sessionAmount = sessionForStatus?.SessionAmount;
+         }
+diff --git a/Edvanz.Application/Services/PaymentService.cs b/Edvanz.Application/Services/PaymentService.cs
+--- a/Edvanz.Application/Services/PaymentService.cs
++++ b/Edvanz.Application/Services/PaymentService.cs
+@@ -1,6 +1,9 @@
+             HasCustomAmount = counter?.CustomPaymentAmount.HasValue ?? false,
+-            CustomAmount = counter?.CustomPaymentAmount
++            CustomAmount = counter?.CustomPaymentAmount,
++            // REQ-PAY-016: the price in force going forward — override first, session default
++            // otherwise. Lets the frontend render "this student's price" without inferring it.
++            EffectiveAmount = counter?.CustomPaymentAmount ?? sessionAmount
+         };
+ 
+         return Result<PaymentStatusDto>.Success(
+             statusDto, _localizer, PaymentConstants.Messages.Success);
+diff --git a/Edvanz.Application/Services/PaymentService.cs b/Edvanz.Application/Services/PaymentService.cs
+--- a/Edvanz.Application/Services/PaymentService.cs
++++ b/Edvanz.Application/Services/PaymentService.cs
+@@ -1,26 +1,152 @@
+     /// <inheritdoc />
+-    public async Task<Result<bool>> SetCustomAmountAsync(SetCustomAmountDto dto)
++    public async Task<Result<SetCustomAmountResultDto>> SetCustomAmountAsync(SetCustomAmountDto dto)
++    {
++        // StudentPaymentCounter carries a RowVersion, so a collection at another barcode station
++        // can conflict with the re-price. Bounded retry, same contract as
++        // UpdatePaymentCounterAfterCollectionAsync: assigning a price is idempotent, so a clean
++        // re-read and re-apply is always safe. ApplyCustomAmountAsync rolls back before throwing.
++        for (int attempt = 0; ; attempt++)
++        {
++            try
++            {
++                return await ApplyCustomAmountAsync(dto);
++            }
++            catch (Exception ex) when (ex.GetType().Name == "DbUpdateConcurrencyException"
++                && attempt < PaymentConstants.MaxConcurrencyRetries - 1)
++            {
++                // Retry with a fresh read of the counter and the periods.
++            }
++        }
++    }
++
++    /// <summary>
++    /// Single attempt at REQ-PAY-016: store the override on the counter, re-price the student's
++    /// upcoming untouched periods, and reconcile TotalOutstanding — all in one transaction so a
++    /// partial re-price can never be committed.
++    /// </summary>
++    private async Task<Result<SetCustomAmountResultDto>> ApplyCustomAmountAsync(SetCustomAmountDto dto)
+     {
+         // PAY-4: a custom price must be positive. A negative/zero amount would drive negative dues
+         // and negative expected revenue on the next assignment or period regeneration. Null is
+         // allowed — it clears the override and reverts the student to the session default.
+         if (dto.CustomAmount.HasValue && dto.CustomAmount.Value <= 0m)
+-            return Result<bool>.Failure(
++            return Result<SetCustomAmountResultDto>.Failure(
+                 _localizer, PaymentConstants.Messages.PaymentCustomAmountInvalid,
+                 HttpStatusCode.UnprocessableEntity);
+ 
+         var counter = await _unitOfWork.PaymentsRepo
+             .GetPaymentCounterAsync(dto.TeacherId, dto.TeacherStudentId);
+         if (counter is null)
+-            return Result<bool>.Failure(
++            return Result<SetCustomAmountResultDto>.Failure(
++                _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
++
++        // Tenant-scoped, active-only: a recycled student must not have their price rewritten.
++        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(
++            dto.TeacherStudentId, dto.TeacherId);
++        if (student is null)
++            return Result<SetCustomAmountResultDto>.Failure(
+                 _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+ 
+-        counter.CustomPaymentAmount = dto.CustomAmount;
+-        await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+-        await _unitOfWork.SaveChangesAsync();
++        // The session supplies the fallback price when the override is being CLEARED, and its
++        // PaymentType decides the re-pricing cutoff. An unassigned student has no periods to
++        // re-price: the override is still stored and applies at the next assignment.
++        var session = student.SessionId.HasValue
++            ? await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(student.SessionId.Value, dto.TeacherId)
++            : null;
++
++        decimal? effectiveAmount = dto.CustomAmount ?? session?.SessionAmount;
++
++        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
++        if (ownsTransaction)
++            await _unitOfWork.BeginTransactionAsync();
++
++        try
++        {
++            counter.CustomPaymentAmount = dto.CustomAmount;
++
++            int repricedCount = 0;
++            decimal outstandingDelta = 0m;
++            DateTime? effectiveFrom = null;
++
++            if (session is not null && effectiveAmount.HasValue)
++            {
++                // FORWARD-ONLY cutoff. Monthly re-prices from the first day of the teacher's
++                // current local month (Africa/Cairo, CLAUDE.md §7.4) so the month in progress is
++                // included when nothing has been collected against it yet. PerSession re-prices
++                // from today, since each occurrence is its own obligation.
++                var localDate = _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
++                var fromPeriodStart = session.PaymentType == PaymentType.Monthly
++                    ? new DateTime(localDate.Year, localDate.Month, 1)
++                    : localDate.Date;
++
++                var repriceable = await _unitOfWork.PaymentsRepo.GetRepriceablePeriodsAsync(
++                    dto.TeacherId, dto.TeacherStudentId, student.SessionId, fromPeriodStart);
++
++                foreach (var period in repriceable)
++                {
++                    // REQ-PAY-021/022: a pro-rated period keeps the fraction it was generated with
++                    // (the join date does not change because the price did) — only the base moves.
++                    decimal newAmountDue = period.IsProRated
++                        ? Math.Round(effectiveAmount.Value * period.ProRatedFraction, 2)
++                        : effectiveAmount.Value;
++
++                    if (newAmountDue == period.AmountDue) continue;
++
++                    outstandingDelta += newAmountDue - period.AmountDue;
++                    period.AmountDue = newAmountDue;
++                    // AmountPaid == 0 is guaranteed by the repo filter, so the only consistent
++                    // status is Unpaid. Set explicitly rather than assumed: a period generated
++                    // with AmountDue = 0 could otherwise be sitting on a stale Paid.
++                    period.PaymentStatus = PaymentStatus.Unpaid;
++                    await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
++
++                    effectiveFrom ??= period.PeriodStart;
++                    repricedCount++;
++                }
++
++                if (outstandingDelta != 0m)
++                {
++                    counter.TotalOutstanding += outstandingDelta;
++                    if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
++                }
++            }
++
++            await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
++            await _unitOfWork.SaveChangesAsync();
++
++            if (ownsTransaction)
++                await _unitOfWork.CommitAsync();
+ 
+-        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.CustomAmountSetSuccess);
++            return Result<SetCustomAmountResultDto>.Success(new SetCustomAmountResultDto
++            {
++                CustomAmount = dto.CustomAmount,
++                EffectiveAmount = effectiveAmount,
++                RepricedPeriodCount = repricedCount,
++                EffectiveFrom = effectiveFrom,
++                OutstandingDelta = outstandingDelta
++            }, _localizer, PaymentConstants.Messages.CustomAmountSetSuccess);
++        }
++        catch
++        {
++            if (ownsTransaction)
++                await _unitOfWork.RollbackAsync();
++            throw;
++        }
+     }
+diff --git a/Edvanz.API/Controllers/PaymentController.cs b/Edvanz.API/Controllers/PaymentController.cs
+--- a/Edvanz.API/Controllers/PaymentController.cs
++++ b/Edvanz.API/Controllers/PaymentController.cs
+@@ -1,9 +1,12 @@
+     //   Sets a custom payment amount for a student.
+     //   REQ-PAY-016 / BR-PAY-003: Tutor-only; overrides session default permanently.
++    //   Re-prices the student's upcoming untouched periods (current local month onward,
++    //   AmountPaid == 0, not carried forward) so the new price applies to an already-enrolled
++    //   student. Response reports repricedPeriodCount / effectiveFrom for UI confirmation.
+     //
+     // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+     //
+     // ══════════════════════════════════════════════════════════════════════════
+     [HttpPut("students/{teacherStudentId:long}/custom-amount")]
+     [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.SetCustomAmountResultDto>), StatusCodes.Status200OK)]
+     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]

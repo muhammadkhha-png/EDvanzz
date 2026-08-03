@@ -27,7 +27,7 @@ namespace Edvanz.API.Controllers;
 /// and resolves the caller's OWN teacherStudentId — a student can only ever read
 /// their own attendance, only under a teacher they're actually linked to
 /// (REQ-ATT-NFR-003). Teacher-controlled visibility (AAM-FR-04.8) is enforced in
-/// the service via AttendanceViewerType.Student.
+/// the service via ContentViewerType.Student.
 /// </summary>
 [Route("api/attendance/student")]
 [Authorize]
@@ -65,7 +65,7 @@ public sealed class StudentAttendanceController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _attendanceService.GetStudentViewAttendanceSummaryAsync(
-            teacherId, resolution.TeacherStudentId!.Value, AttendanceViewerType.Student);
+            teacherId, resolution.TeacherStudentId!.Value, ContentViewerType.Student);
         return ToResponse(result);
     }
 
@@ -87,7 +87,7 @@ public sealed class StudentAttendanceController : ApiBaseController
         if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
 
         var result = await _attendanceService.GetStudentViewAttendanceAsync(
-            teacherId, resolution.TeacherStudentId!.Value, request, AttendanceViewerType.Student);
+            teacherId, resolution.TeacherStudentId!.Value, request, ContentViewerType.Student);
         return ToResponse(result);
     }
 

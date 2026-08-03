@@ -53,7 +53,9 @@ public class UpdateTeacherConfigurationDto
     public bool ParentVisibilityAttendance { get; set; } = true;
     public bool ParentVisibilityPayment { get; set; } = true;
     public bool ParentVisibilityHomework { get; set; } = true;
-    public bool ParentVisibilityExamDefault { get; set; } = false;
+    public bool ParentVisibilityExamDefault { get; set; } = true;
+    public bool ParentVisibilityVideo { get; set; } = true;
+    public bool ParentVisibilityOnlineExamDefault { get; set; } = true;
 }
 
 /// <summary>

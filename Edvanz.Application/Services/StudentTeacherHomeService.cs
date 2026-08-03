@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -19,7 +19,7 @@ namespace Edvanz.Application.Services;
 
 /// <summary>
 /// Aggregates the student "teacher home" screen (Figma 232:7033) into a single
-/// call. Resolves the caller once (JWT student → ACTIVE, bound link under the
+/// call. Resolves the caller once (JWT student â†’ ACTIVE, bound link under the
 /// selected teacher), then fills each module section behind its own
 /// <see cref="Edvanz.Domain.Entities.TeacherConfiguration"/> visibility flag,
 /// reusing the existing per-module student services. Resilient by design: a module
@@ -43,7 +43,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
     /// <summary>Offline-exam month strip window: this many months back through the current month (plus future months that have exams).</summary>
     private const int OfflineStripMonths = 6;
 
-    /// <summary>Page size used to pull the offline-exam list for the count / strip (bounded per student·teacher).</summary>
+    /// <summary>Page size used to pull the offline-exam list for the count / strip (bounded per studentÂ·teacher).</summary>
     private const int OfflineFetchPageSize = 200;
 
     public StudentTeacherHomeService(
@@ -72,7 +72,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
     public async Task<Result<StudentTeacherHomeDto>> GetTeacherHomeAsync(
         long studentUserId, long teacherId, int? year, int? month)
     {
-        // ── Access gate (mirrors every other student read: active + bound link) ──
+        // â”€â”€ Access gate (mirrors every other student read: active + bound link) â”€â”€
         var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
         if (studentUser is null)
             return Result<StudentTeacherHomeDto>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
@@ -87,7 +87,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         long teacherStudentId = link.TeacherStudentId.Value;
         string? language = studentUser.LanguagePreference;
 
-        // ── Teacher header + visibility flags (one batch call, same resolution as the dashboard) ──
+        // â”€â”€ Teacher header + visibility flags (one batch call, same resolution as the dashboard) â”€â”€
         var batch = await _unitOfWork.Users.GetTeacherDashboardDataAsync(new List<long> { teacherId });
         var teacher = batch.Teachers.GetValueOrDefault(teacherId);
         batch.Configurations.TryGetValue(teacherId, out var config);
@@ -102,11 +102,11 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
             teacherSubjects.Any() &&
             batch.Subjects.TryGetValue(teacherSubjects.First().SubjectId, out var subject))
         {
-            // Respect the student's language preference (AAM-FR-02.2) — same rule as the dashboard.
+            // Respect the student's language preference (AAM-FR-02.2) â€” same rule as the dashboard.
             subjectName = language == "ar" ? subject.NameAr : subject.NameEn;
         }
 
-        // ── Per-module visibility (fail-open to the entity defaults when the config row is missing) ──
+        // â”€â”€ Per-module visibility (fail-open to the entity defaults when the config row is missing) â”€â”€
         bool vAttendance = config?.StudentVisibilityAttendance ?? true;
         bool vPayment = config?.StudentVisibilityPayment ?? true;
         bool vVideo = config?.StudentVisibilityVideo ?? true;
@@ -114,7 +114,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         bool vOnlineExam = config?.StudentVisibilityOnlineExamDefault ?? true;
         bool vOfflineExam = config?.StudentVisibilityExamDefault ?? true;
 
-        // ── Month scoping: teacher-local Africa/Cairo current month, or an explicit year+month override ──
+        // â”€â”€ Month scoping: teacher-local Africa/Cairo current month, or an explicit year+month override â”€â”€
         DateTime localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
         bool explicitMonth = year is >= 1 and <= 9999 && month is >= 1 and <= 12;
         int scopeYear = explicitMonth ? year!.Value : localToday.Year;
@@ -133,16 +133,16 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
             Attendance = await BuildAttendanceAsync(teacherId, teacherStudentId, year, month, vAttendance),
             Payment = await BuildPaymentAsync(teacherId, teacherStudentId, localToday, vPayment),
             Videos = await BuildVideosAsync(teacherId, teacherStudentId, language, vVideo),
-            Homework = new HomeHomeworkDto { Visible = vHomework, Count = 0 }, // read surface not built yet — keys only
+            Homework = new HomeHomeworkDto { Visible = vHomework, Count = 0 }, // read surface not built yet â€” keys only
             Exams = await BuildExamsAsync(teacherId, teacherStudentId, language, localToday, vOnlineExam, vOfflineExam)
         };
 
         return Result<StudentTeacherHomeDto>.Success(home, _localizer, "Success", HttpStatusCode.OK);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // MODULE BUILDERS (each fail-soft: a module error → visible + empty data)
-    // ══════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // MODULE BUILDERS (each fail-soft: a module error â†’ visible + empty data)
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     private async Task<HomeAttendanceDto> BuildAttendanceAsync(
         long teacherId, long teacherStudentId, int? year, int? month, bool visible)
@@ -153,7 +153,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         {
             var request = new StudentTimelineMonthRequest { Year = year, Month = month };
             var result = await _attendanceService.GetStudentViewAttendanceAsync(
-                teacherId, teacherStudentId, request, AttendanceViewerType.Student);
+                teacherId, teacherStudentId, request, ContentViewerType.Student);
             if (result.IsSuccess && result.Data is { } data)
             {
                 section.MonthLabel = MonthName(data.Year, data.Month);
@@ -180,7 +180,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         try
         {
             var result = await _paymentService.GetStudentPaymentTrackingAsync(
-                teacherId, teacherStudentId, PaymentViewerType.Student);
+                teacherId, teacherStudentId, ContentViewerType.Student);
             if (result.IsSuccess && result.Data is { } data)
             {
                 // The payment tracking screen is always scoped to the teacher-local current month.
@@ -244,7 +244,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         var today = DateOnly.FromDateTime(localToday);
         int tileCount = 0;
 
-        // ── Online upcoming exams ──
+        // â”€â”€ Online upcoming exams â”€â”€
         if (onlineVisible)
         {
             try
@@ -281,7 +281,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
             }
         }
 
-        // ── Offline upcoming exams + month strip ──
+        // â”€â”€ Offline upcoming exams + month strip â”€â”€
         if (offlineVisible)
         {
             try
@@ -325,9 +325,9 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         return section;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     // HELPERS
-    // ══════════════════════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     /// <summary>Full month name in the invariant culture (e.g. "March").</summary>
     private static string MonthName(int year, int month) =>
@@ -344,7 +344,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
     /// <summary>
     /// Builds the offline-exam month strip: one cell per month (within a rolling
     /// <see cref="OfflineStripMonths"/>-month window through the current month, plus any
-    /// future month that already has an exam) that has ≥1 offline exam. A month is "Done"
+    /// future month that already has an exam) that has â‰¥1 offline exam. A month is "Done"
     /// when all its exams are in the past, "Pending" when one is still upcoming.
     /// </summary>
     private static List<HomeOfflineExamMonthDto> BuildOfflineMonths(

@@ -192,7 +192,9 @@ public class TeacherService : ITeacherService
                 ParentVisibilityPayment = true,
                 StudentVisibilityOnlineExamDefault = true,
                 ParentVisibilityHomework = true,
-                ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
+                ParentVisibilityExamDefault = true, // Phase 2: flipped to match student-side parity (was AAM-BR-10 hidden)
+                ParentVisibilityVideo = true, // Phase 2: parent parity with StudentVisibilityVideo
+                ParentVisibilityOnlineExamDefault = true, // Phase 2: parent parity with StudentVisibilityOnlineExamDefault
                 CreateAt = DateTime.UtcNow
             };
 
@@ -492,6 +494,8 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
+            config.ParentVisibilityVideo = dto.ParentVisibilityVideo;
+            config.ParentVisibilityOnlineExamDefault = dto.ParentVisibilityOnlineExamDefault;
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -571,6 +575,8 @@ public class TeacherService : ITeacherService
             ParentVisibilityPayment = config.ParentVisibilityPayment,
             ParentVisibilityHomework = config.ParentVisibilityHomework,
             ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+            ParentVisibilityVideo = config.ParentVisibilityVideo,
+            ParentVisibilityOnlineExamDefault = config.ParentVisibilityOnlineExamDefault,
             UpdatedAt = config.UpdatedAt,
             ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
             {
