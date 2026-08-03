@@ -75,6 +75,7 @@ public class PaymentScreenService : IPaymentScreenService
 
         var startDate = new DateTime(resolvedYear, resolvedMonth, 1);
         var endDate = startDate.AddMonths(1).AddDays(-1);
+        var endExclusive = startDate.AddMonths(1);
 
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
             .GetTransactionsByDateRangePagedAsync(
@@ -82,8 +83,40 @@ public class PaymentScreenService : IPaymentScreenService
                 sessionId: null, collectedByUserId: null,
                 page: page, pageSize: limit);
 
+        // Student-departure refunds confirmed this month are money RETURNED to the student, so they
+        // appear as negative-amount ledger lines carrying the departed month they apply to. They are
+        // few (departures are rare), so the whole month's set is surfaced ONCE on page 1 (prepended,
+        // most visible) and counted into the totals; later pages simply page the collections.
+        var refunds = await _unitOfWork.PaymentsRepo
+            .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
+        int refundCount = refunds.Count;
+
         int baseIndex = (page - 1) * limit;
-        var rows = new List<CollectionRow>(items.Count);
+        var rows = new List<CollectionRow>(items.Count + (page == 1 ? refundCount : 0));
+
+        if (page == 1)
+        {
+            foreach (var r in refunds)
+            {
+                rows.Add(new CollectionRow
+                {
+                    Id = $"departure-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+                    // Refund lines are rendered with a distinct marker, not a ledger ordinal.
+                    Index = 0,
+                    StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+                    StudentName = r.StudentName,
+                    Amount = -r.RefundAmount,
+                    Status = "refund",
+                    IsRefund = true,
+                    SessionName = r.SessionName,
+                    RefundedForMonthLabel = r.RefundPeriodStart.HasValue
+                        ? r.RefundPeriodStart.Value.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
+                        : null,
+                    CollectedAt = r.DepartedAt
+                });
+            }
+        }
+
         for (int i = 0; i < items.Count; i++)
         {
             var tx = items[i];
@@ -101,6 +134,9 @@ public class PaymentScreenService : IPaymentScreenService
             });
         }
 
+        // Pagination follows the collections; refunds live entirely on page 1. Guarantee at least one
+        // page when a month has ONLY refunds so page 1 still renders.
+        int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
         var response = new CollectionsByMonthResponse
         {
             Month = resolvedMonth,
@@ -108,8 +144,8 @@ public class PaymentScreenService : IPaymentScreenService
             MonthLabel = startDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
             Page = page,
             Limit = limit,
-            TotalItems = totalCount,
-            TotalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit),
+            TotalItems = totalCount + refundCount,
+            TotalPages = transactionPages == 0 ? (refundCount > 0 ? 1 : 0) : transactionPages,
             Items = rows
         };
 
@@ -308,7 +344,7 @@ public class PaymentScreenService : IPaymentScreenService
         var monthStart = new DateTime(year, mon, 1);
         var monthEnd = monthStart.AddMonths(1).AddDays(-1);
 
-        var (rows, total, groupCollected, groupExpected, groupUnpaid) = await _unitOfWork.PaymentsRepo
+        var (rows, total, groupCollected, groupExpected, groupUnpaid, groupExpectedRate) = await _unitOfWork.PaymentsRepo
             .GetStudentsByPaymentStatusPagedAsync(
                 teacherId, status, monthStart, monthEnd, page, limit, sessionId, search);
 
@@ -345,6 +381,10 @@ public class PaymentScreenService : IPaymentScreenService
             // Ambiguous top-level "default fee": no single value exists (per-session/per-student).
             // The per-student amountPerMonth is authoritative; confirm intended meaning with FE.
             AmountPerMonth = 0m,
+            // Full-set expected revenue for this scope (Σ per-student custom-or-session rate). The
+            // session-detail screen renders this directly instead of session-default × student-count,
+            // so a per-student custom amount is reflected in the expected total.
+            ExpectedAmount = groupExpectedRate,
             TotalUnpaidAmount = status == "paid" ? 0m : groupUnpaid,
             Total = total,
             Page = page,

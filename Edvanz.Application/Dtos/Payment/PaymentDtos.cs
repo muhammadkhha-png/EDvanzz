@@ -50,6 +50,14 @@ public class CollectPaymentDto
     public bool IsOfflineRecord { get; set; } = false;
     public string? OfflineDeviceId { get; set; }
     public DateTime? OfflineCollectedAt { get; set; }
+
+    /// <summary>
+    /// Client-generated unique id for offline records (uuid). Replaying a
+    /// record whose ClientEntryId already exists for this teacher returns
+    /// success without recording again (exactly-once sync). Ignored for
+    /// online collections.
+    /// </summary>
+    public string? ClientEntryId { get; set; }
 }
 
 /// <summary>
@@ -620,12 +628,38 @@ public class OfflinePaymentSyncRequestDto
 /// Result of an offline sync operation.
 /// REQ-PAY-080: Shows how many records were synced.
 /// REQ-PAY-082: Lists conflicts for resolution.
+/// Per-record outcomes ride <see cref="EntryResults"/> (keyed by
+/// ClientEntryId) so the client can transition each queued op individually —
+/// mirrors attendance's SyncResultDto. The aggregate counts and
+/// <see cref="Conflicts"/> stay for wire compatibility.
 /// </summary>
 public class PaymentSyncResultDto
 {
     public int SyncedCount { get; set; }
     public int ConflictCount { get; set; }
+    public int FailedCount { get; set; }
     public List<PaymentConflictDto> Conflicts { get; set; } = new();
+    public List<PaymentSyncEntryResultDto> EntryResults { get; set; } = new();
+}
+
+/// <summary>
+/// Outcome of one offline payment record in a sync batch.
+/// </summary>
+public class PaymentSyncEntryResultDto
+{
+    /// <summary>Echo of the record's client-generated id (may be null for
+    /// legacy clients that did not send one).</summary>
+    public string? ClientEntryId { get; set; }
+    public bool Success { get; set; }
+    public bool IsConflict { get; set; }
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>True when this record was already recorded by an earlier
+    /// sync (ClientEntryId dedup) — success without a new transaction.</summary>
+    public bool AlreadySynced { get; set; }
+
+    /// <summary>The existing transaction on conflict / already-synced.</summary>
+    public PaymentTransactionDto? ExistingRecord { get; set; }
 }
 
 /// <summary>

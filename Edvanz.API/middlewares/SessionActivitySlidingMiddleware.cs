@@ -35,7 +35,7 @@ public sealed class SessionActivitySlidingMiddleware
     private static readonly TimeSpan SlideThrottle = TimeSpan.FromMinutes(5);
 
     /// <summary>Fallback idle window if the config key is missing (mirrors appsettings default).</summary>
-    private const int DefaultIdleMinutes = 60;
+    private const int DefaultIdleMinutes = 1440;
 
     private readonly RequestDelegate _next;
     private readonly ILogger<SessionActivitySlidingMiddleware> _logger;

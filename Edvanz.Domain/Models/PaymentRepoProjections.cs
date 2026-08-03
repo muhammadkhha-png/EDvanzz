@@ -138,3 +138,25 @@ public sealed class CollectorRefundRow
     public decimal RefundAmount { get; set; }
     public DateTime RefundedAt { get; set; }
 }
+
+/// <summary>
+/// Projection for a student-departure refund (RefundDue), sourced directly from
+/// <c>StudentDeparture</c> — the authoritative refund amount (<c>FinalAmount</c>), the anchored
+/// month it applies to, and the collector the cash was taken back from. Surfaced as a
+/// negative-amount entry on the collections ledger and subtracted from the collector's total.
+/// </summary>
+public sealed class DepartureRefundRow
+{
+    public long Id { get; set; }
+    public long? StudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+    public string? SessionName { get; set; }
+    public decimal RefundAmount { get; set; }
+    /// <summary>First day of the anchored month the refund applies to (the "departed month").</summary>
+    public DateTime? RefundPeriodStart { get; set; }
+    /// <summary>Collector (assistant or tutor) whose cash was returned; null for historical rows.</summary>
+    public long? CollectedByUserId { get; set; }
+    /// <summary>When the departure/refund was confirmed.</summary>
+    public DateTime DepartedAt { get; set; }
+}

@@ -68,6 +68,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId, DateTime localDate);
 
     /// <summary>
+    /// Finds an offline-synced transaction by its client-generated id.
+    /// Exactly-once replay guard for POST api/Payment/sync.
+    /// </summary>
+    Task<PaymentTransaction?> GetByClientEntryIdAsync(
+        long teacherId, string clientEntryId);
+
+    /// <summary>
     /// Gets transactions collected by a specific user in a date range.
     /// REQ-PAY-013: Collector view. REQ-PAY-058: Collector performance report.
     /// </summary>
@@ -234,6 +241,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
+    /// Student-departure refunds (RefundDue) confirmed within [startInclusive, endExclusive), sourced
+    /// directly from <c>StudentDeparture</c> (authoritative <c>FinalAmount</c>). Teacher-wide, or
+    /// narrowed to one collector. Drives the negative refund lines on the collections ledger and the
+    /// per-collector refund subtraction.
+    /// </summary>
+    Task<IReadOnlyList<DepartureRefundRow>> GetDepartureRefundsByDateRangeAsync(
+        long teacherId, DateTime startInclusive, DateTime endExclusive, long? collectedByUserId = null);
+
+    /// <summary>
     /// Gets the maximum period sequence for a student in a session.
     /// Used when generating new periods to determine the next sequence number.
     /// </summary>
@@ -369,7 +385,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// session; <paramref name="search"/> (optional) filters by student name OR studentCode
     /// (case-insensitive). Both intersect with — never replace — the assigned-only gating.</para>
     /// </summary>
-    Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
+    Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid, decimal GroupExpectedRate)>
         GetStudentsByPaymentStatusPagedAsync(
             long teacherId, string? status,
             DateTime monthStart, DateTime monthEnd,

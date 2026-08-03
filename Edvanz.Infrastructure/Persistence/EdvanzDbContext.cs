@@ -1590,6 +1590,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(t => t.PaymentPeriodId)
                 .HasDatabaseName("IX_PT_PaymentPeriodId");
 
+            // Offline sync exactly-once: one transaction per client-generated
+            // entry id per teacher. Filtered — online records carry NULL.
+            entity.Property(t => t.ClientEntryId).HasMaxLength(64);
+            entity.HasIndex(t => new { t.TeacherId, t.ClientEntryId })
+                .IsUnique()
+                .HasFilter("[ClientEntryId] IS NOT NULL")
+                .HasDatabaseName("IX_PT_TeacherId_ClientEntryId");
+
             // ── FOREIGN KEYS ──
 
             // ── FOREIGN KEYS ──
@@ -1895,6 +1903,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(d => d.FinalAmount).HasColumnType("decimal(10,2)");
             entity.Property(d => d.OriginalCalculatedAmount).HasColumnType("decimal(10,2)");
             entity.Property(d => d.DepartedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(d => d.RefundPeriodStart).HasColumnType("datetime2(0)");
 
             entity.Property(d => d.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
             entity.Property(d => d.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
@@ -1902,6 +1911,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             entity.HasIndex(d => new { d.TeacherId, d.TeacherStudentId })
                 .HasDatabaseName("IX_SD_TeacherId_StudentId");
+
+            // Month-scoped refund scans for the collections ledger + per-collector subtraction.
+            entity.HasIndex(d => new { d.TeacherId, d.DepartedAt })
+                .HasDatabaseName("IX_SD_TeacherId_DepartedAt");
 
             entity.HasOne(d => d.Teacher)
                 .WithMany()

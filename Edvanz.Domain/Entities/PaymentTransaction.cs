@@ -213,6 +213,15 @@ public class PaymentTransaction : BaseEntity
     public string? OfflineDeviceId { get; set; }
 
     /// <summary>
+    /// Client-generated unique id for offline-created records (uuid). A sync
+    /// replay carrying a known ClientEntryId returns success without recording
+    /// again — the exactly-once guarantee for offline payments (mirrors
+    /// attendance's OfflineAttendanceEntryDto.ClientEntryId). Unique per
+    /// teacher via filtered index IX_PT_TeacherId_ClientEntryId.
+    /// </summary>
+    public string? ClientEntryId { get; set; }
+
+    /// <summary>
     /// Sync status for offline records.
     /// REQ-PAY-080/081/082: Lifecycle tracking.
     /// </summary>

@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802210651_AddClientEntryIdToPaymentTransactions")]
+    partial class AddClientEntryIdToPaymentTransactions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2737,9 +2740,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<int>("AttendedOccurrences")
                         .HasColumnType("int");
 
-                    b.Property<long?>("CollectedByUserId")
-                        .HasColumnType("bigint");
-
                     b.Property<long?>("ConfirmedByUserId")
                         .HasColumnType("bigint");
 
@@ -2769,9 +2769,6 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.Property<decimal>("ProRatedAmount")
                         .HasColumnType("decimal(10,2)");
-
-                    b.Property<DateTime?>("RefundPeriodStart")
-                        .HasColumnType("datetime2(0)");
 
                     b.Property<long?>("SessionId")
                         .HasColumnType("bigint");
@@ -2803,9 +2800,6 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasIndex("SessionId");
 
                     b.HasIndex("TeacherStudentId");
-
-                    b.HasIndex("TeacherId", "DepartedAt")
-                        .HasDatabaseName("IX_SD_TeacherId_DepartedAt");
 
                     b.HasIndex("TeacherId", "TeacherStudentId")
                         .HasDatabaseName("IX_SD_TeacherId_StudentId");

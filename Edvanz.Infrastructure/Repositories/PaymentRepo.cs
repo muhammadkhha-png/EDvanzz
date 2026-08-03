@@ -119,6 +119,19 @@
         }
 
         /// <inheritdoc />
+        public async Task<PaymentTransaction?> GetByClientEntryIdAsync(
+            long teacherId, string clientEntryId)
+        {
+            // Deliberately ignores IsDeleted: a record the tutor deleted after
+            // an earlier sync must still block a replay from re-recording it.
+            return await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.ClientEntryId == clientEntryId)
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)>
             GetCollectorTransactionsPagedAsync(
                 long teacherId, long collectedByUserId,
@@ -208,6 +221,38 @@
                 .ToListAsync();
 
             return (items, totalCount);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<DepartureRefundRow>> GetDepartureRefundsByDateRangeAsync(
+            long teacherId, DateTime startInclusive, DateTime endExclusive, long? collectedByUserId = null)
+        {
+            var query = _context.StudentDepartures
+                .Where(d => d.TeacherId == teacherId
+                    && d.DepartureOutcome == DepartureOutcome.RefundDue
+                    && d.FinalAmount > 0m
+                    && d.DepartedAt >= startInclusive && d.DepartedAt < endExclusive);
+
+            if (collectedByUserId.HasValue)
+                query = query.Where(d => d.CollectedByUserId == collectedByUserId.Value);
+
+            return await query
+                .OrderByDescending(d => d.DepartedAt)
+                .Select(d => new DepartureRefundRow
+                {
+                    Id = d.Id,
+                    StudentId = d.TeacherStudentId,
+                    StudentName = d.StudentName,
+                    StudentCode = d.StudentCode,
+                    // Live session name when the session still exists; else the departure-time snapshot.
+                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionName,
+                    RefundAmount = d.FinalAmount,
+                    RefundPeriodStart = d.RefundPeriodStart,
+                    CollectedByUserId = d.CollectedByUserId,
+                    DepartedAt = d.DepartedAt
+                })
+                .AsNoTracking()
+                .ToListAsync();
         }
 
         // ----------------------------------------------
@@ -918,7 +963,7 @@
         }
 
         /// <inheritdoc />
-        public async Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid)>
+        public async Task<(IReadOnlyList<StudentByStatusRow> Items, int TotalCount, decimal GroupCollected, decimal GroupExpected, decimal GroupUnpaid, decimal GroupExpectedRate)>
             GetStudentsByPaymentStatusPagedAsync(
                 long teacherId, string? status,
                 DateTime monthStart, DateTime monthEnd,
@@ -1028,6 +1073,22 @@
                     && p.PaymentStatus != PaymentStatus.Paid)
                 .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
 
+            // Full-set expected revenue: each in-scope student's MONTHLY RATE — their custom override
+            // (StudentPaymentCounter.CustomPaymentAmount) or the session default — summed over EVERY
+            // targeted student, including those with no month period yet (absent from groupExpected).
+            // Reuses the already-materialized targetIds and the SAME per-student rate projection as the
+            // paged rows below; drives the session-detail "expected revenue" so a per-student custom
+            // amount is reflected instead of the session default × student-count the client used to use.
+            var expectedRates = await _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && targetIds.Contains(ts.Id))
+                .Select(ts => (decimal?)(
+                    (_context.StudentPaymentCounters
+                        .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                        .Select(c => c.CustomPaymentAmount).FirstOrDefault())
+                    ?? (ts.Session != null ? ts.Session.SessionAmount : 0m)))
+                .ToListAsync();
+            decimal groupExpectedRate = expectedRates.Sum(r => r ?? 0m);
+
             // Page the students (name order) with their month amounts + counter fields.
             var items = await _context.TeacherStudents
                 .Where(ts => ts.TeacherId == teacherId && targetIds.Contains(ts.Id))
@@ -1118,7 +1179,7 @@
                 }
             }
 
-            return (items, totalCount, groupCollected, groupExpected, groupUnpaid);
+            return (items, totalCount, groupCollected, groupExpected, groupUnpaid, groupExpectedRate);
         }
 
         /// <inheritdoc />
@@ -1593,8 +1654,38 @@
                 })
                 .ToListAsync();
 
-            return result
-                .Select(r => (r.UserId, (string?)null, r.Collected, r.TransactionCount))
+            // Departure refunds reverse cash a collector took but do NOT soft-delete the underlying
+            // transaction, so the !IsDeleted sum above still counts refunded cash. Subtract each
+            // collector's departure refunds (RefundDue, authoritative FinalAmount) confirmed in the
+            // same window so the collected total reflects the money returned — for an assistant OR the
+            // tutor. A collector who ONLY refunded in the window (their collection was an earlier
+            // month) still surfaces here, as a net-negative total.
+            var refundQuery = _context.StudentDepartures
+                .Where(d => d.TeacherId == teacherId
+                    && d.DepartureOutcome == DepartureOutcome.RefundDue
+                    && d.FinalAmount > 0m
+                    && d.CollectedByUserId.HasValue);
+            if (startDate.HasValue)
+                refundQuery = refundQuery.Where(d => d.DepartedAt >= startDate.Value);
+            if (endDate.HasValue)
+                refundQuery = refundQuery.Where(d => d.DepartedAt <= endDate.Value.Date.AddDays(1));
+
+            var refunds = await refundQuery
+                .GroupBy(d => d.CollectedByUserId!.Value)
+                .Select(g => new { UserId = g.Key, Refunded = g.Sum(d => d.FinalAmount) })
+                .ToListAsync();
+
+            var byUser = result.ToDictionary(
+                r => r.UserId, r => (Collected: r.Collected, Count: r.TransactionCount));
+            foreach (var rf in refunds)
+            {
+                byUser[rf.UserId] = byUser.TryGetValue(rf.UserId, out var agg)
+                    ? (agg.Collected - rf.Refunded, agg.Count)
+                    : (-rf.Refunded, 0);
+            }
+
+            return byUser
+                .Select(kv => (kv.Key, (string?)null, kv.Value.Collected, kv.Value.Count))
                 .ToList();
         }
 

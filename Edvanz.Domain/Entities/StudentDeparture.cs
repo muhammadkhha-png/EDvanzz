@@ -135,4 +135,22 @@ public class StudentDeparture : BaseEntity
     /// REQ-PAY-073: Date recorded in student's payment history.
     /// </summary>
     public DateTime DepartedAt { get; set; }
+
+    // ══════════════════════════════════════════════
+    // REFUND ATTRIBUTION (surface the refund on the collections ledger + per-collector totals)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// The collector (an assistant OR the tutor) whose collected cash was returned on a RefundDue
+    /// departure — the latest collector for this student+session. Null when nobody collected (never
+    /// a refund) or for historical rows recorded before this was captured. Attributes the refund as
+    /// a negative against that collector's collected total and ledger.
+    /// </summary>
+    public long? CollectedByUserId { get; set; }
+
+    /// <summary>
+    /// First day of the anchored payment period the refund applies to — the "departed month" shown
+    /// on the negative collections-ledger line. Null for AmountOwed/NoObligation or historical rows.
+    /// </summary>
+    public DateTime? RefundPeriodStart { get; set; }
 }
