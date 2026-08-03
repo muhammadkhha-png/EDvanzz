@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
 
 namespace Edvanz.Application.ServiceContract;
@@ -208,5 +208,16 @@ public interface IExamHomeworkService
     /// <param name="studentLanguage">The calling student's language preference ("ar"/"en") for the
     /// language-aware subject name; resolved from the JWT in the controller.</param>
     Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize);
+
+    /// <summary>
+    /// Every homework assignment (AssignmentType.Homework) the calling student has an obligation
+    /// for under this teacher, paginated, sorted by date descending. Mirrors
+    /// GetMyOfflineExamsAsync's shape (same F3 subject resolution), minus the F1 leaderboard
+    /// rank — homework has no cohort-ranking concept, just completion + optional grade.
+    /// </summary>
+    /// <param name="studentLanguage">The calling student's language preference ("ar"/"en") for the
+    /// language-aware subject name; resolved from the JWT in the controller.</param>
+    Task<Result<PaginatedResponse<List<StudentHomeworkListItemDto>>>> GetMyHomeworkAsync(
         long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize);
 }

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -16,11 +16,16 @@ namespace Edvanz.Application.Services;
 ///
 /// Authorization order for a gated read (fail-closed): owner → SuperAdmin → category policy. The
 /// teacher tenant authorizes by the denormalized <see cref="FileObject.TeacherId"/> column (set
-/// server-side from the uploader's JWT — never client-supplied, §4.4). Student branches: the
-/// online-exam image checks live exam assignment; the video categories (photo / attachment /
-/// video-exam question image) check live membership of the OWNING VIDEO's scope, which also
-/// enforces the Published + PublishDate gate. The national-ID image has no resource policy
-/// (owner + admin only).
+/// server-side from the uploader's JWT — never client-supplied, §4.4). Student AND parent
+/// branches (Phase 4, parent parity): the online-exam image checks live exam assignment; the
+/// video categories (photo / attachment / video-exam question image) check live membership of
+/// the OWNING VIDEO's scope, which also enforces the Published + PublishDate gate. A parent's
+/// check runs across every teacherStudentId reachable through their active children under the
+/// file's teacher (almost always 0 or 1, but never assumed to be exactly one — nothing stops a
+/// parent having two children with the same teacher), delegating to the SAME canonical scope
+/// predicates the student path uses, so the Published gate and exam-assignment logic are
+/// inherited automatically, never re-derived. The national-ID image has no resource policy
+/// (owner + admin only) for either caller type.
 /// </summary>
 public sealed class FileAccessService : IFileAccessService
 {
@@ -84,17 +89,22 @@ public sealed class FileAccessService : IFileAccessService
             case FileCategory.VideoExamQuestionImage:
                 if (await IsSameTeacherTenantAsync(file))
                     return true;
-                return await IsScopedStudentOfVideoAsync(file);
+                if (await IsScopedStudentOfVideoAsync(file))
+                    return true;
+                return await IsScopedParentOfVideoAsync(file);
 
             case FileCategory.OnlineExamQuestionImage:
                 if (await IsSameTeacherTenantAsync(file))
                     return true;
-                return await IsAssignedStudentAsync(file);
+                if (await IsAssignedStudentAsync(file))
+                    return true;
+                return await IsAssignedParentAsync(file);
 
             case FileCategory.NationalIdImage:
             default:
                 // National-ID has no resource policy (owner + admin already handled above);
-                // any unhandled category is denied.
+                // any unhandled category is denied. Same for parents — intentionally no parent
+                // branch here; a parent never needs to read the sign-up ID image.
                 return false;
         }
     }
@@ -173,6 +183,118 @@ public sealed class FileAccessService : IFileAccessService
             return null;
 
         return link.TeacherStudentId;
+    }
+
+    /// <summary>
+    /// True when the caller is a PARENT whose child(ren) the file's OWNING VIDEO is scoped to.
+    /// Applies to the same three categories as <see cref="IsScopedStudentOfVideoAsync"/>. Resolves
+    /// every teacherStudentId reachable by the calling parent under the file's teacher tenant, then
+    /// checks each against the SAME canonical <c>IsStudentInVideoScopeAsync</c> predicate the
+    /// student path uses — so the Published + PublishDate gate is inherited, not re-derived.
+    /// </summary>
+    private async Task<bool> IsScopedParentOfVideoAsync(FileObject file)
+    {
+        if (file.TeacherId is null)
+            return false;
+
+        var teacherStudentIds = await ResolveChildTeacherStudentIdsForParentAsync(file.TeacherId.Value);
+        if (teacherStudentIds.Count == 0)
+            return false;
+
+        long? videoAssetId = file.Category == FileCategory.VideoAttachment
+            ? file.VideoAssetId
+            : await _unitOfWork.VideoAssetsRepo.GetOwningVideoAssetIdForFileAsync(
+                  file.Id, file.Category, file.TeacherId.Value);
+        if (videoAssetId is null)
+            return false;
+
+        foreach (var teacherStudentId in teacherStudentIds)
+        {
+            if (await _unitOfWork.VideoAssetsRepo.IsStudentInVideoScopeAsync(
+                    teacherStudentId, videoAssetId.Value, file.TeacherId.Value))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when the caller is a PARENT with a child in the file's exam's live assigned set.
+    /// Mirrors <see cref="IsAssignedStudentAsync"/> — resolves every teacherStudentId reachable by
+    /// the calling parent under the file's teacher tenant, then checks each against the SAME
+    /// canonical <c>IsQuestionImageAssignedToStudentAsync</c> predicate the student path uses.
+    /// </summary>
+    private async Task<bool> IsAssignedParentAsync(FileObject file)
+    {
+        if (file.TeacherId is null)
+            return false;
+
+        var teacherStudentIds = await ResolveChildTeacherStudentIdsForParentAsync(file.TeacherId.Value);
+        if (teacherStudentIds.Count == 0)
+            return false;
+
+        foreach (var teacherStudentId in teacherStudentIds)
+        {
+            if (await _unitOfWork.OnlineExamsRepo.IsQuestionImageAssignedToStudentAsync(
+                    file.Id, file.TeacherId.Value, teacherStudentId))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves every teacherStudentId a PARENT can legitimately reach under the given teacher
+    /// tenant — across ALL of the parent's active children, whichever are linked (Method A via
+    /// StudentTeacherLink, Method B via ParentChildTeacherLink) to this teacher. Almost always 0
+    /// or 1 entries; a list because nothing stops a parent having more than one child tutored by
+    /// the same teacher (siblings/twins). Composed entirely from existing IUserRepo methods — the
+    /// same ones ParentScopedApiBaseController uses — no new repository query needed. Mirrors
+    /// ResolveBoundTeacherStudentIdAsync's Method A/B branch, but for a caller that may resolve to
+    /// several ids instead of one.
+    /// </summary>
+    private async Task<List<long>> ResolveChildTeacherStudentIdsForParentAsync(long teacherId)
+    {
+        long? userId = _currentUser.UserId;
+        if (userId is null)
+            return new List<long>();
+
+        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
+        if (parentUser is null)
+            return new List<long>();
+
+        var children = await _unitOfWork.Users.GetActiveChildrenAsync(parentUser.Id);
+        if (children.Count == 0)
+            return new List<long>();
+
+        var teacherStudentIds = new List<long>();
+
+        foreach (var child in children)
+        {
+            if (child.LinkMethod == ChildLinkMethod.StudentAccount)
+            {
+                if (child.StudentUserId is null)
+                    continue;
+
+                var studentLink = await _unitOfWork.Users
+                    .GetActiveStudentTeacherLinkAsync(child.StudentUserId.Value, teacherId);
+                if (studentLink is not null
+                    && studentLink.LinkStatus == LinkStatus.Active
+                    && studentLink.TeacherStudentId is not null)
+                    teacherStudentIds.Add(studentLink.TeacherStudentId.Value);
+            }
+            else
+            {
+                var parentLink = await _unitOfWork.Users
+                    .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
+                if (parentLink is not null
+                    && parentLink.LinkStatus == LinkStatus.Active
+                    && parentLink.TeacherStudentId is not null)
+                    teacherStudentIds.Add(parentLink.TeacherStudentId.Value);
+            }
+        }
+
+        return teacherStudentIds;
     }
 
     /// <summary>

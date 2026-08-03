@@ -1,4 +1,4 @@
-using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
@@ -162,6 +162,39 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
                 DueDate = o.Occurrence.DueDate,
                 GradeValue = o.GradeValue,
                 MaxGradeSnapshot = o.Occurrence.MaxGradeSnapshot,
+                Status = o.Status,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<(IReadOnlyList<StudentHomeworkRow> Items, int TotalCount)> GetHomeworkForStudentPagedAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize)
+    {
+        var query = _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.Template.AssignmentType == AssignmentType.Homework);
+
+        int totalCount = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(o => o.Occurrence.DueDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(o => new StudentHomeworkRow
+            {
+                OccurrenceId = o.OccurrenceId,
+                TemplateId = o.Occurrence.TemplateId,
+                HomeworkName = o.Occurrence.Template.Name,
+                Notes = o.Occurrence.Template.Notes,
+                DueDate = o.Occurrence.DueDate,
+                GradeValue = o.GradeValue,
+                MaxGradeSnapshot = o.Occurrence.MaxGradeSnapshot,
+                TrackingModeSnapshot = o.Occurrence.TrackingModeSnapshot,
                 Status = o.Status,
             })
             .AsNoTracking()

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -1901,5 +1901,8 @@
   </data>
   <data name="Chat_MarkedRead" xml:space="preserve">
     <value>Messages marked as read.</value>
+  </data>
+  <data name="HomeworkRetrieved" xml:space="preserve">
+    <value>Homework retrieved successfully.</value>
   </data>
 </root>

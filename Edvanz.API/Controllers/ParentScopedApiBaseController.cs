@@ -85,7 +85,7 @@ public abstract class ParentScopedApiBaseController : ApiBaseController
             if (link.TeacherStudentId is null)
                 return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
 
-            return ChildResolution.Ok(link.TeacherStudentId.Value);
+            return ChildResolution.Ok(link.TeacherStudentId.Value, parentUser.LanguagePreference);
         }
 
         // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
@@ -96,7 +96,7 @@ public abstract class ParentScopedApiBaseController : ApiBaseController
         if (parentLink.TeacherStudentId is null)
             return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
 
-        return ChildResolution.Ok(parentLink.TeacherStudentId.Value);
+        return ChildResolution.Ok(parentLink.TeacherStudentId.Value, parentUser.LanguagePreference);
     }
 
     /// <summary>
@@ -126,15 +126,22 @@ public abstract class ParentScopedApiBaseController : ApiBaseController
     protected readonly struct ChildResolution
     {
         public long? TeacherStudentId { get; }
+
+        /// <summary>The resolved PARENT's own language preference ("ar"/"en") — NOT the
+        /// child's. Added Phase 5 (parent parity) for language-aware content such as the
+        /// teacher's subject display name.</summary>
+        public string? ParentLanguagePreference { get; }
         public IActionResult? ErrorResponse { get; }
 
-        private ChildResolution(long? id, IActionResult? error)
+        private ChildResolution(long? id, string? parentLanguagePreference, IActionResult? error)
         {
             TeacherStudentId = id;
+            ParentLanguagePreference = parentLanguagePreference;
             ErrorResponse = error;
         }
 
-        public static ChildResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
-        public static ChildResolution Error(IActionResult response) => new(null, response);
+        public static ChildResolution Ok(long teacherStudentId, string? parentLanguagePreference)
+            => new(teacherStudentId, parentLanguagePreference, null);
+        public static ChildResolution Error(IActionResult response) => new(null, null, response);
     }
 }

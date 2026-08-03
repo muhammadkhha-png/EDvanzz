@@ -64,6 +64,35 @@ public sealed class StudentAssignmentObligationsController : ApiBaseController
         return ToResponse(await _service.GetMyOfflineExamsAsync(
             teacherId, resolution.TeacherStudentId!.Value, resolution.LanguagePreference, page, pageSize));
     }
+
+    /// <summary>
+    /// Lists every homework assignment (AssignmentType.Homework) the calling student has an
+    /// obligation for under the given teacher, paginated, sorted by date descending.
+    /// </summary>
+    /// <param name="teacherId">The teacher whose homework is requested.</param>
+    /// <param name="page">1-based page number. Defaults to 1.</param>
+    /// <param name="pageSize">Records per page. Defaults to 20, max 100.</param>
+    /// <response code="200">Paginated homework list returned.</response>
+    /// <response code="401">Caller is not authenticated.</response>
+    /// <response code="403">Caller has no active link with this teacher, or their enrollment was removed.</response>
+    /// <response code="404">Caller has no student account.</response>
+    [HttpGet("teachers/{teacherId:long}/homework")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.ExamHomework.StudentHomeworkListItemDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMyHomework(
+        [FromRoute] long teacherId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var resolution = await ResolveStudentForTeacherAsync(teacherId);
+        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+
+        return ToResponse(await _service.GetMyHomeworkAsync(
+            teacherId, resolution.TeacherStudentId!.Value, resolution.LanguagePreference, page, pageSize));
+    }
     // ──────────────────────────────────────────────────────────────────
     // PRIVATE HELPERS — verbatim copy of StudentOnlineExamsController's resolution pattern
     // ──────────────────────────────────────────────────────────────────

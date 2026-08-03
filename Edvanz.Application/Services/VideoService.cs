@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -41,10 +41,13 @@ namespace Edvanz.Application.Services;
 /// catches <c>DbUpdateException</c> with a SQL Server unique-violation
 /// number and retries via the increment branch (the row now exists).
 ///
-/// PARENT ENDPOINT — DEFERRED (Q1(c)):
-/// v1 ships without a parent endpoint. The student endpoint plus the
-/// existing ParentChild → StudentTeacherLink / ParentChildTeacherLink data
-/// model is sufficient to add it later without DB changes.
+/// PARENT ENDPOINT (Phase 5, parent parity — implemented 2026-08):
+/// GetParentVideosAsync / GetParentUnitsAsync / GetParentVideosInUnitAsync mirror their
+/// student twins exactly (same module-active gate, same scope query, same shared
+/// BuildVideoListPageAsync mapper) — no DB changes were needed, confirming the original
+/// Q1(c) deferral note. Quiz result/review reuse IStudentVideoExamService.GetResultAsync /
+/// GetReviewAsync unchanged, since both are pure reads keyed by (teacherId,
+/// teacherStudentId, videoAssetId) with no caller-identity branch to wrap.
 /// </summary>
 public sealed class VideoService : IVideoService
 {
@@ -1010,7 +1013,7 @@ public sealed class VideoService : IVideoService
         var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
             .GetVisibleVideosForStudentAsync(teacherId, teacherStudentId, request.Page, request.PageSize);
 
-        var response = await BuildStudentVideoPageAsync(
+        var response = await BuildVideoListPageAsync(
             teacherId, rows, totalCount, request.Page, request.PageSize, studentLanguage);
         return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
     }
@@ -1025,7 +1028,7 @@ public sealed class VideoService : IVideoService
         var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
             .GetVisibleVideosForStudentInUnitAsync(teacherId, teacherStudentId, unitId, request.Page, request.PageSize);
 
-        var response = await BuildStudentVideoPageAsync(
+        var response = await BuildVideoListPageAsync(
             teacherId, rows, totalCount, request.Page, request.PageSize, studentLanguage);
         return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
     }
@@ -1056,13 +1059,77 @@ public sealed class VideoService : IVideoService
         return Result<List<StudentVideoUnitDto>>.Success(items, _localizer);
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // PARENT — VIDEO LIST (Phase 5, parent parity)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>>
+        GetParentVideosAsync(
+            long teacherId, long teacherStudentId, StudentVideoListRequest request, string? parentLanguage)
+    {
+        var moduleGate = await CheckModuleActiveAsync<PaginatedResponse<List<StudentVideoListItemDto>>>(teacherId);
+        if (moduleGate is not null) return moduleGate;
+
+        var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
+            .GetVisibleVideosForStudentAsync(teacherId, teacherStudentId, request.Page, request.PageSize);
+
+        var response = await BuildVideoListPageAsync(
+            teacherId, rows, totalCount, request.Page, request.PageSize, parentLanguage);
+        return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>> GetParentVideosInUnitAsync(
+        long teacherId, long teacherStudentId, long unitId, StudentVideoListRequest request, string? parentLanguage)
+    {
+        var moduleGate = await CheckModuleActiveAsync<PaginatedResponse<List<StudentVideoListItemDto>>>(teacherId);
+        if (moduleGate is not null) return moduleGate;
+
+        var (rows, totalCount) = await _unitOfWork.VideoAssetsRepo
+            .GetVisibleVideosForStudentInUnitAsync(teacherId, teacherStudentId, unitId, request.Page, request.PageSize);
+
+        var response = await BuildVideoListPageAsync(
+            teacherId, rows, totalCount, request.Page, request.PageSize, parentLanguage);
+        return Result<PaginatedResponse<List<StudentVideoListItemDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<StudentVideoUnitDto>>> GetParentUnitsAsync(
+        long teacherId, long teacherStudentId, string? parentLanguage)
+    {
+        var moduleGate = await CheckModuleActiveAsync<List<StudentVideoUnitDto>>(teacherId);
+        if (moduleGate is not null) return moduleGate;
+
+        var units = await _unitOfWork.VideoAssetsRepo
+            .GetStudentVisibleUnitsAsync(teacherId, teacherStudentId);
+
+        string subject = ResolveTeacherSubject(
+            await _unitOfWork.VideoAssetsRepo.GetTeacherSubjectAsync(teacherId), parentLanguage);
+
+        var items = units.Select(u => new StudentVideoUnitDto
+        {
+            Id = u.Id,
+            Title = u.Title,
+            Description = u.Description,
+            VideoCount = u.VideoCount,
+            QuizCount = u.QuizVideoCount,
+            Subject = subject,
+        }).ToList();
+
+        return Result<List<StudentVideoUnitDto>>.Success(items, _localizer);
+    }
+
     /// <summary>
-    /// Shared mapper for the student video list and the V3 unit drill-down. Batch-resolves the
-    /// page's cover photos + attachments (never per-row) and resolves the teacher's subject ONCE
-    /// (all rows share one teacher), then maps rows to the enriched DTO (V2 quiz info, V4 watch
-    /// status, subject).
+    /// Shared mapper for the student AND parent video lists and the V3 unit drill-down.
+    /// Batch-resolves the page's cover photos + attachments (never per-row) and resolves the
+    /// teacher's subject ONCE (all rows share one teacher), then maps rows to the enriched DTO
+    /// (V2 quiz info, V4 watch status, subject). Caller-neutral by design — a parent's child and
+    /// a student are the same teacherStudentId shape to this method; it never inspects who's
+    /// asking. Renamed from BuildStudentVideoPageAsync (Phase 5, parent parity) once a second
+    /// caller family started using it.
     /// </summary>
-    private async Task<PaginatedResponse<List<StudentVideoListItemDto>>> BuildStudentVideoPageAsync(
+    private async Task<PaginatedResponse<List<StudentVideoListItemDto>>> BuildVideoListPageAsync(
         long teacherId, IReadOnlyList<Domain.Interfaces.StudentVideoListRow> rows,
         int totalCount, int page, int pageSize, string? studentLanguage)
     {

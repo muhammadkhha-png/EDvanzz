@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -2158,6 +2158,55 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Success(
             response, _localizer, "OfflineExamsRetrieved");
     }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentHomeworkListItemDto>>>> GetMyHomeworkAsync(
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (rows, totalCount) = await _unitOfWork.ExamHomeworkRepo
+            .GetHomeworkForStudentPagedAsync(teacherId, teacherStudentId, page, pageSize);
+
+        // Same F3 subject-resolution pattern as offline exams — resolve ONCE per page, reusing
+        // the existing helper rather than duplicating it.
+        string? subject = await ResolveTeacherSubjectAsync(teacherId, studentLanguage);
+
+        var dtos = rows.Select(r => MapToStudentHomeworkListItemDto(r, subject)).ToList();
+
+        var response = new PaginatedResponse<List<StudentHomeworkListItemDto>>
+        {
+            data = dtos,
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount,
+            totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
+        };
+
+        return Result<PaginatedResponse<List<StudentHomeworkListItemDto>>>.Success(
+            response, _localizer, "HomeworkRetrieved");
+    }
+
+    /// <summary>
+    /// Maps one homework row to its student DTO. Grade/MaxGrade are surfaced only when
+    /// TrackingModeSnapshot is Graded — CompletionOnly homework never carries a grade regardless
+    /// of what's stored (defensive: GradeValue should already be null for CompletionOnly per
+    /// ValidateHomeworkGrade, but the DTO mapper doesn't trust that alone).
+    /// </summary>
+    private static StudentHomeworkListItemDto MapToStudentHomeworkListItemDto(
+        StudentHomeworkRow row, string? subject) => new()
+    {
+        HomeworkId = row.OccurrenceId,
+        HomeworkName = row.HomeworkName,
+        Description = row.Notes,
+        DueDate = DateOnly.FromDateTime(row.DueDate),
+        Subject = subject,
+        Status = row.Status,
+        TrackingMode = row.TrackingModeSnapshot,
+        Grade = row.TrackingModeSnapshot == HomeworkTrackingMode.Graded ? row.GradeValue : null,
+        MaxGrade = row.TrackingModeSnapshot == HomeworkTrackingMode.Graded ? row.MaxGradeSnapshot : null,
+    };
 
     /// <summary>
     /// F3 — resolves the teacher's subject for student-facing display. Replicates the canonical

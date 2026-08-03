@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.VideoContentManagement;
 using Edvanz.Domain.Enums;
 using Microsoft.AspNetCore.Http;
@@ -200,6 +200,41 @@ public interface IVideoService
     /// </summary>
     Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>> GetStudentVideosInUnitAsync(
         long teacherId, long teacherStudentId, long unitId, StudentVideoListRequest request, string? studentLanguage);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PARENT READ FLOWS (Phase 5, parent parity)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Paged list of videos visible to a linked child, for the calling parent. Story 7b —
+    /// mirrors <see cref="GetStudentVideosAsync"/> exactly (same module-active gate, same
+    /// underlying scope query, same enriched DTO including the child's own watch state) — the
+    /// only difference is who the caller is. Includes NO write capability: there is no parent
+    /// equivalent of <see cref="StartWatchAsync"/> / <see cref="StopWatchAsync"/> (D6 — parent
+    /// surfaces are read-only, never trigger a VideoAnalytics write).
+    /// </summary>
+    /// <param name="teacherId">The teacher whose videos are being listed.</param>
+    /// <param name="teacherStudentId">The linked child's TeacherStudent.Id under that teacher,
+    /// resolved by the controller (AAM-FR-06.3 Method A/B).</param>
+    /// <param name="parentLanguage">The PARENT's own language preference (not the child's) —
+    /// governs which language the teacher's subject name displays in.</param>
+    Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>>
+        GetParentVideosAsync(
+            long teacherId, long teacherStudentId, StudentVideoListRequest request, string? parentLanguage);
+
+    /// <summary>
+    /// The units a linked child can see under a teacher, for the calling parent. Mirrors
+    /// <see cref="GetStudentUnitsAsync"/> exactly.
+    /// </summary>
+    Task<Result<List<StudentVideoUnitDto>>> GetParentUnitsAsync(
+        long teacherId, long teacherStudentId, string? parentLanguage);
+
+    /// <summary>
+    /// Unit drill-down for a linked child's visible videos, for the calling parent. Mirrors
+    /// <see cref="GetStudentVideosInUnitAsync"/> exactly.
+    /// </summary>
+    Task<Result<PaginatedResponse<List<StudentVideoListItemDto>>>> GetParentVideosInUnitAsync(
+        long teacherId, long teacherStudentId, long unitId, StudentVideoListRequest request, string? parentLanguage);
 
     /// <summary>
     /// Records the student's Open event and returns the embed URL + resume

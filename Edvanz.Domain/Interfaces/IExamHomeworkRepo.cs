@@ -1,4 +1,4 @@
-using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 
 namespace Edvanz.Domain.Interfaces;
@@ -771,6 +771,17 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
         long teacherId, long teacherStudentId, int page, int pageSize);
 
     /// <summary>
+    /// Student-facing, paged: homework occurrences (AssignmentType.Homework) the given student
+    /// has an obligation for under this teacher, joined to its template for display fields.
+    /// One row per occurrence, ordered by DueDate descending. Same query shape and index as
+    /// GetOfflineExamsForStudentPagedAsync (IX_StudentAssignmentObligations_StudentHistory),
+    /// filtered to Homework instead of Exam.
+    /// </summary>
+    Task<(IReadOnlyList<StudentHomeworkRow> Items, int TotalCount)> GetHomeworkForStudentPagedAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize);
+
+
+    /// <summary>
     /// Batched leaderboard ranks for one student across a set of offline-exam occurrences — ONE query,
     /// no N+1 (feeds a paged list). For each occurrence in which the student has a GRADED obligation
     /// (<see cref="ObligationStatus.AttendedWithGrade"/> with a grade), returns the student's rank by
@@ -952,6 +963,33 @@ public sealed class StudentOfflineExamRow
     public decimal? MaxGradeSnapshot { get; set; }
     public ObligationStatus Status { get; set; }
 }
+
+/// <summary>
+/// Student-facing projection for one homework occurrence (Module 6, AssignmentType.Homework).
+/// One row per occurrence the student has an obligation for. Unlike exams, homework has no
+/// leaderboard/rank concept — just completion status and an optional grade, gated by
+/// TrackingModeSnapshot (CompletionOnly never carries a grade even if the column is non-null).
+/// </summary>
+public sealed class StudentHomeworkRow
+{
+    public long OccurrenceId { get; set; }
+    public long TemplateId { get; set; }
+    public string HomeworkName { get; set; } = null!;
+    public string? Notes { get; set; }
+    public DateTime DueDate { get; set; }
+    public decimal? GradeValue { get; set; }
+    public decimal? MaxGradeSnapshot { get; set; }
+    public HomeworkTrackingMode? TrackingModeSnapshot { get; set; }
+    public ObligationStatus Status { get; set; }
+}
+
+
+/// <summary>
+/// Student-facing projection for one homework occurrence (Module 6, AssignmentType.Homework).
+/// One row per occurrence the student has an obligation for. Unlike exams, homework has no
+/// leaderboard/rank concept — just completion status and an optional grade, gated by
+/// TrackingModeSnapshot (CompletionOnly never carries a grade even if the column is non-null).
+/// </summary>
 
 /// <summary>
 /// Batched rank projection for one student in one offline-exam occurrence (audit F1 leaderboard).
