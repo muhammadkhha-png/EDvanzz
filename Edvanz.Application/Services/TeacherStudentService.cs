@@ -236,8 +236,13 @@ public class TeacherStudentService : ITeacherStudentService
         SessionSummaryRow? session = student.SessionId.HasValue
             ? await _unitOfWork.SessionsRepo.GetSessionSummaryByIdAsync(teacherId, student.SessionId.Value)
             : null;
+        var profile = MapToProfileDto(student, session);
 
-        return Result<TeacherStudentProfileDto>.Success(MapToProfileDto(student, session), _localizer);
+        // LinkId enrichment (BUG-LINKID-01) — the profile screen's Unlink action needs a real
+        // link id; previously this was always null here regardless of an existing Active link.
+        profile.LinkId = await ResolveActiveLinkIdAsync(student.Id);
+
+        return Result<TeacherStudentProfileDto>.Success(profile, _localizer);
     }
 
     /// <inheritdoc />
@@ -430,7 +435,14 @@ public class TeacherStudentService : ITeacherStudentService
             throw;
         }
 
-        return Result<TeacherStudentDto>.Success(MapToDto(student,null), _localizer, "StudentUpdatedSuccess");
+        var updatedDto = MapToDto(student, null);
+
+        // Same LinkId enrichment as GetStudentByIdAsync (BUG-LINKID-01). Without this, editing
+        // a student and re-rendering the row from the PUT response wipes out the LinkId the
+        // list screen had shown, and the next Unbind click silently no-ops.
+        updatedDto.LinkId = await ResolveActiveLinkIdAsync(student.Id);
+
+        return Result<TeacherStudentDto>.Success(updatedDto, _localizer, "StudentUpdatedSuccess");
     }
 
     // ══════════════════════════════════════════════
@@ -1315,11 +1327,29 @@ public class TeacherStudentService : ITeacherStudentService
         return null;
     }
 
+
+    /// Resolves the Id of whichever Active <c>StudentTeacherLink</c> currently claims the given
+    /// roster record, or null when none does. Single-record wrapper around
+    /// <c>IUserRepo.GetActiveLinkIdsByTeacherStudentIdsAsync</c> — the same lookup already used
+    /// by the SuperAdmin student list — so every response carrying a <see cref="TeacherStudentDto"/>
+    /// or <see cref="TeacherStudentProfileDto"/> has a trustworthy LinkId for the Unlink action.
+    /// FIX (BUG-LINKID-01): previously only the admin list path populated LinkId; the profile
+    /// and update responses always returned null, so the frontend's Unbind call had no valid
+    /// target — it 404'd silently while the link's TeacherStudentId FK was never cleared.
+    /// </summary>
+    private async Task<long?> ResolveActiveLinkIdAsync(long teacherStudentId)
+    {
+        var activeLinkIds = await _unitOfWork.Users
+            .GetActiveLinkIdsByTeacherStudentIdsAsync(new[] { teacherStudentId });
+        return activeLinkIds.TryGetValue(teacherStudentId, out var linkId) ? linkId : (long?)null;
+    }
     /// <summary>
     /// Maps a TeacherStudent to the output DTO, resolving the assigned-session
     /// display name from the supplied Id→name map (list path). SessionName stays
     /// null when the student is unassigned or the map is not provided.
     /// </summary>
+    /// <summary>
+
     private static TeacherStudentDto MapToDto(
           TeacherStudent student,
           IReadOnlyDictionary<long, string>? sessionNames,

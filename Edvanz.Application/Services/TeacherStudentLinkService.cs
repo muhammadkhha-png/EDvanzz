@@ -173,8 +173,12 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
     /// <inheritdoc />
     public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkForAdminAsync(
-        long linkId, long actingUserId, BindStudentLinkDto dto)
+          long linkId, long actingUserId, BindStudentLinkDto dto)
     {
+        // BUG-LINKID-01 guard — see UnbindStudentLinkForAdminAsync.
+        if (linkId <= 0)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "InvalidLinkId", HttpStatusCode.BadRequest);
+
         var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
         if (link is null)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
@@ -187,11 +191,17 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
     /// <inheritdoc />
     public async Task<Result<LinkedStudentListItemDto>> BindStudentLinkAsync(
-        long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto)
+          long teacherId, long linkId, long actingUserId, BindStudentLinkDto dto)
     {
+        // BUG-LINKID-01 guard — see UnbindStudentLinkAsync.
+        if (linkId <= 0)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "InvalidLinkId", HttpStatusCode.BadRequest);
+
         var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
         if (link is null)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Only an ACCEPTED (Active) connection can be linked
 
         // Only an ACCEPTED (Active) connection can be linked — Pending must be
         // accepted first, terminal states are not linkable.
@@ -238,8 +248,13 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
     /// <inheritdoc />
     public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkForAdminAsync(
-        long linkId, long actingUserId)
+            long linkId, long actingUserId)
     {
+        // BUG-LINKID-01 guard — checked here too since this method resolves TeacherId via its
+        // own lookup before ever reaching UnbindStudentLinkAsync's guard.
+        if (linkId <= 0)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "InvalidLinkId", HttpStatusCode.BadRequest);
+
         var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdAsync(linkId);
         if (link is null)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
@@ -248,11 +263,15 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         // is known — reuses the exact unbind logic, zero duplication.
         return await UnbindStudentLinkAsync(link.TeacherId, linkId, actingUserId);
     }
-
     /// <inheritdoc />
     public async Task<Result<LinkedStudentListItemDto>> UnbindStudentLinkAsync(
-        long teacherId, long linkId, long actingUserId)
+            long teacherId, long linkId, long actingUserId)
     {
+        // BUG-LINKID-01 guard: a null/zero LinkId (stale DTO, dropped enrichment upstream) must
+        // fail loudly and distinctly from a genuinely missing link — not surface as LinkNotFound.
+        if (linkId <= 0)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "InvalidLinkId", HttpStatusCode.BadRequest);
+
         var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
         if (link is null)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);

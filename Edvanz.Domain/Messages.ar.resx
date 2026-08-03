@@ -306,8 +306,11 @@
   <data name="LinkUnbound" xml:space="preserve">
     <value>تم فك ربط الطالب — لسه متصل بس مش هيشوف محتواك لحد ما تربطه تاني</value>
   </data>
-  <data name="BindTargetRequired" xml:space="preserve">
+<data name="BindTargetRequired" xml:space="preserve">
     <value>اكتب كود الطالب أو اختار واحد من طلابك عشان تربطه</value>
+  </data>
+  <data name="InvalidLinkId" xml:space="preserve">
+    <value>لازم يكون في لينك صحيح عشان تقدر تعمل الإجراء ده. حدّث الصفحة وحاول تاني</value>
   </data>
   <data name="LinkNotActive" xml:space="preserve">
     <value>الطالب المقبول بس هو اللي ينفع يتربط</value>

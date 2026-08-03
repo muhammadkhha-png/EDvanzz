@@ -306,8 +306,11 @@
   <data name="LinkUnbound" xml:space="preserve">
     <value>Student unlinked — they stay connected but can't see your content until you re-link them</value>
   </data>
-  <data name="BindTargetRequired" xml:space="preserve">
+<data name="BindTargetRequired" xml:space="preserve">
     <value>Enter the student code or pick one of your students to link</value>
+  </data>
+  <data name="InvalidLinkId" xml:space="preserve">
+    <value>A valid link is required to perform this action. Please refresh the page and try again</value>
   </data>
   <data name="LinkNotActive" xml:space="preserve">
     <value>Only an accepted student can be linked</value>
@@ -1902,4 +1905,5 @@
   <data name="Chat_MarkedRead" xml:space="preserve">
     <value>Messages marked as read.</value>
   </data>
+
 </root>
