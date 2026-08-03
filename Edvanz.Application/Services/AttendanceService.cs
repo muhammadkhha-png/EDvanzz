@@ -2483,9 +2483,13 @@ public class AttendanceService : IAttendanceService
                     AttendanceMethod = entry.AttendanceMethod,
                     OccurrenceDate = entry.OccurrenceDate,
                     RecordedByUserId = dto.RecordedByUserId,
-                    // AUDIT FIX Step 5: Do NOT auto-confirm absence alerts during sync.
-                    // REQ-ATT-057/058: Tutor must explicitly confirm.
-                    AbsenceAlertConfirmed = false
+                    // AUDIT FIX Step 5 (amended): never AUTO-confirm during
+                    // sync — but honor a confirmation the tutor explicitly
+                    // gave when recording offline (REQ-ATT-057/058: the
+                    // confirmation happened, just without connectivity).
+                    // Entries without one still default to false and come
+                    // back as RequiresAbsenceConfirmation.
+                    AbsenceAlertConfirmed = entry.AbsenceAlertConfirmed
                 };
 
                 var markResult = await MarkAttendanceAsync(markDto);

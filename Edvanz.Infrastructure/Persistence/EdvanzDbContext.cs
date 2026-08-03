@@ -1590,6 +1590,14 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(t => t.PaymentPeriodId)
                 .HasDatabaseName("IX_PT_PaymentPeriodId");
 
+            // Offline sync exactly-once: one transaction per client-generated
+            // entry id per teacher. Filtered — online records carry NULL.
+            entity.Property(t => t.ClientEntryId).HasMaxLength(64);
+            entity.HasIndex(t => new { t.TeacherId, t.ClientEntryId })
+                .IsUnique()
+                .HasFilter("[ClientEntryId] IS NOT NULL")
+                .HasDatabaseName("IX_PT_TeacherId_ClientEntryId");
+
             // ── FOREIGN KEYS ──
 
             // ── FOREIGN KEYS ──

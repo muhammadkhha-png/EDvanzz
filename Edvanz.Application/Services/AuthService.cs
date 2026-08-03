@@ -167,7 +167,9 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
+                // Minutes, not days — the initial deadline must equal the sliding idle
+                // window that SessionActivitySlidingMiddleware keeps pushing forward.
+                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 1440)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,
@@ -709,7 +711,9 @@ namespace Edvanz.Application.Services
             {
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiryDate = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 60)),
+                // Minutes, not days — the initial deadline must equal the sliding idle
+                // window that SessionActivitySlidingMiddleware keeps pushing forward.
+                ExpiryDate = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:RefreshTokenMinutes", 1440)),
                 CreatedAt = DateTime.UtcNow,
                 SecurityStamp = user.SecurityStamp,
                 IsRevoked = false,

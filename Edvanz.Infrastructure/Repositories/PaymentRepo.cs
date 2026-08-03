@@ -119,6 +119,19 @@
         }
 
         /// <inheritdoc />
+        public async Task<PaymentTransaction?> GetByClientEntryIdAsync(
+            long teacherId, string clientEntryId)
+        {
+            // Deliberately ignores IsDeleted: a record the tutor deleted after
+            // an earlier sync must still block a replay from re-recording it.
+            return await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.ClientEntryId == clientEntryId)
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<(IReadOnlyList<PaymentTransaction> Items, int TotalCount)>
             GetCollectorTransactionsPagedAsync(
                 long teacherId, long collectedByUserId,

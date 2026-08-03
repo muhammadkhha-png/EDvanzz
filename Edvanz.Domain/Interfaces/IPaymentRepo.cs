@@ -68,6 +68,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId, DateTime localDate);
 
     /// <summary>
+    /// Finds an offline-synced transaction by its client-generated id.
+    /// Exactly-once replay guard for POST api/Payment/sync.
+    /// </summary>
+    Task<PaymentTransaction?> GetByClientEntryIdAsync(
+        long teacherId, string clientEntryId);
+
+    /// <summary>
     /// Gets transactions collected by a specific user in a date range.
     /// REQ-PAY-013: Collector view. REQ-PAY-058: Collector performance report.
     /// </summary>

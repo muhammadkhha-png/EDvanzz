@@ -1156,6 +1156,14 @@ public class OfflineAttendanceEntryDto
     /// <summary>Client-generated unique Id for conflict detection.</summary>
     [Required]
     public string ClientEntryId { get; set; } = null!;
+
+    /// <summary>
+    /// True when the tutor explicitly confirmed the absence alert at the time
+    /// the entry was recorded offline (REQ-ATT-057/058 — the confirmation
+    /// happened, just without connectivity). Defaults to false, preserving the
+    /// audit stance for entries recorded without a confirmation.
+    /// </summary>
+    public bool AbsenceAlertConfirmed { get; set; } = false;
 }
 
 /// <summary>

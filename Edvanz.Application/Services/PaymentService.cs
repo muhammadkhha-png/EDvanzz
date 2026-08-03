@@ -370,6 +370,7 @@ public class PaymentService : IPaymentService
                 OnlineTransactionRef = dto.OnlineTransactionRef,
                 IsOfflineRecord = dto.IsOfflineRecord,
                 OfflineDeviceId = dto.OfflineDeviceId,
+                ClientEntryId = dto.IsOfflineRecord ? dto.ClientEntryId : null,
                 SyncStatus = dto.IsOfflineRecord ? PaymentSyncStatus.Synced : PaymentSyncStatus.NotApplicable,
                 CreateAt = now
             };
@@ -2161,8 +2162,31 @@ public class PaymentService : IPaymentService
         foreach (var offlineRecord in dto.OfflineRecords)
         {
             offlineRecord.IsOfflineRecord = true;
+            var entry = new PaymentSyncEntryResultDto
+            {
+                ClientEntryId = offlineRecord.ClientEntryId
+            };
+            result.EntryResults.Add(entry);
 
-            // Check for conflict: same student + same day + same session
+            // 1. Exactly-once replay guard: a record whose ClientEntryId was
+            // already persisted (an earlier sync whose response was lost) is
+            // acknowledged WITHOUT recording again.
+            if (!string.IsNullOrWhiteSpace(offlineRecord.ClientEntryId))
+            {
+                var alreadySynced = await _unitOfWork.PaymentsRepo
+                    .GetByClientEntryIdAsync(dto.TeacherId, offlineRecord.ClientEntryId);
+                if (alreadySynced is not null)
+                {
+                    result.SyncedCount++;
+                    entry.Success = true;
+                    entry.AlreadySynced = true;
+                    entry.ExistingRecord = MapToTransactionDto(alreadySynced);
+                    continue;
+                }
+            }
+
+            // 2. Cross-device conflict: same student + same day recorded by a
+            // DIFFERENT device/user needs human resolution (REQ-PAY-082).
             var existing = await _unitOfWork.PaymentsRepo
                 .GetSameDayTransactionsAsync(dto.TeacherId, offlineRecord.TeacherStudentId,
                     offlineRecord.OfflineCollectedAt?.Date ?? DateTime.UtcNow.Date);
@@ -2170,19 +2194,73 @@ public class PaymentService : IPaymentService
             if (existing.Any(e => e.OfflineDeviceId != offlineRecord.OfflineDeviceId))
             {
                 result.ConflictCount++;
+                var conflictRecord = MapToTransactionDto(existing.First());
                 result.Conflicts.Add(new PaymentConflictDto
                 {
                     OfflineRecord = offlineRecord,
-                    ExistingRecord = MapToTransactionDto(existing.First()),
+                    ExistingRecord = conflictRecord,
                     ConflictReason = "Same student paid by different user/device on same day"
                 });
+                entry.IsConflict = true;
+                entry.ErrorMessage = "Same student paid by different user/device on same day";
+                entry.ExistingRecord = conflictRecord;
                 continue;
             }
 
+            // 3. Resolve the student's active session when the client did not
+            // send one (offline clients don't know session ids — same
+            // resolution the v1 collect path uses).
+            if (offlineRecord.SessionId <= 0)
+            {
+                var syncStudent = await _unitOfWork.Students
+                    .GetActiveByIdAndTeacherAsync(offlineRecord.TeacherStudentId, dto.TeacherId);
+                if (syncStudent?.SessionId is null)
+                {
+                    result.FailedCount++;
+                    entry.ErrorMessage = syncStudent is null
+                        ? "Student not found."
+                        : "Student is not assigned to a session.";
+                    continue;
+                }
+                offlineRecord.SessionId = syncStudent.SessionId.Value;
+            }
+
+            // 4. Record through the normal money path.
             offlineRecord.DuplicateConfirmed = true;
-            var collectResult = await CollectPaymentAsync(offlineRecord);
-            if (collectResult.IsSuccess)
+            Result<CollectPaymentResultDto> collectResult;
+            try
+            {
+                collectResult = await CollectPaymentAsync(offlineRecord);
+            }
+            catch (Exception)
+            {
+                // Unique-index race: a concurrent replay of this same record
+                // may have won the insert between the dedup check and now.
+                var winner = string.IsNullOrWhiteSpace(offlineRecord.ClientEntryId)
+                    ? null
+                    : await _unitOfWork.PaymentsRepo
+                        .GetByClientEntryIdAsync(dto.TeacherId, offlineRecord.ClientEntryId);
+                if (winner is null) throw;
                 result.SyncedCount++;
+                entry.Success = true;
+                entry.AlreadySynced = true;
+                entry.ExistingRecord = MapToTransactionDto(winner);
+                continue;
+            }
+
+            if (collectResult.IsSuccess && collectResult.Data?.Transaction is not null)
+            {
+                result.SyncedCount++;
+                entry.Success = true;
+                continue;
+            }
+
+            // Recorded nothing: business rejection (already paid, student not
+            // assigned, amount cap...). Surfaced per record — previously these
+            // were silently uncounted.
+            result.FailedCount++;
+            entry.IsConflict = collectResult.Data?.IsAlreadyPaid == true;
+            entry.ErrorMessage = collectResult.Message;
         }
 
         // PAY-7: payment-domain messages (SyncCompleted/SyncConflictsDetected are attendance-worded —
