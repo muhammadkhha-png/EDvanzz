@@ -873,14 +873,15 @@ public class PaymentService : IPaymentService
             counter.CustomPaymentAmount = dto.CustomAmount;
             await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
 
-            // Propagate to the student's FUTURE (next month onward) still-owed periods so a price
-            // change is reflected on upcoming payments — not only on the next generation. The current
-            // month and any fully-paid periods are left untouched (user-confirmed scope).
+            // Propagate to the student's CURRENT month AND all FUTURE still-owed periods so a price
+            // change is reflected immediately across every screen — not only on upcoming generations.
+            // The repo predicate only selects Unpaid/PartiallyPaid periods, so fully-paid/overpaid
+            // months are never rewritten (user-confirmed scope: current month + future).
             var localDate = _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
-            var nextMonthStart = new DateTime(localDate.Year, localDate.Month, 1).AddMonths(1);
+            var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
 
             var periods = await _unitOfWork.PaymentsRepo
-                .GetRepriceableStudentPeriodsAsync(dto.TeacherId, dto.TeacherStudentId, nextMonthStart);
+                .GetRepriceableStudentPeriodsAsync(dto.TeacherId, dto.TeacherStudentId, currentMonthStart);
 
             if (periods.Count > 0)
             {
@@ -1860,6 +1861,13 @@ public class PaymentService : IPaymentService
                 var collectorUserId = await _unitOfWork.PaymentsRepo
                     .GetLatestCollectorUserIdForStudentSessionAsync(
                         dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+
+                // Attribute the refund so it can be surfaced as a negative against this collector
+                // (an assistant OR the tutor) in the anchored month — across the collections ledger
+                // and the per-collector totals. The entity is change-tracked, so this persists on save.
+                departure.CollectedByUserId = collectorUserId;
+                departure.RefundPeriodStart = summary.PeriodStart;
+
                 await AdjustAssistantWalletAsync(dto.TeacherId, collectorUserId, -finalAmount);
 
                 // Reverse the refunded cash on the ANCHORED period as well. Without this the money

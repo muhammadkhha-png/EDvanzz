@@ -39,11 +39,21 @@ public class CollectionRow
     public int Index { get; set; }
     public string? StudentId { get; set; }
     public string? StudentName { get; set; }
+    /// <summary>Positive for a collection; NEGATIVE for a departure refund (money returned).</summary>
     public decimal Amount { get; set; }
-    /// <summary>collected | pending. A recorded transaction is always a collection.</summary>
+    /// <summary>collected | pending | refund. A departure refund is a negative-amount ledger line.</summary>
     public string Status { get; set; } = "collected";
     public string? SessionName { get; set; }
     public DateTime? CollectedAt { get; set; }
+
+    /// <summary>True when this row is a student-departure refund (negative amount).</summary>
+    public bool IsRefund { get; set; }
+
+    /// <summary>
+    /// For a refund only: display label of the month the departure applies to (e.g. "March 2026").
+    /// Null for a normal collection.
+    /// </summary>
+    public string? RefundedForMonthLabel { get; set; }
 }
 
 // ── Screen: AssistantWallet ────────────────────────────────────────────────
@@ -148,6 +158,13 @@ public class StudentsByStatusResponse
     public decimal TotalCollected { get; set; }
     public decimal MonthAmount { get; set; }
     public decimal AmountPerMonth { get; set; }
+    /// <summary>
+    /// Full-set expected revenue for this scope: Σ over every in-scope student of their monthly
+    /// rate (custom override ?? session default), including students with no month period yet.
+    /// The session-detail screen renders this directly so per-student custom amounts are reflected
+    /// (instead of the client computing session-default × student-count).
+    /// </summary>
+    public decimal ExpectedAmount { get; set; }
     public decimal TotalUnpaidAmount { get; set; }
     public int Total { get; set; }
     public int Page { get; set; }
