@@ -651,6 +651,27 @@ public sealed class PaymentController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // DEPARTED STUDENTS LIST
+    // GET api/payment/departures?search=&page=&limit=
+    // Teacher-wide list of departed students (from the permanent StudentDeparture
+    // records), newest first. AUTH: Teacher or SuperAdmin.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("departures")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DeparturesResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetDepartures(
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int limit = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _paymentService.GetDeparturesAsync(teacherId.Value, search, page, limit);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 18: TRANSFER SUMMARY
     // GET api/payment/students/{teacherStudentId}/transfer-summary
     // ══════════════════════════════════════════════════════════════════════════

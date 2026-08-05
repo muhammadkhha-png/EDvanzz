@@ -2868,8 +2868,11 @@ public class AttendanceService : IAttendanceService
     ///
     /// The append paths (mark / bulk / add) increment correctly for a fresh record, so recomputing
     /// here on every non-append write keeps the whole counter consistent AND self-heals any historical
-    /// skew on the student's next edit/delete. Last* fields keep their existing maintenance (untouched
-    /// here, matching the previous behaviour). No-op when the counter row is absent.
+    /// skew on the student's next edit/delete. The Last* fields (LastAbsenceDate/SessionName/SessionId
+    /// and LastAttendanceDate) are ALSO recomputed from records here, so editing or deleting the
+    /// most-recent absence/attendance no longer leaves them pointing at a now-changed or removed
+    /// occurrence — the "was absent last session" warning stays truthful. No-op when the counter row
+    /// is absent.
     /// </summary>
     private async Task RecalculateAbsenceCounterFromRecordsAsync(long teacherId, long teacherStudentId)
     {
@@ -2885,6 +2888,17 @@ public class AttendanceService : IAttendanceService
         counter.TotalAbsences = totalAbsences;
         counter.ConsecutiveAbsences = await _unitOfWork.AttendanceRepo
             .RecalculateConsecutiveAbsencesAsync(teacherStudentId);
+
+        // Recompute the Last* fields from records too, so editing/deleting the most-recent
+        // absence updates the "last absent on … in …" shown on the take-attendance row, the
+        // absence-overview list and the mark-absence alert (previously left stale, pointing at a
+        // now-changed or deleted occurrence).
+        var last = await _unitOfWork.AttendanceRepo
+            .GetLastAbsenceAndAttendanceAsync(teacherStudentId);
+        counter.LastAbsenceDate = last.LastAbsenceDate;
+        counter.LastAbsenceSessionName = last.LastAbsenceSessionName;
+        counter.LastAbsenceSessionId = last.LastAbsenceSessionId;
+        counter.LastAttendanceDate = last.LastAttendanceDate;
 
         await _unitOfWork.AttendanceRepo.UpdateAbsenceCounterAsync(counter);
     }

@@ -16,9 +16,10 @@ public interface IVideoUnitService
     Task<Result<CreateVideoUnitResponse>> CreateUnitAsync(
         long teacherId, long actingUserId, VideoUnitRequest request);
 
-    /// <summary>Renames/updates a unit's description. S4 edit.</summary>
+    /// <summary>Renames a unit and (when request.Scopes is non-null) replaces its
+    /// session/group scope set — mirrors CreateUnitAsync. S4 edit.</summary>
     Task<Result<bool>> UpdateUnitAsync(
-        long teacherId, long unitId, VideoUnitRequest request);
+        long teacherId, long actingUserId, long unitId, VideoUnitRequest request);
 
     /// <summary>
     /// Soft-deletes a unit. Its videos are NOT deleted or orphaned — they

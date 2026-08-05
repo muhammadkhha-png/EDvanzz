@@ -828,6 +828,15 @@
   <data name="AssistantNotFound" xml:space="preserve">
     <value>المساعد مش موجود.</value>
   </data>
+  <data name="AssistantHasWalletBalance" xml:space="preserve">
+    <value>المساعد ده لسه ماسك فلوس متحصّلة. اعمل تسليم أو سحب للمحفظة الأول وبعدين احذفه.</value>
+  </data>
+  <data name="AssistantDeactivated" xml:space="preserve">
+    <value>تم إيقاف المساعد.</value>
+  </data>
+  <data name="UnbindLinkNotActive" xml:space="preserve">
+    <value>الربط ده مابقاش نشط.</value>
+  </data>
   <data name="EventCreatedSuccess" xml:space="preserve">
     <value>تم إنشاء حدث الدفع بنجاح.</value>
   </data>
@@ -907,10 +916,10 @@
     <value>لا يمكن إضافة صلاحيات خارج نطاق صلاحيات المدرس </value>
   </data>
   <data name="InvalidPermissions" xml:space="preserve">
-    <value>صلاحيات غير صالحة </value>
+    <value>فيه صلاحية أو أكتر من اللي اخترتها مش صحيحة. راجع صلاحيات المساعد وحاول تاني.</value>
   </data>
   <data name="InvalidTemplates" xml:space="preserve">
-    <value>قوالب غير صالحة</value>
+    <value>فيه قالب صلاحيات أو أكتر من اللي اخترتها مش صحيح. راجع اختيارك وحاول تاني.</value>
   </data>
   <data name="TemplateNotFound" xml:space="preserve">
     <value>المهمة دي مش موجودة</value>
@@ -1336,7 +1345,7 @@
     <value>الطالب دا عنده بيانات متسجلة. أكد الحذف علشان نكمل</value>
   </data>
   <data name="DatabaseConflict" xml:space="preserve">
-    <value>الطلب متعارض مع بيانات موجودة. حدّث الصفحة وحاول تاني</value>
+    <value>مش قادر تعدّل العنصر ده لأنه لسه مرتبط ببيانات تانية. اقطع الروابط الأول أو اعمل ريفريش وحاول تاني</value>
   </data>
   <data name="ReportFilterAmbiguous" xml:space="preserve">
     <value>اختار فلتر واحد بس للتقرير دا</value>
@@ -1517,7 +1526,7 @@
     <value>مقدرناش نعالج الطلب ده. من فضلك راجع الحقول المطلوبة وحاول تاني</value>
   </data>
   <data name="ConcurrencyConflict" xml:space="preserve">
-    <value>حد تاني عدّل الفيديو ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
+    <value>حد تاني عدّل ده وإنت بتعدّل فيه. ياريت تعمل ريفريش وتجرب تاني</value>
   </data>
 <data name="ExamTitleRequired" xml:space="preserve"><value>الامتحان محتاج عنوان</value></data>
   <data name="ExamMustHaveQuestions" xml:space="preserve"><value>الامتحان لازم يكون فيه سؤال واحد على الأقل</value></data>
@@ -1638,7 +1647,7 @@
     <value>لازم يكون فيه سؤال واحد على الأقل</value>
   </data>
   <data name="OnlineExam.ExamNotDraft" xml:space="preserve">
-    <value>الإجراء ده متاح بس والامتحان لسه مسودة</value>
+    <value>مش هتقدر تغيّر الامتحان ده لأن فيه طلبة سلّموه بالفعل. لسه تقدر تعدّل الاسم والملاحظات والدرجات.</value>
   </data>
   <data name="OnlineExam.UnpublishBlockedBySubmissions" xml:space="preserve">
     <value>مينفعش تلغي النشر — في طلاب سلّموا الامتحان ده بالفعل</value>
@@ -1746,7 +1755,7 @@
     <value>مبلغ الدفع ماينفعش يكون بالسالب.</value>
   </data>
   <data name="PaymentCustomAmountInvalid" xml:space="preserve">
-    <value>المبلغ المخصص لازم يكون أكبر من صفر.</value>
+    <value>المبلغ المخصص ماينفعش يكون بالسالب. خليه 0 عشان تحدد إن الطالب مش بيدفع.</value>
   </data>
   <data name="PaymentSyncCompleted" xml:space="preserve">
     <value>تمت مزامنة سجلات الدفع المحلية بنجاح.</value>

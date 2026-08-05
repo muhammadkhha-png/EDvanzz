@@ -359,6 +359,10 @@ public sealed class VideoUnitRequest
     public string? Description { get; set; }
     /// <summary>Optional unit‑level scopes to be created together with the unit.</summary>
     public List<VideoScopeInputDto>? Scopes { get; set; }
+    /// <summary>On update: when a scope is REMOVED that member videos still use,
+    /// true = also remove that scope from those videos (cascade); false = reject
+    /// with the specific "still used by video(s): {names}" conflict.</summary>
+    public bool CascadeToVideos { get; set; }
 }
 
 /// <summary>Response body for <c>POST /api/video-units</c>.</summary>
@@ -381,6 +385,9 @@ public sealed class AssignUnitScopesRequest
 {
     [Required]
     public List<VideoScopeInputDto> Scopes { get; set; } = new();
+    /// <summary>Replace-only: when the new set REMOVES a scope member videos still
+    /// use, true = cascade the removal to those videos; false = reject (409).</summary>
+    public bool CascadeToVideos { get; set; }
 }
 
 /// <summary>
@@ -439,6 +446,8 @@ public sealed class TeacherVideoUnitListItemDto
     public int SeenStudentCount { get; set; }
     public int UnseenStudentCount { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>Display names of the unit's audience (session + group names) — shown on the card.</summary>
+    public List<string> RecipientLabels { get; set; } = new();
 }
 
 // ══════════════════════════════════════════════════════════════════════════

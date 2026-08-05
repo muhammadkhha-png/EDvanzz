@@ -828,6 +828,15 @@
   <data name="AssistantNotFound" xml:space="preserve">
     <value>Assistant not found.</value>
   </data>
+  <data name="AssistantHasWalletBalance" xml:space="preserve">
+    <value>This assistant is still holding collected cash. Hand over or withdraw their wallet first, then delete.</value>
+  </data>
+  <data name="AssistantDeactivated" xml:space="preserve">
+    <value>Assistant deactivated.</value>
+  </data>
+  <data name="UnbindLinkNotActive" xml:space="preserve">
+    <value>This link is no longer active.</value>
+  </data>
   <data name="EventCreatedSuccess" xml:space="preserve">
     <value>Payment event created successfully.</value>
   </data>
@@ -907,10 +916,10 @@
     <value>Assisstant Permissions Out Of Teacher Scope Permissions</value>
   </data>
   <data name="InvalidPermissions" xml:space="preserve">
-    <value>Invalid Permissions</value>
+    <value>One or more of the selected permissions aren't valid. Please review the assistant's permissions and try again.</value>
   </data>
   <data name="InvalidTemplates" xml:space="preserve">
-    <value>Invalid Templates</value>
+    <value>One or more of the selected permission templates aren't valid. Please review your selection and try again.</value>
   </data>
   <data name="TemplateNotFound" xml:space="preserve">
     <value>This assignment was not found</value>
@@ -1336,7 +1345,7 @@
     <value>This student already has recorded data. Please confirm the deletion to proceed</value>
   </data>
   <data name="DatabaseConflict" xml:space="preserve">
-    <value>The request conflicts with existing data. Please refresh and try again</value>
+    <value>This item can't be changed because it's still linked to other data. Remove those links first, or refresh and try again</value>
   </data>
   <data name="ReportFilterAmbiguous" xml:space="preserve">
     <value>Please choose exactly one filter for this report</value>
@@ -1472,7 +1481,7 @@
     <value>We couldn't process this request. Please check the required fields and try again</value>
   </data>
   <data name="ConcurrencyConflict" xml:space="preserve">
-    <value>This video was changed by someone else while you were editing. Please refresh and try again</value>
+    <value>This was changed by someone else while you were editing. Please refresh and try again</value>
   </data>
   <data name="VideoPhotoUploaded" xml:space="preserve">
     <value>Video photo uploaded successfully</value>
@@ -1620,7 +1629,7 @@
     <value>At least one question is required</value>
   </data>
   <data name="OnlineExam.ExamNotDraft" xml:space="preserve">
-    <value>This action is only allowed while the exam is a draft</value>
+    <value>You can't change this exam because students have already submitted it. You can still edit its name, notes, and scores.</value>
   </data>
   <data name="OnlineExam.UnpublishBlockedBySubmissions" xml:space="preserve">
     <value>Can't unpublish — students have already submitted this exam</value>
@@ -1728,7 +1737,7 @@
     <value>Payment amount cannot be negative.</value>
   </data>
   <data name="PaymentCustomAmountInvalid" xml:space="preserve">
-    <value>Custom payment amount must be greater than zero.</value>
+    <value>Custom payment amount cannot be negative. Set it to 0 to mark the student as not paying.</value>
   </data>
   <data name="PaymentSyncCompleted" xml:space="preserve">
     <value>Offline payment records synced successfully.</value>

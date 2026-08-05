@@ -160,3 +160,21 @@ public sealed class DepartureRefundRow
     /// <summary>When the departure/refund was confirmed.</summary>
     public DateTime DepartedAt { get; set; }
 }
+
+/// <summary>
+/// One row of the teacher-wide "departed students" list (GET api/Payment/departures).
+/// Sourced from the permanent, denormalized StudentDeparture record — no joins required.
+/// </summary>
+public sealed class DepartureListRow
+{
+    public long Id { get; set; }
+    public long? TeacherStudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+    public string? SessionName { get; set; }
+    public DateTime DepartedAt { get; set; }
+    public Edvanz.Domain.Enums.DepartureOutcome DepartureOutcome { get; set; }
+    public decimal FinalAmount { get; set; }
+    public Edvanz.Domain.Enums.PaymentStatus PaymentStatusAtDeparture { get; set; }
+    public bool IsTutorOverride { get; set; }
+}

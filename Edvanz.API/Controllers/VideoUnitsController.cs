@@ -13,8 +13,9 @@ namespace Edvanz.API.Controllers;
 /// Video Content Management Module (Module 14) — unit hierarchy endpoints
 /// (Track C / G-UNIT). Teacher/assistant only, same
 /// <c>[ModulePermission(VideoConstants.ModuleName, ...)]</c> convention as
-/// <see cref="VideosController"/>. A unit is a purely organizational grouping
-/// of videos — it carries no scope/recipients of its own.
+/// <see cref="VideosController"/>. A unit groups videos AND carries its own
+/// session/group scope (the allowed audience its member videos are constrained
+/// to) — set on create/update and via the dedicated scope endpoints below.
 /// </summary>
 [Route("api/video-units")]
 [Authorize]
@@ -59,7 +60,7 @@ public sealed class VideoUnitsController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _service.UpdateUnitAsync(teacherId.Value, unitId, request);
+        var result = await _service.UpdateUnitAsync(teacherId.Value, GetActingUserId(), unitId, request);
         return ToResponse(result);
     }
 

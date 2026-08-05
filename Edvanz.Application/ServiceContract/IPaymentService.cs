@@ -228,6 +228,9 @@ public interface IPaymentService
     /// </summary>
     Task<Result<StudentDepartureDto>> ConfirmDepartureAsync(ConfirmDepartureDto dto);
 
+    /// <summary>Teacher-wide paged list of departed students (search by name/code), newest first.</summary>
+    Task<Result<DeparturesResponse>> GetDeparturesAsync(long teacherId, string? search, int page, int limit);
+
     // ══════════════════════════════════════════════
     // SESSION TRANSFER (REQ-PAY-085 through 092)
     // ══════════════════════════════════════════════

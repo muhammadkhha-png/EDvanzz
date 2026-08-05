@@ -138,6 +138,8 @@ public class CollectStudentDto
 {
     public string Id { get; set; } = string.Empty;
     public string? Name { get; set; }
+    /// <summary>Student code shown on the card (e.g. "#223"); also matched by search.</summary>
+    public string? StudentCode { get; set; }
     public string? AvatarUrl { get; set; }
     public decimal Amount { get; set; }
     /// <summary>assigned | unassigned</summary>
@@ -145,6 +147,8 @@ public class CollectStudentDto
     /// <summary>paid | unpaid</summary>
     public string Status { get; set; } = "paid";
     public int UnpaidMonths { get; set; }
+    /// <summary>True when the required amount is 0 (free/scholarship) → "Not paying" label.</summary>
+    public bool IsExempt { get; set; }
 }
 
 // ── Screen: PaymentTracking (students by status) ───────────────────────────
@@ -185,6 +189,9 @@ public class StudentByStatusDto
     public int UnpaidMonths { get; set; }
     /// <summary>Student code shown on the card (e.g. "#223").</summary>
     public string? StudentCode { get; set; }
+
+    /// <summary>True when the required amount is 0 (free/scholarship) → "Not paying" label.</summary>
+    public bool IsExempt { get; set; }
 
     /// <summary>Session the student paid on (falls back to the month's period session).</summary>
     public string? SessionName { get; set; }
@@ -316,6 +323,10 @@ public class TrackingSessionDto
     public int StudentsCollected { get; set; }
     public int StudentsTotal { get; set; }
     public decimal ProgressPercent { get; set; }
+    /// <summary>Group the session belongs to (null = ungrouped). Lets the app render
+    /// groups + ungrouped sessions with per-group roll-ups and a group drill-in.</summary>
+    public string? GroupId { get; set; }
+    public string? GroupName { get; set; }
 }
 
 // ── Money: bulk mark-paid (CollectPayment screen) ──────────────────────────

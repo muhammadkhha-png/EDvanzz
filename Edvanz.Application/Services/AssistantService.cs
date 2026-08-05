@@ -641,6 +641,17 @@ namespace Edvanz.Application.Services
             if (assistant.DeletedAt is not null)
                 return Result<string>.Success("AssistantDeleted", localizer);
 
+            // Guard: don't delete an assistant who is still holding collected cash.
+            // The tutor must hand over / withdraw the wallet first; the wallet and its
+            // history are then preserved (the deleted assistant stays visible for
+            // tracking rather than being purged).
+            var walletRepo = _unitOfWork.GetRepository<AssistantWallet, long>();
+            var wallet = (await walletRepo.GetAsync(w => w.AssistantId == assistantId))
+                .FirstOrDefault();
+            if (wallet is not null && wallet.CurrentBalance != 0m)
+                return Result<string>.Failure(
+                    localizer, "AssistantHasWalletBalance", HttpStatusCode.Conflict);
+
             var user = await _unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
             if (user is null)
                 return Result<string>.Failure(localizer, "UserNotFound");

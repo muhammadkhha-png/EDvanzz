@@ -561,6 +561,32 @@ public class StudentDepartureDto
     public DateTime DepartedAt { get; set; }
 }
 
+/// <summary>One row in the teacher-wide departed-students list (GET api/Payment/departures).</summary>
+public class DepartureListItemDto
+{
+    public long Id { get; set; }
+    public string? StudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+    public string? SessionName { get; set; }
+    public DateTime DepartedAt { get; set; }
+    /// <summary>RefundDue | AmountOwed | NoObligation</summary>
+    public string DepartureOutcome { get; set; } = string.Empty;
+    public decimal FinalAmount { get; set; }
+    /// <summary>True when the departure produced a refund to the student.</summary>
+    public bool IsRefund { get; set; }
+}
+
+/// <summary>Paged response for the departed-students list.</summary>
+public class DeparturesResponse
+{
+    public int Page { get; set; }
+    public int Limit { get; set; }
+    public int TotalItems { get; set; }
+    public int TotalPages { get; set; }
+    public List<DepartureListItemDto> Departures { get; set; } = new();
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // SESSION TRANSFER DTOs
 // ══════════════════════════════════════════════════════════════════════════

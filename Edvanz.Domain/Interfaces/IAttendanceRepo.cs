@@ -489,6 +489,12 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<(int TotalOccurrences, int TotalPresent, int TotalAbsences)> GetCounterAggregatesAsync(
         long teacherStudentId);
 
+    /// <summary>Latest Absent record (date + denormalized session) and latest Present/
+    /// CrossSessionPresent date for the student — recomputes the counter's Last* fields on
+    /// an edit/delete so they don't point at a now-changed/deleted occurrence.</summary>
+    Task<(DateTime? LastAbsenceDate, string? LastAbsenceSessionName, long? LastAbsenceSessionId, DateTime? LastAttendanceDate)>
+        GetLastAbsenceAndAttendanceAsync(long teacherStudentId);
+
     /// <summary>
     /// Deletes absence counter for a student.
     /// </summary>

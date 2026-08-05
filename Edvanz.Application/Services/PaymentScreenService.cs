@@ -298,11 +298,13 @@ public class PaymentScreenService : IPaymentScreenService
             {
                 Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
                 Name = r.StudentName,
+                StudentCode = r.StudentCode,
                 AvatarUrl = null,
                 Amount = r.Amount,
                 Assignment = r.IsAssigned ? "assigned" : "unassigned",
                 Status = r.IsUnpaid ? "unpaid" : "paid",
-                UnpaidMonths = r.UnpaidMonths
+                UnpaidMonths = r.UnpaidMonths,
+                IsExempt = r.Amount == 0m
             });
         }
 
@@ -365,6 +367,7 @@ public class PaymentScreenService : IPaymentScreenService
                 UnpaidAmount = r.UnpaidAmount,
                 UnpaidMonths = r.UnpaidMonths,
                 StudentCode = r.StudentCode,
+                IsExempt = r.AmountPerMonth == 0m,
                 SessionName = r.SessionName,
                 PaidOn = r.PaidOn
             });
@@ -514,8 +517,15 @@ public class PaymentScreenService : IPaymentScreenService
         // month ahead), attributed to the month it was taken — per the agreed dashboard rule.
         var (expected, _, _) =
             await repo.GetDashboardAggregatesAsync(teacherId, null, null, null, monthStart, monthEnd);
-        decimal collected = await repo.GetCashCollectedInRangeAsync(
+        decimal grossCollected = await repo.GetCashCollectedInRangeAsync(
             teacherId, null, monthStart, monthStart.AddMonths(1));
+        // Net out departure refunds taken this month (by DepartedAt) so the headline
+        // reconciles with the per-collector cards and the collections ledger, which are
+        // already net of refunds. Without this the headline overstates cash by the full
+        // refund total and contradicts the numbers directly below it.
+        var monthRefunds = await repo.GetDepartureRefundsByDateRangeAsync(
+            teacherId, monthStart, monthStart.AddMonths(1));
+        decimal collected = grossCollected - monthRefunds.Sum(r => r.RefundAmount);
         decimal remaining = expected - collected;
         var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
@@ -570,7 +580,9 @@ public class PaymentScreenService : IPaymentScreenService
                 CollectedAmount = cash,
                 StudentsCollected = paidStudents,
                 StudentsTotal = totalStudents,
-                ProgressPercent = pct
+                ProgressPercent = pct,
+                GroupId = s.SessionGroupId?.ToString(CultureInfo.InvariantCulture),
+                GroupName = s.SessionGroupName
             };
         }).ToList();
 

@@ -59,7 +59,7 @@ namespace Edvanz.Application.Services
             if (res > 0)
                 return Result<string>.Success(otp, _localizer, "GeneratedOtpSucc");
 
-            return Result<string>.Failure(_localizer, "internalServerError", System.Net.HttpStatusCode.InternalServerError);
+            return Result<string>.Failure(_localizer, "ServerError", System.Net.HttpStatusCode.InternalServerError);
         }
 
         /// <summary>

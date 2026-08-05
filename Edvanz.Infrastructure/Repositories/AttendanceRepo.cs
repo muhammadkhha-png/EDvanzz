@@ -757,6 +757,30 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<(DateTime? LastAbsenceDate, string? LastAbsenceSessionName, long? LastAbsenceSessionId, DateTime? LastAttendanceDate)>
+        GetLastAbsenceAndAttendanceAsync(long teacherStudentId)
+    {
+        // AttendanceRecord carries the session name/id denormalized, so no join is needed.
+        var lastAbsence = await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId == teacherStudentId
+                && r.Status == AttendanceStatus.Absent)
+            .OrderByDescending(r => r.OccurrenceDate)
+            .Select(r => new { r.OccurrenceDate, r.SessionName, r.SessionId })
+            .FirstOrDefaultAsync();
+
+        var lastAttendanceDate = await _context.AttendanceRecords
+            .Where(r => r.TeacherStudentId == teacherStudentId
+                && (r.Status == AttendanceStatus.Present
+                    || r.Status == AttendanceStatus.CrossSessionPresent))
+            .OrderByDescending(r => r.OccurrenceDate)
+            .Select(r => (DateTime?)r.OccurrenceDate)
+            .FirstOrDefaultAsync();
+
+        return (lastAbsence?.OccurrenceDate, lastAbsence?.SessionName,
+            lastAbsence?.SessionId, lastAttendanceDate);
+    }
+
+    /// <inheritdoc />
     public async Task DeleteAbsenceCounterAsync(StudentAbsenceCounter counter)
     {
         _context.StudentAbsenceCounters.Remove(counter);

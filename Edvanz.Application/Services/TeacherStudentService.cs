@@ -409,6 +409,13 @@ public class TeacherStudentService : ITeacherStudentService
             {
                 if (newSession is not null)
                 {
+                    // Moving from another session: close the OLD session's unpaid current/future
+                    // periods first so the student isn't billed by both. Paid periods and past
+                    // arrears stay as history under the old session; an unpaid current month is
+                    // re-billed under the new session, and an already-paid month "reflects" (the
+                    // new schedule skips already-paid months).
+                    if (previousSessionId is not null)
+                        await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
                     await _attendanceService.OnStudentAssignedToSessionAsync(
                         teacherId, student.Id, newSession.Id, newSession.SessionName);
                     await _paymentService.OnStudentAssignedToSessionAsync(

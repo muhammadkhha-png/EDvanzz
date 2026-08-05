@@ -277,7 +277,7 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
 
         if (link.LinkStatus != LinkStatus.Active)
-            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "UnbindLinkNotActive", HttpStatusCode.Conflict);
 
         bool wasLinked = link.TeacherStudentId.HasValue;
         link.TeacherStudentId = null;               // stays Active (connected), loses access

@@ -487,6 +487,10 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<IReadOnlyList<StudentDeparture>> GetStudentDeparturesAsync(long teacherId, long teacherStudentId);
 
+    /// <summary>Teacher-wide paged list of departed students (search by name/code), newest first.</summary>
+    Task<(IReadOnlyList<DepartureListRow> Items, int TotalCount)> GetDeparturesPagedAsync(
+        long teacherId, string? search, int page, int pageSize);
+
     // ══════════════════════════════════════════════
     // SESSION TRANSFER QUERIES
     // ══════════════════════════════════════════════
@@ -523,7 +527,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// Gets per-session breakdown of expected/collected/remaining.
     /// REQ-PAY-043: Filterable by session for drill-down.
     /// </summary>
-    Task<IReadOnlyList<(long SessionId, string SessionName, decimal Expected, decimal Collected, decimal Remaining)>>
+    Task<IReadOnlyList<(long SessionId, string SessionName, long? SessionGroupId, string? SessionGroupName, decimal Expected, decimal Collected, decimal Remaining)>>
         GetDashboardPerSessionAsync(
             long teacherId,
             long? sessionGroupId,

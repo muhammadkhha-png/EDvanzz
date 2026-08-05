@@ -45,8 +45,8 @@ public class ExceptionMiddleware
             NotFoundException => 404,
             UnauthorizedAccessException => 401,
             ArgumentException => 400,
-           DbUpdateException => 409, 
-            
+            DbUpdateConcurrencyException => 409,
+            DbUpdateException => 409,
             _ => 500
         };
 
@@ -57,7 +57,11 @@ public class ExceptionMiddleware
             NotFoundException => "NotFound",
             UnauthorizedAccessException => "Unauthorized",
             ArgumentException => "BadRequest",
-            Microsoft.EntityFrameworkCore.DbUpdateException => "DatabaseConflict",
+            // Concurrency is a DbUpdateException subclass — match it FIRST so an escaped
+            // concurrency conflict gets a "someone else changed this, refresh" message
+            // instead of the generic data-conflict one.
+            DbUpdateConcurrencyException => "ConcurrencyConflict",
+            DbUpdateException => "DatabaseConflict",
             _ => "ServerError"
         };
 

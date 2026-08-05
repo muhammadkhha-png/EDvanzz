@@ -77,7 +77,7 @@ public sealed class VideoUnitService : IVideoUnitService
 
     /// <inheritdoc />
     public async Task<Result<bool>> UpdateUnitAsync(
-        long teacherId, long unitId, VideoUnitRequest request)
+        long teacherId, long actingUserId, long unitId, VideoUnitRequest request)
     {
         var unit = await _unitOfWork.VideoUnitsRepo.GetUnitByIdAndTeacherAsync(unitId, teacherId);
         if (unit is null)
@@ -88,6 +88,25 @@ public sealed class VideoUnitService : IVideoUnitService
         unit.Description = request.Description?.Trim();
 
         await _unitOfWork.SaveChangesAsync();
+
+        // Scopes: when the request carries a scope list, replace the unit's scope
+        // set (mirrors CreateUnitAsync so a list's session/group targets are
+        // editable, not just its title). NULL leaves scopes untouched (a title-only
+        // edit never wipes them); an explicit empty list clears them. Reuses the
+        // same validation + containment guard as the dedicated scope editor (blocks
+        // 409 if the change would uncover a member video).
+        if (request.Scopes is not null)
+        {
+            var replace = await ReplaceUnitScopesAsync(
+                teacherId, actingUserId, unitId,
+                new AssignUnitScopesRequest
+                {
+                    Scopes = request.Scopes,
+                    CascadeToVideos = request.CascadeToVideos,
+                });
+            if (!replace.IsSuccess)
+                return Result<bool>.Failure(replace);
+        }
 
         return Result<bool>.Success(true, _localizer, VideoConstants.Messages.VideoUnitUpdated);
     }
@@ -155,6 +174,49 @@ public sealed class VideoUnitService : IVideoUnitService
             UnseenStudentCount = r.UnseenStudentCount,
             CreatedAt = r.CreatedAt,
         }).ToList();
+
+        // Audience labels (session + group names) per unit, so the card can show
+        // the list's targeting. Batch-resolved for the whole page (no N+1).
+        var pageUnitIds = rows.Select(r => r.Id).ToList();
+        if (pageUnitIds.Count > 0)
+        {
+            var scopeRows = await _unitOfWork.VideoUnitsRepo.GetScopeRowsForUnitsAsync(pageUnitIds);
+            if (scopeRows.Count > 0)
+            {
+                var sessionIds = scopeRows
+                    .Where(s => s.ScopeType == VideoScopeType.Session && s.SessionId.HasValue)
+                    .Select(s => s.SessionId!.Value).Distinct().ToList();
+                var groupIds = scopeRows
+                    .Where(s => s.ScopeType == VideoScopeType.SessionGroup && s.SessionGroupId.HasValue)
+                    .Select(s => s.SessionGroupId!.Value).Distinct().ToList();
+
+                var sessionNames = sessionIds.Count > 0
+                    ? (await _unitOfWork.SessionsRepo.GetSessionTargetSummariesAsync(teacherId, sessionIds))
+                        .ToDictionary(x => x.Id, x => x.Name)
+                    : new Dictionary<long, string>();
+                var groupNames = groupIds.Count > 0
+                    ? (await _unitOfWork.SessionsRepo.GetGroupTargetSummariesAsync(teacherId, groupIds))
+                        .ToDictionary(x => x.Id, x => x.Name)
+                    : new Dictionary<long, string>();
+
+                var labelsByUnit = scopeRows
+                    .GroupBy(s => s.VideoUnitId)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.Select(s => s.ScopeType == VideoScopeType.Session
+                                ? (s.SessionId.HasValue && sessionNames.TryGetValue(s.SessionId.Value, out var sn)
+                                    ? sn : $"#{s.SessionId}")
+                                : (s.SessionGroupId.HasValue && groupNames.TryGetValue(s.SessionGroupId.Value, out var gn)
+                                    ? gn : $"#{s.SessionGroupId}"))
+                            .Where(n => !string.IsNullOrWhiteSpace(n))
+                            .Distinct()
+                            .ToList());
+
+                foreach (var item in items)
+                    if (labelsByUnit.TryGetValue(item.Id, out var labels))
+                        item.RecipientLabels = labels;
+            }
+        }
 
         var response = new PaginatedResponse<List<TeacherVideoUnitListItemDto>>
         {
@@ -398,16 +460,22 @@ public sealed class VideoUnitService : IVideoUnitService
             return Result<ReplaceUnitScopesResponse>.Failure(
                 _localizer, ownershipError, HttpStatusCode.BadRequest);
 
-        // Replace may SHRINK coverage — block (409) if the new set would leave any
-        // member video targeting sessions the unit no longer covers.
         var newTargets = request.Scopes
             .Select(s => (s.ScopeType, s.SessionId, s.SessionGroupId))
             .ToList();
-        var guard = await EnsureUnitChangeKeepsVideosCoveredAsync(
-            teacherId, unitId, newTargets, unitIsBeingDeleted: false,
-            VideoConstants.Messages.UnitScopeChangeUncoversVideos);
-        if (!guard.IsSuccess)
-            return Result<ReplaceUnitScopesResponse>.Failure(guard);
+
+        // Replace may SHRINK coverage. Default: block (409) naming the videos that
+        // still use a removed session/group. With CascadeToVideos: instead prune
+        // those scopes from the member videos (inside the transaction below) so the
+        // "a video can't target outside its list" invariant is restored.
+        if (!request.CascadeToVideos)
+        {
+            var guard = await EnsureUnitChangeKeepsVideosCoveredAsync(
+                teacherId, unitId, newTargets, unitIsBeingDeleted: false,
+                VideoConstants.Messages.UnitScopeChangeUncoversVideos);
+            if (!guard.IsSuccess)
+                return Result<ReplaceUnitScopesResponse>.Failure(guard);
+        }
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -415,6 +483,9 @@ public sealed class VideoUnitService : IVideoUnitService
 
         try
         {
+            if (request.CascadeToVideos)
+                await CascadePruneMemberVideosAsync(teacherId, unitId, newTargets);
+
             int oldCount = await _unitOfWork.VideoUnitsRepo.CountScopesForUnitAsync(unitId);
             await _unitOfWork.VideoUnitsRepo.DeleteAllScopesForUnitAsync(unitId);
 
@@ -600,6 +671,53 @@ public sealed class VideoUnitService : IVideoUnitService
         string label = string.Join(", ", offendingTitles.Distinct());
         return Result<bool>.Failure(
             _localizer, errorKey, new object?[] { label }, HttpStatusCode.Conflict);
+    }
+
+    /// <summary>
+    /// CascadeToVideos path: for every member video, delete the scope rows that the
+    /// unit's NEW target set (plus the video's OTHER units) no longer covers — so a
+    /// video never targets sessions/groups outside its list. Runs inside the caller's
+    /// transaction; the caller's SaveChanges persists the deletions.
+    /// </summary>
+    private async Task CascadePruneMemberVideosAsync(
+        long teacherId, long unitId,
+        IReadOnlyCollection<(VideoScopeType ScopeType, long? SessionId, long? SessionGroupId)> newUnitTargets)
+    {
+        var videoIds = await _unitOfWork.VideoUnitsRepo.GetVideoIdsInUnitAsync(unitId);
+        if (videoIds.Count == 0)
+            return;
+
+        foreach (var videoId in videoIds)
+        {
+            var video = await _unitOfWork.VideoAssetsRepo.GetVideoWithScopesAsync(videoId, teacherId);
+            if (video is null || video.Scopes.Count == 0)
+                continue;
+
+            // Other units this video belongs to still contribute coverage.
+            var otherUnitIds = (await _unitOfWork.VideoAssetsRepo.GetLinkedUnitIdsAsync(videoId))
+                .Where(u => u != unitId)
+                .ToList();
+
+            var allowedTargets = new List<(VideoScopeType, long?, long?)>(
+                newUnitTargets.Select(t => (t.ScopeType, t.SessionId, t.SessionGroupId)));
+            if (otherUnitIds.Count > 0)
+            {
+                var otherRows = await _unitOfWork.VideoUnitsRepo.GetScopeRowsForUnitsAsync(otherUnitIds);
+                allowedTargets.AddRange(otherRows.Select(s => (s.ScopeType, s.SessionId, s.SessionGroupId)));
+            }
+
+            var allowedSessions = await ResolveScopeSessionIdsAsync(teacherId, allowedTargets);
+
+            foreach (var scope in video.Scopes.ToList())
+            {
+                var resolved = await ResolveScopeSessionIdsAsync(
+                    teacherId, new[] { (scope.ScopeType, scope.SessionId, scope.SessionGroupId) });
+                // A scope reaching nobody is harmless; only drop one that reaches
+                // sessions the unit (+ the video's other units) no longer covers.
+                if (resolved.Count > 0 && !resolved.IsSubsetOf(allowedSessions))
+                    await _unitOfWork.VideoAssetsRepo.DeleteScopeByIdAndTeacherAsync(scope.Id, teacherId);
+            }
+        }
     }
 
     /// <summary>

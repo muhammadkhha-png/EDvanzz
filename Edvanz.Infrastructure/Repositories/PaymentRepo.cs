@@ -519,7 +519,11 @@
                     SessionName = l.PaymentTransaction.Session != null
                         ? l.PaymentTransaction.Session.SessionName
                         : l.PaymentTransaction.SessionName,
-                    RefundAmount = l.PreviousAmount,
+                    // The actually-refunded delta. PreviousAmount alone overstates a
+                    // partial/prorated reversal (e.g. a prorated departure that only
+                    // reverses part of the period); Deleted writes NewAmount=0 so a full
+                    // delete still yields the full amount.
+                    RefundAmount = l.PreviousAmount - l.NewAmount,
                     RefundedAt = l.EditedAt
                 })
                 .AsNoTracking()
@@ -1442,6 +1446,46 @@
                 .ToListAsync();
         }
 
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<DepartureListRow> Items, int TotalCount)> GetDeparturesPagedAsync(
+            long teacherId, string? search, int page, int pageSize)
+        {
+            var query = _context.StudentDepartures.Where(d => d.TeacherId == teacherId);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                string s = search.Trim().ToLower();
+                query = query.Where(d =>
+                    (d.StudentName != null && d.StudentName.ToLower().Contains(s))
+                    || (d.StudentCode != null && d.StudentCode.ToLower().Contains(s)));
+            }
+
+            int total = await query.CountAsync();
+
+            var items = await query
+                .OrderByDescending(d => d.DepartedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(d => new DepartureListRow
+                {
+                    Id = d.Id,
+                    TeacherStudentId = d.TeacherStudentId,
+                    StudentName = d.StudentName,
+                    StudentCode = d.StudentCode,
+                    // Live session name when the session still exists; else the snapshot.
+                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionName,
+                    DepartedAt = d.DepartedAt,
+                    DepartureOutcome = d.DepartureOutcome,
+                    FinalAmount = d.FinalAmount,
+                    PaymentStatusAtDeparture = d.PaymentStatusAtDeparture,
+                    IsTutorOverride = d.IsTutorOverride,
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return (items, total);
+        }
+
         // ----------------------------------------------
         // SESSION TRANSFER QUERIES
         // ----------------------------------------------
@@ -1508,7 +1552,7 @@
         }
 
         /// <inheritdoc />
-        public async Task<IReadOnlyList<(long SessionId, string SessionName, decimal Expected, decimal Collected, decimal Remaining)>>
+        public async Task<IReadOnlyList<(long SessionId, string SessionName, long? SessionGroupId, string? SessionGroupName, decimal Expected, decimal Collected, decimal Remaining)>>
             GetDashboardPerSessionAsync(
                 long teacherId,
                 long? sessionGroupId,
@@ -1539,12 +1583,20 @@
                 .GroupBy(p => new
                 {
                     p.SessionId,
-                    SessionName = p.Session != null ? p.Session.SessionName : p.SessionName
+                    SessionName = p.Session != null ? p.Session.SessionName : p.SessionName,
+                    // Group the session belongs to (null = ungrouped). Lets the app render
+                    // groups + ungrouped sessions with per-group roll-ups.
+                    SessionGroupId = p.Session != null ? p.Session.SessionGroupId : (long?)null,
+                    SessionGroupName = p.Session != null && p.Session.SessionGroup != null
+                        ? p.Session.SessionGroup.GroupName
+                        : null
                 })
                 .Select(g => new
                 {
                     SessionId = g.Key.SessionId!.Value,
                     SessionName = g.Key.SessionName,
+                    g.Key.SessionGroupId,
+                    g.Key.SessionGroupName,
                     Expected = g.Sum(p => p.AmountDue),
                     Collected = g.Sum(p => p.AmountPaid)
                 })
@@ -1552,7 +1604,8 @@
                 .ToListAsync();
 
             return result
-                .Select(r => (r.SessionId, r.SessionName, r.Expected, r.Collected, r.Expected - r.Collected))
+                .Select(r => (r.SessionId, r.SessionName, r.SessionGroupId, r.SessionGroupName,
+                    r.Expected, r.Collected, r.Expected - r.Collected))
                 .ToList();
         }
 

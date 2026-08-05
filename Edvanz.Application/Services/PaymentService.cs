@@ -851,10 +851,11 @@ public class PaymentService : IPaymentService
     /// <inheritdoc />
     public async Task<Result<bool>> SetCustomAmountAsync(SetCustomAmountDto dto)
     {
-        // PAY-4: a custom price must be positive. A negative/zero amount would drive negative dues
-        // and negative expected revenue on the next assignment or period regeneration. Null is
-        // allowed — it clears the override and reverts the student to the session default.
-        if (dto.CustomAmount.HasValue && dto.CustomAmount.Value <= 0m)
+        // PAY-4: a custom price must be non-negative. 0 is allowed and marks the student as
+        // exempt / not paying (free/scholarship) — surfaced as the "Not paying" label. A NEGATIVE
+        // amount would drive negative dues and negative expected revenue, so it is still rejected.
+        // Null clears the override and reverts the student to the session default.
+        if (dto.CustomAmount.HasValue && dto.CustomAmount.Value < 0m)
             return Result<bool>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentCustomAmountInvalid,
                 HttpStatusCode.UnprocessableEntity);
@@ -1613,6 +1614,40 @@ public class PaymentService : IPaymentService
     // ══════════════════════════════════════════════
     // DEPARTURE
     // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<DeparturesResponse>> GetDeparturesAsync(
+        long teacherId, string? search, int page, int limit)
+    {
+        page = page < 1 ? 1 : page;
+        limit = limit < 1 ? 20 : (limit > 100 ? 100 : limit);
+
+        var (rows, total) = await _unitOfWork.PaymentsRepo
+            .GetDeparturesPagedAsync(teacherId, search, page, limit);
+
+        var response = new DeparturesResponse
+        {
+            Page = page,
+            Limit = limit,
+            TotalItems = total,
+            TotalPages = total == 0 ? 0 : (int)Math.Ceiling(total / (double)limit),
+            Departures = rows.Select(r => new DepartureListItemDto
+            {
+                Id = r.Id,
+                StudentId = r.TeacherStudentId?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                StudentName = r.StudentName,
+                StudentCode = r.StudentCode,
+                SessionName = r.SessionName,
+                DepartedAt = r.DepartedAt,
+                DepartureOutcome = r.DepartureOutcome.ToString(),
+                FinalAmount = r.FinalAmount,
+                IsRefund = r.DepartureOutcome == DepartureOutcome.RefundDue,
+            }).ToList(),
+        };
+
+        return Result<DeparturesResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
 
     /// <inheritdoc />
     public async Task<Result<DepartureSummaryDto>> GetDepartureSummaryAsync(
@@ -2515,6 +2550,20 @@ public class PaymentService : IPaymentService
         int sequence = await _unitOfWork.PaymentsRepo
             .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, sessionId) + 1;
 
+        // Months / dates the student has ALREADY paid (any session) — skip them below so a paid or
+        // pre-paid period "reflects" under the session it was paid on and is never double-billed
+        // when moving to a new session. No-op on a first assignment (the student has no periods).
+        var alreadyPaidPeriods = (await _unitOfWork.PaymentsRepo
+                .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId))
+            .Where(p => p.AmountPaid > 0m
+                || p.PaymentStatus == PaymentStatus.Paid
+                || p.PaymentStatus == PaymentStatus.Overpaid)
+            .ToList();
+        var paidMonths = alreadyPaidPeriods
+            .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+            .ToHashSet();
+        var paidDates = alreadyPaidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
+
         if (session.PaymentType == PaymentType.Monthly)
         {
             // Generate monthly periods from assignment month to session end
@@ -2560,6 +2609,8 @@ public class PaymentService : IPaymentService
 
             for (var month = startMonth; month <= endMonth; month = month.AddMonths(1))
             {
+                if (paidMonths.Contains(month))
+                    continue; // already paid this month elsewhere — don't double-bill
                 bool isFirstPeriod = month == startMonth && applyProRate;
                 decimal periodAmount = isFirstPeriod
                     ? Math.Round(baseAmount * proRateFraction, 2)
@@ -2594,6 +2645,8 @@ public class PaymentService : IPaymentService
 
             foreach (var occ in occurrences.Where(o => o.OccurrenceDate >= assignedAt.Date))
             {
+                if (paidDates.Contains(occ.OccurrenceDate.Date))
+                    continue; // already paid this occurrence elsewhere — don't double-bill
                 periods.Add(new PaymentPeriod
                 {
                     TeacherId = teacherId,
@@ -2632,8 +2685,40 @@ public class PaymentService : IPaymentService
     public async Task<Result<bool>> OnStudentUnassignedFromSessionAsync(
         long teacherId, long teacherStudentId)
     {
-        // Payment history is preserved — no deletion needed
-        // Only mark current periods as historical
+        // Void the student's still-UNPAID current + future payment periods (they are leaving the
+        // session). PAID / partially-paid / overpaid periods AND all PAST periods are preserved as
+        // history. Called on reassignment BEFORE the new session's schedule is generated, so a
+        // student is never billed by two sessions for the same forward months.
+        var nowUtc = DateTime.UtcNow;
+        var currentMonthStart = new DateTime(nowUtc.Year, nowUtc.Month, 1);
+
+        var allPeriods = await _unitOfWork.PaymentsRepo
+            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+        var toRemove = allPeriods
+            .Where(p => p.PeriodStart >= currentMonthStart
+                && p.PaymentStatus == PaymentStatus.Unpaid
+                && p.AmountPaid <= 0m)
+            .ToList();
+
+        if (toRemove.Count == 0)
+            return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+
+        var periodRepo = _unitOfWork.GetRepository<PaymentPeriod, long>();
+        await periodRepo.DeleteRangeAsync(toRemove);
+
+        // Keep the denormalized counter aggregates in step with the removed periods (mirrors the
+        // increment in OnStudentAssignedToSessionAsync).
+        var counter = await _unitOfWork.PaymentsRepo
+            .GetPaymentCounterAsync(teacherId, teacherStudentId);
+        if (counter is not null)
+        {
+            counter.TotalOutstanding =
+                Math.Max(0m, counter.TotalOutstanding - toRemove.Sum(p => p.AmountDue));
+            counter.TotalUnpaidPeriods = Math.Max(0, counter.TotalUnpaidPeriods - toRemove.Count);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
     }
 
@@ -2956,7 +3041,8 @@ public class PaymentService : IPaymentService
     /// Adjusts the collecting assistant's wallet by <paramref name="delta"/> (negative to reverse).
     /// Used when a collected payment is edited or refunded/deleted so the wallet's held-cash balance
     /// stays correct. No-op when the collector is not an assistant (e.g. the teacher) or delta is 0.
-    /// Balances are clamped at 0. Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
+    /// CurrentBalance is signed and may go negative when a refund/reversal exceeds the held cash
+    /// (money the assistant owes back). Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
     /// </summary>
     private async Task AdjustAssistantWalletAsync(long teacherId, long? collectedByUserId, decimal delta)
     {
@@ -2970,10 +3056,13 @@ public class PaymentService : IPaymentService
         {
             try
             {
+                // CurrentBalance is signed: a departure refund / reversal that exceeds the
+                // cash the assistant still holds (e.g. after a handover reset) drives it
+                // negative — that is money the assistant owes back and must stay visible.
+                // TotalCollected (lifetime) is likewise not clamped so a reversal never
+                // silently loses money.
                 wallet.CurrentBalance += delta;
-                if (wallet.CurrentBalance < 0m) wallet.CurrentBalance = 0m;
                 wallet.TotalCollected += delta;
-                if (wallet.TotalCollected < 0m) wallet.TotalCollected = 0m;
                 await _unitOfWork.PaymentsRepo.UpdateAssistantWalletAsync(wallet);
                 return;
             }
