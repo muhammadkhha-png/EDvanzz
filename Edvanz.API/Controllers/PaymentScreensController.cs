@@ -59,13 +59,16 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery] string? month,
         [FromQuery] int? year,
         [FromQuery] int page = 1,
-        [FromQuery] int limit = 20)
+        [FromQuery] int limit = 20,
+        // Optional: restrict to one collector's own collections (e.g. the teacher tapping their own
+        // dashboard card to see just what THEY collected). Scoped within the resolved teacher.
+        [FromQuery] long? collectedByUserId = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectionsByMonthAsync(
-            teacherId.Value, month, year, page, limit);
+            teacherId.Value, month, year, page, limit, collectedByUserId);
         return ToResponse(result);
     }
 
@@ -98,6 +101,32 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         // B2: optional `search` filters the collections list by student name/code.
         var result = await _screenService.GetAssistantWalletScreenAsync(
             teacherId.Value, assistantId, page, limit, AssistantScopeUserId(), search);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: AssistantWallet — withdrawal (reset) history
+    // GET /api/v1/assistants/{assistantId}/wallet/withdrawals
+    // Every cash hand-over the teacher took from this assistant's wallet (newest first) — the
+    // "receipt" trail so withdrawn money is no longer invisible after it clears the wallet.
+    // AUTH: Teacher only. An assistant is blocked (they must not read a peer's withdrawal history,
+    // and the service is teacher-scoped by assistantId, not caller-scoped).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/assistants/{assistantId:long}/wallet/withdrawals")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<List<Edvanz.Application.Dtos.Payment.WalletResetLogDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAssistantWalletWithdrawals(long assistantId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Teacher-only: an assistant caller (own scope resolves non-null) is forbidden.
+        if (AssistantScopeUserId() is not null) return Forbid();
+
+        var result = await _screenService.GetWalletWithdrawalHistoryAsync(
+            teacherId.Value, assistantId);
         return ToResponse(result);
     }
 

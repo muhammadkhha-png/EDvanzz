@@ -299,12 +299,21 @@ public class TrackingByAssistantDto
 
 public class TrackingAssistantDto
 {
+    /// <summary>The collector's user id (kept for back-compat / identity).</summary>
     public string Id { get; set; } = string.Empty;
     public string? Name { get; set; }
     public string? AvatarUrl { get; set; }
     public string Role { get; set; } = "Collector";
     public int TransactionCount { get; set; }
     public decimal CollectedAmount { get; set; }
+
+    /// <summary>The assistant id to open the wallet drill-in (route matches on AssistantId,
+    /// NOT the user id). Null for the teacher row, which has no assistant wallet.</summary>
+    public string? AssistantId { get; set; }
+
+    /// <summary>Cash this assistant currently holds for the teacher (their wallet balance).
+    /// 0 for the teacher row.</summary>
+    public decimal WalletBalance { get; set; }
 }
 
 public class TrackingBySessionsDto

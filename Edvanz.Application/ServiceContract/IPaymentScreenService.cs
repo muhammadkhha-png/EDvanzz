@@ -21,7 +21,16 @@ public interface IPaymentScreenService
     /// Returns 422 for an invalid month/year.
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
-        long teacherId, string? month, int? year, int page, int limit);
+        long teacherId, string? month, int? year, int page, int limit,
+        long? collectedByUserId = null);
+
+    /// <summary>
+    /// Withdrawal/reset history for one assistant's wallet (newest first) — the record of every
+    /// cash hand-over the teacher took from that assistant. Reuses
+    /// <c>IPaymentRepo.GetWalletResetLogsAsync</c>.
+    /// </summary>
+    Task<Result<List<WalletResetLogDto>>> GetWalletWithdrawalHistoryAsync(
+        long teacherId, long assistantId);
 
     /// <summary>
     /// Screen: AssistantWallet. Wallet card + paginated recent collections for one assistant.

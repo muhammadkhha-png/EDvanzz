@@ -59,8 +59,35 @@ public class PaymentScreenService : IPaymentScreenService
     }
 
     /// <inheritdoc />
+    /// <inheritdoc />
+    public async Task<Result<List<WalletResetLogDto>>> GetWalletWithdrawalHistoryAsync(
+        long teacherId, long assistantId)
+    {
+        // Every withdrawal/reset the teacher took from this assistant's wallet — the "receipt"
+        // trail (amount + when + who) that answers "where did the money I took go?". The cash was
+        // already counted as revenue at collection time; this ledger records the hand-over.
+        var logs = await _unitOfWork.PaymentsRepo
+            .GetWalletResetLogsAsync(teacherId, assistantId);
+
+        var dtos = logs
+            .OrderByDescending(l => l.ResetAt)
+            .Select(l => new WalletResetLogDto
+            {
+                Id = l.Id,
+                AssistantName = l.AssistantName,
+                AmountReset = l.AmountReset,
+                ResetAt = l.ResetAt,
+                ResetByUserId = l.ResetByUserId
+            })
+            .ToList();
+
+        return Result<List<WalletResetLogDto>>.Success(
+            dtos, _localizer, PaymentConstants.Messages.Success);
+    }
+
     public async Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
-        long teacherId, string? month, int? year, int page, int limit)
+        long teacherId, string? month, int? year, int page, int limit,
+        long? collectedByUserId = null)
     {
         // DASH-1: accept the SAME unified "YYYY-MM" month selector tracking/students take, while
         // still honouring the legacy ?month=<int 1-12>&year=<int> form; default to the teacher's
@@ -80,15 +107,19 @@ public class PaymentScreenService : IPaymentScreenService
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
             .GetTransactionsByDateRangePagedAsync(
                 teacherId, startDate, endDate,
-                sessionId: null, collectedByUserId: null,
+                sessionId: null, collectedByUserId: collectedByUserId,
                 page: page, pageSize: limit);
 
         // Student-departure refunds confirmed this month are money RETURNED to the student, so they
         // appear as negative-amount ledger lines carrying the departed month they apply to. They are
         // few (departures are rare), so the whole month's set is surfaced ONCE on page 1 (prepended,
         // most visible) and counted into the totals; later pages simply page the collections.
-        var refunds = await _unitOfWork.PaymentsRepo
-            .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
+        // Skipped for a collector-scoped view (collectedByUserId set): a refund isn't "collected by"
+        // anyone, so it doesn't belong in one collector's own-collections list.
+        var refunds = collectedByUserId is null
+            ? await _unitOfWork.PaymentsRepo
+                .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive)
+            : (IReadOnlyList<DepartureRefundRow>)Array.Empty<DepartureRefundRow>();
         int refundCount = refunds.Count;
 
         int baseIndex = (page - 1) * limit;
@@ -549,15 +580,58 @@ public class PaymentScreenService : IPaymentScreenService
             : new Dictionary<long, string>();
         var assistantUserIds = (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet();
 
-        var assistants = collectors.Select(c => new TrackingAssistantDto
-        {
-            Id = c.UserId.ToString(CultureInfo.InvariantCulture),
-            Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
-            AvatarUrl = null,
-            Role = assistantUserIds.Contains(c.UserId) ? "Assistant" : "Teacher",
-            TransactionCount = c.TransactionCount,
-            CollectedAmount = c.Collected
-        }).ToList();
+        // All assistant wallets (every assistant on the account, even those who collected nothing
+        // this month), keyed by user id — the source for "show ALL assistants" + each one's held
+        // balance, and the AssistantId the wallet drill-in route actually matches on (the collector
+        // row's user id is NOT a valid wallet id, which is why tapping an assistant used to 404).
+        var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
+        var collectorByUser = collectors
+            .GroupBy(c => c.UserId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // Teacher row(s): collectors who are NOT assistants. The teacher has no wallet, but their
+        // card is still shown (and the app links it to the teacher's own collections list).
+        var teacherRows = collectors
+            .Where(c => !assistantUserIds.Contains(c.UserId))
+            .Select(c => new TrackingAssistantDto
+            {
+                Id = c.UserId.ToString(CultureInfo.InvariantCulture),
+                Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
+                AvatarUrl = null,
+                Role = "Teacher",
+                TransactionCount = c.TransactionCount,
+                CollectedAmount = c.Collected,
+                AssistantId = null,
+                WalletBalance = 0m
+            });
+
+        // One row per assistant (from wallets = the full roster), overlaying this month's collection
+        // totals where present. AssistantId is the wallet-navigation id; WalletBalance is cash held.
+        var assistantRows = wallets
+            .Select(w =>
+            {
+                // Value-tuple: a missing key yields a default (all-zero) tuple, so month totals
+                // fall back to 0 for an assistant who didn't collect this month.
+                collectorByUser.TryGetValue(w.AssistantUserId, out var c);
+                return new TrackingAssistantDto
+                {
+                    Id = w.AssistantUserId.ToString(CultureInfo.InvariantCulture),
+                    Name = w.Assistant?.User?.FullName
+                        ?? (names.TryGetValue(w.AssistantUserId, out var an) ? an : null),
+                    AvatarUrl = null,
+                    Role = "Assistant",
+                    TransactionCount = c.TransactionCount,
+                    CollectedAmount = c.Collected,
+                    AssistantId = w.AssistantId.ToString(CultureInfo.InvariantCulture),
+                    WalletBalance = w.CurrentBalance
+                };
+            })
+            // Most relevant first: collected this month, then those still holding cash, then name.
+            .OrderByDescending(a => a.CollectedAmount)
+            .ThenByDescending(a => a.WalletBalance)
+            .ThenBy(a => a.Name);
+
+        var assistants = teacherRows.Concat(assistantRows).ToList();
 
         // Sessions: everything month-scoped. CollectedAmount = actual cash into the session this
         // month; StudentsCollected = distinct students who paid into it this month; StudentsTotal =
