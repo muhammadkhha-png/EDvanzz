@@ -410,18 +410,15 @@ const string SpaCors = "SpaCors";
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("SpaCors", policy =>
-    {
-        var origins = builder.Configuration
-            .GetSection("Cors:Origins")
-            .Get<string[]>() ?? Array.Empty<string>();
-
-        policy.WithOrigins(origins)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-         ;
-    });
-}); ;
+options.AddPolicy(SpaCors, policy =>
+    policy.WithOrigins(
+              "http://localhost:4200",              // Angular dev
+              "https://app-edvanz-admin.azurewebsites.net",
+              "https://belalmuhamed.github.io") // prod admin origin
+          .AllowAnyHeader()
+          .AllowAnyMethod()
+          .AllowCredentials());                     // omit if you don't use cookies
+});
 
 // Idle-session sliding: per-user throttle marker cache (in-process, short TTL) used by
 // SessionActivitySlidingMiddleware to keep the refresh-token deadline write off the hot path.
