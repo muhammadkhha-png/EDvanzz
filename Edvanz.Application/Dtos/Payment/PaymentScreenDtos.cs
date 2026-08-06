@@ -112,6 +112,13 @@ public class AssistantWalletCollectionItemDto
     public string? SessionName { get; set; }
     public decimal Amount { get; set; }
     public DateTime CollectedAt { get; set; }
+    /// <summary>
+    /// Ledger line type so the client can label/render it: "collection" (positive, a student
+    /// payment), "refund" (negative, cash handed back — e.g. a departure), or "withdrawal"
+    /// (negative, a cash hand-over the tutor took from this wallet). The three together sum to
+    /// the held balance since the last full hand-over.
+    /// </summary>
+    public string Kind { get; set; } = "collection";
 }
 
 // ── Screen: CollectPayment (student list) ──────────────────────────────────

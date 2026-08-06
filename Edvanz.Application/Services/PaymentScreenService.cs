@@ -202,62 +202,101 @@ public class PaymentScreenService : IPaymentScreenService
 
         (page, limit) = NormalizePaging(page, limit);
 
-        // BUGFIX (2026-08-01): was scoped to the CURRENT CALENDAR MONTH, which went empty on every
-        // month rollover even with a real balance held, and drifted on UTC/local boundaries near
-        // midnight. Now scoped to SINCE THE LAST WALLET HANDOVER (reset or withdraw both write a
-        // WalletResetLog), which reconciles with WalletBalance by construction: collected − refunded
-        // == balance held. No handover yet → DateTime.MinValue, i.e. the assistant's full lifetime
-        // history (bounded in practice; a SQL-side paged query is a documented follow-up if a single
-        // collector's un-reset history ever grows past a few hundred rows).
-        DateTime sinceAt = await _unitOfWork.PaymentsRepo
-            .GetLastWalletResetAtAsync(teacherId, wallet.AssistantId) ?? DateTime.MinValue;
         DateTime nowUtc = DateTime.UtcNow;
 
-        // The log mixes collections and refunds since the handover in one chronological list.
-        // Collections are positive; a refund taken back from this collector is a NEGATIVE-amount
-        // entry dated when it was refunded. Merged and paged in-memory (bounded per collector/window).
-        // Both queries stay on the UTC CollectedAt/EditedAt columns: PaymentEditLog has no local-time
-        // twin, and an instant-based window (vs. the old calendar-month one) has no local/UTC
-        // boundary to correct in the first place.
-        var periodTxns = await _unitOfWork.PaymentsRepo
-            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, sinceAt, nowUtc);
-        var periodRefunds = await _unitOfWork.PaymentsRepo
-            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, sinceAt, nowUtc);
+        // WINDOWING (2026-08-06): the old rule scoped the list to "since the last WalletResetLog".
+        // But a PARTIAL withdrawal ALSO writes a WalletResetLog, so any withdrawal reset the window
+        // and emptied the list (and TotalCashCollected) even while a real balance was still held.
+        // We now reconstruct the held balance from the collector's full signed event stream —
+        // collections (+), refunds (−) and wallet hand-overs/withdrawals (−) — and anchor the window
+        // at the LAST moment that running balance returned to exactly 0 (a full hand-over). Every
+        // event after that point is precisely what still constitutes CurrentBalance, so the card and
+        // the list stay consistent after a partial withdrawal, and the ledger reads:
+        //   collections − refunds − withdrawals == held balance.
+        // Bounded per collector in practice; a SQL-side windowed query is a documented follow-up if a
+        // single collector's un-zeroed history ever grows past a few hundred rows.
+        var allTxns = await _unitOfWork.PaymentsRepo
+            .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
+        var allRefunds = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
+        // Wallet hand-overs (full reset OR partial withdrawal) are money OUT of the held balance and
+        // belong in the same ledger as negative lines, keyed on the wallet's AssistantId.
+        var allResets = await _unitOfWork.PaymentsRepo
+            .GetWalletResetLogsAsync(teacherId, wallet.AssistantId);
 
-        // Gross collected and gross refunded are reported separately (not netted) so the card
-        // explains the list below it directly: collected X, refunded Y, holding Z = X − Y.
-        decimal periodCollected = periodTxns.Sum(t => t.AmountPaid);
-        decimal periodRefunded = periodRefunds.Sum(r => r.RefundAmount);
-
-        var merged = new List<AssistantWalletCollectionItemDto>(periodTxns.Count + periodRefunds.Count);
-        merged.AddRange(periodTxns.Select(tx => new AssistantWalletCollectionItemDto
+        // One signed ledger. Amount carries the sign; Kind drives client rendering. CollectedAt is
+        // the ordering instant. Both money reads stay on the UTC CollectedAt/EditedAt columns, and
+        // ResetAt is UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
+        var ledger = new List<AssistantWalletCollectionItemDto>(
+            allTxns.Count + allRefunds.Count + allResets.Count);
+        ledger.AddRange(allTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
             Id = tx.Id.ToString(CultureInfo.InvariantCulture),
             StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
             StudentName = tx.StudentName,
             StudentCode = tx.StudentCode,
             // Live session name (eager-loaded); the transaction's own copy is a collection-time
-            // snapshot that goes stale when the session is renamed, and is only the fallback for a
-            // session that no longer exists.
+            // snapshot that goes stale on rename, and is only the fallback for a deleted session.
             SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
             Amount = tx.AmountPaid,
-            CollectedAt = tx.CollectedAt
+            CollectedAt = tx.CollectedAt,
+            Kind = "collection"
         }));
-        merged.AddRange(periodRefunds.Select(r => new AssistantWalletCollectionItemDto
+        ledger.AddRange(allRefunds.Select(r => new AssistantWalletCollectionItemDto
         {
             Id = $"refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
             StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
             StudentName = r.StudentName,
             StudentCode = r.StudentCode,
             SessionName = string.IsNullOrEmpty(r.SessionName) ? null : r.SessionName,
-            Amount = -r.RefundAmount, // negative → refund
-            CollectedAt = r.RefundedAt
+            Amount = -r.RefundAmount, // negative → refund taken back from this collector
+            CollectedAt = r.RefundedAt,
+            Kind = "refund"
+        }));
+        ledger.AddRange(allResets.Select(w => new AssistantWalletCollectionItemDto
+        {
+            Id = $"withdrawal-{w.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = null,
+            StudentName = null,
+            StudentCode = null,
+            SessionName = null,
+            Amount = -w.AmountReset, // negative → cash handed over to the tutor
+            CollectedAt = w.ResetAt,
+            Kind = "withdrawal"
         }));
 
-        // B2: filter the LISTED rows by student name OR studentCode (case-insensitive). Applied
-        // AFTER the totals above are computed from the full (unfiltered) reads, so the wallet card
-        // (TotalCashCollected / TotalRefunded / WalletBalance) stays authoritative — only the
-        // collections list (and its Total) is narrowed. Omitted → the full list, as before.
+        // Chronological order; on a same-instant tie, apply money-IN before money-OUT so a
+        // collect-then-handover at the same timestamp nets to the right running balance.
+        ledger.Sort((a, b) =>
+        {
+            int byTime = a.CollectedAt.CompareTo(b.CollectedAt);
+            return byTime != 0 ? byTime : b.Amount.CompareTo(a.Amount);
+        });
+
+        // Anchor: the last index at which the running held balance was exactly 0 (a full hand-over).
+        // Everything strictly after it is the current holding period; if it never zeroed, the whole
+        // lifetime is the window (there has been no full hand-over yet).
+        decimal running = 0m;
+        int lastZeroIdx = -1;
+        for (int i = 0; i < ledger.Count; i++)
+        {
+            running += ledger[i].Amount;
+            if (running == 0m) lastZeroIdx = i;
+        }
+        DateTime? sinceAt = lastZeroIdx >= 0 ? ledger[lastZeroIdx].CollectedAt : (DateTime?)null;
+        var windowed = ledger.Skip(lastZeroIdx + 1).ToList();
+
+        // Gross collected / refunded within the window, reported separately (not netted) so the card
+        // explains the list: collected X, refunded Y; withdrawals appear as their own negative lines.
+        decimal periodCollected = windowed
+            .Where(i => i.Kind == "collection").Sum(i => i.Amount);
+        decimal periodRefunded = windowed
+            .Where(i => i.Kind == "refund").Sum(i => -i.Amount);
+
+        // Filter the LISTED rows by student name OR studentCode (case-insensitive). Applied AFTER the
+        // window + totals are computed, so the card stays authoritative — only the list is narrowed.
+        // A search naturally drops withdrawal lines (they carry no student).
+        var merged = windowed;
         if (!string.IsNullOrWhiteSpace(search))
         {
             string searchLower = search.Trim().ToLowerInvariant();
@@ -298,7 +337,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Total = total,
                 Page = page,
                 Limit = limit,
-                SinceAt = sinceAt == DateTime.MinValue ? (DateTime?)null : sinceAt,
+                SinceAt = sinceAt,
                 Items = items
             }
         };
