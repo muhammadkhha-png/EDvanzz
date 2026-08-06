@@ -1914,5 +1914,8 @@
   <data name="Chat_MarkedRead" xml:space="preserve">
     <value>Messages marked as read.</value>
   </data>
+  <data name="AccountDeletionRequested" xml:space="preserve">
+    <value>Your account has been disabled and scheduled for deletion.</value>
+  </data>
 
 </root>

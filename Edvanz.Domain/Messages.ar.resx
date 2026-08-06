@@ -1902,4 +1902,7 @@
    <data name="Chat_MarkedRead" xml:space="preserve">
     <value>تم تعليم الرسائل كمقروءة.</value>
   </data>
+  <data name="AccountDeletionRequested" xml:space="preserve">
+    <value>تم تعطيل حسابك وجدولته للحذف.</value>
+  </data>
 </root>

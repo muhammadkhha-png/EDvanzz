@@ -26,6 +26,15 @@ namespace Edvanz.Application.IservicesContract
         /// </returns>
         public Task<Result<AuthResponse>> AdminLoginAsync(LoginDto req);
         public Task<Result<string>> ChangePassword(ChangePasswordDto req);
+        /// <summary>
+        /// Self-service account deletion (Apple 5.1.1(v) / Google Play). The acting user
+        /// is resolved from the JWT — never from the body. Disables login
+        /// (<c>IsActive = false</c>), revokes every refresh token, and bumps the
+        /// SecurityStamp so all live access tokens are rejected on their next request.
+        /// The disabled account is retained for operational review and permanent purge
+        /// within 30 days.
+        /// </summary>
+        public Task<Result<string>> DeleteMyAccount();
         public Task<Result<AuthResponse>> Refresh(string refreshToken);
         Task<Result<AuthResponse>> SigUpByGoogle(string idToken);
         public  Task<Result<string>> Logout(string refreshToken, bool logoutAllSessions = false);

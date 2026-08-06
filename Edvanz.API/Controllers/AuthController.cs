@@ -209,6 +209,34 @@ namespace Edvanz.API.Controllers
             return ToResponse(result);
         }
 
+        /// <summary>Permanently deletes the authenticated user's own account.</summary>
+        /// <remarks>
+        /// Requires a valid access token (Bearer). The acting user is taken from the token —
+        /// never from the body, so no request body is needed. Disables login, revokes every
+        /// refresh token, and invalidates all live sessions. The account is retained in a
+        /// disabled state for operational review and permanent data purge within 30 days.
+        /// This satisfies the in-app account-deletion requirement of Apple App Store
+        /// Guideline 5.1.1(v) and Google Play.
+        ///
+        /// <para><b>Auth note:</b> as with <c>change-password</c>, the intended gate is
+        /// authenticated-only; send the Bearer token regardless of the class-level
+        /// <c>[AllowAnonymous]</c>.</para>
+        /// </remarks>
+        /// <response code="200">Account deletion accepted; login disabled and sessions revoked.</response>
+        /// <response code="401">No valid user could be resolved from the token.</response>
+        /// <response code="429">Rate limit exceeded.</response>
+        [Authorize]
+        [HttpDelete("delete-account")]
+        [EnableRateLimiting("auth")]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        public async Task<IActionResult> DeleteAccount()
+        {
+            var result = await authService.DeleteMyAccount();
+            return ToResponse(result);
+        }
+
         /// <summary>Signs up or logs in via Google SSO using a Google ID token.</summary>
         /// <remarks>
         /// Behavior depends on the Google account state:

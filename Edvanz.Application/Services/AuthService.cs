@@ -347,6 +347,59 @@ namespace Edvanz.Application.Services
 
             return Result<string>.Success(null, _localizer, "PasswordChangedSuccessfully");
         }
+
+        /// <summary>
+        /// Self-service account deletion (Apple 5.1.1(v) / Google Play). The acting user
+        /// is taken from the JWT — never from the body. Disables login
+        /// (<c>IsActive = false</c>), revokes every refresh token, and bumps the
+        /// SecurityStamp so all live access tokens are rejected on their next request
+        /// (SecurityStampValidationMiddleware). The account is retained in a disabled
+        /// state for operational review and permanent purge within 30 days.
+        /// Uses the exact same primitives as <see cref="ChangePassword"/>'s all-devices path.
+        /// </summary>
+        public async Task<Result<string>> DeleteMyAccount()
+        {
+            if (_currentUser.UserId == null)
+                return Result<string>.Failure(_localizer, "UserNotFound");
+
+            var userId = _currentUser.UserId.Value;
+
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (user == null)
+                return Result<string>.Failure(_localizer, "UserNotFound");
+
+            await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                // IsActive is the canonical login gate (Login rejects IsActive != true).
+                // The SecurityStamp bump rejects already-issued JWTs on their next request.
+                user.IsActive = false;
+                user.SecurityStamp = Guid.NewGuid().ToString();
+
+                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+                await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
+
+                var res = await _unitOfWork.SaveChangesAsync();
+                if (res <= 0)
+                {
+                    await _unitOfWork.RollbackAsync();
+                    return Result<string>.Failure(_localizer, "ServerError");
+                }
+
+                await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                await _unitOfWork.RollbackAsync();
+                throw;
+            }
+
+            // Drop the Redis auth snapshot AFTER commit so the now-disabled account can't
+            // be served from cache (mirrors ChangePassword).
+            await _authCache.InvalidateAsync(userId);
+
+            return Result<string>.Success(null, _localizer, "AccountDeletionRequested");
+        }
         public async Task<Result<AuthResponse>> Refresh(string refreshToken)
         {
             var token = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(refreshToken);
