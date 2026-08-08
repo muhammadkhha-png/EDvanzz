@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Edvanz.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class AddParentVisibilityVideoAndOnlineExamToTeacherConfigurationandAddDateOfBirthAndGenderToParentChild : Migration
+    public partial class AddParentVisibilityAndDateOfBirthGenderColumns : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -26,6 +26,20 @@ namespace Edvanz.Infrastructure.Migrations
                 type: "int",
                 nullable: false,
                 defaultValue: 0);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "ParentVisibilityOnlineExamDefault",
+                table: "TeacherConfigurations",
+                type: "bit",
+                nullable: false,
+                defaultValue: false);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "ParentVisibilityVideo",
+                table: "TeacherConfigurations",
+                type: "bit",
+                nullable: false,
+                defaultValue: true);
         }
 
         /// <inheritdoc />
@@ -39,6 +53,14 @@ namespace Edvanz.Infrastructure.Migrations
             migrationBuilder.DropColumn(
                 name: "Gender",
                 table: "ParentChildren");
+
+            migrationBuilder.DropColumn(
+                name: "ParentVisibilityOnlineExamDefault",
+                table: "TeacherConfigurations");
+
+            migrationBuilder.DropColumn(
+                name: "ParentVisibilityVideo",
+                table: "TeacherConfigurations");
         }
     }
 }

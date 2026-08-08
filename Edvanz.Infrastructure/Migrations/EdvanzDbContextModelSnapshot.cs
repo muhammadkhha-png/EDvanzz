@@ -1629,6 +1629,12 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateOnly>("DateOfBirth")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Gender")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -3740,7 +3746,13 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<bool>("ParentVisibilityHomework")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("ParentVisibilityOnlineExamDefault")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("ParentVisibilityPayment")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("ParentVisibilityVideo")
                         .HasColumnType("bit");
 
                     b.Property<int>("SessionNameLanguage")

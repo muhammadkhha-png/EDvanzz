@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    [Migration("20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild ")]
-    partial class AddParentVisibilityVideoAndOnlineExamToTeacherConfigurationandAddDateOfBirthAndGenderToParentChild
+    [Migration("20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns")]
+    partial class AddParentVisibilityAndDateOfBirthGenderColumns
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
