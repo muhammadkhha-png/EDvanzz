@@ -350,11 +350,10 @@ public class ParentUserService : IParentUserService
         if (string.IsNullOrWhiteSpace(dto.StudentCode))
             return Result<ParentChildTeacherDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);
 
-        if (string.IsNullOrWhiteSpace(dto.HashedToken))
-            return Result<ParentChildTeacherDto>.Failure(_localizer, "HashedTokenRequired", HttpStatusCode.BadRequest);
+       
 
         var teacherStudent = await _unitOfWork.Users.GetTeacherStudentByLinkingCredentialsAsync(
-            teacher.Id, dto.StudentCode, dto.HashedToken);
+            teacher.Id, dto.StudentCode);
 
         if (teacherStudent is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "InvalidLinkCredentials", HttpStatusCode.BadRequest);

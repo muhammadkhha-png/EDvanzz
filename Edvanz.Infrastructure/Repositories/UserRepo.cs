@@ -793,13 +793,13 @@ namespace Edvanz.Infrastructure.Repositories
 
         /// <inheritdoc />
         public async Task<TeacherStudent?> GetTeacherStudentByLinkingCredentialsAsync(
-            long teacherId, string studentCode, string hashedToken)
+            long teacherId, string studentCode)
         {
             return await _context.Set<TeacherStudent>()
                 .FirstOrDefaultAsync(ts =>
                     ts.TeacherId == teacherId &&
                     ts.StudentCode == studentCode &&
-                    ts.HashedToken == hashedToken &&
+                   
                     !ts.IsDeleted);
         }
 

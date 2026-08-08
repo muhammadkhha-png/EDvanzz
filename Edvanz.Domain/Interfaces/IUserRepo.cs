@@ -486,7 +486,7 @@ namespace Edvanz.Domain.Interfaces
         /// the student-side flow no longer uses credentials.
         /// </summary>
         Task<TeacherStudent?> GetTeacherStudentByLinkingCredentialsAsync(
-            long teacherId, string studentCode, string hashedToken);
+            long teacherId, string studentCode);
 
         /// <summary>
         /// Finds a non-deleted roster record by teacher and student code
