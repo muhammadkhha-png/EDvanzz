@@ -1029,6 +1029,45 @@ namespace Edvanz.Infrastructure.Repositories
             };
         }
 
+        /// <inheritdoc />
+        public async Task<long?> ResolveOwnedChildIdByTeacherStudentAsync(
+            long parentUserId, long teacherId, long teacherStudentId)
+        {
+            // Method A: an active StudentTeacherLink bound to this exact roster row (covered by
+            // UX_StudentTeacherLinks_TeacherStudentId_Active), joined to one of this parent's own
+            // active children by StudentUserId.
+            long? methodAChildId = await _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.TeacherId == teacherId
+                         && l.TeacherStudentId == teacherStudentId
+                         && l.LinkStatus == LinkStatus.Active)
+                .Join(
+                    _context.Set<ParentChild>()
+                        .Where(c => c.ParentUserId == parentUserId && c.IsActive),
+                    l => l.StudentUserId,
+                    c => c.StudentUserId,
+                    (l, c) => (long?)c.Id)
+                .FirstOrDefaultAsync();
+
+            if (methodAChildId is not null)
+                return methodAChildId;
+
+            // Method B: an active ParentChildTeacherLink bound to this exact roster row, whose
+            // owning ParentChild belongs to this parent.
+            return await _context.Set<ParentChildTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.TeacherId == teacherId
+                         && l.TeacherStudentId == teacherStudentId
+                         && l.LinkStatus == LinkStatus.Active)
+                .Join(
+                    _context.Set<ParentChild>()
+                        .Where(c => c.ParentUserId == parentUserId && c.IsActive),
+                    l => l.ParentChildId,
+                    c => c.Id,
+                    (l, c) => (long?)c.Id)
+                .FirstOrDefaultAsync();
+        }
+
         public async Task<Teacher?> GetTeacherByUserIdAsync(long userId)
         {
             return await  _context.Teachers.FirstOrDefaultAsync(t => t.UserId == userId && t.DeletedAt==null );

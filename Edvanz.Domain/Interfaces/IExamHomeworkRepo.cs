@@ -283,6 +283,18 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     Task<(int Attended, int TotalAssigned)> GetExamAttendanceStatsAsync(
         long teacherId, long teacherStudentId);
 
+    /// <summary>
+    /// Homework status breakdown for one student under one teacher (Parent Module
+    /// requirements §9.3): total assigned, plus a three-way split by <see cref="ObligationStatus"/> —
+    /// Pending (no status recorded yet), Submitted (Done / DoneWithGrade / DoneWithoutGrade —
+    /// any state where the student turned it in), and NotSubmitted (NotDone). Same join path and
+    /// single-GroupBy-query shape as <see cref="GetHomeworkCompletionStatsAsync"/>, kept as its own
+    /// method rather than extending that one because the two return different, independently
+    /// consumed shapes (existing callers depend on the (Completed, TotalAssigned) tuple as-is).
+    /// </summary>
+    Task<(int Total, int Pending, int Submitted, int NotSubmitted)> GetHomeworkStatusBreakdownAsync(
+        long teacherId, long teacherStudentId);
+
     // ══════════════════════════════════════════════
     // OBLIGATION QUERIES — REPORTS (REQ-EXH-039 through 046)
     // ══════════════════════════════════════════════

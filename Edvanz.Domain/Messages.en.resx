@@ -354,6 +354,15 @@
   <data name="ChildNameRequired" xml:space="preserve">
     <value>Please enter the child's name</value>
   </data>
+  <data name="ChildDateOfBirthRequired" xml:space="preserve">
+    <value>Please provide the child's date of birth</value>
+  </data>
+  <data name="ChildDateOfBirthInFuture" xml:space="preserve">
+    <value>The child's date of birth can't be in the future</value>
+  </data>
+  <data name="ChildGenderRequired" xml:space="preserve">
+    <value>Please select the child's gender</value>
+  </data>
   <data name="ChildRemovedSuccess" xml:space="preserve">
     <value>Child removed from your account</value>
   </data>

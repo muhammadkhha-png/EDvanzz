@@ -190,6 +190,15 @@ public class ParentUserService : IParentUserService
         if (string.IsNullOrWhiteSpace(dto.StudentAccountCode))
             return Result<ParentChildDto>.Failure(_localizer, "StudentAccountCodeRequired", HttpStatusCode.BadRequest);
 
+        if (dto.DateOfBirth is null)
+            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
+
+        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
+
+        if (dto.Gender is null)
+            return Result<ParentChildDto>.Failure(_localizer, "ChildGenderRequired", HttpStatusCode.BadRequest);
+
         var studentUser = await _unitOfWork.Users.GetStudentUserByAccountCodeAsync(dto.StudentAccountCode);
 
         if (studentUser is null)
@@ -216,6 +225,8 @@ public class ParentUserService : IParentUserService
                 LinkMethod = ChildLinkMethod.StudentAccount,
                 StudentUserId = studentUser.Id,
                 ChildName = childName,
+                DateOfBirth = dto.DateOfBirth.Value,
+                Gender = dto.Gender.Value,
                 IsActive = true,
                 CreateAt = DateTime.UtcNow
             };
@@ -259,6 +270,15 @@ public class ParentUserService : IParentUserService
         if (string.IsNullOrWhiteSpace(dto.ChildName))
             return Result<ParentChildDto>.Failure(_localizer, "ChildNameRequired", HttpStatusCode.BadRequest);
 
+        if (dto.DateOfBirth is null)
+            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
+
+        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
+
+        if (dto.Gender is null)
+            return Result<ParentChildDto>.Failure(_localizer, "ChildGenderRequired", HttpStatusCode.BadRequest);
+
         // FIX BUG-5: Added ownsTransaction pattern for consistency
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -272,6 +292,8 @@ public class ParentUserService : IParentUserService
                 LinkMethod = ChildLinkMethod.ManualProfile,
                 StudentUserId = null,
                 ChildName = dto.ChildName.Trim(),
+                DateOfBirth = dto.DateOfBirth.Value,
+                Gender = dto.Gender.Value,
                 IsActive = true,
                 CreateAt = DateTime.UtcNow
             };
@@ -290,6 +312,8 @@ public class ParentUserService : IParentUserService
                 LinkMethod = child.LinkMethod.ToString(),
                 StudentAccountCode = null,
                 IsActive = child.IsActive,
+                DateOfBirth = child.DateOfBirth,
+                Gender = child.Gender.ToString(),
                 Teachers = new List<ParentChildTeacherDto>()
             };
 
@@ -553,6 +577,8 @@ public class ParentUserService : IParentUserService
             LinkMethod = child.LinkMethod.ToString(),
             StudentAccountCode = studentUser?.StudentAccountCode,
             IsActive = child.IsActive,
+            DateOfBirth = child.DateOfBirth,
+            Gender = child.Gender.ToString(),
             Teachers = teacherDtos
         };
     }
@@ -601,7 +627,9 @@ public class ParentUserService : IParentUserService
             VisibilityAttendance = config?.ParentVisibilityAttendance ?? true,
             VisibilityPayment = config?.ParentVisibilityPayment ?? true,
             VisibilityHomework = config?.ParentVisibilityHomework ?? true,
-            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? false
+            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? false,
+            VisibilityVideo = config?.ParentVisibilityVideo ?? true,
+            VisibilityOnlineExamDefault = config?.ParentVisibilityOnlineExamDefault ?? false
         };
     }
 }
