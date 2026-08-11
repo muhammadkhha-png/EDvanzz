@@ -541,6 +541,17 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentTeacherLink>> GetLiveLinksForStudentUserAsync(long studentUserId)
+        {
+            // Tracked (no AsNoTracking): the caller mutates each row's LinkStatus/UnlinkedAt
+            // inside the same transaction, so SaveChanges must pick the changes up.
+            return await _context.Set<StudentTeacherLink>()
+                .Where(l => l.StudentUserId == studentUserId &&
+                            (l.LinkStatus == LinkStatus.Active || l.LinkStatus == LinkStatus.Pending))
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<bool> StudentTeacherLinkExistsAsync(long studentUserId, long teacherId)
         {
             return await _context.Set<StudentTeacherLink>()
@@ -681,9 +692,20 @@ namespace Edvanz.Infrastructure.Repositories
         public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount, int LinkedCount)>
             GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize)
         {
+            // A student who deleted / deactivated their account (User.IsActive == false) must
+            // never surface in the teacher's "My Students" list, even if a link row was somehow
+            // left Active. Restricting the base query to accounts whose User is still active keeps
+            // the total/linked counts and the returned page consistent with each other.
+            var activeStudentUserIds = _context.Set<StudentUser>()
+                .Join(_context.Set<User>(), su => su.UserId, u => u.Id, (su, u) => new { su, u })
+                .Where(x => x.u.IsActive == true)
+                .Select(x => x.su.Id);
+
             var query = _context.Set<StudentTeacherLink>()
                 .AsNoTracking()
-                .Where(l => l.TeacherId == teacherId && l.LinkStatus == LinkStatus.Active);
+                .Where(l => l.TeacherId == teacherId
+                         && l.LinkStatus == LinkStatus.Active
+                         && activeStudentUserIds.Contains(l.StudentUserId));
 
             int total = await query.CountAsync();
             // Linked = bound to a roster record; unlinked = accepted-but-unbound. Counted over

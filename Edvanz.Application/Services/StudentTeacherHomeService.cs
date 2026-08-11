@@ -136,6 +136,10 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
             TeacherCode = teacher?.TeacherCode ?? string.Empty,
             LinkStatus = link.LinkStatus.ToString(),
             IsLinked = true, // guaranteed by the gate above (Active + bound)
+            // Fail-open to InApp (soft QR visible) when the config row is missing, same as the
+            // visibility toggles above. HardCopyOnly means the teacher hands out printed cards.
+            IsBarcodeInAppEnabled =
+                (config?.BarcodeDisplayMode ?? BarcodeDisplayMode.InApp) == BarcodeDisplayMode.InApp,
             Month = $"{scopeYear:D4}-{scopeMonth:D2}",
             MonthLabel = MonthName(scopeYear, scopeMonth),
             Attendance = await BuildAttendanceAsync(teacherId, teacherStudentId, year, month, vAttendance),

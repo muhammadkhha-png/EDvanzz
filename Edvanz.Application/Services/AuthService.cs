@@ -376,6 +376,28 @@ namespace Edvanz.Application.Services
                 user.IsActive = false;
                 user.SecurityStamp = Guid.NewGuid().ToString();
 
+                // If this is a student account, end its teacher links in the same transaction so
+                // a deleted student stops appearing in any teacher's "My Students" (Active) or
+                // pending-requests (Pending) lists. Disabling IsActive alone leaves the link rows
+                // Active, so the teacher would keep seeing the ghost. Terminal rows are retained
+                // for audit, mirroring the teacher-side removal (RemoveLinkedStudentsAsync).
+                var studentUser = await _unitOfWork.Users.GetActiveStudentUserByUserIdAsync(userId);
+                if (studentUser != null)
+                {
+                    var now = DateTime.UtcNow;
+                    var liveLinks = await _unitOfWork.Users.GetLiveLinksForStudentUserAsync(studentUser.Id);
+                    foreach (var link in liveLinks)
+                    {
+                        // A Pending row is a request the teacher hasn't accepted → CancelledByStudent;
+                        // an Active row is an established link the student is now leaving → Unlinked.
+                        link.LinkStatus = link.LinkStatus == LinkStatus.Pending
+                            ? LinkStatus.CancelledByStudent
+                            : LinkStatus.Unlinked;
+                        link.UnlinkedAt = now;
+                        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
+                    }
+                }
+
                 var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
                 await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
 

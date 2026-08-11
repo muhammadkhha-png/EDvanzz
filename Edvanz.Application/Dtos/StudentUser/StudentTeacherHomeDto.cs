@@ -36,6 +36,16 @@ public class StudentTeacherHomeDto
     /// <summary>Whether the connection is bound to a roster record (Active + bound).</summary>
     public bool IsLinked { get; set; }
 
+    /// <summary>
+    /// Whether the student may view their scannable QR/barcode inside the app. Mirrors the
+    /// teacher's <see cref="Edvanz.Domain.Entities.TeacherConfiguration.BarcodeDisplayMode"/>:
+    /// <c>true</c> for <c>InApp</c> (soft QR shown in the student app), <c>false</c> for
+    /// <c>HardCopyOnly</c> (physical printed card only). The frontend hides the "Show QR" entry
+    /// when this is false; the barcode endpoint itself still enforces it server-side (403
+    /// <c>BarcodeNotAvailableInApp</c>) so a stale client can never fetch a suppressed code.
+    /// </summary>
+    public bool IsBarcodeInAppEnabled { get; set; } = true;
+
     /// <summary>The month the page is scoped to, ISO <c>yyyy-MM</c> (teacher-local Africa/Cairo).</summary>
     public string Month { get; set; } = null!;
 

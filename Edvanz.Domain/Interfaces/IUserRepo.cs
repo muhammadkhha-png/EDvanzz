@@ -341,6 +341,14 @@ namespace Edvanz.Domain.Interfaces
         Task<StudentTeacherLink?> GetActiveStudentTeacherLinkAsync(long studentUserId, long teacherId);
 
         /// <summary>
+        /// Every non-terminal (Active or Pending) <see cref="StudentTeacherLink"/> owned by the
+        /// given student account, tracked for update. Used when the student self-deletes their
+        /// account so each link can be transitioned to its terminal state and drop out of every
+        /// teacher's "My Students" (Active) and pending-requests (Pending) views.
+        /// </summary>
+        Task<IReadOnlyList<StudentTeacherLink>> GetLiveLinksForStudentUserAsync(long studentUserId);
+
+        /// <summary>
         /// Checks if an active link already exists between a student and teacher.
         /// Used during LinkTeacherAsync to prevent duplicate dashboard entries (AAM-FR-05.7).
         /// </summary>
