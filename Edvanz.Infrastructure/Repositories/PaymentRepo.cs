@@ -472,6 +472,27 @@
         }
 
         /// <inheritdoc />
+        public async Task<int> CountDistinctPayingStudentsInRangeAsync(
+            long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive)
+        {
+            // Distinct students who physically paid in the window (by transaction date). The global
+            // !IsDeleted filter excludes refunded/reverted transactions, so a student whose only
+            // in-window payment was later refunded is not counted (mirrors GetCashCollectedInRange).
+            var query = _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive
+                    && t.TeacherStudentId != null);
+
+            if (sessionId.HasValue)
+                query = query.Where(t => t.SessionId == sessionId.Value);
+
+            return await query
+                .Select(t => t.TeacherStudentId!.Value)
+                .Distinct()
+                .CountAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
         {
@@ -622,6 +643,27 @@
             int paid = totalAssignedStudents - earliestOutstandingIsProRated.Count;
 
             return (paid, proRated, unpaid);
+        }
+
+        /// <inheritdoc />
+        public async Task<int> CountPartiallyPaidStudentsInMonthAsync(
+            long teacherId, DateTime monthStart, DateTime monthEnd)
+        {
+            // Same classification as GetStudentsByPaymentStatusPagedAsync(status: "partial"):
+            // assigned students with a period THIS month that is partially settled.
+            var assignedStudentIds = _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+                .Select(ts => ts.Id);
+
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId.HasValue
+                    && assignedStudentIds.Contains(p.TeacherStudentId!.Value)
+                    && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd
+                    && p.PaymentStatus == PaymentStatus.PartiallyPaid)
+                .Select(p => p.TeacherStudentId!.Value)
+                .Distinct()
+                .CountAsync();
         }
 
         /// <inheritdoc />
@@ -1484,6 +1526,21 @@
                 .ToListAsync();
 
             return (items, total);
+        }
+
+        /// <inheritdoc />
+        public async Task<(int Total, int RefundDue, int AmountOwed)> CountDeparturesInRangeAsync(
+            long teacherId, DateTime startInclusive, DateTime endExclusive)
+        {
+            var query = _context.StudentDepartures
+                .Where(d => d.TeacherId == teacherId
+                    && d.DepartedAt >= startInclusive && d.DepartedAt < endExclusive);
+
+            int total = await query.CountAsync();
+            int refundDue = await query.CountAsync(d => d.DepartureOutcome == DepartureOutcome.RefundDue);
+            int amountOwed = await query.CountAsync(d => d.DepartureOutcome == DepartureOutcome.AmountOwed);
+
+            return (total, refundDue, amountOwed);
         }
 
         // ----------------------------------------------

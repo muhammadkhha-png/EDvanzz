@@ -62,13 +62,46 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery] int limit = 20,
         // Optional: restrict to one collector's own collections (e.g. the teacher tapping their own
         // dashboard card to see just what THEY collected). Scoped within the resolved teacher.
-        [FromQuery] long? collectedByUserId = null)
+        [FromQuery] long? collectedByUserId = null,
+        // Optional date-range filter (inclusive). When BOTH are supplied they take precedence over
+        // month/year; the response echoes them on FromDate/ToDate. Omitted → the month/year path.
+        [FromQuery(Name = "from")] DateTime? fromDate = null,
+        [FromQuery(Name = "to")] DateTime? toDate = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectionsByMonthAsync(
-            teacherId.Value, month, year, page, limit, collectedByUserId);
+            teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: Collections summary (date-filtered)
+    // GET /api/v1/payments/collections/summary?from=&to=&asOfMonth=&sessionId=
+    // Period overview: money / activity / departures / per-collector honour the [from,to] range;
+    // the paid/partial/prorated/unpaid student counts are anchored to asOfMonth (defaults to the
+    // month of `to`) because payment status is defined per calendar month. Both dates omitted →
+    // the teacher's current local month.
+    // AUTH: Teacher (module) OR Assistant with Payment.ViewCollectorSummary.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("/api/v1/payments/collections/summary")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionViewCollectorSummary)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.CollectionsSummaryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetCollectionsSummary(
+        [FromQuery(Name = "from")] DateTime? fromDate,
+        [FromQuery(Name = "to")] DateTime? toDate,
+        [FromQuery] string? asOfMonth = null,
+        [FromQuery] long? sessionId = null)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.GetCollectionsSummaryAsync(
+            teacherId.Value, fromDate, toDate, asOfMonth, sessionId);
         return ToResponse(result);
     }
 
