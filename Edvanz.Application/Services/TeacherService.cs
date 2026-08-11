@@ -843,6 +843,7 @@ public class TeacherService : ITeacherService
             SubscriptionStatus = x.LatestSub is null
                 ? null
                 : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),
+            PlanType = x.LatestSub?.PlanType,
             SubscriptionEndDate = x.LatestSub?.EndDate,
             CreatedAt = x.Teacher.CreateAt
         }).ToList();

@@ -1,4 +1,6 @@
-﻿namespace Edvanz.Application.Dtos.Teacher;
+﻿using Edvanz.Domain.Enums;
+
+namespace Edvanz.Application.Dtos.Teacher;
 
 /// <summary>
 /// Lightweight DTO for teacher list views (Super Admin dashboard).
@@ -19,6 +21,13 @@ public class TeacherListItemDto
     public string AccountStatus { get; set; } = null!;
     public bool IsConfigurationCompleted { get; set; }
     public string? SubscriptionStatus { get; set; }
+
+    /// <summary>
+    /// Plan type of the teacher's latest subscription: Full or Managerial.
+    /// Null when the teacher has never had a subscription. Serialized as a string.
+    /// </summary>
+    public SubscriptionPlanType? PlanType { get; set; }
+
     public DateTime? SubscriptionEndDate { get; set; }
     public DateTime CreatedAt { get; set; }
 }
