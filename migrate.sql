@@ -5412,3 +5412,384 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE TABLE [StudentVideoExamReports] (
+        [Id] bigint NOT NULL IDENTITY,
+        [VideoAssetId] bigint NOT NULL,
+        [VideoExamId] bigint NOT NULL,
+        [TeacherStudentId] bigint NOT NULL,
+        [TeacherId] bigint NOT NULL,
+        [Score] decimal(6,2) NOT NULL,
+        [Percentage] decimal(5,2) NOT NULL,
+        [Status] tinyint NOT NULL,
+        [SubmittedAt] datetime2(0) NULL,
+        [UpdatedAt] datetime2(0) NULL,
+        [RowVersion] rowversion NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentVideoExamReports] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentVideoExamReports_VideoAssets_VideoAssetId] FOREIGN KEY ([VideoAssetId]) REFERENCES [VideoAssets] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE TABLE [StudentVideoExamAnswers] (
+        [Id] bigint NOT NULL IDENTITY,
+        [StudentVideoExamReportId] bigint NOT NULL,
+        [VideoExamQuestionId] bigint NOT NULL,
+        [AwardedDegree] decimal(6,2) NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentVideoExamAnswers] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentVideoExamAnswers_StudentVideoExamReports_StudentVideoExamReportId] FOREIGN KEY ([StudentVideoExamReportId]) REFERENCES [StudentVideoExamReports] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE TABLE [StudentVideoExamAnswerOptions] (
+        [Id] bigint NOT NULL IDENTITY,
+        [StudentVideoExamAnswerId] bigint NOT NULL,
+        [VideoExamQuestionOptionId] bigint NOT NULL,
+        [CreateAt] datetime2(0) NOT NULL,
+        CONSTRAINT [PK_StudentVideoExamAnswerOptions] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_StudentVideoExamAnswerOptions_StudentVideoExamAnswers_StudentVideoExamAnswerId] FOREIGN KEY ([StudentVideoExamAnswerId]) REFERENCES [StudentVideoExamAnswers] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentVideoExamAnswerOptions_Answer_Option] ON [StudentVideoExamAnswerOptions] ([StudentVideoExamAnswerId], [VideoExamQuestionOptionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentVideoExamAnswers_Report_Question] ON [StudentVideoExamAnswers] ([StudentVideoExamReportId], [VideoExamQuestionId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    CREATE UNIQUE INDEX [UX_StudentVideoExamReports_Video_Student] ON [StudentVideoExamReports] ([VideoAssetId], [TeacherStudentId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260717235511_StudentVideoExamReport'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260717235511_StudentVideoExamReport', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260718134906_AddStudentVisibilityVideo'
+)
+BEGIN
+    ALTER TABLE [TeacherConfigurations] ADD [StudentVisibilityVideo] bit NOT NULL DEFAULT CAST(1 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260718134906_AddStudentVisibilityVideo'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260718134906_AddStudentVisibilityVideo', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260718140836_DefaultOfflineExamVisibilityTrue'
+)
+BEGIN
+    UPDATE [TeacherConfigurations] SET [StudentVisibilityExamDefault] = 1 WHERE [StudentVisibilityExamDefault] = 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260718140836_DefaultOfflineExamVisibilityTrue'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260718140836_DefaultOfflineExamVisibilityTrue', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260722135316_FilterStudentCodeUniqueIndexOnActive'
+)
+BEGIN
+    DROP INDEX [IX_TeacherStudents_TeacherId_StudentCode] ON [TeacherStudents];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260722135316_FilterStudentCodeUniqueIndexOnActive'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_TeacherStudents_TeacherId_StudentCode] ON [TeacherStudents] ([TeacherId], [StudentCode]) WHERE [IsDeleted] = 0');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260722135316_FilterStudentCodeUniqueIndexOnActive'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260722135316_FilterStudentCodeUniqueIndexOnActive', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260722165401_AddSessionGroupDescription'
+)
+BEGIN
+    ALTER TABLE [SessionGroups] ADD [Description] nvarchar(1000) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260722165401_AddSessionGroupDescription'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260722165401_AddSessionGroupDescription', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724184931_AddIsAutoAbsentToAttendanceRecords'
+)
+BEGIN
+    ALTER TABLE [AttendanceRecords] ADD [IsAutoAbsent] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724184931_AddIsAutoAbsentToAttendanceRecords'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260724184931_AddIsAutoAbsentToAttendanceRecords', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724215253_AddOnlineExamAntiCheat'
+)
+BEGIN
+    ALTER TABLE [StudentOnlineExamReports] ADD [ViolationCount] int NOT NULL DEFAULT 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724215253_AddOnlineExamAntiCheat'
+)
+BEGIN
+    ALTER TABLE [OnlineExams] ADD [BlockOnViolation] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724215253_AddOnlineExamAntiCheat'
+)
+BEGIN
+    ALTER TABLE [OnlineExams] ADD [MaxViolations] int NOT NULL DEFAULT 2;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724215253_AddOnlineExamAntiCheat'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [OnlineExams] ADD CONSTRAINT [CK_OnlineExams_MaxViolationsRange] CHECK ([MaxViolations] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260724215253_AddOnlineExamAntiCheat'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260724215253_AddOnlineExamAntiCheat', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260802210651_AddClientEntryIdToPaymentTransactions'
+)
+BEGIN
+    ALTER TABLE [PaymentTransactions] ADD [ClientEntryId] nvarchar(64) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260802210651_AddClientEntryIdToPaymentTransactions'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_PT_TeacherId_ClientEntryId] ON [PaymentTransactions] ([TeacherId], [ClientEntryId]) WHERE [ClientEntryId] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260802210651_AddClientEntryIdToPaymentTransactions'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260802210651_AddClientEntryIdToPaymentTransactions', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260803050708_AddDepartureRefundAttribution'
+)
+BEGIN
+    ALTER TABLE [StudentDepartures] ADD [CollectedByUserId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260803050708_AddDepartureRefundAttribution'
+)
+BEGIN
+    ALTER TABLE [StudentDepartures] ADD [RefundPeriodStart] datetime2(0) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260803050708_AddDepartureRefundAttribution'
+)
+BEGIN
+    CREATE INDEX [IX_SD_TeacherId_DepartedAt] ON [StudentDepartures] ([TeacherId], [DepartedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260803050708_AddDepartureRefundAttribution'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260803050708_AddDepartureRefundAttribution', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns'
+)
+BEGIN
+    ALTER TABLE [ParentChildren] ADD [DateOfBirth] date NOT NULL DEFAULT '0001-01-01';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns'
+)
+BEGIN
+    ALTER TABLE [ParentChildren] ADD [Gender] int NOT NULL DEFAULT 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns'
+)
+BEGIN
+    ALTER TABLE [TeacherConfigurations] ADD [ParentVisibilityOnlineExamDefault] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns'
+)
+BEGIN
+    ALTER TABLE [TeacherConfigurations] ADD [ParentVisibilityVideo] bit NOT NULL DEFAULT CAST(1 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811071048_AddPlanTypeToTeacherSubscriptions'
+)
+BEGIN
+    ALTER TABLE [TeacherSubscriptions] ADD [PlanType] tinyint NOT NULL DEFAULT CAST(1 AS tinyint);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811071048_AddPlanTypeToTeacherSubscriptions'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260811071048_AddPlanTypeToTeacherSubscriptions', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
