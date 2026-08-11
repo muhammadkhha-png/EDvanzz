@@ -13,12 +13,13 @@ namespace Edvanz.Domain.Enums;
 ///   - <see cref="Full"/>       — the standard subscription; students may link their
 ///                                account to the teacher.
 ///   - <see cref="Managerial"/> — an activated subscription under which the teacher works
-///                                NORMALLY (roster students, bulk import, parent links all
-///                                allowed) EXCEPT that no student ACCOUNT may be linked to
-///                                them: the student-account link flow (student link request,
-///                                teacher accept, teacher bind) is blocked while it is the
-///                                current, active subscription. Used for accounts that manage
-///                                a roster but expose no app access to student accounts.
+///                                NORMALLY (roster students + bulk import allowed) EXCEPT that
+///                                no student ACCOUNT and no PARENT account may be linked to them:
+///                                the student-account link flow (student link request, teacher
+///                                accept, teacher bind) AND parent-to-child linking are blocked
+///                                while it is the current, active subscription. Used for accounts
+///                                that manage a roster but expose no app access to student/parent
+///                                accounts.
 ///
 /// Stored as tinyint. Existing rows are backfilled to <see cref="Full"/> by migration,
 /// so a missing/zero value is treated as Full (never Managerial) by the gate — the

@@ -143,18 +143,20 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             await _unitOfWork.Users.FlipCurrentAndInsertNewAsync(previousCurrent, newSubscription);
             await _unitOfWork.SaveChangesAsync();
 
-            // Managerial "remove existing links": sever every live STUDENT-ACCOUNT link in the same
-            // transaction so no student account remains connected the moment the plan takes effect.
-            // Managerial only forbids student-account links — parent links and the roster are allowed,
-            // so they are intentionally NOT touched here.
+            // Managerial "remove existing links": sever every live STUDENT-ACCOUNT link and every
+            // active PARENT link in the same transaction so no student/parent account remains
+            // connected the moment the plan takes effect. (The roster itself is allowed under
+            // managerial, so TeacherStudent records are NOT touched.)
             if (removeExistingLinks)
             {
                 int studentsRemoved = await _unitOfWork.Users
                     .RemoveAllLiveStudentLinksForTeacherAsync(teacherId, adminUserId);
+                int parentsRemoved = await _unitOfWork.Users
+                    .RemoveAllActiveParentLinksForTeacherAsync(teacherId);
 
                 _logger.LogInformation(
-                    "Managerial activation for teacher {TeacherId} removed {StudentLinks} student-account link(s)",
-                    teacherId, studentsRemoved);
+                    "Managerial activation for teacher {TeacherId} removed {StudentLinks} student-account link(s) and {ParentLinks} parent link(s)",
+                    teacherId, studentsRemoved, parentsRemoved);
             }
 
             await _unitOfWork.CommitAsync();

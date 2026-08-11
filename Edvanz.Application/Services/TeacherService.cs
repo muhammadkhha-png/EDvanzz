@@ -494,6 +494,7 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
+            config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -573,6 +574,7 @@ public class TeacherService : ITeacherService
             ParentVisibilityPayment = config.ParentVisibilityPayment,
             ParentVisibilityHomework = config.ParentVisibilityHomework,
             ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+            IsDeviceLockEnabled = config.IsDeviceLockEnabled,
             UpdatedAt = config.UpdatedAt,
             ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
             {
@@ -722,11 +724,16 @@ public class TeacherService : ITeacherService
                 if (!string.IsNullOrWhiteSpace(teacher.CustomSubject))
                     subjectSearchText += " " + teacher.CustomSubject;
 
-                // Get latest subscription
+                // Get the CURRENT subscription (IsCurrent = true; at most one per teacher,
+                // BR-SUB-006). Must match the teacher-detail endpoint (GetActiveSubscriptionAsync),
+                // which reads the IsCurrent row. Ordering by EndDate alone picked a HISTORICAL row
+                // (IsCurrent = false) after re-activations that create a new current row with an
+                // equal/earlier end date — so the list showed a stale status (Derive treats a
+                // non-current row as Expired) and a stale PlanType while the detail read correct.
+                // Null when the teacher has no current row (never subscribed / all historical),
+                // exactly as the detail returns "no subscription".
                 var latestSub = allSubscriptions
-                    .Where(s => s.TeacherId == teacher.Id)
-                    .OrderByDescending(s => s.EndDate)
-                    .FirstOrDefault();
+                    .FirstOrDefault(s => s.TeacherId == teacher.Id && s.IsCurrent);
 
                 return new
                 {

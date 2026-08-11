@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ParentUser;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -28,13 +29,16 @@ namespace Edvanz.Application.Services;
 public class ParentUserService : IParentUserService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public ParentUserService(
         IUnitOfWork unitOfWork,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -347,8 +351,10 @@ public class ParentUserService : IParentUserService
         if (teacher is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // NOTE: managerial blocks linking a STUDENT ACCOUNT to the teacher, not a parent link —
-        // a parent linking to their child is allowed under managerial (works normally).
+        // A managerial subscription forbids linking any student OR parent account to the teacher.
+        if (await _subscriptionGate.IsManagerialAsync(teacher.Id))
+            return Result<ParentChildTeacherDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
 
         if (string.IsNullOrWhiteSpace(dto.StudentCode))
             return Result<ParentChildTeacherDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);
