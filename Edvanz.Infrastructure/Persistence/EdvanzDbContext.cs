@@ -932,6 +932,9 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(stl => stl.RequestedStudentName).HasMaxLength(200);
             entity.Property(stl => stl.RequestedStudentCode).HasMaxLength(20);
 
+            // Device lock: client-generated device id (same bound as VideoWatchEvent.DeviceId)
+            entity.Property(stl => stl.LockedDeviceId).HasMaxLength(100);
+
             // Filtered unique: at most ONE live row (1=Active, 3=Pending) per
             // (student, teacher) pair. Terminal rows (Rejected/Unlinked/
             // RemovedByTeacher/CancelledByStudent) accumulate freely for audit,

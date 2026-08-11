@@ -89,6 +89,16 @@ public interface ITeacherStudentLinkService
         long linkId, long actingUserId);
 
     /// <summary>
+    /// Device lock: clears the student's registered device for this teacher so they can register a
+    /// new phone the next time they open the teacher (with consent). Idempotent — clearing an
+    /// already-empty binding succeeds. Leaves the connection/binding state untouched. Fails 404 when
+    /// the link is missing for this teacher. Stamps <c>DeviceResetAt</c>/<c>DeviceResetByUserId</c> (audit).
+    /// </summary>
+    /// <param name="actingUserId">User.Id of the teacher/assistant performing the reset (audit).</param>
+    Task<Result<LinkedStudentListItemDto>> ResetStudentDeviceAsync(
+        long teacherId, long linkId, long actingUserId);
+
+    /// <summary>
     /// Rejects a Pending request (terminal, kept for audit — the student may send
     /// a new request later). Notifies the student post-commit, best-effort.
     /// </summary>

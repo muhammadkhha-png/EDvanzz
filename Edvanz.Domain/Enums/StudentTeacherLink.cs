@@ -117,4 +117,30 @@ public class StudentTeacherLink : BaseEntity
     /// Null if the link is still active.
     /// </summary>
     public DateTime? UnlinkedAt { get; set; }
+
+    // ─── Device lock (per teacher; governed by TeacherConfiguration.IsDeviceLockEnabled) ───
+
+    /// <summary>
+    /// The device this student is bound to for THIS teacher. Set (with consent) the
+    /// first time the student opens the teacher after the teacher enabled the device
+    /// lock. Null = no device registered yet. Carries a client-generated device id
+    /// (same shape as <see cref="VideoWatchEvent.DeviceId"/>); never used as an
+    /// authentication credential — only to gate teacher access to one phone.
+    /// </summary>
+    public string? LockedDeviceId { get; set; }
+
+    /// <summary>UTC timestamp the current <see cref="LockedDeviceId"/> was registered.</summary>
+    public DateTime? DeviceBoundAt { get; set; }
+
+    /// <summary>
+    /// UTC timestamp a teacher/assistant last reset (cleared) the bound device,
+    /// allowing the student to register a new phone. Null if never reset.
+    /// </summary>
+    public DateTime? DeviceResetAt { get; set; }
+
+    /// <summary>
+    /// User.Id of the teacher/assistant who performed the last device reset.
+    /// Plain audit column — no FK.
+    /// </summary>
+    public long? DeviceResetByUserId { get; set; }
 }

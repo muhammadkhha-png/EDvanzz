@@ -494,6 +494,7 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
+            config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -573,6 +574,7 @@ public class TeacherService : ITeacherService
             ParentVisibilityPayment = config.ParentVisibilityPayment,
             ParentVisibilityHomework = config.ParentVisibilityHomework,
             ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+            IsDeviceLockEnabled = config.IsDeviceLockEnabled,
             UpdatedAt = config.UpdatedAt,
             ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
             {

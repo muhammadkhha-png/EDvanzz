@@ -54,6 +54,15 @@ public class UpdateTeacherConfigurationDto
     public bool ParentVisibilityPayment { get; set; } = true;
     public bool ParentVisibilityHomework { get; set; } = true;
     public bool ParentVisibilityExamDefault { get; set; } = false;
+
+    // ─── Device Lock ───
+
+    /// <summary>
+    /// When true, each linked student is bound to the first device they use to open this
+    /// teacher and can only open the teacher from that device afterwards (per teacher).
+    /// Default: false.
+    /// </summary>
+    public bool IsDeviceLockEnabled { get; set; } = false;
 }
 
 /// <summary>

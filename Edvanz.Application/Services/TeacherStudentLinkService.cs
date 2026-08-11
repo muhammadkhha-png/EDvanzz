@@ -313,6 +313,35 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
     }
 
     /// <inheritdoc />
+    public async Task<Result<LinkedStudentListItemDto>> ResetStudentDeviceAsync(
+        long teacherId, long linkId, long actingUserId)
+    {
+        if (linkId <= 0)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "InvalidLinkId", HttpStatusCode.BadRequest);
+
+        var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
+        if (link is null)
+            return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Idempotent: clearing an already-empty device binding is fine. The student re-registers
+        // (with consent) the next time they open the teacher. The link's connect/bind state is untouched.
+        link.LockedDeviceId = null;
+        link.DeviceBoundAt = null;
+        link.DeviceResetAt = DateTime.UtcNow;
+        link.DeviceResetByUserId = actingUserId;
+        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
+        await _unitOfWork.SaveChangesAsync();
+
+        // Keep the row's Linked / Not linked state by re-loading the bound roster record, if any.
+        TeacherStudent? roster = link.TeacherStudentId is null
+            ? null
+            : await _unitOfWork.Users.GetActiveTeacherStudentByIdAsync(teacherId, link.TeacherStudentId.Value);
+
+        var item = await BuildLinkedStudentItemAsync(link, roster);
+        return Result<LinkedStudentListItemDto>.Success(item, _localizer, "DeviceReset");
+    }
+
+    /// <inheritdoc />
     public async Task<Result<bool>> RejectLinkRequestAsync(long teacherId, long linkId, long actingUserId)
     {
         var link = await _unitOfWork.Users.GetStudentTeacherLinkByIdForTeacherAsync(linkId, teacherId);
@@ -358,8 +387,13 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             TeacherStudentId = r.TeacherStudentId,
             RosterStudentName = r.RosterStudentName,
             RosterStudentCode = r.RosterStudentCode,
-            IsLinked = r.TeacherStudentId.HasValue
+            IsLinked = r.TeacherStudentId.HasValue,
+            IsDeviceRegistered = r.IsDeviceRegistered,
+            DeviceBoundAt = r.DeviceBoundAt
         }).ToList();
+
+        // Page-level flag: whether the teacher has the device lock on (drives the app's device UI).
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
 
         var response = new LinkedStudentsPageResponse
         {
@@ -370,6 +404,7 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             totalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
             linkedCount = linkedCount,
             unlinkedCount = totalCount - linkedCount,
+            deviceLockEnabled = config?.IsDeviceLockEnabled ?? false,
         };
 
         return Result<LinkedStudentsPageResponse>.Success(response, _localizer);
@@ -528,7 +563,9 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             TeacherStudentId = rosterStudent?.Id,
             RosterStudentName = rosterStudent?.StudentName,
             RosterStudentCode = rosterStudent?.StudentCode,
-            IsLinked = rosterStudent is not null
+            IsLinked = rosterStudent is not null,
+            IsDeviceRegistered = !string.IsNullOrEmpty(link.LockedDeviceId),
+            DeviceBoundAt = link.DeviceBoundAt
         };
     }
 }

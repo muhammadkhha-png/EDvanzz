@@ -9,6 +9,8 @@ using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using Edvanz.API.Common;
+
 namespace Edvanz.API.Controllers;
 
 /// <summary>
@@ -101,6 +103,11 @@ public sealed class StudentPaymentController : ApiBaseController
 
         if (link.TeacherStudentId is null)
             return StudentResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
+
+        // Device lock (per teacher): reject a wrong/unregistered device before any data access.
+        var deviceError = await this.CheckDeviceLockAsync(_unitOfWork, _localizer, teacherId, link);
+        if (deviceError is not null)
+            return StudentResolution.Error(deviceError);
 
         return StudentResolution.Ok(link.TeacherStudentId.Value);
     }

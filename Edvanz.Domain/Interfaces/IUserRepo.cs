@@ -357,6 +357,14 @@ namespace Edvanz.Domain.Interfaces
         Task UpdateStudentTeacherLinkAsync(StudentTeacherLink link);
 
         /// <summary>
+        /// Atomically binds a device to a link ONLY when it has none yet
+        /// (<c>LockedDeviceId IS NULL</c>). Returns true when this call performed the bind, false
+        /// when a device was already registered (e.g. another device won a concurrent first-open
+        /// race). Used by the device-lock registration flow. Writes immediately (no SaveChanges).
+        /// </summary>
+        Task<bool> TryBindStudentTeacherLinkDeviceAsync(long linkId, string deviceId, DateTime boundAtUtc);
+
+        /// <summary>
         /// Terminates EVERY live (Active or Pending) student-teacher link for the teacher,
         /// setting LinkStatus = RemovedByTeacher, RemovedByUserId and UnlinkedAt. Used when a
         /// managerial subscription is activated with the "remove existing links" option so no

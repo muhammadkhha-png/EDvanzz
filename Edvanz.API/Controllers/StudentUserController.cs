@@ -1,5 +1,7 @@
 using System.Net;
 using Edvanz.API.Attributes;
+using Edvanz.API.Common;
+using Edvanz.Application.Common;
 using Edvanz.Application.Dtos.StudentUser;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -218,7 +220,8 @@ public class StudentUserController : ApiBaseController
         var studentUserId = await ResolveStudentUserIdAsync();
         if (studentUserId is null) return StudentNotResolved();
 
-        var result = await _studentUserService.GetTeacherBarcodeForStudentAsync(studentUserId.Value, teacherId);
+        var result = await _studentUserService.GetTeacherBarcodeForStudentAsync(
+            studentUserId.Value, teacherId, this.ReadDeviceId());
         return ToResponse(result);
     }
 
@@ -257,7 +260,39 @@ public class StudentUserController : ApiBaseController
         var studentUserId = await ResolveStudentUserIdAsync();
         if (studentUserId is null) return StudentNotResolved();
 
-        var result = await _homeService.GetTeacherHomeAsync(studentUserId.Value, teacherId, year, month);
+        var result = await _homeService.GetTeacherHomeAsync(
+            studentUserId.Value, teacherId, year, month, this.ReadDeviceId());
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ME: PER-TEACHER DEVICE REGISTRATION (device-lock feature)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Registers the caller's current device (X-Device-Id header) as the one allowed to open this
+    /// teacher, after the student has confirmed the device lock. Only relevant when the teacher has
+    /// turned the lock on. Idempotent for the same device; returns <c>DeviceMismatch</c> (403) when a
+    /// different device is already bound (the teacher/assistant must reset it first).
+    /// </summary>
+    /// <param name="teacherId">The linked teacher to bind this device under.</param>
+    /// <response code="200">Device registered (or already registered / lock off).</response>
+    /// <response code="400">The X-Device-Id header was missing.</response>
+    /// <response code="403">A different device is already registered, or the student is not linked/bound.</response>
+    [HttpPost("me/teachers/{teacherId:long}/register-device")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RegisterDeviceForTeacher([FromRoute] long teacherId)
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        var result = await _studentUserService.RegisterDeviceForTeacherAsync(
+            studentUserId.Value, teacherId, this.ReadDeviceId());
         return ToResponse(result);
     }
 

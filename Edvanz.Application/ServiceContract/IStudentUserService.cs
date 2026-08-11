@@ -113,6 +113,21 @@ public interface IStudentUserService
     /// </summary>
     /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
     /// <param name="teacherId">The linked teacher whose per-teacher code the QR encodes (route segment, NOT the student id).</param>
+    /// <param name="deviceId">The caller's device id (X-Device-Id header); enforced only when the teacher's device
+    /// lock is on (unregistered → <c>DeviceRegistrationRequired</c> 409, non-matching → <c>DeviceMismatch</c> 403).</param>
     /// <returns>Result containing the teacher name, the code, and the rendered QR SVG.</returns>
-    Task<Result<StudentTeacherBarcodeDto>> GetTeacherBarcodeForStudentAsync(long studentUserId, long teacherId);
+    Task<Result<StudentTeacherBarcodeDto>> GetTeacherBarcodeForStudentAsync(long studentUserId, long teacherId, string? deviceId);
+
+    /// <summary>
+    /// Registers the caller's current device as the one allowed to open <paramref name="teacherId"/>,
+    /// after the student has consented to the device lock. Requires an ACTIVE, bound link. Idempotent:
+    /// re-registering the same device (or calling when the lock is off) succeeds; a device is bound only
+    /// when none is set yet (atomic — the first device wins a race). Returns <c>DeviceMismatch</c> (403)
+    /// when another device is already bound (the teacher/assistant must reset it first), or
+    /// <c>DeviceIdMissing</c> (400) when the header is absent.
+    /// </summary>
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <param name="teacherId">The linked teacher to bind this device under (route segment).</param>
+    /// <param name="deviceId">The caller's device id (X-Device-Id header).</param>
+    Task<Result<bool>> RegisterDeviceForTeacherAsync(long studentUserId, long teacherId, string? deviceId);
 }

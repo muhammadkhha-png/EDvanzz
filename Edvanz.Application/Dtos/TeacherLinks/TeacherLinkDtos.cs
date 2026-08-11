@@ -127,6 +127,16 @@ public class LinkedStudentListItemDto
     /// Drives the Linked / Not linked badge on the My Students screen.
     /// </summary>
     public bool IsLinked { get; set; }
+
+    /// <summary>
+    /// Device lock: true when this student has a device registered for this teacher (they can open
+    /// the teacher only from it). Only meaningful when the page's <c>deviceLockEnabled</c> is true.
+    /// The teacher/assistant clears it via the reset-device endpoint so the student can register a new phone.
+    /// </summary>
+    public bool IsDeviceRegistered { get; set; }
+
+    /// <summary>UTC timestamp the current device was registered, or null when none is registered.</summary>
+    public DateTime? DeviceBoundAt { get; set; }
 }
 
 /// <summary>
@@ -143,6 +153,12 @@ public class LinkedStudentsPageResponse : PaginatedResponse<List<LinkedStudentLi
 
     /// <summary>Active links not yet bound to a roster record (= totalCount − linkedCount).</summary>
     public int unlinkedCount { get; set; }
+
+    /// <summary>
+    /// Whether this teacher has the device lock turned on. When false, the app hides all device
+    /// status/reset UI (the <c>isDeviceRegistered</c> flags on rows are irrelevant).
+    /// </summary>
+    public bool deviceLockEnabled { get; set; }
 }
 
 /// <summary>

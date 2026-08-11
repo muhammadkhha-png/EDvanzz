@@ -164,6 +164,18 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool ParentVisibilityVideo { get; set; } = true;
 
+    // ─── Device Lock ───
+
+    /// <summary>
+    /// When enabled, each of this teacher's linked students is bound to the first
+    /// device they use to open the teacher (stored on <see cref="StudentTeacherLink.LockedDeviceId"/>)
+    /// and can only open the teacher from that device thereafter. The teacher (or an
+    /// assistant) resets a student's device to allow re-registration on a new phone.
+    /// Binding is per (student, teacher), so a student may use a different device per teacher.
+    /// Default: false (no device restriction).
+    /// </summary>
+    public bool IsDeviceLockEnabled { get; set; } = false;
+
     /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.
     /// </summary>

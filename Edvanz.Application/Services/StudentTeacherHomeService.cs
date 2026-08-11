@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using Edvanz.Application.Common;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Attendance;
 using Edvanz.Application.Dtos.Payment;
@@ -70,7 +71,7 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
 
     /// <inheritdoc />
     public async Task<Result<StudentTeacherHomeDto>> GetTeacherHomeAsync(
-        long studentUserId, long teacherId, int? year, int? month)
+        long studentUserId, long teacherId, int? year, int? month, string? deviceId)
     {
         // ── Access gate (mirrors every other student read: active + bound link) ──
         var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
@@ -91,6 +92,13 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         var batch = await _unitOfWork.Users.GetTeacherDashboardDataAsync(new List<long> { teacherId });
         var teacher = batch.Teachers.GetValueOrDefault(teacherId);
         batch.Configurations.TryGetValue(teacherId, out var config);
+
+        // ── Device lock (per teacher): only opens from the student's registered device. ──
+        var deviceDecision = StudentDeviceLockPolicy.Evaluate(link, config, deviceId);
+        if (deviceDecision == DeviceLockDecision.RegistrationRequired)
+            return Result<StudentTeacherHomeDto>.Failure(_localizer, StudentDeviceLockPolicy.RegistrationRequiredCode, HttpStatusCode.Conflict);
+        if (deviceDecision == DeviceLockDecision.Mismatch)
+            return Result<StudentTeacherHomeDto>.Failure(_localizer, StudentDeviceLockPolicy.MismatchCode, HttpStatusCode.Forbidden);
 
         string teacherName = string.Empty;
         if (teacher is not null && batch.Users.TryGetValue(teacher.UserId, out var teacherUser))

@@ -247,6 +247,31 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     }
 
     /// <summary>
+    /// Device lock: resets (clears) a linked student's registered device so they can open the
+    /// teacher from a new phone. The next time the student opens the teacher they are asked to
+    /// register the new device. Idempotent. Requires <c>Student / Edit</c>.
+    /// </summary>
+    /// <response code="200">Device reset; returns the updated linked-student row.</response>
+    /// <response code="400">Invalid link id.</response>
+    /// <response code="404">Link not found for this teacher.</response>
+    [HttpPost("{linkId:long}/reset-device")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TeacherLinks.LinkedStudentListItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ResetStudentDevice([FromRoute] long linkId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _linkService.ResetStudentDeviceAsync(
+            teacherId.Value, linkId, GetActingUserId());
+        return ToResponse(result);
+    }
+
+    /// <summary>
     /// Rejects a pending request. The row is kept (status Rejected) so the
     /// student sees the outcome; they may send a new request later.
     /// </summary>

@@ -1,4 +1,5 @@
-﻿using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Common;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.StudentUser;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
@@ -388,7 +389,7 @@ public class StudentUserService : IStudentUserService
 
     /// <inheritdoc />
     public async Task<Result<StudentTeacherBarcodeDto>> GetTeacherBarcodeForStudentAsync(
-        long studentUserId, long teacherId)
+        long studentUserId, long teacherId, string? deviceId)
     {
         // ── 1. Validate the calling student account exists (defensive — the controller
         //       already resolved it from the JWT). ──
@@ -412,6 +413,14 @@ public class StudentUserService : IStudentUserService
         //       teacher issues printed cards only — the app must not show an in-app QR. The
         //       stable code lets the frontend hide the "Show QR Code" button. ──
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+
+        // ── Device lock (per teacher): the QR is teacher-scoped content — gate it too. ──
+        var deviceDecision = StudentDeviceLockPolicy.Evaluate(link, config, deviceId);
+        if (deviceDecision == DeviceLockDecision.RegistrationRequired)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, StudentDeviceLockPolicy.RegistrationRequiredCode, HttpStatusCode.Conflict);
+        if (deviceDecision == DeviceLockDecision.Mismatch)
+            return Result<StudentTeacherBarcodeDto>.Failure(_localizer, StudentDeviceLockPolicy.MismatchCode, HttpStatusCode.Forbidden);
+
         if (config?.BarcodeDisplayMode == BarcodeDisplayMode.HardCopyOnly)
             return Result<StudentTeacherBarcodeDto>.Failure(_localizer, "BarcodeNotAvailableInApp", HttpStatusCode.Forbidden);
 
@@ -441,6 +450,52 @@ public class StudentUserService : IStudentUserService
         };
 
         return Result<StudentTeacherBarcodeDto>.Success(dto, _localizer, "Success", HttpStatusCode.OK);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> RegisterDeviceForTeacherAsync(
+        long studentUserId, long teacherId, string? deviceId)
+    {
+        var trimmed = deviceId?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            return Result<bool>.Failure(_localizer, "DeviceIdMissing", HttpStatusCode.BadRequest);
+
+        var studentUser = await _unitOfWork.Users.GetActiveStudentUserByIdAsync(studentUserId);
+        if (studentUser is null)
+            return Result<bool>.Failure(_localizer, "StudentUserNotFound", HttpStatusCode.NotFound);
+
+        // Same gate as every teacher-scoped read: must be ACTIVE and bound under this teacher.
+        var link = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUserId, teacherId);
+        if (link is null || link.LinkStatus != LinkStatus.Active)
+            return Result<bool>.Failure(_localizer, "TeacherLinkNotFound", HttpStatusCode.Forbidden);
+        if (link.TeacherStudentId is null)
+            return Result<bool>.Failure(_localizer, "StudentEnrollmentRemoved", HttpStatusCode.Forbidden);
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        // Lock off → nothing to register; report success so the client can just proceed.
+        if (config is null || !config.IsDeviceLockEnabled)
+            return Result<bool>.Success(true, _localizer, "DeviceRegistered", HttpStatusCode.OK);
+
+        // Already bound: succeed if it's this device, otherwise the teacher/assistant must reset first.
+        if (!string.IsNullOrWhiteSpace(link.LockedDeviceId))
+        {
+            return string.Equals(link.LockedDeviceId, trimmed, StringComparison.Ordinal)
+                ? Result<bool>.Success(true, _localizer, "DeviceRegistered", HttpStatusCode.OK)
+                : Result<bool>.Failure(_localizer, StudentDeviceLockPolicy.MismatchCode, HttpStatusCode.Forbidden);
+        }
+
+        // Not bound yet: bind atomically (first device wins if two register at once).
+        bool bound = await _unitOfWork.Users.TryBindStudentTeacherLinkDeviceAsync(link.Id, trimmed, DateTime.UtcNow);
+        if (bound)
+            return Result<bool>.Success(true, _localizer, "DeviceRegistered", HttpStatusCode.OK);
+
+        // Lost the race — accept if the winner was this same device, else it's a mismatch.
+        var fresh = await _unitOfWork.Users.GetActiveStudentTeacherLinkAsync(studentUserId, teacherId);
+        if (fresh?.LockedDeviceId is not null &&
+            string.Equals(fresh.LockedDeviceId, trimmed, StringComparison.Ordinal))
+            return Result<bool>.Success(true, _localizer, "DeviceRegistered", HttpStatusCode.OK);
+
+        return Result<bool>.Failure(_localizer, StudentDeviceLockPolicy.MismatchCode, HttpStatusCode.Forbidden);
     }
 
     // ══════════════════════════════════════════════

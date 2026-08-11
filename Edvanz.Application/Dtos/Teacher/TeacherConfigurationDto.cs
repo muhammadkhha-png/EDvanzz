@@ -43,5 +43,8 @@ public class TeacherConfigurationDto
     public bool ParentVisibilityHomework { get; set; }
     public bool ParentVisibilityExamDefault { get; set; }
 
+    // ─── Device Lock ───
+    public bool IsDeviceLockEnabled { get; set; }
+
     public DateTime? UpdatedAt { get; set; }
 }

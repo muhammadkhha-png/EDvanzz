@@ -23,6 +23,9 @@ public interface IStudentTeacherHomeService
     /// <param name="teacherId">The selected teacher (route segment).</param>
     /// <param name="year">Optional scoping year (with <paramref name="month"/>); defaults to teacher-local current month.</param>
     /// <param name="month">Optional scoping month 1-12 (with <paramref name="year"/>).</param>
+    /// <param name="deviceId">The caller's device id (X-Device-Id header). Used only when the teacher has enabled
+    /// the device lock: an unregistered device is rejected with <c>DeviceRegistrationRequired</c> (409) and a
+    /// non-matching device with <c>DeviceMismatch</c> (403). Ignored when the lock is off.</param>
     Task<Result<StudentTeacherHomeDto>> GetTeacherHomeAsync(
-        long studentUserId, long teacherId, int? year, int? month);
+        long studentUserId, long teacherId, int? year, int? month, string? deviceId);
 }

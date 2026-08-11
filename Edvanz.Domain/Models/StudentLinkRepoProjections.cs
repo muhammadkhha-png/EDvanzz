@@ -52,4 +52,8 @@ public sealed class TeacherLinkedStudentRow
     public long? TeacherStudentId { get; set; }
     public string? RosterStudentName { get; set; }
     public string? RosterStudentCode { get; set; }
+
+    // Device lock (per teacher): whether this student has a device registered, and when.
+    public bool IsDeviceRegistered { get; set; }
+    public DateTime? DeviceBoundAt { get; set; }
 }

@@ -711,7 +711,9 @@ namespace Edvanz.Infrastructure.Repositories
                     StudentPhoneNumber = x.u.PhoneNumber,
                     TeacherStudentId = x.l.TeacherStudentId,
                     RosterStudentName = x.l.TeacherStudent != null ? x.l.TeacherStudent.StudentName : null,
-                    RosterStudentCode = x.l.TeacherStudent != null ? x.l.TeacherStudent.StudentCode : null
+                    RosterStudentCode = x.l.TeacherStudent != null ? x.l.TeacherStudent.StudentCode : null,
+                    IsDeviceRegistered = x.l.LockedDeviceId != null,
+                    DeviceBoundAt = x.l.DeviceBoundAt
                 })
                 .ToListAsync();
 
@@ -723,6 +725,20 @@ namespace Edvanz.Infrastructure.Repositories
         {
             return await _context.Set<StudentTeacherLink>()
                 .FirstOrDefaultAsync(l => l.Id == linkId && l.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryBindStudentTeacherLinkDeviceAsync(long linkId, string deviceId, DateTime boundAtUtc)
+        {
+            // Conditional set: only binds when no device is registered yet. If two devices race to
+            // register on first open, exactly one UPDATE affects a row (the first device wins) and
+            // the loser gets 0 rows → the service resolves it as a mismatch.
+            int rows = await _context.Set<StudentTeacherLink>()
+                .Where(l => l.Id == linkId && l.LockedDeviceId == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.LockedDeviceId, deviceId)
+                    .SetProperty(l => l.DeviceBoundAt, boundAtUtc));
+            return rows == 1;
         }
 
         /// <inheritdoc />

@@ -5793,3 +5793,56 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    ALTER TABLE [TeacherConfigurations] ADD [IsDeviceLockEnabled] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [DeviceBoundAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [DeviceResetAt] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [DeviceResetByUserId] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    ALTER TABLE [StudentTeacherLinks] ADD [LockedDeviceId] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20260811123927_AddDeviceLockFeature'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20260811123927_AddDeviceLockFeature', N'10.0.9');
+END;
+
+COMMIT;
+GO
+
