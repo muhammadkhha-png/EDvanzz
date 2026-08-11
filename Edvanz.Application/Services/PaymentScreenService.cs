@@ -223,22 +223,18 @@ public class PaymentScreenService : IPaymentScreenService
         // belong in the same ledger as negative lines, keyed on the wallet's AssistantId.
         var allResets = await _unitOfWork.PaymentsRepo
             .GetWalletResetLogsAsync(teacherId, wallet.AssistantId);
-        // Student-departure refunds ALSO reduce this collector's held cash: the departure-confirm path
-        // calls AdjustAssistantWalletAsync(collectorUserId, -finalAmount), so CurrentBalance already
-        // nets them. They must be in the same signed ledger — otherwise the reconstructed running
-        // balance drifts from CurrentBalance (breaking the zero-crossing anchor) and the departure
-        // refund never surfaces as a negative line under the collector. Scoped to this collector by
-        // the original CollectedByUserId; departures are rare so the lifetime read is bounded.
-        var allDepartureRefunds = (await _unitOfWork.PaymentsRepo
-            .GetDepartureRefundsByDateRangeAsync(teacherId, DateTime.MinValue, nowUtc))
-            .Where(r => r.CollectedByUserId == wallet.AssistantUserId)
-            .ToList();
+
+        // NOTE: student-departure refunds are ALREADY in allRefunds — the departure-confirm path
+        // reverses the period via ReverseDeparturePeriodAsync, which writes a PaymentEditLog(Reversed)
+        // that GetCollectorRefundsInRangeAsync reads. Do NOT also read GetDepartureRefundsByDateRangeAsync
+        // here or every departure refund is double-counted (breaks the collections − refunds − withdrawals
+        // == CurrentBalance reconciliation).
 
         // One signed ledger. Amount carries the sign; Kind drives client rendering. CollectedAt is
         // the ordering instant. Both money reads stay on the UTC CollectedAt/EditedAt columns, and
-        // ResetAt/DepartedAt are UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
+        // ResetAt is UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
         var ledger = new List<AssistantWalletCollectionItemDto>(
-            allTxns.Count + allRefunds.Count + allResets.Count + allDepartureRefunds.Count);
+            allTxns.Count + allRefunds.Count + allResets.Count);
         ledger.AddRange(allTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
             Id = tx.Id.ToString(CultureInfo.InvariantCulture),
@@ -273,17 +269,6 @@ public class PaymentScreenService : IPaymentScreenService
             Amount = -w.AmountReset, // negative → cash handed over to the tutor
             CollectedAt = w.ResetAt,
             Kind = "withdrawal"
-        }));
-        ledger.AddRange(allDepartureRefunds.Select(r => new AssistantWalletCollectionItemDto
-        {
-            Id = $"departure-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
-            StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
-            StudentName = r.StudentName,
-            StudentCode = r.StudentCode,
-            SessionName = string.IsNullOrEmpty(r.SessionName) ? null : r.SessionName,
-            Amount = -r.RefundAmount, // negative → student-departure refund returned from this collector
-            CollectedAt = r.DepartedAt,
-            Kind = "refund"
         }));
 
         // Chronological order; on a same-instant tie, apply money-IN before money-OUT so a
