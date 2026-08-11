@@ -1,0 +1,2180 @@
+diff --git a/Edvanz.API/Controllers/ParentAttendanceController.cs b/Edvanz.API/Controllers/ParentAttendanceController.cs
+deleted file mode 100644
+index 6320a0c..0000000
+--- a/Edvanz.API/Controllers/ParentAttendanceController.cs
++++ /dev/null
+@@ -1,181 +0,0 @@
+-﻿using Edvanz.Domain.Resources;
+-using Microsoft.Extensions.Localization;
+-using System.Net;
+-using Edvanz.API.Attributes;
+-using Edvanz.Application.Dtos.Attendance;
+-using Edvanz.Application.IservicesContract;
+-using Edvanz.Application.ServiceContract;
+-using Edvanz.Domain.Enums;
+-using Edvanz.Domain.Interfaces;
+-using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Mvc;
+-
+-namespace Edvanz.API.Controllers;
+-
+-/// <summary>
+-/// Attendance Module (Module 3) — parent-facing read endpoints.
+-///
+-/// SEPARATE CONTROLLER RATIONALE: like <see cref="StudentAttendanceController"/>,
+-/// parents carry no module claim and the service needs (teacherId, teacherStudentId).
+-/// The parent path additionally resolves WHICH child, then branches on how the child
+-/// is linked (AAM-FR-06.3).
+-///
+-/// AUTH: [ModulePermission(roles: ["Parent"], roleOnly: true)] — parent role only.
+-///
+-/// SECURITY: route childId and teacherId are untrusted. Before any service call:
+-///   1. JWT User.Id → ParentUser.
+-///   2. (parentUserId, childId) → active ParentChild, scoped to THIS parent — a
+-///      parent can never read another parent's child (REQ-USR-NFR-003 / AAM-BR-07).
+-///   3. Resolve teacherStudentId for the named teacher:
+-///        Method A (StudentAccount): child.StudentUserId → active StudentTeacherLink.
+-///        Method B (ManualProfile):  active ParentChildTeacherLink(childId, teacherId).
+-/// A parent reads attendance only for their own children, only under teachers actually
+-/// linked to that child (REQ-ATT-NFR-003). Teacher-controlled parent visibility
+-/// (AAM-FR-04.9) is enforced in the service via AttendanceViewerType.Parent.
+-/// </summary>
+-[Route("api/attendance/parent")]
+-[Authorize]
+-public sealed class ParentAttendanceController : ApiBaseController
+-{
+-    private readonly IAttendanceService _attendanceService;
+-    private readonly ICurrentUserService _currentUser;
+-    private readonly IUnitOfWork _unitOfWork;
+-    private readonly IStringLocalizer<Messages> _localizer;
+-
+-    public ParentAttendanceController(
+-        IAttendanceService attendanceService,
+-        ICurrentUserService currentUser,
+-        IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+-    {
+-        _attendanceService = attendanceService;
+-        _currentUser = currentUser;
+-        _unitOfWork = unitOfWork;
+-        _localizer = localizer;
+-    }
+-
+-    // ──────────────────────────────────────────────────────────────────────
+-    // CHILD ATTENDANCE SUMMARY (parent view)
+-    // GET /api/attendance/parent/children/{childId}/teachers/{teacherId}/summary
+-    // ──────────────────────────────────────────────────────────────────────
+-    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/summary")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.StudentAttendanceSummaryDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetChildAttendanceSummary(
+-        [FromRoute] long childId,
+-        [FromRoute] long teacherId)
+-    {
+-        var resolution = await ResolveChildForParentAsync(childId, teacherId);
+-        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+-
+-        var result = await _attendanceService.GetStudentViewAttendanceSummaryAsync(
+-            teacherId, resolution.TeacherStudentId!.Value, AttendanceViewerType.Parent);
+-        return ToResponse(result);
+-    }
+-
+-    // ──────────────────────────────────────────────────────────────────────
+-    // CHILD ATTENDANCE — ONE MONTH (parent view)
+-    // GET /api/attendance/parent/children/{childId}/teachers/{teacherId}/month?year=&month=
+-    // ──────────────────────────────────────────────────────────────────────
+-    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/month")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.MonthlyAttendanceSummaryDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetChildAttendanceMonth(
+-        [FromRoute] long childId,
+-        [FromRoute] long teacherId,
+-        [FromQuery] StudentTimelineMonthRequest request)
+-    {
+-        var resolution = await ResolveChildForParentAsync(childId, teacherId);
+-        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+-
+-        var result = await _attendanceService.GetStudentViewAttendanceAsync(
+-            teacherId, resolution.TeacherStudentId!.Value, request, AttendanceViewerType.Parent);
+-        return ToResponse(result);
+-    }
+-
+-    // ──────────────────────────────────────────────────────────────────────
+-    // PRIVATE HELPERS
+-    // Same shape as StudentAttendanceController / StudentVideosController, plus the
+-    // Method-A/B branch. With three copies of this resolution pattern now in play,
+-    // extracting a shared CallerScopedApiBaseController (error helpers + resolution
+-    // struct + the StudentTeacherLink sub-step) is worth a dedicated refactor pass.
+-    // ──────────────────────────────────────────────────────────────────────
+-
+-    /// <summary>
+-    /// Resolves the named child's TeacherStudent.Id under the named teacher, for the
+-    /// calling parent. Verifies parent ownership of the child, then branches on link
+-    /// method (AAM-FR-06.3). Returns either the resolved id or a 401/403/404 result.
+-    /// </summary>
+-    private async Task<ChildResolution> ResolveChildForParentAsync(long childId, long teacherId)
+-    {
+-        long? userId = _currentUser.UserId;
+-        if (userId is null)
+-            return ChildResolution.Error(Unauthorized());
+-
+-        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
+-        if (parentUser is null)
+-            return ChildResolution.Error(NotFoundError("ParentUserNotFound"));
+-
+-        var child = await _unitOfWork.Users.GetActiveChildAsync(parentUser.Id, childId);
+-        if (child is null)
+-            return ChildResolution.Error(NotFoundError("ChildNotFound"));
+-
+-        // Method A — child has a StudentUser account: reuse the student-teacher link.
+-        if (child.LinkMethod == ChildLinkMethod.StudentAccount)
+-        {
+-            if (child.StudentUserId is null)
+-                return ChildResolution.Error(ForbiddenError("ChildEnrollmentRemoved"));
+-
+-            var link = await _unitOfWork.Users
+-                .GetActiveStudentTeacherLinkAsync(child.StudentUserId.Value, teacherId);
+-            if (link is null || link.LinkStatus != LinkStatus.Active)
+-                return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
+-            if (link.TeacherStudentId is null)
+-                return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
+-
+-            return ChildResolution.Ok(link.TeacherStudentId.Value);
+-        }
+-
+-        // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
+-        var parentLink = await _unitOfWork.Users
+-            .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
+-        if (parentLink is null || parentLink.LinkStatus != LinkStatus.Active)
+-            return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
+-        if (parentLink.TeacherStudentId is null)
+-            return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
+-
+-        return ChildResolution.Ok(parentLink.TeacherStudentId.Value);
+-    }
+-
+-    private IActionResult NotFoundError(string message) =>
+-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
+-        {
+-            StatusCode = (int)HttpStatusCode.NotFound,
+-        };
+-
+-    private IActionResult ForbiddenError(string message) =>
+-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
+-        {
+-            StatusCode = (int)HttpStatusCode.Forbidden,
+-        };
+-
+-    private readonly struct ChildResolution
+-    {
+-        public long? TeacherStudentId { get; }
+-        public IActionResult? ErrorResponse { get; }
+-
+-        private ChildResolution(long? id, IActionResult? error)
+-        {
+-            TeacherStudentId = id;
+-            ErrorResponse = error;
+-        }
+-
+-        public static ChildResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
+-        public static ChildResolution Error(IActionResult response) => new(null, response);
+-    }
+-}
+\ No newline at end of file
+diff --git a/Edvanz.API/Controllers/ParentController.cs b/Edvanz.API/Controllers/ParentController.cs
+new file mode 100644
+index 0000000..be7b005
+--- /dev/null
++++ b/Edvanz.API/Controllers/ParentController.cs
+@@ -0,0 +1,467 @@
++using System.Net;
++using Edvanz.API.Attributes;
++using Edvanz.Application.Dtos.Attendance;
++using Edvanz.Application.Dtos.ParentUser;
++using Edvanz.Application.IservicesContract;
++using Edvanz.Application.ServiceContract;
++using Edvanz.Domain.Enums;
++using Edvanz.Domain.Interfaces;
++using Edvanz.Domain.Resources;
++using Microsoft.AspNetCore.Authorization;
++using Microsoft.AspNetCore.Mvc;
++using Microsoft.Extensions.Localization;
++
++namespace Edvanz.API.Controllers;
++
++/// <summary>
++/// Consolidated API surface for the Parent module — profile, child management, teacher
++/// linking, and every per-relationship read (attendance, payments, and the cross-module
++/// dashboard) live under this single controller.
++///
++/// HARD CUTOVER (Parent Module requirements, decision B4): this REPLACES
++/// <c>ParentUserController</c>, <c>ParentAttendanceController</c>, and
++/// <c>ParentPaymentController</c> — those three are removed, not deprecated aliases. All
++/// business logic, authorization, and response shapes are preserved from those controllers
++/// unchanged; only the route surface and the (previously triplicated)
++/// caller-resolution helpers are consolidated.
++///
++/// SECURITY — tenant isolation (unchanged from the controllers this replaces): the acting
++/// parent is ALWAYS resolved from the JWT (User.Id → active <c>ParentUser</c>) via
++/// <see cref="ResolveParentUserIdAsync"/>. Any <c>childId</c> in a route is scoped to the
++/// JWT-resolved parent inside the service layer — a caller can never read or mutate another
++/// parent's data by supplying a different id. Role gated to Parent throughout.
++///
++/// CODE-BASED DASHBOARD (Parent Module requirements §3/§9): the one genuinely new endpoint,
++/// <see cref="GetTeacherDashboard"/>, is keyed by (TeacherCode, StudentCode) rather than
++/// internal ids — per decision, codes are pure address resolution and the same ownership gate
++/// still applies underneath (see <see cref="IParentDashboardService"/>). Every other endpoint
++/// keeps its existing (childId, teacherId) shape unchanged, per "preserve HTTP methods and
++/// request/response semantics where possible."
++/// </summary>
++[Route("api/parent")]
++[Authorize]
++public sealed class ParentController : ApiBaseController
++{
++    private readonly IParentUserService _parentUserService;
++    private readonly IParentDashboardService _parentDashboardService;
++    private readonly IAttendanceService _attendanceService;
++    private readonly IPaymentService _paymentService;
++    private readonly ICurrentUserService _currentUser;
++    private readonly IUnitOfWork _unitOfWork;
++    private readonly IStringLocalizer<Messages> _localizer;
++
++    public ParentController(
++        IParentUserService parentUserService,
++        IParentDashboardService parentDashboardService,
++        IAttendanceService attendanceService,
++        IPaymentService paymentService,
++        ICurrentUserService currentUser,
++        IUnitOfWork unitOfWork,
++        IStringLocalizer<Messages> localizer)
++    {
++        _parentUserService = parentUserService;
++        _parentDashboardService = parentDashboardService;
++        _attendanceService = attendanceService;
++        _paymentService = paymentService;
++        _currentUser = currentUser;
++        _unitOfWork = unitOfWork;
++        _localizer = localizer;
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // PROFILE  (formerly ParentUserController endpoints 1–3)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// Initializes the ParentUser record. Called AFTER the User module creates a User with
++    /// UserType = Parent.
++    /// POST /api/parent
++    /// </summary>
++    [HttpPost]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentUserProfileDto>), StatusCodes.Status201Created)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> InitializeParentUser([FromBody] CreateParentUserDto dto)
++    {
++        // Tenant isolation: the ParentUser is always created for the AUTHENTICATED user.
++        long? userId = _currentUser.UserId;
++        if (userId is null) return UserNotResolved();
++        dto.UserId = userId.Value;
++
++        var result = await _parentUserService.InitializeParentUserAsync(dto);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// GET /api/parent/profile
++    /// </summary>
++    [HttpGet("profile")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentUserProfileDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetProfile()
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.GetParentUserProfileAsync(resolvedParentId.Value);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Updates language preference. name/phone/password go through the User module.
++    /// PUT /api/parent/profile
++    /// </summary>
++    [HttpPut("profile")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentUserProfileDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> UpdateProfile([FromBody] UpdateParentUserProfileDto dto)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.UpdateParentUserProfileAsync(resolvedParentId.Value, dto);
++        return ToResponse(result);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // CHILDREN  (formerly ParentUserController endpoints 4–10)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// Returns all children with their linked teachers and visibility settings.
++    /// GET /api/parent/dashboard
++    /// </summary>
++    [HttpGet("dashboard")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentDashboardDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetDashboard()
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.GetDashboardAsync(resolvedParentId.Value);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Method A: child has a Student User account. Parent scans or enters the
++    /// StudentAccountCode. Inherits all teachers already linked to that student.
++    /// POST /api/parent/children/by-code
++    /// </summary>
++    [HttpPost("children/by-code")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentChildDto>), StatusCodes.Status201Created)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> AddChildByAccountCode([FromBody] AddChildByAccountCodeDto dto)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.AddChildByAccountCodeAsync(resolvedParentId.Value, dto);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Method B: child has no account. Parent enters the child's name manually. Teachers are
++    /// added separately via <see cref="LinkTeacherToChild"/>.
++    /// POST /api/parent/children/manual
++    /// </summary>
++    [HttpPost("children/manual")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentChildDto>), StatusCodes.Status201Created)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> AddChildManual([FromBody] AddChildManualDto dto)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.AddChildManualAsync(resolvedParentId.Value, dto);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Returns a single child with their linked teachers.
++    /// GET /api/parent/children/{childId}
++    /// </summary>
++    [HttpGet("children/{childId:long}")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentChildDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetChild([FromRoute] long childId)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.GetChildAsync(resolvedParentId.Value, childId);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Soft-deactivates the child link. Preserves the record for audit.
++    /// DELETE /api/parent/children/{childId}
++    /// </summary>
++    [HttpDelete("children/{childId:long}")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> RemoveChild([FromRoute] long childId)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.RemoveChildAsync(resolvedParentId.Value, childId);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Method B only: links a Teacher to a manual child profile using TeacherCode + StudentCode
++    /// + HashedToken. NOT allowed for Method A children (their teachers come from
++    /// StudentTeacherLink).
++    /// POST /api/parent/children/{childId}/teachers
++    /// </summary>
++    [HttpPost("children/{childId:long}/teachers")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentChildTeacherDto>), StatusCodes.Status201Created)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
++    public async Task<IActionResult> LinkTeacherToChild(
++        [FromRoute] long childId,
++        [FromBody] LinkTeacherToChildDto dto)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.LinkTeacherToChildAsync(resolvedParentId.Value, childId, dto);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// Method B only: removes a Teacher from a manual child profile (soft-unlink). Does NOT
++    /// touch the underlying student-teacher relationship — only the parent's own visibility of it.
++    /// DELETE /api/parent/children/{childId}/teachers/{teacherId}
++    /// </summary>
++    [HttpDelete("children/{childId:long}/teachers/{teacherId:long}")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> UnlinkTeacherFromChild(
++        [FromRoute] long childId,
++        [FromRoute] long teacherId)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentUserService.UnlinkTeacherFromChildAsync(resolvedParentId.Value, childId, teacherId);
++        return ToResponse(result);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // ATTENDANCE  (formerly ParentAttendanceController)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// GET /api/parent/children/{childId}/teachers/{teacherId}/attendance/summary
++    /// </summary>
++    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/attendance/summary")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Attendance.StudentAttendanceSummaryDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetChildAttendanceSummary(
++        [FromRoute] long childId,
++        [FromRoute] long teacherId)
++    {
++        var resolution = await ResolveChildForParentAsync(childId, teacherId);
++        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
++
++        var result = await _attendanceService.GetStudentViewAttendanceSummaryAsync(
++            teacherId, resolution.TeacherStudentId!.Value, AttendanceViewerType.Parent);
++        return ToResponse(result);
++    }
++
++    /// <summary>
++    /// GET /api/parent/children/{childId}/teachers/{teacherId}/attendance/month?year=&amp;month=
++    /// </summary>
++    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/attendance/month")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<MonthlyAttendanceSummaryDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetChildAttendanceMonth(
++        [FromRoute] long childId,
++        [FromRoute] long teacherId,
++        [FromQuery] StudentTimelineMonthRequest request)
++    {
++        var resolution = await ResolveChildForParentAsync(childId, teacherId);
++        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
++
++        var result = await _attendanceService.GetStudentViewAttendanceAsync(
++            teacherId, resolution.TeacherStudentId!.Value, request, AttendanceViewerType.Parent);
++        return ToResponse(result);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // PAYMENTS  (formerly ParentPaymentController)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// Whole Payment screen for the chosen child under the chosen teacher.
++    /// GET /api/parent/children/{childId}/teachers/{teacherId}/payments/tracking
++    /// </summary>
++    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/payments/tracking")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentTrackingDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetChildPaymentTracking(
++        [FromRoute] long childId,
++        [FromRoute] long teacherId)
++    {
++        var resolution = await ResolveChildForParentAsync(childId, teacherId);
++        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
++
++        var result = await _paymentService.GetStudentPaymentTrackingAsync(
++            teacherId, resolution.TeacherStudentId!.Value, PaymentViewerType.Parent);
++        return ToResponse(result);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // CONSOLIDATED TEACHER DASHBOARD  (NEW — Parent Module requirements §3/§9)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// Videos / Online Exams / Offline Exams / Homework / Attendance / Payments for one child
++    /// under one teacher, in a single call. Resolved by (TeacherCode, StudentCode) — see
++    /// <see cref="IParentDashboardService"/> for the ownership guarantee behind the codes.
++    /// GET /api/parent/teachers/{teacherCode}/students/{studentCode}/dashboard
++    /// </summary>
++    [HttpGet("teachers/{teacherCode}/students/{studentCode}/dashboard")]
++    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
++    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<ParentChildTeacherDashboardDto>), StatusCodes.Status200OK)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
++    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
++    public async Task<IActionResult> GetTeacherDashboard(
++        [FromRoute] string teacherCode,
++        [FromRoute] string studentCode)
++    {
++        long? resolvedParentId = await ResolveParentUserIdAsync();
++        if (resolvedParentId is null) return ParentNotResolved();
++
++        var result = await _parentDashboardService.GetTeacherDashboardAsync(
++            resolvedParentId.Value, teacherCode, studentCode);
++        return ToResponse(result);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // PRIVATE HELPERS
++    // Consolidates the resolution logic previously triplicated across ParentUserController /
++    // ParentAttendanceController / ParentPaymentController into one place.
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// Resolves the acting parent's <c>ParentUser.Id</c> from the JWT
++    /// (<c>User.Id</c> → active <c>ParentUser</c>).
++    /// </summary>
++    private async Task<long?> ResolveParentUserIdAsync()
++    {
++        long? userId = _currentUser.UserId;
++        if (userId is null) return null;
++
++        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
++        return parentUser?.Id;
++    }
++
++    private IActionResult ParentNotResolved() =>
++        new ObjectResult(new { success = false, message = "Parent could not be resolved from token." })
++        { StatusCode = StatusCodes.Status404NotFound };
++
++    /// <summary>
++    /// Resolves the named child's TeacherStudent.Id under the named teacher, for the calling
++    /// parent. Verifies parent ownership of the child, then branches on link method
++    /// (AAM-FR-06.3). Returns either the resolved id or a 401/403/404 result. Used by every
++    /// (childId, teacherId)-keyed endpoint above — identical logic to what
++    /// ParentAttendanceController and ParentPaymentController each carried separately before
++    /// consolidation.
++    /// </summary>
++    private async Task<ChildResolution> ResolveChildForParentAsync(long childId, long teacherId)
++    {
++        long? userId = _currentUser.UserId;
++        if (userId is null)
++            return ChildResolution.Error(Unauthorized());
++
++        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
++        if (parentUser is null)
++            return ChildResolution.Error(NotFoundError("ParentUserNotFound"));
++
++        var child = await _unitOfWork.Users.GetActiveChildAsync(parentUser.Id, childId);
++        if (child is null)
++            return ChildResolution.Error(NotFoundError("ChildNotFound"));
++
++        // Method A — child has a StudentUser account: reuse the student-teacher link.
++        if (child.LinkMethod == ChildLinkMethod.StudentAccount)
++        {
++            if (child.StudentUserId is null)
++                return ChildResolution.Error(ForbiddenError("ChildEnrollmentRemoved"));
++
++            var link = await _unitOfWork.Users
++                .GetActiveStudentTeacherLinkAsync(child.StudentUserId.Value, teacherId);
++            if (link is null || link.LinkStatus != LinkStatus.Active)
++                return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
++            if (link.TeacherStudentId is null)
++                return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
++
++            return ChildResolution.Ok(link.TeacherStudentId.Value);
++        }
++
++        // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
++        var parentLink = await _unitOfWork.Users
++            .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
++        if (parentLink is null || parentLink.LinkStatus != LinkStatus.Active)
++            return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
++        if (parentLink.TeacherStudentId is null)
++            return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
++
++        return ChildResolution.Ok(parentLink.TeacherStudentId.Value);
++    }
++
++    private IActionResult NotFoundError(string message) =>
++        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
++        {
++            StatusCode = (int)HttpStatusCode.NotFound,
++        };
++
++    private IActionResult ForbiddenError(string message) =>
++        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
++        {
++            StatusCode = (int)HttpStatusCode.Forbidden,
++        };
++
++    private readonly struct ChildResolution
++    {
++        public long? TeacherStudentId { get; }
++        public IActionResult? ErrorResponse { get; }
++
++        private ChildResolution(long? id, IActionResult? error)
++        {
++            TeacherStudentId = id;
++            ErrorResponse = error;
++        }
++
++        public static ChildResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
++        public static ChildResolution Error(IActionResult response) => new(null, response);
++    }
++}
+diff --git a/Edvanz.API/Controllers/ParentPaymentController.cs b/Edvanz.API/Controllers/ParentPaymentController.cs
+deleted file mode 100644
+index 45ded8e..0000000
+--- a/Edvanz.API/Controllers/ParentPaymentController.cs
++++ /dev/null
+@@ -1,156 +0,0 @@
+-using Edvanz.Domain.Resources;
+-using Microsoft.Extensions.Localization;
+-using System.Net;
+-using Edvanz.API.Attributes;
+-using Edvanz.Application.IservicesContract;
+-using Edvanz.Application.ServiceContract;
+-using Edvanz.Domain.Enums;
+-using Edvanz.Domain.Interfaces;
+-using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Mvc;
+-
+-namespace Edvanz.API.Controllers;
+-
+-/// <summary>
+-/// Payment Module (Module 4) — parent-facing read endpoint.
+-///
+-/// SEPARATE CONTROLLER RATIONALE: like <see cref="ParentAttendanceController"/>, parents
+-/// carry no module claim and the service needs (teacherId, teacherStudentId). The parent
+-/// path additionally resolves WHICH child, then branches on how the child is linked
+-/// (AAM-FR-06.3).
+-///
+-/// ONE SCREEN = ONE CALL: the tracking endpoint returns the ENTIRE Payment screen for the
+-/// chosen child under the chosen teacher.
+-///
+-/// AUTH: [ModulePermission(roles: ["Parent"], roleOnly: true)] — parent role only.
+-///
+-/// SECURITY: route childId and teacherId are untrusted. Before the service call:
+-///   1. JWT User.Id → ParentUser.
+-///   2. (parentUserId, childId) → active ParentChild, scoped to THIS parent.
+-///   3. Resolve teacherStudentId for the named teacher:
+-///        Method A (StudentAccount): child.StudentUserId → active StudentTeacherLink.
+-///        Method B (ManualProfile):  active ParentChildTeacherLink(childId, teacherId).
+-/// Teacher-controlled parent visibility (ParentVisibilityPayment) is enforced in the
+-/// service via PaymentViewerType.Parent.
+-/// </summary>
+-[Route("api/payment/parent")]
+-[Authorize]
+-public sealed class ParentPaymentController : ApiBaseController
+-{
+-    private readonly IPaymentService _paymentService;
+-    private readonly ICurrentUserService _currentUser;
+-    private readonly IUnitOfWork _unitOfWork;
+-    private readonly IStringLocalizer<Messages> _localizer;
+-
+-    public ParentPaymentController(
+-        IPaymentService paymentService,
+-        ICurrentUserService currentUser,
+-        IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer)
+-    {
+-        _paymentService = paymentService;
+-        _currentUser = currentUser;
+-        _unitOfWork = unitOfWork;
+-        _localizer = localizer;
+-    }
+-
+-    // ──────────────────────────────────────────────────────────────────────
+-    // CHILD PAYMENT TRACKING (whole screen, parent view)
+-    // GET /api/payment/parent/children/{childId}/teachers/{teacherId}/tracking
+-    // ──────────────────────────────────────────────────────────────────────
+-    [HttpGet("children/{childId:long}/teachers/{teacherId:long}/tracking")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentPaymentTrackingDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetChildPaymentTracking(
+-        [FromRoute] long childId,
+-        [FromRoute] long teacherId)
+-    {
+-        var resolution = await ResolveChildForParentAsync(childId, teacherId);
+-        if (resolution.ErrorResponse is not null) return resolution.ErrorResponse;
+-
+-        var result = await _paymentService.GetStudentPaymentTrackingAsync(
+-            teacherId, resolution.TeacherStudentId!.Value, PaymentViewerType.Parent);
+-        return ToResponse(result);
+-    }
+-
+-    // ──────────────────────────────────────────────────────────────────────
+-    // PRIVATE HELPERS
+-    // Same shape as ParentAttendanceController, plus the Method-A/B branch. A shared
+-    // CallerScopedApiBaseController is the pending refactor to remove the duplication.
+-    // ──────────────────────────────────────────────────────────────────────
+-
+-    /// <summary>
+-    /// Resolves the named child's TeacherStudent.Id under the named teacher, for the calling
+-    /// parent. Verifies parent ownership of the child, then branches on link method
+-    /// (AAM-FR-06.3). Returns either the resolved id or a 401/403/404 result.
+-    /// </summary>
+-    private async Task<ChildResolution> ResolveChildForParentAsync(long childId, long teacherId)
+-    {
+-        long? userId = _currentUser.UserId;
+-        if (userId is null)
+-            return ChildResolution.Error(Unauthorized());
+-
+-        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
+-        if (parentUser is null)
+-            return ChildResolution.Error(NotFoundError("ParentUserNotFound"));
+-
+-        var child = await _unitOfWork.Users.GetActiveChildAsync(parentUser.Id, childId);
+-        if (child is null)
+-            return ChildResolution.Error(NotFoundError("ChildNotFound"));
+-
+-        // Method A — child has a StudentUser account: reuse the student-teacher link.
+-        if (child.LinkMethod == ChildLinkMethod.StudentAccount)
+-        {
+-            if (child.StudentUserId is null)
+-                return ChildResolution.Error(ForbiddenError("ChildEnrollmentRemoved"));
+-
+-            var link = await _unitOfWork.Users
+-                .GetActiveStudentTeacherLinkAsync(child.StudentUserId.Value, teacherId);
+-            if (link is null || link.LinkStatus != LinkStatus.Active)
+-                return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
+-            if (link.TeacherStudentId is null)
+-                return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
+-
+-            return ChildResolution.Ok(link.TeacherStudentId.Value);
+-        }
+-
+-        // Method B — manual profile: teacher link lives on ParentChildTeacherLink.
+-        var parentLink = await _unitOfWork.Users
+-            .GetActiveParentChildTeacherLinkAsync(child.Id, teacherId);
+-        if (parentLink is null || parentLink.LinkStatus != LinkStatus.Active)
+-            return ChildResolution.Error(ForbiddenError("TeacherLinkNotFound"));
+-        if (parentLink.TeacherStudentId is null)
+-            return ChildResolution.Error(ForbiddenError("StudentEnrollmentRemoved"));
+-
+-        return ChildResolution.Ok(parentLink.TeacherStudentId.Value);
+-    }
+-
+-    private IActionResult NotFoundError(string message) =>
+-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
+-        {
+-            StatusCode = (int)HttpStatusCode.NotFound,
+-        };
+-
+-    private IActionResult ForbiddenError(string message) =>
+-        new ObjectResult(new { success = false, code = message, message = _localizer[message].Value })
+-        {
+-            StatusCode = (int)HttpStatusCode.Forbidden,
+-        };
+-
+-    private readonly struct ChildResolution
+-    {
+-        public long? TeacherStudentId { get; }
+-        public IActionResult? ErrorResponse { get; }
+-
+-        private ChildResolution(long? id, IActionResult? error)
+-        {
+-            TeacherStudentId = id;
+-            ErrorResponse = error;
+-        }
+-
+-        public static ChildResolution Ok(long teacherStudentId) => new(teacherStudentId, null);
+-        public static ChildResolution Error(IActionResult response) => new(null, response);
+-    }
+-}
+diff --git a/Edvanz.API/Controllers/ParentUserController.cs b/Edvanz.API/Controllers/ParentUserController.cs
+deleted file mode 100644
+index eeea990..0000000
+--- a/Edvanz.API/Controllers/ParentUserController.cs
++++ /dev/null
+@@ -1,276 +0,0 @@
+-using Edvanz.API.Attributes;
+-using Edvanz.Application.Dtos.ParentUser;
+-using Edvanz.Application.IservicesContract;
+-using Edvanz.Application.ServiceContract;
+-using Edvanz.Domain.Interfaces;
+-using Microsoft.AspNetCore.Authorization;
+-using Microsoft.AspNetCore.Mvc;
+-
+-namespace Edvanz.API.Controllers;
+-
+-/// <summary>
+-/// API endpoints for the Parent User module.
+-///
+-/// Handles parent-specific operations: profile management, child management,
+-/// and teacher linking for children without Student User accounts.
+-///
+-/// Registration, login, password, and account-level operations live in the User module.
+-///
+-/// SECURITY — tenant isolation (mirrors <see cref="ParentAttendanceController"/> /
+-/// <see cref="ParentPaymentController"/>): the acting parent is ALWAYS resolved from the
+-/// JWT (User.Id → active <c>ParentUser</c>) via <see cref="ResolveParentUserIdAsync"/>.
+-/// The <c>{parentUserId}</c> route segment is retained for backward-compatible URLs but its
+-/// value is IGNORED — sending 0, a wrong id, a mismatched id, or the real id all behave the
+-/// same, so a caller can never read or mutate another parent's data (previously every action
+-/// trusted the route <c>parentUserId</c> with no authorization → mass horizontal IDOR).
+-/// Each <c>childId</c> is scoped to the JWT-resolved parent inside the service
+-/// (<c>GetActiveChildAsync(parentUserId, childId)</c>). Role gated to Parent.
+-/// </summary>
+-[Authorize]
+-public class ParentUserController : ApiBaseController
+-{
+-    private readonly IParentUserService _parentUserService;
+-    private readonly ICurrentUserService _currentUser;
+-    private readonly IUnitOfWork _unitOfWork;
+-
+-    public ParentUserController(
+-        IParentUserService parentUserService,
+-        ICurrentUserService currentUser,
+-        IUnitOfWork unitOfWork)
+-    {
+-        _parentUserService = parentUserService;
+-        _currentUser = currentUser;
+-        _unitOfWork = unitOfWork;
+-    }
+-
+-    /// <summary>
+-    /// Resolves the acting parent's <c>ParentUser.Id</c> from the JWT
+-    /// (<c>User.Id</c> → active <c>ParentUser</c>). Returns null when the caller is not an
+-    /// active parent — the route <c>{parentUserId}</c> is deliberately never consulted.
+-    /// </summary>
+-    private async Task<long?> ResolveParentUserIdAsync()
+-    {
+-        long? userId = _currentUser.UserId;
+-        if (userId is null) return null;
+-
+-        var parentUser = await _unitOfWork.Users.GetActiveParentUserByUserIdAsync(userId.Value);
+-        return parentUser?.Id;
+-    }
+-
+-    private IActionResult ParentNotResolved() =>
+-        new ObjectResult(new { success = false, message = "Parent could not be resolved from token." })
+-        { StatusCode = StatusCodes.Status404NotFound };
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 1: INITIALIZE PARENT USER
+-    // Called AFTER User module creates a User with UserType = Parent.
+-    // Creates the ParentUser record.
+-    // POST /api/parentuser
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpPost]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status201Created)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+-    public async Task<IActionResult> InitializeParentUser([FromBody] CreateParentUserDto dto)
+-    {
+-        // Tenant isolation: the ParentUser is always created for the AUTHENTICATED user.
+-        // dto.UserId from the body is ignored (kept for wire compatibility). The registration
+-        // flow initializes parents server-side via UserService — this HTTP path is self-init only.
+-        long? userId = _currentUser.UserId;
+-        if (userId is null) return UserNotResolved();
+-        dto.UserId = userId.Value;
+-
+-        var result = await _parentUserService.InitializeParentUserAsync(dto);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 2: GET PARENT USER PROFILE
+-    // GET /api/parentuser/{parentUserId}
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpGet("{parentUserId:long}")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetParentUserProfile([FromRoute] long parentUserId)
+-    {
+-        // Route parentUserId ignored — identity comes from the JWT.
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.GetParentUserProfileAsync(resolvedParentId.Value);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 3: UPDATE PARENT USER PROFILE
+-    // Updates language preference. name/phone/password go through User module.
+-    // PUT /api/parentuser/{parentUserId}/profile
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpPut("{parentUserId:long}/profile")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentUserProfileDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> UpdateParentUserProfile(
+-        [FromRoute] long parentUserId,
+-        [FromBody] UpdateParentUserProfileDto dto)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.UpdateParentUserProfileAsync(resolvedParentId.Value, dto);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 4: GET DASHBOARD
+-    // Returns all children with their linked teachers and visibility settings.
+-    // GET /api/parentuser/{parentUserId}/dashboard
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpGet("{parentUserId:long}/dashboard")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentDashboardDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetDashboard([FromRoute] long parentUserId)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.GetDashboardAsync(resolvedParentId.Value);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 5: ADD CHILD — METHOD A (child has a Student User account)
+-    // Parent scans or enters the StudentAccountCode.
+-    // Inherits all teachers already linked to that student.
+-    // POST /api/parentuser/{parentUserId}/children/by-code
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpPost("{parentUserId:long}/children/by-code")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status201Created)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+-    public async Task<IActionResult> AddChildByAccountCode(
+-        [FromRoute] long parentUserId,
+-        [FromBody] AddChildByAccountCodeDto dto)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.AddChildByAccountCodeAsync(resolvedParentId.Value, dto);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 6: ADD CHILD — METHOD B (child has no account)
+-    // Parent enters the child's name manually. Teachers added separately.
+-    // POST /api/parentuser/{parentUserId}/children/manual
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpPost("{parentUserId:long}/children/manual")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status201Created)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> AddChildManual(
+-        [FromRoute] long parentUserId,
+-        [FromBody] AddChildManualDto dto)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.AddChildManualAsync(resolvedParentId.Value, dto);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 7: LINK TEACHER TO CHILD (Method B only)
+-    // Same 3 credentials as AAM-FR-05.5.
+-    // Not allowed for Method A children (their teachers come from StudentTeacherLink).
+-    // POST /api/parentuser/{parentUserId}/children/{childId}/teachers
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpPost("{parentUserId:long}/children/{childId:long}/teachers")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildTeacherDto>), StatusCodes.Status201Created)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+-    public async Task<IActionResult> LinkTeacherToChild(
+-        [FromRoute] long parentUserId,
+-        [FromRoute] long childId,
+-        [FromBody] LinkTeacherToChildDto dto)
+-    {
+-        // childId is scoped to the resolved parent inside the service.
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.LinkTeacherToChildAsync(resolvedParentId.Value, childId, dto);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 8: UNLINK TEACHER FROM CHILD (Method B only)
+-    // DELETE /api/parentuser/{parentUserId}/children/{childId}/teachers/{teacherId}
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpDelete("{parentUserId:long}/children/{childId:long}/teachers/{teacherId:long}")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> UnlinkTeacherFromChild(
+-        [FromRoute] long parentUserId,
+-        [FromRoute] long childId,
+-        [FromRoute] long teacherId)
+-    {
+-        // parentUserId is ignored (resolved from JWT); childId is scoped to that parent in
+-        // the service; teacherId here selects WHICH linked teacher to unlink from the child.
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.UnlinkTeacherFromChildAsync(resolvedParentId.Value, childId, teacherId);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 9: GET SINGLE CHILD
+-    // Returns a single child with their linked teachers.
+-    // GET /api/parentuser/{parentUserId}/children/{childId}
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpGet("{parentUserId:long}/children/{childId:long}")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.ParentUser.ParentChildDto>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> GetChild(
+-        [FromRoute] long parentUserId,
+-        [FromRoute] long childId)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.GetChildAsync(resolvedParentId.Value, childId);
+-        return ToResponse(result);
+-    }
+-
+-    // ══════════════════════════════════════════════════════════════════════════
+-    // ENDPOINT 10: REMOVE CHILD
+-    // Soft-deactivates the child link. Preserves the record for audit.
+-    // DELETE /api/parentuser/{parentUserId}/children/{childId}
+-    // ══════════════════════════════════════════════════════════════════════════
+-    [HttpDelete("{parentUserId:long}/children/{childId:long}")]
+-    [ModulePermission(roles: new[] { "Parent" }, roleOnly: true)]
+-    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
+-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+-    public async Task<IActionResult> RemoveChild(
+-        [FromRoute] long parentUserId,
+-        [FromRoute] long childId)
+-    {
+-        long? resolvedParentId = await ResolveParentUserIdAsync();
+-        if (resolvedParentId is null) return ParentNotResolved();
+-
+-        var result = await _parentUserService.RemoveChildAsync(resolvedParentId.Value, childId);
+-        return ToResponse(result);
+-    }
+-}
+diff --git a/Edvanz.Application/Dtos/ParentUser/AddChildDtos.cs b/Edvanz.Application/Dtos/ParentUser/AddChildDtos.cs
+index 83db552..0acda84 100644
+--- a/Edvanz.Application/Dtos/ParentUser/AddChildDtos.cs
++++ b/Edvanz.Application/Dtos/ParentUser/AddChildDtos.cs
+@@ -1,4 +1,6 @@
+-﻿namespace Edvanz.Application.Dtos.ParentUser;
++﻿using Edvanz.Domain.Enums;
++
++namespace Edvanz.Application.Dtos.ParentUser;
+ 
+ /// <summary>
+ /// Input DTO for Method A: linking a child who HAS a Student User account.
+@@ -11,6 +13,18 @@ public class AddChildByAccountCodeDto
+     /// AAM-FR-05.3: The globally unique code generated when the student registered.
+     /// </summary>
+     public string StudentAccountCode { get; set; } = null!;
++
++    /// <summary>
++    /// Child's date of birth, captured as the Parent's own record. Required for BOTH creation
++    /// methods (Parent Module requirements §7) — nullable here only so the service can detect
++    /// "not provided" and return a validation error rather than silently persisting a default date.
++    /// </summary>
++    public DateOnly? DateOfBirth { get; set; }
++
++    /// <summary>
++    /// Child's gender. Required for BOTH creation methods, same rationale as <see cref="DateOfBirth"/>.
++    /// </summary>
++    public Gender? Gender { get; set; }
+ }
+ 
+ /// <summary>
+@@ -24,4 +38,15 @@ public class AddChildManualDto
+     /// Supports Arabic and English input.
+     /// </summary>
+     public string ChildName { get; set; } = null!;
+-}
+\ No newline at end of file
++
++    /// <summary>
++    /// Child's date of birth. Required (Parent Module requirements §7) — nullable here only so
++    /// the service can detect "not provided" and return a validation error.
++    /// </summary>
++    public DateOnly? DateOfBirth { get; set; }
++
++    /// <summary>
++    /// Child's gender. Required, same rationale as <see cref="DateOfBirth"/>.
++    /// </summary>
++    public Gender? Gender { get; set; }
++}
+diff --git a/Edvanz.Application/Dtos/ParentUser/ParentChildDto.cs b/Edvanz.Application/Dtos/ParentUser/ParentChildDto.cs
+index 54d79ab..1928e17 100644
+--- a/Edvanz.Application/Dtos/ParentUser/ParentChildDto.cs
++++ b/Edvanz.Application/Dtos/ParentUser/ParentChildDto.cs
+@@ -25,6 +25,16 @@ public class ParentChildDto
+     /// </summary>
+     public bool IsActive { get; set; }
+ 
++    /// <summary>
++    /// Child's date of birth, as recorded by the Parent at creation time.
++    /// </summary>
++    public DateOnly DateOfBirth { get; set; }
++
++    /// <summary>
++    /// Child's gender ("Male" / "Female"), as recorded by the Parent at creation time.
++    /// </summary>
++    public string Gender { get; set; } = null!;
++
+     /// <summary>
+     /// Teachers linked to this child.
+     /// Method A: sourced from StudentUser.StudentTeacherLinks (read-only for parent).
+@@ -57,6 +67,8 @@ public class ParentChildTeacherDto
+     public bool VisibilityPayment { get; set; }
+     public bool VisibilityHomework { get; set; }
+     public bool VisibilityExamDefault { get; set; }
++    public bool VisibilityVideo { get; set; }
++    public bool VisibilityOnlineExamDefault { get; set; }
+ }
+ 
+ /// <summary>
+diff --git a/Edvanz.Application/Dtos/ParentUser/ParentChildTeacherDashboardDto.cs b/Edvanz.Application/Dtos/ParentUser/ParentChildTeacherDashboardDto.cs
+new file mode 100644
+index 0000000..2ac1aa3
+--- /dev/null
++++ b/Edvanz.Application/Dtos/ParentUser/ParentChildTeacherDashboardDto.cs
+@@ -0,0 +1,90 @@
++﻿using Edvanz.Application.Dtos.Attendance;
++using Edvanz.Application.Dtos.Payment;
++
++namespace Edvanz.Application.Dtos.ParentUser;
++
++/// <summary>
++/// Consolidated per-teacher dashboard for a Parent's child (Parent Module requirements §9).
++/// Resolved by (TeacherCode, StudentCode) rather than internal ids — Parent Module requirements
++/// §3: codes are pure address resolution, ownership is still enforced via
++/// <c>IUserRepo.ResolveOwnedChildIdByTeacherStudentAsync</c> before any section is built, so a
++/// Parent can never reach another Parent's child by guessing valid codes.
++///
++/// Each section is independently gated by the teacher's Parent-visibility configuration
++/// (AAM-FR-04.9) and degrades to <c>Visible = false</c> + empty data — never a 403 for the whole
++/// call — mirroring <c>StudentTeacherHomeService</c>'s resilience pattern (a module error or a
++/// hidden section never breaks the other five).
++/// </summary>
++public class ParentChildTeacherDashboardDto
++{
++    public long TeacherId { get; set; }
++    public string TeacherCode { get; set; } = null!;
++    public string TeacherName { get; set; } = null!;
++    public string SubjectName { get; set; } = null!;
++
++    public long ChildId { get; set; }
++    public string ChildName { get; set; } = null!;
++
++    public ParentDashboardVideosDto Videos { get; set; } = new();
++    public ParentDashboardExamReportDto OnlineExams { get; set; } = new();
++    public ParentDashboardExamReportDto OfflineExams { get; set; } = new();
++    public ParentDashboardHomeworkDto Homework { get; set; } = new();
++    public ParentDashboardAttendanceDto Attendance { get; set; } = new();
++    public ParentDashboardPaymentDto Payments { get; set; } = new();
++}
++
++/// <summary>Videos section (§9.1) — gated by <c>ParentVisibilityVideo</c>.</summary>
++public class ParentDashboardVideosDto
++{
++    public bool Visible { get; set; }
++    public int TotalVideos { get; set; }
++    public int TotalSeenVideos { get; set; }
++    public int TotalUnseenVideos { get; set; }
++}
++
++/// <summary>
++/// Shared shape for the Online and Offline exam reports (§9.2 — turn-3 decision: two SEPARATE
++/// reports, never combined). Percentage = Grade / MaxGrade × 100, already computed upstream by
++/// the existing online-exam report and offline-exam list services; this DTO only carries the
++/// Max/Min/Avg aggregated over those already-computed percentages — no percentage math is
++/// duplicated here. Gated by <c>ParentVisibilityOnlineExamDefault</c> /
++/// <c>ParentVisibilityExamDefault</c> respectively.
++/// </summary>
++public class ParentDashboardExamReportDto
++{
++    public bool Visible { get; set; }
++
++    /// <summary>Exams with a valid percentage (a grade AND a positive MaxGrade). Ungradeable/missing-grade exams are excluded.</summary>
++    public int CompletedExamsCount { get; set; }
++    public decimal? AverageGrade { get; set; }
++    public decimal? HighestPerformance { get; set; }
++    public decimal? LowestPerformance { get; set; }
++}
++
++/// <summary>Homework section (§9.3) — gated by <c>ParentVisibilityHomework</c>.</summary>
++public class ParentDashboardHomeworkDto
++{
++    public bool Visible { get; set; }
++    public int TotalHomework { get; set; }
++    public int PendingHomework { get; set; }
++    public int SubmittedHomework { get; set; }
++    public int NotSubmittedHomework { get; set; }
++}
++
++/// <summary>Attendance section (§9.4, current month only) — gated by <c>ParentVisibilityAttendance</c>.</summary>
++public class ParentDashboardAttendanceDto
++{
++    public bool Visible { get; set; }
++
++    /// <summary>Null when hidden or when the month has no data. Reuses the existing student/parent monthly attendance shape as-is — no re-derivation of the percentage/day counts.</summary>
++    public MonthlyAttendanceSummaryDto? Data { get; set; }
++}
++
++/// <summary>Payments section (§9.5, current + previous months + arrears) — gated by <c>ParentVisibilityPayment</c>.</summary>
++public class ParentDashboardPaymentDto
++{
++    public bool Visible { get; set; }
++
++    /// <summary>Null when hidden. Reuses the existing StudentPaymentTrackingDto as-is (custom-price and arrears logic already lives there — not duplicated here).</summary>
++    public StudentPaymentTrackingDto? Data { get; set; }
++}
+diff --git a/Edvanz.Application/Extensions/ServicesCollectionExtensions.cs b/Edvanz.Application/Extensions/ServicesCollectionExtensions.cs
+index a653b0e..a60616c 100644
+--- a/Edvanz.Application/Extensions/ServicesCollectionExtensions.cs
++++ b/Edvanz.Application/Extensions/ServicesCollectionExtensions.cs
+@@ -50,6 +50,7 @@ public static class ServicesCollectionExtensions
+         services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
+         services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();
+         services.AddScoped<IParentUserService, ParentUserService>();
++        services.AddScoped<IParentDashboardService, ParentDashboardService>();
+         services.AddScoped<ITokenService, TokenService>();
+         // Free-tier quota gate (shared by student/session/assistant/group create paths)
+         services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();
+diff --git a/Edvanz.Application/ServiceContract/IParentDashboardService.cs b/Edvanz.Application/ServiceContract/IParentDashboardService.cs
+new file mode 100644
+index 0000000..46eccb2
+--- /dev/null
++++ b/Edvanz.Application/ServiceContract/IParentDashboardService.cs
+@@ -0,0 +1,25 @@
++﻿using Edvanz.Application.Dtos;
++using Edvanz.Application.Dtos.ParentUser;
++
++namespace Edvanz.Application.ServiceContract;
++
++/// <summary>
++/// Aggregates the Parent's per-teacher child dashboard (Parent Module requirements §9) into a
++/// single call, resolved by (TeacherCode, StudentCode) rather than internal ids (§3). Mirrors
++/// <see cref="IStudentTeacherHomeService"/>'s aggregation pattern for the student side: resolves
++/// the caller once (JWT parent → owned child under the named teacher), then fills each section
++/// behind its own <c>TeacherConfiguration</c> Parent-visibility flag, reusing the existing
++/// per-module student/parent services and repo methods. A module that errors degrades to
++/// visible + empty for that section, never a whole-call 500.
++/// </summary>
++public interface IParentDashboardService
++{
++    /// <summary>
++    /// Builds the consolidated dashboard for the JWT-resolved parent's child under the named
++    /// teacher. Ownership is enforced via <c>IUserRepo.ResolveOwnedChildIdByTeacherStudentAsync</c>
++    /// — codes are pure address resolution and never bypass the same ownership check the
++    /// id-based Parent endpoints already apply.
++    /// </summary>
++    Task<Result<ParentChildTeacherDashboardDto>> GetTeacherDashboardAsync(
++        long parentUserId, string teacherCode, string studentCode);
++}
+diff --git a/Edvanz.Application/Services/ParentDashboardService.cs b/Edvanz.Application/Services/ParentDashboardService.cs
+new file mode 100644
+index 0000000..148c43c
+--- /dev/null
++++ b/Edvanz.Application/Services/ParentDashboardService.cs
+@@ -0,0 +1,305 @@
++﻿using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Net;
++using System.Threading.Tasks;
++using Edvanz.Application.Dtos;
++using Edvanz.Application.Dtos.Attendance;
++using Edvanz.Application.Dtos.ParentUser;
++using Edvanz.Application.ServiceContract;
++using Edvanz.Domain.Enums;
++using Edvanz.Domain.Interfaces;
++using Microsoft.Extensions.Localization;
++using Microsoft.Extensions.Logging;
++
++namespace Edvanz.Application.Services;
++
++/// <inheritdoc cref="IParentDashboardService"/>
++public sealed class ParentDashboardService : IParentDashboardService
++{
++    private readonly IUnitOfWork _unitOfWork;
++    private readonly IAttendanceService _attendanceService;
++    private readonly IPaymentService _paymentService;
++    private readonly IStudentOnlineExamService _onlineExamService;
++    private readonly IExamHomeworkService _examHomeworkService;
++    private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
++    private readonly ILogger<ParentDashboardService> _logger;
++
++    /// <summary>Page size used to pull the offline-exam list for the percentage aggregate (bounded per student·teacher, same value StudentTeacherHomeService uses).</summary>
++    private const int OfflineExamFetchPageSize = 200;
++
++    public ParentDashboardService(
++        IUnitOfWork unitOfWork,
++        IAttendanceService attendanceService,
++        IPaymentService paymentService,
++        IStudentOnlineExamService onlineExamService,
++        IExamHomeworkService examHomeworkService,
++        IStringLocalizer<Domain.Resources.Messages> localizer,
++        ILogger<ParentDashboardService> logger)
++    {
++        _unitOfWork = unitOfWork;
++        _attendanceService = attendanceService;
++        _paymentService = paymentService;
++        _onlineExamService = onlineExamService;
++        _examHomeworkService = examHomeworkService;
++        _localizer = localizer;
++        _logger = logger;
++    }
++
++    /// <inheritdoc />
++    public async Task<Result<ParentChildTeacherDashboardDto>> GetTeacherDashboardAsync(
++        long parentUserId, string teacherCode, string studentCode)
++    {
++        if (string.IsNullOrWhiteSpace(teacherCode) || teacherCode.Length != 8)
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "InvalidTeacherCode", HttpStatusCode.BadRequest);
++
++        if (string.IsNullOrWhiteSpace(studentCode))
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);
++
++        // ── Code → entity resolution (pure address resolution — NOT an authorization decision) ──
++        var teacher = await _unitOfWork.Users.GetActiveTeacherByCodeAsync(teacherCode);
++        if (teacher is null)
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
++
++        var teacherStudent = await _unitOfWork.Users.GetActiveTeacherStudentByCodeAsync(teacher.Id, studentCode);
++        if (teacherStudent is null)
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "StudentNotFound", HttpStatusCode.NotFound);
++
++        // ── Ownership gate — the actual authorization check. Codes never bypass this. ──
++        long? childId = await _unitOfWork.Users.ResolveOwnedChildIdByTeacherStudentAsync(
++            parentUserId, teacher.Id, teacherStudent.Id);
++        if (childId is null)
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "TeacherLinkNotFound", HttpStatusCode.Forbidden);
++
++        var child = await _unitOfWork.Users.GetActiveChildAsync(parentUserId, childId.Value);
++        if (child is null)
++            return Result<ParentChildTeacherDashboardDto>.Failure(_localizer, "ChildNotFound", HttpStatusCode.NotFound);
++
++        long teacherStudentId = teacherStudent.Id;
++
++        // ── Teacher header + visibility flags (same batch call as the existing all-children dashboard) ──
++        var batch = await _unitOfWork.Users.GetTeacherDashboardDataAsync(new List<long> { teacher.Id });
++        batch.Teachers.TryGetValue(teacher.Id, out var teacherEntity);
++        batch.Configurations.TryGetValue(teacher.Id, out var config);
++
++        string teacherName = string.Empty;
++        if (teacherEntity is not null && batch.Users.TryGetValue(teacherEntity.UserId, out var teacherUser))
++            teacherName = teacherUser.FullName;
++
++        var parentUser = await _unitOfWork.Users.GetActiveParentUserByIdAsync(parentUserId);
++        string? language = parentUser?.LanguagePreference;
++
++        string subjectName = teacherEntity?.CustomSubject ?? string.Empty;
++        if (teacherEntity is not null &&
++            batch.TeacherSubjects.TryGetValue(teacher.Id, out var teacherSubjects) &&
++            teacherSubjects.Any() &&
++            batch.Subjects.TryGetValue(teacherSubjects.First().SubjectId, out var subject))
++        {
++            // Respect the parent's language preference (AAM-FR-02.2) — same rule as the all-children dashboard.
++            subjectName = language == "ar" ? subject.NameAr : subject.NameEn;
++        }
++
++        bool vVideo = config?.ParentVisibilityVideo ?? true;
++        bool vOnlineExam = config?.ParentVisibilityOnlineExamDefault ?? false;
++        bool vOfflineExam = config?.ParentVisibilityExamDefault ?? false;
++        bool vHomework = config?.ParentVisibilityHomework ?? true;
++
++        var dashboard = new ParentChildTeacherDashboardDto
++        {
++            TeacherId = teacher.Id,
++            TeacherCode = teacherEntity?.TeacherCode ?? teacherCode,
++            TeacherName = teacherName,
++            SubjectName = subjectName,
++            ChildId = child.Id,
++            ChildName = child.ChildName,
++            Videos = await BuildVideosAsync(teacher.Id, teacherStudentId, vVideo),
++            OnlineExams = await BuildOnlineExamsAsync(teacher.Id, teacherStudentId, language, vOnlineExam),
++            OfflineExams = await BuildOfflineExamsAsync(teacher.Id, teacherStudentId, language, vOfflineExam),
++            Homework = await BuildHomeworkAsync(teacher.Id, teacherStudentId, vHomework),
++            Attendance = await BuildAttendanceAsync(teacher.Id, teacherStudentId),
++            Payments = await BuildPaymentsAsync(teacher.Id, teacherStudentId)
++        };
++
++        return Result<ParentChildTeacherDashboardDto>.Success(dashboard, _localizer, "Success", HttpStatusCode.OK);
++    }
++
++    // ══════════════════════════════════════════════════════════════════════════
++    // SECTION BUILDERS (each fail-soft: a module error → visible flag preserved, empty data)
++    // ══════════════════════════════════════════════════════════════════════════
++
++    /// <summary>
++    /// §9.1. No existing service exposes a per-student seen/unseen rollup, so this is the one
++    /// section with no prior "viewer type" gate to reuse — ParentVisibilityVideo is checked here,
++    /// the sole enforcement point for this flag.
++    /// </summary>
++    private async Task<ParentDashboardVideosDto> BuildVideosAsync(
++        long teacherId, long teacherStudentId, bool visible)
++    {
++        var section = new ParentDashboardVideosDto { Visible = visible };
++        if (!visible) return section;
++        try
++        {
++            var (total, seen) = await _unitOfWork.VideoAssetsRepo
++                .GetStudentVideoSeenCountsAsync(teacherId, teacherStudentId);
++            section.TotalVideos = total;
++            section.TotalSeenVideos = seen;
++            section.TotalUnseenVideos = Math.Max(0, total - seen);
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: videos failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>
++    /// §9.2 online report. <see cref="IStudentOnlineExamService.GetMyExamsAsync"/> does no internal
++    /// visibility gating (confirmed against source) — ParentVisibilityOnlineExamDefault is checked
++    /// here. Percentage = StudentDegree / ExamDegree × 100, computed per exam and aggregated;
++    /// exams with no attempt (StudentDegree null) or no valid denominator are excluded, matching
++    /// "exclude exams that cannot produce a valid percentage" (Parent Module requirements §9.2/§6).
++    /// </summary>
++    private async Task<ParentDashboardExamReportDto> BuildOnlineExamsAsync(
++        long teacherId, long teacherStudentId, string? language, bool visible)
++    {
++        var section = new ParentDashboardExamReportDto { Visible = visible };
++        if (!visible) return section;
++        try
++        {
++            var result = await _onlineExamService.GetMyExamsAsync(teacherId, teacherStudentId, language);
++            if (result.IsSuccess && result.Data is { } data)
++            {
++                var percentages = data.Past
++                    .Where(e => e.StudentDegree.HasValue && e.ExamDegree > 0)
++                    .Select(e => e.StudentDegree!.Value / e.ExamDegree * 100m)
++                    .ToList();
++
++                ApplyStats(section, percentages);
++            }
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: online exams failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>
++    /// §9.2 offline report. <see cref="IExamHomeworkService.GetMyOfflineExamsAsync"/> already
++    /// computes <c>ScorePercentage</c> per row (null when ungradeable) — reused as-is, no
++    /// Grade/MaxGrade math duplicated here. ParentVisibilityExamDefault gates this section (the
++    /// existing "offline exam" flag, unchanged from before this feature).
++    /// </summary>
++    private async Task<ParentDashboardExamReportDto> BuildOfflineExamsAsync(
++        long teacherId, long teacherStudentId, string? language, bool visible)
++    {
++        var section = new ParentDashboardExamReportDto { Visible = visible };
++        if (!visible) return section;
++        try
++        {
++            var result = await _examHomeworkService.GetMyOfflineExamsAsync(
++                teacherId, teacherStudentId, language, page: 1, pageSize: OfflineExamFetchPageSize);
++            if (result.IsSuccess && result.Data?.data is { } rows)
++            {
++                var percentages = rows
++                    .Where(r => r.ScorePercentage.HasValue)
++                    .Select(r => r.ScorePercentage!.Value)
++                    .ToList();
++
++                ApplyStats(section, percentages);
++            }
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: offline exams failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>§9.3. No existing homework read surface exists for students or parents — ParentVisibilityHomework is checked here, the sole enforcement point for this section.</summary>
++    private async Task<ParentDashboardHomeworkDto> BuildHomeworkAsync(
++        long teacherId, long teacherStudentId, bool visible)
++    {
++        var section = new ParentDashboardHomeworkDto { Visible = visible };
++        if (!visible) return section;
++        try
++        {
++            var (total, pending, submitted, notSubmitted) = await _unitOfWork.ExamHomeworkRepo
++                .GetHomeworkStatusBreakdownAsync(teacherId, teacherStudentId);
++            section.TotalHomework = total;
++            section.PendingHomework = pending;
++            section.SubmittedHomework = submitted;
++            section.NotSubmittedHomework = notSubmitted;
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: homework failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>
++    /// §9.4, current month only. <see cref="IAttendanceService.GetStudentViewAttendanceAsync"/>
++    /// already self-gates on ParentVisibilityAttendance via <see cref="AttendanceViewerType.Parent"/>
++    /// — NOT re-checked here (Parent Module requirements §9: reuse existing services, don't
++    /// duplicate authorization/visibility logic). A Forbidden result from the visibility gate is
++    /// treated as "hidden" for this section rather than surfaced as a dashboard-wide error.
++    /// Passing an empty request defaults to the teacher-local CURRENT month (§9.4/§10's
++    /// "up to today, never future days" rule already lives inside that method via
++    /// ITimeZoneService.GetTeacherLocalDate — not re-derived here).
++    /// </summary>
++    private async Task<ParentDashboardAttendanceDto> BuildAttendanceAsync(long teacherId, long teacherStudentId)
++    {
++        var section = new ParentDashboardAttendanceDto();
++        try
++        {
++            var request = new StudentTimelineMonthRequest();
++            var result = await _attendanceService.GetStudentViewAttendanceAsync(
++                teacherId, teacherStudentId, request, AttendanceViewerType.Parent);
++            section.Visible = result.IsSuccess;
++            if (result.IsSuccess)
++                section.Data = result.Data;
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: attendance failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>
++    /// §9.5. <see cref="IPaymentService.GetStudentPaymentTrackingAsync"/> already self-gates on
++    /// ParentVisibilityPayment via <see cref="PaymentViewerType.Parent"/> — same reuse rationale as
++    /// <see cref="BuildAttendanceAsync"/>. Custom-price resolution and arrears-through-cutoff are
++    /// already correct inside that method; nothing about pricing is re-derived here.
++    /// </summary>
++    private async Task<ParentDashboardPaymentDto> BuildPaymentsAsync(long teacherId, long teacherStudentId)
++    {
++        var section = new ParentDashboardPaymentDto();
++        try
++        {
++            var result = await _paymentService.GetStudentPaymentTrackingAsync(
++                teacherId, teacherStudentId, PaymentViewerType.Parent);
++            section.Visible = result.IsSuccess;
++            if (result.IsSuccess)
++                section.Data = result.Data;
++        }
++        catch (Exception ex)
++        {
++            _logger.LogWarning(ex, "Parent dashboard: payments failed (teacher {TeacherId}, roster {RosterId})", teacherId, teacherStudentId);
++        }
++        return section;
++    }
++
++    /// <summary>Shared Max/Min/Avg aggregation for the two exam-report builders. Rounds the average to 2 decimal places; leaves Max/Min at full precision (already a clean 0–100 percentage).</summary>
++    private static void ApplyStats(ParentDashboardExamReportDto section, List<decimal> percentages)
++    {
++        section.CompletedExamsCount = percentages.Count;
++        if (percentages.Count == 0)
++            return;
++
++        section.AverageGrade = Math.Round(percentages.Average(), 2);
++        section.HighestPerformance = percentages.Max();
++        section.LowestPerformance = percentages.Min();
++    }
++}
+diff --git a/Edvanz.Application/Services/ParentUserService.cs b/Edvanz.Application/Services/ParentUserService.cs
+index c078483..ce439b2 100644
+--- a/Edvanz.Application/Services/ParentUserService.cs
++++ b/Edvanz.Application/Services/ParentUserService.cs
+@@ -190,6 +190,15 @@ public class ParentUserService : IParentUserService
+         if (string.IsNullOrWhiteSpace(dto.StudentAccountCode))
+             return Result<ParentChildDto>.Failure(_localizer, "StudentAccountCodeRequired", HttpStatusCode.BadRequest);
+ 
++        if (dto.DateOfBirth is null)
++            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
++
++        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
++            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
++
++        if (dto.Gender is null)
++            return Result<ParentChildDto>.Failure(_localizer, "ChildGenderRequired", HttpStatusCode.BadRequest);
++
+         var studentUser = await _unitOfWork.Users.GetStudentUserByAccountCodeAsync(dto.StudentAccountCode);
+ 
+         if (studentUser is null)
+@@ -216,6 +225,8 @@ public class ParentUserService : IParentUserService
+                 LinkMethod = ChildLinkMethod.StudentAccount,
+                 StudentUserId = studentUser.Id,
+                 ChildName = childName,
++                DateOfBirth = dto.DateOfBirth.Value,
++                Gender = dto.Gender.Value,
+                 IsActive = true,
+                 CreateAt = DateTime.UtcNow
+             };
+@@ -259,6 +270,15 @@ public class ParentUserService : IParentUserService
+         if (string.IsNullOrWhiteSpace(dto.ChildName))
+             return Result<ParentChildDto>.Failure(_localizer, "ChildNameRequired", HttpStatusCode.BadRequest);
+ 
++        if (dto.DateOfBirth is null)
++            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
++
++        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
++            return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
++
++        if (dto.Gender is null)
++            return Result<ParentChildDto>.Failure(_localizer, "ChildGenderRequired", HttpStatusCode.BadRequest);
++
+         // FIX BUG-5: Added ownsTransaction pattern for consistency
+         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+         if (ownsTransaction)
+@@ -272,6 +292,8 @@ public class ParentUserService : IParentUserService
+                 LinkMethod = ChildLinkMethod.ManualProfile,
+                 StudentUserId = null,
+                 ChildName = dto.ChildName.Trim(),
++                DateOfBirth = dto.DateOfBirth.Value,
++                Gender = dto.Gender.Value,
+                 IsActive = true,
+                 CreateAt = DateTime.UtcNow
+             };
+@@ -290,6 +312,8 @@ public class ParentUserService : IParentUserService
+                 LinkMethod = child.LinkMethod.ToString(),
+                 StudentAccountCode = null,
+                 IsActive = child.IsActive,
++                DateOfBirth = child.DateOfBirth,
++                Gender = child.Gender.ToString(),
+                 Teachers = new List<ParentChildTeacherDto>()
+             };
+ 
+@@ -553,6 +577,8 @@ public class ParentUserService : IParentUserService
+             LinkMethod = child.LinkMethod.ToString(),
+             StudentAccountCode = studentUser?.StudentAccountCode,
+             IsActive = child.IsActive,
++            DateOfBirth = child.DateOfBirth,
++            Gender = child.Gender.ToString(),
+             Teachers = teacherDtos
+         };
+     }
+@@ -601,7 +627,9 @@ public class ParentUserService : IParentUserService
+             VisibilityAttendance = config?.ParentVisibilityAttendance ?? true,
+             VisibilityPayment = config?.ParentVisibilityPayment ?? true,
+             VisibilityHomework = config?.ParentVisibilityHomework ?? true,
+-            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? false
++            VisibilityExamDefault = config?.ParentVisibilityExamDefault ?? false,
++            VisibilityVideo = config?.ParentVisibilityVideo ?? true,
++            VisibilityOnlineExamDefault = config?.ParentVisibilityOnlineExamDefault ?? false
+         };
+     }
+ }
+\ No newline at end of file
+diff --git a/Edvanz.Application/Services/TeacherService.cs b/Edvanz.Application/Services/TeacherService.cs
+index 3607d17..c397c21 100644
+--- a/Edvanz.Application/Services/TeacherService.cs
++++ b/Edvanz.Application/Services/TeacherService.cs
+@@ -193,6 +193,8 @@ public class TeacherService : ITeacherService
+                 StudentVisibilityOnlineExamDefault = true,
+                 ParentVisibilityHomework = true,
+                 ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
++                ParentVisibilityOnlineExamDefault = false, // mirrors ParentVisibilityExamDefault — opt-in only
++                ParentVisibilityVideo = true,
+                 CreateAt = DateTime.UtcNow
+             };
+ 
+diff --git a/Edvanz.Domain/Entities/ParentChild.cs b/Edvanz.Domain/Entities/ParentChild.cs
+index 01f793c..1296c89 100644
+--- a/Edvanz.Domain/Entities/ParentChild.cs
++++ b/Edvanz.Domain/Entities/ParentChild.cs
+@@ -57,6 +57,20 @@ public class ParentChild : BaseEntity
+     /// </summary>
+     public bool IsActive { get; set; } = true;
+ 
++    /// <summary>
++    /// Child's date of birth, as entered by the Parent at creation time.
++    /// Required for BOTH Method A and Method B (Parent Module requirements §7) — captured
++    /// as the Parent's own record regardless of whether the child also has a StudentUser
++    /// account, since neither StudentUser nor TeacherStudent stores this field today.
++    /// </summary>
++    public DateOnly DateOfBirth { get; set; }
++
++    /// <summary>
++    /// Child's gender, as entered by the Parent at creation time.
++    /// Required for BOTH Method A and Method B, same rationale as <see cref="DateOfBirth"/>.
++    /// </summary>
++    public Gender Gender { get; set; }
++
+     // Navigation properties
+ 
+     /// <summary>
+diff --git a/Edvanz.Domain/Entities/TeacherConfiguration.cs b/Edvanz.Domain/Entities/TeacherConfiguration.cs
+index a016034..a0d9daf 100644
+--- a/Edvanz.Domain/Entities/TeacherConfiguration.cs
++++ b/Edvanz.Domain/Entities/TeacherConfiguration.cs
+@@ -148,6 +148,22 @@ public class TeacherConfiguration : BaseEntity
+     /// </summary>
+     public bool ParentVisibilityExamDefault { get; set; } = false;
+ 
++    /// <summary>
++    /// Default visibility for ONLINE exams in parent accounts.
++    /// Mirrors the offline/online split already established on the student side
++    /// (<see cref="StudentVisibilityExamDefault"/> / <see cref="StudentVisibilityOnlineExamDefault"/>).
++    /// Same conservative default as <see cref="ParentVisibilityExamDefault"/> — parents only see
++    /// online exam results once the teacher explicitly opts in.
++    /// Default: false (hidden).
++    /// </summary>
++    public bool ParentVisibilityOnlineExamDefault { get; set; } = false;
++
++    /// <summary>
++    /// Whether parents can see the Videos module.
++    /// Default: true (visible) — parity with Attendance/Payment/Homework.
++    /// </summary>
++    public bool ParentVisibilityVideo { get; set; } = true;
++
+     /// <summary>
+     /// Timestamp of the last configuration update. Null if never modified after initial creation.
+     /// </summary>
+diff --git a/Edvanz.Domain/Enums/Gender.cs b/Edvanz.Domain/Enums/Gender.cs
+new file mode 100644
+index 0000000..aefd022
+--- /dev/null
++++ b/Edvanz.Domain/Enums/Gender.cs
+@@ -0,0 +1,16 @@
++using System.Text.Json.Serialization;
++
++namespace Edvanz.Domain.Enums;
++
++/// <summary>
++/// A child's gender, captured by the Parent during child creation (both Method A and
++/// Method B — Parent Module requirements §7). Stored on <see cref="Edvanz.Domain.Entities.ParentChild"/>
++/// only; neither <c>StudentUser</c> nor <c>TeacherStudent</c> carries this field today, so
++/// <c>ParentChild</c> is the single source of truth for it regardless of link method.
++/// </summary>
++[JsonConverter(typeof(JsonStringEnumConverter))]
++public enum Gender
++{
++    Male = 1,
++    Female = 2
++}
+diff --git a/Edvanz.Domain/Interfaces/IExamHomeworkRepo.cs b/Edvanz.Domain/Interfaces/IExamHomeworkRepo.cs
+index 5f297cd..543cc30 100644
+--- a/Edvanz.Domain/Interfaces/IExamHomeworkRepo.cs
++++ b/Edvanz.Domain/Interfaces/IExamHomeworkRepo.cs
+@@ -283,6 +283,18 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
+     Task<(int Attended, int TotalAssigned)> GetExamAttendanceStatsAsync(
+         long teacherId, long teacherStudentId);
+ 
++    /// <summary>
++    /// Homework status breakdown for one student under one teacher (Parent Module
++    /// requirements §9.3): total assigned, plus a three-way split by <see cref="ObligationStatus"/> —
++    /// Pending (no status recorded yet), Submitted (Done / DoneWithGrade / DoneWithoutGrade —
++    /// any state where the student turned it in), and NotSubmitted (NotDone). Same join path and
++    /// single-GroupBy-query shape as <see cref="GetHomeworkCompletionStatsAsync"/>, kept as its own
++    /// method rather than extending that one because the two return different, independently
++    /// consumed shapes (existing callers depend on the (Completed, TotalAssigned) tuple as-is).
++    /// </summary>
++    Task<(int Total, int Pending, int Submitted, int NotSubmitted)> GetHomeworkStatusBreakdownAsync(
++        long teacherId, long teacherStudentId);
++
+     // ══════════════════════════════════════════════
+     // OBLIGATION QUERIES — REPORTS (REQ-EXH-039 through 046)
+     // ══════════════════════════════════════════════
+diff --git a/Edvanz.Domain/Interfaces/IUserRepo.cs b/Edvanz.Domain/Interfaces/IUserRepo.cs
+index cc897c3..c4f0ebe 100644
+--- a/Edvanz.Domain/Interfaces/IUserRepo.cs
++++ b/Edvanz.Domain/Interfaces/IUserRepo.cs
+@@ -607,6 +607,22 @@ namespace Edvanz.Domain.Interfaces
+         /// <returns>A container with all related data keyed by ID for O(1) lookup.</returns>
+         Task<TeacherDashboardBatchData> GetTeacherDashboardDataAsync(IReadOnlyList<long> teacherIds);
+ 
++        /// <summary>
++        /// Ownership resolution for the code-based Parent dashboard (Parent Module requirements
++        /// §3/§9): returns the owning <c>ParentChild.Id</c> when the given
++        /// <paramref name="teacherStudentId"/> under <paramref name="teacherId"/> is reachable by
++        /// one of <paramref name="parentUserId"/>'s own ACTIVE children — either Method A (an
++        /// active <c>StudentTeacherLink</c> bound to this roster row, whose StudentUserId matches
++        /// one of the parent's children) or Method B (an active <c>ParentChildTeacherLink</c> bound
++        /// to this exact roster row, owned by one of the parent's children). Null when no such
++        /// child exists — the caller's ownership gate.
++        ///
++        /// This is a pure ownership gate — resolving TeacherCode/StudentCode to
++        /// (teacherId, teacherStudentId) is address resolution only; this check is what actually
++        /// enforces that a Parent can never reach another Parent's child by guessing valid codes.
++        /// </summary>
++        Task<long?> ResolveOwnedChildIdByTeacherStudentAsync(long parentUserId, long teacherId, long teacherStudentId);
++
+ 
+         // ══════════════════════════════════════════════
+         // TEACHER SUBSCRIPTION QUERIES
+diff --git a/Edvanz.Domain/Interfaces/IVideoAssetRepo.cs b/Edvanz.Domain/Interfaces/IVideoAssetRepo.cs
+index c9b5f6a..1589348 100644
+--- a/Edvanz.Domain/Interfaces/IVideoAssetRepo.cs
++++ b/Edvanz.Domain/Interfaces/IVideoAssetRepo.cs
+@@ -188,6 +188,16 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
+     Task<IReadOnlyList<StudentVideoUnitRow>> GetStudentVisibleUnitsAsync(
+         long teacherId, long teacherStudentId);
+ 
++    /// <summary>
++    /// Scalar seen/unseen rollup for one student under one teacher (Parent Module requirements
++    /// §9.1): total videos visible to the student, and how many of those the student has opened
++    /// at least once. Uses the EXACT same visible-video scope predicate as
++    /// <see cref="GetVisibleVideosForStudentAsync"/> (Published + PublishDate gate, Session /
++    /// SessionGroup scope union) so the count can never disagree with what the student's own video
++    /// list shows — just a COUNT instead of a paged projection, since the caller only needs totals.
++    /// </summary>
++    Task<(int Total, int Seen)> GetStudentVideoSeenCountsAsync(long teacherId, long teacherStudentId);
++
+     /// <summary>
+     /// The owning teacher's subject for the student video-list <c>Subject</c> column:
+     /// <c>CustomSubject</c> plus the first linked ministry subject's English/Arabic names (the
+diff --git a/Edvanz.Domain/Messages.ar.resx b/Edvanz.Domain/Messages.ar.resx
+index 744915b..81413cb 100644
+--- a/Edvanz.Domain/Messages.ar.resx
++++ b/Edvanz.Domain/Messages.ar.resx
+@@ -354,6 +354,15 @@
+   <data name="ChildNameRequired" xml:space="preserve">
+     <value>من فضلك اكتب اسم الابن/الابنة</value>
+   </data>
++  <data name="ChildDateOfBirthRequired" xml:space="preserve">
++    <value>من فضلك دخّل تاريخ ميلاد الابن/الابنة</value>
++  </data>
++  <data name="ChildDateOfBirthInFuture" xml:space="preserve">
++    <value>تاريخ ميلاد الابن/الابنة مينفعش يكون في المستقبل</value>
++  </data>
++  <data name="ChildGenderRequired" xml:space="preserve">
++    <value>من فضلك اختار نوع الابن/الابنة</value>
++  </data>
+   <data name="ChildRemovedSuccess" xml:space="preserve">
+     <value>تم إزالة الابن/الابنة من حسابك</value>
+   </data>
+diff --git a/Edvanz.Domain/Messages.en.resx b/Edvanz.Domain/Messages.en.resx
+index 4440396..d147c3f 100644
+--- a/Edvanz.Domain/Messages.en.resx
++++ b/Edvanz.Domain/Messages.en.resx
+@@ -354,6 +354,15 @@
+   <data name="ChildNameRequired" xml:space="preserve">
+     <value>Please enter the child's name</value>
+   </data>
++  <data name="ChildDateOfBirthRequired" xml:space="preserve">
++    <value>Please provide the child's date of birth</value>
++  </data>
++  <data name="ChildDateOfBirthInFuture" xml:space="preserve">
++    <value>The child's date of birth can't be in the future</value>
++  </data>
++  <data name="ChildGenderRequired" xml:space="preserve">
++    <value>Please select the child's gender</value>
++  </data>
+   <data name="ChildRemovedSuccess" xml:space="preserve">
+     <value>Child removed from your account</value>
+   </data>
+diff --git a/Edvanz.Infrastructure/Migrations/20260808120000_AddDateOfBirthAndGenderToParentChild.cs b/Edvanz.Infrastructure/Migrations/20260808120000_AddDateOfBirthAndGenderToParentChild.cs
+new file mode 100644
+index 0000000..531885b
+--- /dev/null
++++ b/Edvanz.Infrastructure/Migrations/20260808120000_AddDateOfBirthAndGenderToParentChild.cs
+@@ -0,0 +1,50 @@
++﻿using Microsoft.EntityFrameworkCore.Migrations;
++
++#nullable disable
++
++namespace Edvanz.Infrastructure.Migrations
++{
++    /// <summary>
++    /// Parent Module requirements §7: DateOfBirth and Gender are required on ParentChild for
++    /// BOTH creation methods. REFERENCE MIGRATION — hand-authored Up/Down only; no Designer.cs
++    /// or updated ModelSnapshot.cs is included because this sandbox has no dotnet/EF tooling to
++    /// verify them against the actual model. Run `dotnet ef migrations add
++    /// AddDateOfBirthAndGenderToParentChild` locally against the updated ParentChild entity —
++    /// EF will regenerate the Designer.cs/snapshot correctly and should produce equivalent
++    /// Up/Down operations to what's below (useful as a review reference). Per decision B2, no
++    /// existing ParentChildren data needs preserving — the default values below are only a
++    /// SQL-validity safety net for a NOT NULL ADD COLUMN against a non-empty table, not a
++    /// deliberate backfill value; confirm with a data check before applying to any environment
++    /// that might already have rows.
++    /// </summary>
++    public partial class AddDateOfBirthAndGenderToParentChild : Migration
++    {
++        protected override void Up(MigrationBuilder migrationBuilder)
++        {
++            migrationBuilder.AddColumn<DateOnly>(
++                name: "DateOfBirth",
++                table: "ParentChildren",
++                type: "date",
++                nullable: false,
++                defaultValue: new DateOnly(2000, 1, 1));
++
++            migrationBuilder.AddColumn<int>(
++                name: "Gender",
++                table: "ParentChildren",
++                type: "int",
++                nullable: false,
++                defaultValue: 1); // Gender.Male — safety-net default only, see class remarks
++        }
++
++        protected override void Down(MigrationBuilder migrationBuilder)
++        {
++            migrationBuilder.DropColumn(
++                name: "DateOfBirth",
++                table: "ParentChildren");
++
++            migrationBuilder.DropColumn(
++                name: "Gender",
++                table: "ParentChildren");
++        }
++    }
++}
+diff --git a/Edvanz.Infrastructure/Migrations/20260808120100_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration.cs b/Edvanz.Infrastructure/Migrations/20260808120100_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration.cs
+new file mode 100644
+index 0000000..017a391
+--- /dev/null
++++ b/Edvanz.Infrastructure/Migrations/20260808120100_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration.cs
+@@ -0,0 +1,49 @@
++﻿using Microsoft.EntityFrameworkCore.Migrations;
++
++#nullable disable
++
++namespace Edvanz.Infrastructure.Migrations
++{
++    /// <summary>
++    /// Parent Module requirements §3 (decision B3): TeacherConfiguration was missing the
++    /// Parent-visibility flags for Videos and Online Exams (it already had them for Attendance /
++    /// Payment / Homework / offline Exam). Adds both, existing-row-safe via explicit defaults
++    /// matching the entity's C# defaults (Video visible by default, OnlineExam hidden by default —
++    /// same conservative posture as the existing ParentVisibilityExamDefault).
++    ///
++    /// REFERENCE MIGRATION — see the remarks on
++    /// <c>AddDateOfBirthAndGenderToParentChild</c> for why no Designer.cs/snapshot is included;
++    /// same instruction applies: regenerate via `dotnet ef migrations add
++    /// AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration` locally.
++    /// </summary>
++    public partial class AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration : Migration
++    {
++        protected override void Up(MigrationBuilder migrationBuilder)
++        {
++            migrationBuilder.AddColumn<bool>(
++                name: "ParentVisibilityVideo",
++                table: "TeacherConfigurations",
++                type: "bit",
++                nullable: false,
++                defaultValue: true);
++
++            migrationBuilder.AddColumn<bool>(
++                name: "ParentVisibilityOnlineExamDefault",
++                table: "TeacherConfigurations",
++                type: "bit",
++                nullable: false,
++                defaultValue: false);
++        }
++
++        protected override void Down(MigrationBuilder migrationBuilder)
++        {
++            migrationBuilder.DropColumn(
++                name: "ParentVisibilityVideo",
++                table: "TeacherConfigurations");
++
++            migrationBuilder.DropColumn(
++                name: "ParentVisibilityOnlineExamDefault",
++                table: "TeacherConfigurations");
++        }
++    }
++}
+diff --git a/Edvanz.Infrastructure/Repositories/ExamHomeworkRepo.cs b/Edvanz.Infrastructure/Repositories/ExamHomeworkRepo.cs
+index c2a4a13..0750b06 100644
+--- a/Edvanz.Infrastructure/Repositories/ExamHomeworkRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/ExamHomeworkRepo.cs
+@@ -670,6 +670,34 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>,
+         return stats == null ? (0, 0) : (stats.Attended, stats.Total);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<(int Total, int Pending, int Submitted, int NotSubmitted)> GetHomeworkStatusBreakdownAsync(
++        long teacherId, long teacherStudentId)
++    {
++        // Same join path and single-GroupBy-query shape as GetHomeworkCompletionStatsAsync —
++        // kept as its own method because it returns a different shape (Pending/Submitted/
++        // NotSubmitted breakdown for the Parent dashboard) that existing callers don't need.
++        var stats = await _context.StudentAssignmentObligations
++            .Where(o => o.TeacherId == teacherId
++                     && o.TeacherStudentId == teacherStudentId
++                     && o.Occurrence.Template.AssignmentType == AssignmentType.Homework)
++            .GroupBy(o => 1)
++            .Select(g => new
++            {
++                Total = g.Count(),
++                Pending = g.Count(o => o.Status == ObligationStatus.Pending),
++                Submitted = g.Count(o => o.Status == ObligationStatus.Done
++                                      || o.Status == ObligationStatus.DoneWithGrade
++                                      || o.Status == ObligationStatus.DoneWithoutGrade),
++                NotSubmitted = g.Count(o => o.Status == ObligationStatus.NotDone)
++            })
++            .FirstOrDefaultAsync();
++
++        return stats == null
++            ? (0, 0, 0, 0)
++            : (stats.Total, stats.Pending, stats.Submitted, stats.NotSubmitted);
++    }
++
+     // ══════════════════════════════════════════════
+     // OBLIGATION QUERIES — REPORTS (REQ-EXH-039 through 046)
+     // ══════════════════════════════════════════════
+diff --git a/Edvanz.Infrastructure/Repositories/UserRepo.cs b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+index d2bf48e..0093a16 100644
+--- a/Edvanz.Infrastructure/Repositories/UserRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/UserRepo.cs
+@@ -1029,6 +1029,45 @@ namespace Edvanz.Infrastructure.Repositories
+             };
+         }
+ 
++        /// <inheritdoc />
++        public async Task<long?> ResolveOwnedChildIdByTeacherStudentAsync(
++            long parentUserId, long teacherId, long teacherStudentId)
++        {
++            // Method A: an active StudentTeacherLink bound to this exact roster row (covered by
++            // UX_StudentTeacherLinks_TeacherStudentId_Active), joined to one of this parent's own
++            // active children by StudentUserId.
++            long? methodAChildId = await _context.Set<StudentTeacherLink>()
++                .AsNoTracking()
++                .Where(l => l.TeacherId == teacherId
++                         && l.TeacherStudentId == teacherStudentId
++                         && l.LinkStatus == LinkStatus.Active)
++                .Join(
++                    _context.Set<ParentChild>()
++                        .Where(c => c.ParentUserId == parentUserId && c.IsActive),
++                    l => l.StudentUserId,
++                    c => c.StudentUserId,
++                    (l, c) => (long?)c.Id)
++                .FirstOrDefaultAsync();
++
++            if (methodAChildId is not null)
++                return methodAChildId;
++
++            // Method B: an active ParentChildTeacherLink bound to this exact roster row, whose
++            // owning ParentChild belongs to this parent.
++            return await _context.Set<ParentChildTeacherLink>()
++                .AsNoTracking()
++                .Where(l => l.TeacherId == teacherId
++                         && l.TeacherStudentId == teacherStudentId
++                         && l.LinkStatus == LinkStatus.Active)
++                .Join(
++                    _context.Set<ParentChild>()
++                        .Where(c => c.ParentUserId == parentUserId && c.IsActive),
++                    l => l.ParentChildId,
++                    c => c.Id,
++                    (l, c) => (long?)c.Id)
++                .FirstOrDefaultAsync();
++        }
++
+         public async Task<Teacher?> GetTeacherByUserIdAsync(long userId)
+         {
+             return await  _context.Teachers.FirstOrDefaultAsync(t => t.UserId == userId && t.DeletedAt==null );
+diff --git a/Edvanz.Infrastructure/Repositories/VideoAssetRepo.cs b/Edvanz.Infrastructure/Repositories/VideoAssetRepo.cs
+index 7b671c1..fa995c8 100644
+--- a/Edvanz.Infrastructure/Repositories/VideoAssetRepo.cs
++++ b/Edvanz.Infrastructure/Repositories/VideoAssetRepo.cs
+@@ -445,6 +445,59 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
+         return (rows, totalCount);
+     }
+ 
++    /// <inheritdoc />
++    public async Task<(int Total, int Seen)> GetStudentVideoSeenCountsAsync(
++        long teacherId, long teacherStudentId)
++    {
++        // EXACT same scope predicate as GetStudentVisibleVideosPagedAsync (unitId always null
++        // here — this is a whole-teacher rollup) so the totals can never disagree with what the
++        // student's own video list shows. Deliberately duplicated rather than calling the paged
++        // method with a huge page size: this only needs two COUNTs, not a materialized row set.
++        var student = await _context.TeacherStudents
++            .Where(ts => ts.Id == teacherStudentId && ts.TeacherId == teacherId)
++            .Select(ts => new
++            {
++                ts.SessionId,
++                SessionGroupId = ts.Session != null ? ts.Session.SessionGroupId : null
++            })
++            .AsNoTracking()
++            .FirstOrDefaultAsync();
++
++        long? studentSessionId = student?.SessionId;
++        long? studentSessionGroupId = student?.SessionGroupId;
++
++        var utcNow = DateTime.UtcNow;
++
++        var publishedVideoIds = _context.VideoAssets
++            .Where(v => v.TeacherId == teacherId
++                     && v.Status == VideoStatus.Published
++                     && (v.PublishDate == null || v.PublishDate <= utcNow))
++            .Select(v => v.Id);
++
++        var visibleVideoIds = _context.VideoScopes
++            .Where(s => s.TeacherId == teacherId)
++            .Where(s => publishedVideoIds.Contains(s.VideoAssetId))
++            .Where(s =>
++                (s.ScopeType == VideoScopeType.Session
++                 && studentSessionId.HasValue
++                 && s.SessionId == studentSessionId)
++             || (s.ScopeType == VideoScopeType.SessionGroup
++                 && studentSessionGroupId.HasValue
++                 && s.SessionGroupId == studentSessionGroupId))
++            .Select(s => s.VideoAssetId)
++            .Distinct();
++
++        int total = await visibleVideoIds.CountAsync();
++        int seen = await _context.VideoAnalytics
++            .Where(an => an.TeacherStudentId == teacherStudentId
++                      && visibleVideoIds.Contains(an.VideoAssetId))
++            .Select(an => an.VideoAssetId)
++            .Distinct()
++            .CountAsync();
++
++        return (total, seen);
++    }
++
+     /// <inheritdoc />
+     public async Task<IReadOnlyList<StudentVideoUnitRow>> GetStudentVisibleUnitsAsync(
+         long teacherId, long teacherStudentId)

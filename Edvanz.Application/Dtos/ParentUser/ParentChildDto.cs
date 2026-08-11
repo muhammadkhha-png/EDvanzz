@@ -26,6 +26,16 @@ public class ParentChildDto
     public bool IsActive { get; set; }
 
     /// <summary>
+    /// Child's date of birth, as recorded by the Parent at creation time.
+    /// </summary>
+    public DateOnly DateOfBirth { get; set; }
+
+    /// <summary>
+    /// Child's gender ("Male" / "Female"), as recorded by the Parent at creation time.
+    /// </summary>
+    public string Gender { get; set; } = null!;
+
+    /// <summary>
     /// Teachers linked to this child.
     /// Method A: sourced from StudentUser.StudentTeacherLinks (read-only for parent).
     /// Method B: sourced from ParentChildTeacherLink (managed by parent).
@@ -57,6 +67,8 @@ public class ParentChildTeacherDto
     public bool VisibilityPayment { get; set; }
     public bool VisibilityHomework { get; set; }
     public bool VisibilityExamDefault { get; set; }
+    public bool VisibilityVideo { get; set; }
+    public bool VisibilityOnlineExamDefault { get; set; }
 }
 
 /// <summary>

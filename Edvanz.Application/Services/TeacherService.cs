@@ -193,6 +193,8 @@ public class TeacherService : ITeacherService
                 StudentVisibilityOnlineExamDefault = true,
                 ParentVisibilityHomework = true,
                 ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
+                ParentVisibilityOnlineExamDefault = false, // mirrors ParentVisibilityExamDefault — opt-in only
+                ParentVisibilityVideo = true,
                 CreateAt = DateTime.UtcNow
             };
 

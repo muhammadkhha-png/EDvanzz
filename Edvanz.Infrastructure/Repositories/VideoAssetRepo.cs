@@ -446,6 +446,59 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     }
 
     /// <inheritdoc />
+    public async Task<(int Total, int Seen)> GetStudentVideoSeenCountsAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // EXACT same scope predicate as GetStudentVisibleVideosPagedAsync (unitId always null
+        // here — this is a whole-teacher rollup) so the totals can never disagree with what the
+        // student's own video list shows. Deliberately duplicated rather than calling the paged
+        // method with a huge page size: this only needs two COUNTs, not a materialized row set.
+        var student = await _context.TeacherStudents
+            .Where(ts => ts.Id == teacherStudentId && ts.TeacherId == teacherId)
+            .Select(ts => new
+            {
+                ts.SessionId,
+                SessionGroupId = ts.Session != null ? ts.Session.SessionGroupId : null
+            })
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+
+        long? studentSessionId = student?.SessionId;
+        long? studentSessionGroupId = student?.SessionGroupId;
+
+        var utcNow = DateTime.UtcNow;
+
+        var publishedVideoIds = _context.VideoAssets
+            .Where(v => v.TeacherId == teacherId
+                     && v.Status == VideoStatus.Published
+                     && (v.PublishDate == null || v.PublishDate <= utcNow))
+            .Select(v => v.Id);
+
+        var visibleVideoIds = _context.VideoScopes
+            .Where(s => s.TeacherId == teacherId)
+            .Where(s => publishedVideoIds.Contains(s.VideoAssetId))
+            .Where(s =>
+                (s.ScopeType == VideoScopeType.Session
+                 && studentSessionId.HasValue
+                 && s.SessionId == studentSessionId)
+             || (s.ScopeType == VideoScopeType.SessionGroup
+                 && studentSessionGroupId.HasValue
+                 && s.SessionGroupId == studentSessionGroupId))
+            .Select(s => s.VideoAssetId)
+            .Distinct();
+
+        int total = await visibleVideoIds.CountAsync();
+        int seen = await _context.VideoAnalytics
+            .Where(an => an.TeacherStudentId == teacherStudentId
+                      && visibleVideoIds.Contains(an.VideoAssetId))
+            .Select(an => an.VideoAssetId)
+            .Distinct()
+            .CountAsync();
+
+        return (total, seen);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<StudentVideoUnitRow>> GetStudentVisibleUnitsAsync(
         long teacherId, long teacherStudentId)
     {

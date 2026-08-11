@@ -189,6 +189,16 @@ public interface IVideoAssetRepo : IGenericRepo<VideoAsset, long>
         long teacherId, long teacherStudentId);
 
     /// <summary>
+    /// Scalar seen/unseen rollup for one student under one teacher (Parent Module requirements
+    /// §9.1): total videos visible to the student, and how many of those the student has opened
+    /// at least once. Uses the EXACT same visible-video scope predicate as
+    /// <see cref="GetVisibleVideosForStudentAsync"/> (Published + PublishDate gate, Session /
+    /// SessionGroup scope union) so the count can never disagree with what the student's own video
+    /// list shows — just a COUNT instead of a paged projection, since the caller only needs totals.
+    /// </summary>
+    Task<(int Total, int Seen)> GetStudentVideoSeenCountsAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>
     /// The owning teacher's subject for the student video-list <c>Subject</c> column:
     /// <c>CustomSubject</c> plus the first linked ministry subject's English/Arabic names (the
     /// service resolves the display value by the reader's language, replicating the canonical

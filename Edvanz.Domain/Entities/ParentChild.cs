@@ -57,6 +57,20 @@ public class ParentChild : BaseEntity
     /// </summary>
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// Child's date of birth, as entered by the Parent at creation time.
+    /// Required for BOTH Method A and Method B (Parent Module requirements §7) — captured
+    /// as the Parent's own record regardless of whether the child also has a StudentUser
+    /// account, since neither StudentUser nor TeacherStudent stores this field today.
+    /// </summary>
+    public DateOnly DateOfBirth { get; set; }
+
+    /// <summary>
+    /// Child's gender, as entered by the Parent at creation time.
+    /// Required for BOTH Method A and Method B, same rationale as <see cref="DateOfBirth"/>.
+    /// </summary>
+    public Gender Gender { get; set; }
+
     // Navigation properties
 
     /// <summary>

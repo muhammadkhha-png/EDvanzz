@@ -149,6 +149,22 @@ public class TeacherConfiguration : BaseEntity
     public bool ParentVisibilityExamDefault { get; set; } = false;
 
     /// <summary>
+    /// Default visibility for ONLINE exams in parent accounts.
+    /// Mirrors the offline/online split already established on the student side
+    /// (<see cref="StudentVisibilityExamDefault"/> / <see cref="StudentVisibilityOnlineExamDefault"/>).
+    /// Same conservative default as <see cref="ParentVisibilityExamDefault"/> — parents only see
+    /// online exam results once the teacher explicitly opts in.
+    /// Default: false (hidden).
+    /// </summary>
+    public bool ParentVisibilityOnlineExamDefault { get; set; } = false;
+
+    /// <summary>
+    /// Whether parents can see the Videos module.
+    /// Default: true (visible) — parity with Attendance/Payment/Homework.
+    /// </summary>
+    public bool ParentVisibilityVideo { get; set; } = true;
+
+    /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.
     /// </summary>
     public DateTime? UpdatedAt { get; set; }

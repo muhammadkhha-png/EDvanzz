@@ -670,6 +670,34 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         return stats == null ? (0, 0) : (stats.Attended, stats.Total);
     }
 
+    /// <inheritdoc />
+    public async Task<(int Total, int Pending, int Submitted, int NotSubmitted)> GetHomeworkStatusBreakdownAsync(
+        long teacherId, long teacherStudentId)
+    {
+        // Same join path and single-GroupBy-query shape as GetHomeworkCompletionStatsAsync —
+        // kept as its own method because it returns a different shape (Pending/Submitted/
+        // NotSubmitted breakdown for the Parent dashboard) that existing callers don't need.
+        var stats = await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.Template.AssignmentType == AssignmentType.Homework)
+            .GroupBy(o => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                Pending = g.Count(o => o.Status == ObligationStatus.Pending),
+                Submitted = g.Count(o => o.Status == ObligationStatus.Done
+                                      || o.Status == ObligationStatus.DoneWithGrade
+                                      || o.Status == ObligationStatus.DoneWithoutGrade),
+                NotSubmitted = g.Count(o => o.Status == ObligationStatus.NotDone)
+            })
+            .FirstOrDefaultAsync();
+
+        return stats == null
+            ? (0, 0, 0, 0)
+            : (stats.Total, stats.Pending, stats.Submitted, stats.NotSubmitted);
+    }
+
     // ══════════════════════════════════════════════
     // OBLIGATION QUERIES — REPORTS (REQ-EXH-039 through 046)
     // ══════════════════════════════════════════════

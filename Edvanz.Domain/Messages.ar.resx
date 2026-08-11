@@ -354,6 +354,15 @@
   <data name="ChildNameRequired" xml:space="preserve">
     <value>من فضلك اكتب اسم الابن/الابنة</value>
   </data>
+  <data name="ChildDateOfBirthRequired" xml:space="preserve">
+    <value>من فضلك دخّل تاريخ ميلاد الابن/الابنة</value>
+  </data>
+  <data name="ChildDateOfBirthInFuture" xml:space="preserve">
+    <value>تاريخ ميلاد الابن/الابنة مينفعش يكون في المستقبل</value>
+  </data>
+  <data name="ChildGenderRequired" xml:space="preserve">
+    <value>من فضلك اختار نوع الابن/الابنة</value>
+  </data>
   <data name="ChildRemovedSuccess" xml:space="preserve">
     <value>تم إزالة الابن/الابنة من حسابك</value>
   </data>

@@ -504,7 +504,7 @@ namespace Edvanz.Domain.Interfaces
         /// the student-side flow no longer uses credentials.
         /// </summary>
         Task<TeacherStudent?> GetTeacherStudentByLinkingCredentialsAsync(
-            long teacherId, string studentCode, string hashedToken);
+            long teacherId, string studentCode);
 
         /// <summary>
         /// Finds a non-deleted roster record by teacher and student code
@@ -624,6 +624,22 @@ namespace Edvanz.Domain.Interfaces
         /// <param name="teacherIds">The set of Teacher IDs to load data for.</param>
         /// <returns>A container with all related data keyed by ID for O(1) lookup.</returns>
         Task<TeacherDashboardBatchData> GetTeacherDashboardDataAsync(IReadOnlyList<long> teacherIds);
+
+        /// <summary>
+        /// Ownership resolution for the code-based Parent dashboard (Parent Module requirements
+        /// §3/§9): returns the owning <c>ParentChild.Id</c> when the given
+        /// <paramref name="teacherStudentId"/> under <paramref name="teacherId"/> is reachable by
+        /// one of <paramref name="parentUserId"/>'s own ACTIVE children — either Method A (an
+        /// active <c>StudentTeacherLink</c> bound to this roster row, whose StudentUserId matches
+        /// one of the parent's children) or Method B (an active <c>ParentChildTeacherLink</c> bound
+        /// to this exact roster row, owned by one of the parent's children). Null when no such
+        /// child exists — the caller's ownership gate.
+        ///
+        /// This is a pure ownership gate — resolving TeacherCode/StudentCode to
+        /// (teacherId, teacherStudentId) is address resolution only; this check is what actually
+        /// enforces that a Parent can never reach another Parent's child by guessing valid codes.
+        /// </summary>
+        Task<long?> ResolveOwnedChildIdByTeacherStudentAsync(long parentUserId, long teacherId, long teacherStudentId);
 
 
         // ══════════════════════════════════════════════

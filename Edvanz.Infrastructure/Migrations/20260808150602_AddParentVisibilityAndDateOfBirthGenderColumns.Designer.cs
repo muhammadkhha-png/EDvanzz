@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns")]
+    partial class AddParentVisibilityAndDateOfBirthGenderColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -207,7 +210,7 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.ToTable("AssignmentScopes", null, t =>
                         {
-                            t.HasCheckConstraint("CK_AssignmentScopes_ExactlyOneTarget", "(\n            CASE WHEN [TeacherStudentId] IS NULL THEN 0 ELSE 1 END\n          + CASE WHEN [SessionId]        IS NULL THEN 0 ELSE 1 END\n          + CASE WHEN [SessionGroupId]   IS NULL THEN 0 ELSE 1 END\n        ) = 1\n        AND (\n            ([ScopeType] = 0 AND [TeacherStudentId] IS NOT NULL)\n         OR ([ScopeType] = 1 AND [SessionId]        IS NOT NULL)\n         OR ([ScopeType] = 2 AND [SessionGroupId]   IS NOT NULL)\n        )");
+                            t.HasCheckConstraint("CK_AssignmentScopes_ExactlyOneTarget", "(\r\n            CASE WHEN [TeacherStudentId] IS NULL THEN 0 ELSE 1 END\r\n          + CASE WHEN [SessionId]        IS NULL THEN 0 ELSE 1 END\r\n          + CASE WHEN [SessionGroupId]   IS NULL THEN 0 ELSE 1 END\r\n        ) = 1\r\n        AND (\r\n            ([ScopeType] = 0 AND [TeacherStudentId] IS NOT NULL)\r\n         OR ([ScopeType] = 1 AND [SessionId]        IS NOT NULL)\r\n         OR ([ScopeType] = 2 AND [SessionGroupId]   IS NOT NULL)\r\n        )");
                         });
                 });
 

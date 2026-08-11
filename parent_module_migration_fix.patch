@@ -1,0 +1,103 @@
+diff --git a/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .Designer.cs b/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.Designer.cs
+similarity index 99%
+rename from Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .Designer.cs
+rename to Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.Designer.cs
+index 6d11259..96f1825 100644
+--- a/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .Designer.cs	
++++ b/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.Designer.cs
+@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+ namespace Edvanz.Infrastructure.Migrations
+ {
+     [DbContext(typeof(EdvanzDbContext))]
+-    [Migration("20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild ")]
+-    partial class AddParentVisibilityVideoAndOnlineExamToTeacherConfigurationandAddDateOfBirthAndGenderToParentChild
++    [Migration("20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns")]
++    partial class AddParentVisibilityAndDateOfBirthGenderColumns
+     {
+         /// <inheritdoc />
+         protected override void BuildTargetModel(ModelBuilder modelBuilder)
+diff --git a/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .cs b/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.cs
+similarity index 56%
+rename from Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .cs
+rename to Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.cs
+index a09997a..f84b979 100644
+--- a/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityVideoAndOnlineExamToTeacherConfiguration  and AddDateOfBirthAndGenderToParentChild .cs	
++++ b/Edvanz.Infrastructure/Migrations/20260808150602_AddParentVisibilityAndDateOfBirthGenderColumns.cs
+@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
+ namespace Edvanz.Infrastructure.Migrations
+ {
+     /// <inheritdoc />
+-    public partial class AddParentVisibilityVideoAndOnlineExamToTeacherConfigurationandAddDateOfBirthAndGenderToParentChild : Migration
++    public partial class AddParentVisibilityAndDateOfBirthGenderColumns : Migration
+     {
+         /// <inheritdoc />
+         protected override void Up(MigrationBuilder migrationBuilder)
+@@ -26,6 +26,20 @@ namespace Edvanz.Infrastructure.Migrations
+                 type: "int",
+                 nullable: false,
+                 defaultValue: 0);
++
++            migrationBuilder.AddColumn<bool>(
++                name: "ParentVisibilityOnlineExamDefault",
++                table: "TeacherConfigurations",
++                type: "bit",
++                nullable: false,
++                defaultValue: false);
++
++            migrationBuilder.AddColumn<bool>(
++                name: "ParentVisibilityVideo",
++                table: "TeacherConfigurations",
++                type: "bit",
++                nullable: false,
++                defaultValue: true);
+         }
+ 
+         /// <inheritdoc />
+@@ -39,6 +53,14 @@ namespace Edvanz.Infrastructure.Migrations
+             migrationBuilder.DropColumn(
+                 name: "Gender",
+                 table: "ParentChildren");
++
++            migrationBuilder.DropColumn(
++                name: "ParentVisibilityOnlineExamDefault",
++                table: "TeacherConfigurations");
++
++            migrationBuilder.DropColumn(
++                name: "ParentVisibilityVideo",
++                table: "TeacherConfigurations");
+         }
+     }
+ }
+diff --git a/Edvanz.Infrastructure/Migrations/EdvanzDbContextModelSnapshot.cs b/Edvanz.Infrastructure/Migrations/EdvanzDbContextModelSnapshot.cs
+index f76ea49..5744a5e 100644
+--- a/Edvanz.Infrastructure/Migrations/EdvanzDbContextModelSnapshot.cs
++++ b/Edvanz.Infrastructure/Migrations/EdvanzDbContextModelSnapshot.cs
+@@ -1629,6 +1629,12 @@ namespace Edvanz.Infrastructure.Migrations
+                     b.Property<DateTime>("CreateAt")
+                         .HasColumnType("datetime2");
+ 
++                    b.Property<DateOnly>("DateOfBirth")
++                        .HasColumnType("date");
++
++                    b.Property<int>("Gender")
++                        .HasColumnType("int");
++
+                     b.Property<bool>("IsActive")
+                         .HasColumnType("bit");
+ 
+@@ -3740,9 +3746,15 @@ namespace Edvanz.Infrastructure.Migrations
+                     b.Property<bool>("ParentVisibilityHomework")
+                         .HasColumnType("bit");
+ 
++                    b.Property<bool>("ParentVisibilityOnlineExamDefault")
++                        .HasColumnType("bit");
++
+                     b.Property<bool>("ParentVisibilityPayment")
+                         .HasColumnType("bit");
+ 
++                    b.Property<bool>("ParentVisibilityVideo")
++                        .HasColumnType("bit");
++
+                     b.Property<int>("SessionNameLanguage")
+                         .HasColumnType("int");
+ 

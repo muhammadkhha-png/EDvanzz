@@ -50,6 +50,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
         services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();
         services.AddScoped<IParentUserService, ParentUserService>();
+        services.AddScoped<IParentDashboardService, ParentDashboardService>();
         services.AddScoped<ITokenService, TokenService>();
         // Free-tier quota gate (shared by student/session/assistant/group create paths)
         services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();
