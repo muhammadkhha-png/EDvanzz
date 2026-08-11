@@ -94,10 +94,9 @@ public class TeacherStudentService : ITeacherStudentService
         if (teacher is null)
             return Result<TeacherStudentDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1a. Managerial subscription forbids any student on the roster.
-        if (await _subscriptionGate.IsManagerialAsync(teacherId))
-            return Result<TeacherStudentDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+        // NOTE: a managerial subscription does NOT block building the roster — a managerial teacher
+        // works normally EXCEPT that no student ACCOUNT may be linked to them. The managerial gate
+        // therefore lives only on the student-account-link flow (request/accept/bind), not here.
 
         // 1b. Free-tier quota: unsubscribed teachers may keep at most the configured student count.
         if (!await _subscriptionGate.CanCreateAsync(
@@ -894,10 +893,8 @@ public class TeacherStudentService : ITeacherStudentService
         if (teacher is null)
             return Result<BulkImportResultDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // 1a. Managerial subscription forbids any student on the roster.
-        if (await _subscriptionGate.IsManagerialAsync(teacherId))
-            return Result<BulkImportResultDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+        // NOTE: managerial does NOT block roster building (see CreateStudentAsync) — it only blocks
+        // linking a student ACCOUNT to the teacher, which happens in the link-flow services.
 
         // 1b. Free-tier quota: bulk import is a subscriber feature — the free tier (1 student) is
         // served by single create only. Unsubscribed teachers must subscribe to import in bulk.

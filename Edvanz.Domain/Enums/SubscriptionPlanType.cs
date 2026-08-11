@@ -10,13 +10,15 @@ namespace Edvanz.Domain.Enums;
 /// subscription is activated, extended, and expires exactly like a Full one. The
 /// only behavioural difference is the roster gate:
 ///
-///   - <see cref="Full"/>       — the standard subscription; the teacher may have
-///                                students and parents linked to them.
-///   - <see cref="Managerial"/> — an activated subscription that BLOCKS any student
-///                                or parent account from being linked to the teacher
-///                                (and blocks direct roster additions) while it is the
-///                                current, active subscription. Used for accounts that
-///                                only manage/oversee and never teach students directly.
+///   - <see cref="Full"/>       — the standard subscription; students may link their
+///                                account to the teacher.
+///   - <see cref="Managerial"/> — an activated subscription under which the teacher works
+///                                NORMALLY (roster students, bulk import, parent links all
+///                                allowed) EXCEPT that no student ACCOUNT may be linked to
+///                                them: the student-account link flow (student link request,
+///                                teacher accept, teacher bind) is blocked while it is the
+///                                current, active subscription. Used for accounts that manage
+///                                a roster but expose no app access to student accounts.
 ///
 /// Stored as tinyint. Existing rows are backfilled to <see cref="Full"/> by migration,
 /// so a missing/zero value is treated as Full (never Managerial) by the gate — the

@@ -1039,7 +1039,7 @@
     <value>Managerial subscription activated successfully</value>
   </data>
   <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
-    <value>This teacher has a managerial subscription, so no students or parents can be linked to them</value>
+    <value>This teacher has a managerial subscription, so no student account can be linked to them</value>
   </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>Subscription extended successfully</value>
@@ -1931,6 +1931,21 @@
   </data>
   <data name="AccountDeletionRequested" xml:space="preserve">
     <value>Your account has been disabled and scheduled for deletion.</value>
+  </data>
+  <data name="DeviceRegistrationRequired" xml:space="preserve">
+    <value>Please confirm this device to open this teacher.</value>
+  </data>
+  <data name="DeviceMismatch" xml:space="preserve">
+    <value>You're opening from a different device. Please ask your teacher or assistant to reset your device so you can use this one.</value>
+  </data>
+  <data name="DeviceRegistered" xml:space="preserve">
+    <value>This device is now linked to your teacher.</value>
+  </data>
+  <data name="DeviceIdMissing" xml:space="preserve">
+    <value>We couldn't read your device. Please update the app and try again.</value>
+  </data>
+  <data name="DeviceReset" xml:space="preserve">
+    <value>The student's device was reset. They can now open you from a new device.</value>
   </data>
 
 </root>

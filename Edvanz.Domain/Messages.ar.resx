@@ -1039,7 +1039,7 @@
     <value>تم تفعيل الاشتراك الإداري بنجاح</value>
   </data>
   <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
-    <value>المدرس ده عنده اشتراك إداري، فمش ممكن يتربط بيه أي طلاب أو أولياء أمور</value>
+    <value>المدرس ده عنده اشتراك إداري، فمش ممكن يتربط بيه أي حساب طالب</value>
   </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>تم تمديد الاشتراك بنجاح</value>
@@ -1919,5 +1919,20 @@
   </data>
   <data name="AccountDeletionRequested" xml:space="preserve">
     <value>تم تعطيل حسابك وجدولته للحذف.</value>
+  </data>
+  <data name="DeviceRegistrationRequired" xml:space="preserve">
+    <value>من فضلك أكّد هذا الجهاز لفتح المعلّم.</value>
+  </data>
+  <data name="DeviceMismatch" xml:space="preserve">
+    <value>أنت تفتح من جهاز مختلف. من فضلك اطلب من معلّمك أو المساعد إعادة تعيين جهازك حتى تستطيع استخدام هذا الجهاز.</value>
+  </data>
+  <data name="DeviceRegistered" xml:space="preserve">
+    <value>تم ربط هذا الجهاز بمعلّمك الآن.</value>
+  </data>
+  <data name="DeviceIdMissing" xml:space="preserve">
+    <value>تعذّر التعرّف على جهازك. من فضلك حدّث التطبيق وحاول مرة أخرى.</value>
+  </data>
+  <data name="DeviceReset" xml:space="preserve">
+    <value>تم إعادة تعيين جهاز الطالب. يمكنه الآن فتحك من جهاز جديد.</value>
   </data>
 </root>
