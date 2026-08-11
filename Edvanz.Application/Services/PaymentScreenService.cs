@@ -223,12 +223,22 @@ public class PaymentScreenService : IPaymentScreenService
         // belong in the same ledger as negative lines, keyed on the wallet's AssistantId.
         var allResets = await _unitOfWork.PaymentsRepo
             .GetWalletResetLogsAsync(teacherId, wallet.AssistantId);
+        // Student-departure refunds ALSO reduce this collector's held cash: the departure-confirm path
+        // calls AdjustAssistantWalletAsync(collectorUserId, -finalAmount), so CurrentBalance already
+        // nets them. They must be in the same signed ledger — otherwise the reconstructed running
+        // balance drifts from CurrentBalance (breaking the zero-crossing anchor) and the departure
+        // refund never surfaces as a negative line under the collector. Scoped to this collector by
+        // the original CollectedByUserId; departures are rare so the lifetime read is bounded.
+        var allDepartureRefunds = (await _unitOfWork.PaymentsRepo
+            .GetDepartureRefundsByDateRangeAsync(teacherId, DateTime.MinValue, nowUtc))
+            .Where(r => r.CollectedByUserId == wallet.AssistantUserId)
+            .ToList();
 
         // One signed ledger. Amount carries the sign; Kind drives client rendering. CollectedAt is
         // the ordering instant. Both money reads stay on the UTC CollectedAt/EditedAt columns, and
-        // ResetAt is UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
+        // ResetAt/DepartedAt are UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
         var ledger = new List<AssistantWalletCollectionItemDto>(
-            allTxns.Count + allRefunds.Count + allResets.Count);
+            allTxns.Count + allRefunds.Count + allResets.Count + allDepartureRefunds.Count);
         ledger.AddRange(allTxns.Select(tx => new AssistantWalletCollectionItemDto
         {
             Id = tx.Id.ToString(CultureInfo.InvariantCulture),
@@ -264,6 +274,17 @@ public class PaymentScreenService : IPaymentScreenService
             CollectedAt = w.ResetAt,
             Kind = "withdrawal"
         }));
+        ledger.AddRange(allDepartureRefunds.Select(r => new AssistantWalletCollectionItemDto
+        {
+            Id = $"departure-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            SessionName = string.IsNullOrEmpty(r.SessionName) ? null : r.SessionName,
+            Amount = -r.RefundAmount, // negative → student-departure refund returned from this collector
+            CollectedAt = r.DepartedAt,
+            Kind = "refund"
+        }));
 
         // Chronological order; on a same-instant tie, apply money-IN before money-OUT so a
         // collect-then-handover at the same timestamp nets to the right running balance.
@@ -273,18 +294,39 @@ public class PaymentScreenService : IPaymentScreenService
             return byTime != 0 ? byTime : b.Amount.CompareTo(a.Amount);
         });
 
-        // Anchor: the last index at which the running held balance was exactly 0 (a full hand-over).
-        // Everything strictly after it is the current holding period; if it never zeroed, the whole
-        // lifetime is the window (there has been no full hand-over yet).
+        // Anchor: the running held balance's zero-crossings (each a full hand-over). We track the last
+        // TWO so we can fall back to the just-closed period when the current one is empty.
         decimal running = 0m;
         int lastZeroIdx = -1;
+        int prevZeroIdx = -1;
         for (int i = 0; i < ledger.Count; i++)
         {
             running += ledger[i].Amount;
-            if (running == 0m) lastZeroIdx = i;
+            if (running == 0m) { prevZeroIdx = lastZeroIdx; lastZeroIdx = i; }
         }
-        DateTime? sinceAt = lastZeroIdx >= 0 ? ledger[lastZeroIdx].CollectedAt : (DateTime?)null;
-        var windowed = ledger.Skip(lastZeroIdx + 1).ToList();
+
+        // Normally the window is everything strictly AFTER the last full hand-over (the current holding
+        // period). BUGFIX (2026-08-11): a FULL withdrawal ("take everything") drives the running balance
+        // to exactly 0 at the withdrawal event, so it becomes lastZeroIdx and Skip(lastZeroIdx + 1)
+        // returns nothing — the drill-in went blank right after a hand-over, hiding both the students
+        // the collector collected from AND the withdrawal/refund negative lines. When the current
+        // holding period is empty (the most recent event fully zeroed the balance), fall back to the
+        // period that JUST CLOSED: from the previous full hand-over up to AND INCLUDING this one, so
+        // those collections and the closing withdrawal stay visible. That period nets to 0
+        // (collections − refunds − withdrawal), consistent with WalletBalance = CurrentBalance = 0.
+        DateTime? sinceAt;
+        List<AssistantWalletCollectionItemDto> windowed;
+        bool currentPeriodEmpty = lastZeroIdx == ledger.Count - 1; // last event zeroed the balance
+        if (currentPeriodEmpty && lastZeroIdx >= 0)
+        {
+            windowed = ledger.Skip(prevZeroIdx + 1).Take(lastZeroIdx - prevZeroIdx).ToList();
+            sinceAt = prevZeroIdx >= 0 ? ledger[prevZeroIdx].CollectedAt : (DateTime?)null;
+        }
+        else
+        {
+            windowed = ledger.Skip(lastZeroIdx + 1).ToList();
+            sinceAt = lastZeroIdx >= 0 ? ledger[lastZeroIdx].CollectedAt : (DateTime?)null;
+        }
 
         // Gross collected / refunded within the window, reported separately (not netted) so the card
         // explains the list: collected X, refunded Y; withdrawals appear as their own negative lines.
