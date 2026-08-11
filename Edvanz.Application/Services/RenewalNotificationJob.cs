@@ -1,13 +1,14 @@
-﻿using Edvanz.Application.IservicesContract;
+﻿using Edvanz.Application.Dtos.Notifications;
+using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
-using Edvanz.Application.Dtos.Notifications;
 
 namespace Edvanz.Application.Services;
 
@@ -81,18 +82,37 @@ public class RenewalNotificationJob : IRenewalNotificationJob
         const string deepLink = "/subscription/current";
 
         // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
-        await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+        // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
+        // Idempotency guard (mirrors SubscriptionReminderService): SourceType +
+        // SourceEntityId = subscriptionId is unique per renewal, so a Hangfire retry that
+        // re-executes this method after the first attempt already committed hits the
+        // unique-index violation below instead of inserting a duplicate row / duplicate push.
+        try
         {
-            UserId = teacher.UserId,
-            Title = title,
-            Body = body,
-            DeepLinkPayload = deepLink,
-            SentAt = DateTime.UtcNow,
-            IsRead = false,
-            Category = NotificationCategory.notifiction,
-            CreateAt = DateTime.UtcNow
-        });
-        await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+            {
+                UserId = teacher.UserId,
+                Title = title,
+                Body = body,
+                DeepLinkPayload = deepLink,
+                SentAt = DateTime.UtcNow,
+                IsRead = false,
+                Category = NotificationCategory.notifiction,
+                SourceType = NotificationSourceType.Renewal,
+                SourceEntityId = subscriptionId,
+                CreateAt = DateTime.UtcNow
+            });
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // A prior attempt (or a racing retry) already committed this notification —
+            // do NOT send push here, that would duplicate it.
+            _logger.LogInformation(
+                "RenewalNotificationJob: unique-violation for subscription {SubscriptionId} — " +
+                "notification already sent, skipping push", subscriptionId);
+            return;
+        }
 
         // ── Push fan-out (WhatsApp deliberately deferred until v2) ──
         // badge = unread bell-inbox count AFTER the insert above
@@ -142,5 +162,23 @@ public class RenewalNotificationJob : IRenewalNotificationJob
         var culture = new CultureInfo(code);
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
+    }
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        Exception? current = ex.InnerException ?? ex.GetBaseException();
+        while (current is not null)
+        {
+            if (current.GetType().Name == "SqlException")
+            {
+                var numberProperty = current.GetType().GetProperty("Number");
+                if (numberProperty?.GetValue(current) is int errorNumber)
+                {
+                    return errorNumber == 2601 || errorNumber == 2627;
+                }
+                return false;
+            }
+            current = current.InnerException;
+        }
+        return false;
     }
 }

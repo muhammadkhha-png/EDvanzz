@@ -619,6 +619,8 @@ namespace Edvanz.Application.Services
 
                     // MUST run BEFORE SaveChangesAsync so the stamp bump joins this transaction.
                     await _authInvalidation.InvalidateUserAsync(userId);
+                    await _unitOfWork.UserDeviceTokensRepo.DeactivateAllForUserAsync(userId);
+
                 }
                 else
                 {
@@ -628,6 +630,8 @@ namespace Edvanz.Application.Services
                     // (Jwt:AccessTokenMinutes); revoking its refresh token only blocks renewal.
                     token.IsRevoked = true;
                     await _unitOfWork.RefreshTokenRepo.UpdateAsync(token);
+                  
+
                 }
 
                 var res = await _unitOfWork.SaveChangesAsync();

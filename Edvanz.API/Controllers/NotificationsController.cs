@@ -135,7 +135,32 @@ public class NotificationsController : ApiBaseController
         var result = await _notificationService.RegisterFcmTokenAsync(userId.Value, request);
         return ToResponse(result);
     }
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 6: UNREGISTER FCM TOKEN (companion to FR-SUB-054)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Deactivates a single FCM device token for the calling user. Client calls
+    //   this on logout (or whenever it knows a token is no longer valid for this
+    //   session) so the ex-session stops receiving push notifications.
+    //
+    // TABLES WRITTEN: UserDeviceTokens
+    //
+    // SAMPLE: DELETE /api/notifications/fcm-token
+    //   { "token": "fGhJ…long-fcm-token" }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("fcm-token")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UnregisterFcmToken([FromBody] UnregisterFcmTokenRequest request)
+    {
+        long? userId = _currentUser.UserId;
+        if (userId is null) return UserNotResolved();
 
+        var result = await _notificationService.UnregisterFcmTokenAsync(userId.Value, request);
+        return ToResponse(result);
+    }
     // ════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ════════════════════════════════════════════════

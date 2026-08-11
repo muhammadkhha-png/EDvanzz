@@ -166,4 +166,25 @@ public class NotificationHistoryService : INotificationHistoryService
 
         return Result<bool>.Success(true, _localizer, SubscriptionConstants.Messages.FcmTokenRegistered);
     }
+    /// <inheritdoc />
+    public async Task<Result<bool>> UnregisterFcmTokenAsync(
+        long userId, UnregisterFcmTokenRequest request)
+    {
+        // ── Validation ──
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            return Result<bool>.Failure(
+                _localizer, SubscriptionConstants.Messages.FcmTokenRequired);
+        }
+
+        string token = request.Token.Trim();
+
+        // Scoped to (UserId, FcmToken) — never touches another user's row, and is
+        // idempotent: a token that doesn't exist, or is already inactive, still
+        // completes as a success (mirrors AuthService.Logout's own "unknown token is
+        // a successful logout" convention).
+        await _unitOfWork.UserDeviceTokensRepo.DeactivateByUserAndTokenAsync(userId, token);
+
+        return Result<bool>.Success(true, _localizer, SubscriptionConstants.Messages.FcmTokenUnregistered);
+    }
 }

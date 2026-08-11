@@ -42,4 +42,13 @@ public interface INotificationHistoryService
     /// </summary>
     Task<Result<bool>> RegisterFcmTokenAsync(
         long userId, RegisterFcmTokenRequest request);
+    /// <summary>
+    /// Deactivates a single FCM device token for the calling user (companion to
+    /// RegisterFcmTokenAsync). Called on logout, or whenever the client knows a
+    /// token is no longer valid for this session.
+    /// Idempotent — a token that doesn't exist, or is already inactive, still
+    /// returns success.
+    /// </summary>
+    Task<Result<bool>> UnregisterFcmTokenAsync(
+        long userId, UnregisterFcmTokenRequest request);
 }

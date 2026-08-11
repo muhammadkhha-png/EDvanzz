@@ -42,4 +42,24 @@ public interface IUserDeviceTokenRepo : IGenericRepo<UserDeviceToken, long>
     /// Uses ExecuteUpdateAsync — no entity load.
     /// </summary>
     Task DeactivateTokenAsync(long tokenId);
+    /// <summary>
+    /// Flips IsActive=false on a single token row identified by (UserId, FcmToken),
+    /// scoped to the owning user so a caller can only ever deactivate their own
+    /// device token — never another user's row (IDOR guard). Called by
+    /// DELETE /api/notifications/fcm-token — the client-initiated unregister, typically
+    /// invoked right before/at logout.
+    /// Idempotent: a token that doesn't exist, or is already inactive, still
+    /// completes with 0 rows affected — never an error.
+    /// Uses ExecuteUpdateAsync — no entity load, no SaveChanges required.
+    /// </summary>
+    Task DeactivateByUserAndTokenAsync(long userId, string fcmToken);
+
+    /// <summary>
+    /// Flips IsActive=false on every device-token row belonging to a user. Called by
+    /// AuthService.Logout when logoutAllSessions is true, so every device stops
+    /// receiving push once every session is revoked.
+    /// Idempotent: a user with no tokens still completes with 0 rows affected.
+    /// Uses ExecuteUpdateAsync — no entity load, no SaveChanges required.
+    /// </summary>
+    Task DeactivateAllForUserAsync(long userId);
 }

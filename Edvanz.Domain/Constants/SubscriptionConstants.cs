@@ -216,6 +216,8 @@ public static class SubscriptionConstants
         // ── Manual-pay instructions ──
         public const string ManualPayInstructionsVodafoneCash = "ManualPayInstructionsVodafoneCash";
         public const string ManualPayInstructionsInstaPay = "ManualPayInstructionsInstaPay";
+        
+        public const string FcmTokenUnregistered = "FcmTokenUnregistered";   // ← add this line
 
         // (Webhook keys retired 2026-07-17 with the Paymob webhook/gateway removal.)
     }

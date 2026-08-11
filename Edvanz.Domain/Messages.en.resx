@@ -1947,5 +1947,7 @@
   <data name="DeviceReset" xml:space="preserve">
     <value>The student's device was reset. They can now open you from a new device.</value>
   </data>
-
+<data name="FcmTokenUnregistered" xml:space="preserve">
+    <value>تم إلغاء تسجيل الجهاز من الإشعارات الفورية</value>
+  </data>
 </root>

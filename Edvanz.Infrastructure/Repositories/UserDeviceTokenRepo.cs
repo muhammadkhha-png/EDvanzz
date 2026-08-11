@@ -49,4 +49,25 @@ public class UserDeviceTokenRepo
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(t => t.IsActive, false));
     }
+    /// <inheritdoc />
+    public async Task DeactivateByUserAndTokenAsync(long userId, string fcmToken)
+    {
+        // Single SQL UPDATE, scoped to (UserId, FcmToken) — matches the unique index
+        // IX_UserDeviceTokens_UserId_FcmToken, so this can never touch another user's row.
+        await _context.Set<UserDeviceToken>()
+            .Where(t => t.UserId == userId && t.FcmToken == fcmToken)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.IsActive, false));
+    }
+
+    /// <inheritdoc />
+    public async Task DeactivateAllForUserAsync(long userId)
+    {
+        // Single SQL UPDATE — no entity materialized. Used by AuthService.Logout's
+        // all-devices path so every device stops receiving push at once.
+        await _context.Set<UserDeviceToken>()
+            .Where(t => t.UserId == userId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.IsActive, false));
+    }
 }

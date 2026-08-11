@@ -5,6 +5,7 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
@@ -17,7 +18,8 @@ namespace Edvanz.Application.Services;
 ///
 /// CHANNELS (same channels as RenewalNotificationJob):
 ///   1. Push to every IsActive UserDeviceToken.
-///   2. WhatsApp deferred until v2.
+///   2. WhatsApp deferred until v2
+///   
 ///   3. UserNotification row with the rejection reason in the body.
 ///
 /// The body is parameterized with the rejection reason so the teacher knows
@@ -63,19 +65,32 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
         const string deepLink = "/subscription/renew";
 
         // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
-        await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+        // Idempotency guard (mirrors SubscriptionReminderService): SourceType +
+        // SourceEntityId = pendingPaymentId is unique per rejection event.
+        try
         {
-            UserId = teacher.UserId,
-            Title = title,
-            Body = body,
-            DeepLinkPayload = deepLink,
-            SentAt = DateTime.UtcNow,
-            IsRead = false,
-            Category = NotificationCategory.notifiction,
-            CreateAt = DateTime.UtcNow
-        });
-        await _unitOfWork.SaveChangesAsync();
-
+            await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+            {
+                UserId = teacher.UserId,
+                Title = title,
+                Body = body,
+                DeepLinkPayload = deepLink,
+                SentAt = DateTime.UtcNow,
+                IsRead = false,
+                Category = NotificationCategory.notifiction,
+                SourceType = NotificationSourceType.PaymentRejected,
+                SourceEntityId = pendingPaymentId,
+                CreateAt = DateTime.UtcNow
+            });
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            _logger.LogInformation(
+                "PendingPaymentRejectedNotificationJob: unique-violation for pending payment " +
+                "{PendingPaymentId} — notification already sent, skipping push", pendingPaymentId);
+            return;
+        }
         // ── Push fan-out — badge = unread bell-inbox count AFTER the insert above ──
         int unreadNotificationCount =
             await _unitOfWork.UserNotificationsRepo.GetUnreadCountByUserAsync(teacher.UserId);
@@ -122,5 +137,23 @@ public class PendingPaymentRejectedNotificationJob : IPendingPaymentRejectedNoti
         var culture = new CultureInfo(code);
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
+    }
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        Exception? current = ex.InnerException ?? ex.GetBaseException();
+        while (current is not null)
+        {
+            if (current.GetType().Name == "SqlException")
+            {
+                var numberProperty = current.GetType().GetProperty("Number");
+                if (numberProperty?.GetValue(current) is int errorNumber)
+                {
+                    return errorNumber == 2601 || errorNumber == 2627;
+                }
+                return false;
+            }
+            current = current.InnerException;
+        }
+        return false;
     }
 }

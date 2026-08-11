@@ -1935,4 +1935,7 @@
   <data name="DeviceReset" xml:space="preserve">
     <value>تم إعادة تعيين جهاز الطالب. يمكنه الآن فتحك من جهاز جديد.</value>
   </data>
+  <data name="FcmTokenUnregistered" xml:space="preserve">
+    <value>تم إلغاء تسجيل الجهاز من الإشعارات الفورية</value>
+  </data>
 </root>

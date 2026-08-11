@@ -1,4 +1,5 @@
-﻿using Edvanz.API.Authorization;
+﻿using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Edvanz.API.Authorization;
 using Edvanz.API.Controllers;
 using Edvanz.API.Filters;
 using Edvanz.API.Middleware;
@@ -293,20 +294,27 @@ if (!builder.Environment.IsDevelopment())
     }
 }
 builder.Services.AddHttpClient<IWhatsAppSender, WhatsAppSender>();
-//builder.Services.AddApplicationInsightsTelemetry();
-//var aiConnectionString =
-//    builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
-//    ?? builder.Configuration["ApplicationInsights:ConnectionString"];
+// ── Application Insights / Azure Monitor (production observability) ──────
+// Azure Monitor OpenTelemetry Distro — one call auto-instruments ASP.NET Core
+// requests, HttpClient calls, and SqlClient calls, and (critically for this
+// codebase) registers an ILogger provider so every _logger.LogError/LogWarning
+// call already present throughout FirebasePushNotificationSender, the
+// notification jobs, and Hangfire job bodies ships to Application Insights —
+// not just to whatever log sink happens to be capturing App Service's stdout.
+// Guarded the same way as Key Vault/Firebase above: an optional dependency,
+// never allowed to block boot if the connection string isn't set (e.g. local
+// Development never has one and shouldn't need one).
+string? appInsightsConnectionString =
+    builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+    ?? builder.Configuration["ApplicationInsights:ConnectionString"];
 
-//if (!string.IsNullOrWhiteSpace(aiConnectionString))
-//{
-//    builder.Services.AddOpenTelemetry()
-//        .WithTracing(tracing =>
-//        {
-//            tracing.AddAzureMonitorTraceExporter(o => o.ConnectionString = aiConnectionString);
-//        });
-//}
-
+if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
+{
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
+    {
+        options.ConnectionString = appInsightsConnectionString;
+    });
+}
 // ── Rate limiting (built-in, no Redis needed for single instance) ─────────
 // "auth" policy: 10 login/register attempts per IP per minute.
 // Applied via [EnableRateLimiting("auth")] on AuthController.

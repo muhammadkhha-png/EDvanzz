@@ -5,6 +5,7 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
@@ -92,18 +93,32 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
         }
 
         // ── Persist the inbox record FIRST — the badge (computed next) must reflect it ──
-        await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+        // Idempotency guard: SourceType + SourceEntityId = requestId is unique per
+        // resolution — a request is only ever resolved once, approved or rejected.
+        try
         {
-            UserId = teacher.UserId,
-            Title = title,
-            Body = body,
-            DeepLinkPayload = DeepLink,
-            SentAt = DateTime.UtcNow,
-            IsRead = false,
-            Category = category,
-            CreateAt = DateTime.UtcNow
-        });
-        await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.UserNotificationsRepo.InsertNotificationAsync(new UserNotification
+            {
+                UserId = teacher.UserId,
+                Title = title,
+                Body = body,
+                DeepLinkPayload = DeepLink,
+                SentAt = DateTime.UtcNow,
+                IsRead = false,
+                Category = category,
+                SourceType = NotificationSourceType.CapacityResolved,
+                SourceEntityId = requestId,
+                CreateAt = DateTime.UtcNow
+            });
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            _logger.LogInformation(
+                "CapacityRequestResolvedNotificationJob: unique-violation for request " +
+                "{RequestId} — notification already sent, skipping push", requestId);
+            return;
+        }
 
         // ── Push fan-out — badge = unread bell-inbox count AFTER the insert above ──
         int unreadNotificationCount =
@@ -150,5 +165,23 @@ public class CapacityRequestResolvedNotificationJob : ICapacityRequestResolvedNo
         var culture = new CultureInfo(code);
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
+    }
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        Exception? current = ex.InnerException ?? ex.GetBaseException();
+        while (current is not null)
+        {
+            if (current.GetType().Name == "SqlException")
+            {
+                var numberProperty = current.GetType().GetProperty("Number");
+                if (numberProperty?.GetValue(current) is int errorNumber)
+                {
+                    return errorNumber == 2601 || errorNumber == 2627;
+                }
+                return false;
+            }
+            current = current.InnerException;
+        }
+        return false;
     }
 }

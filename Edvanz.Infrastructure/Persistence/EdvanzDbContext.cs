@@ -730,6 +730,17 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(n => new { n.UserId, n.IsRead, n.SentAt })
                 .IsDescending(false, false, true)
                 .HasDatabaseName("IX_UserNotifications_UserId_IsRead_SentAt");
+
+            // Idempotency guard for Renewal/PaymentRejected/CapacityResolved jobs (mirrors
+            // the SubscriptionAlerts unique-index pattern used by the reminder job). Filtered
+            // to non-null SourceEntityId so the rows written before this column existed (and
+            // any future writer that doesn't set it) are never compared against each other. A
+            // Hangfire retry that re-executes an already-committed job now hits this
+            // constraint instead of inserting a duplicate row / firing a duplicate push.
+            entity.HasIndex(n => new { n.SourceType, n.SourceEntityId })
+                .IsUnique()
+                .HasFilter("[SourceEntityId] IS NOT NULL")
+                .HasDatabaseName("UX_UserNotifications_SourceType_SourceEntityId");
         });
         #endregion
 

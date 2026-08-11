@@ -71,4 +71,22 @@ public class UserNotification : BaseEntity
     /// No index on this column for v1 (M-3 — add only when a filter query exists).
     /// </summary>
     public NotificationCategory Category { get; set; } = NotificationCategory.notifiction;
+    /// <summary>
+    /// Discriminates which job produced this row, paired with <see cref="SourceEntityId"/>
+    /// to form the idempotency key for jobs that need retry-safety (Renewal,
+    /// PaymentRejected, CapacityResolved) — mirrors the SubscriptionAlerts unique-index
+    /// pattern already used by the subscription-reminder job. Null for rows written
+    /// before this column existed, and for any writer that doesn't need it (e.g. the
+    /// reminder job, which already has its own SubscriptionAlerts guard).
+    /// </summary>
+    public NotificationSourceType? SourceType { get; set; }
+
+    /// <summary>
+    /// The id of the row that caused this notification: TeacherSubscription.Id for
+    /// Renewal, PendingSubscriptionPayment.Id for PaymentRejected,
+    /// CapacityIncreaseRequest.Id for CapacityResolved. Paired with
+    /// <see cref="SourceType"/> — see UX_UserNotifications_SourceType_SourceEntityId.
+    /// Null when SourceType is null.
+    /// </summary>
+    public long? SourceEntityId { get; set; }
 }
