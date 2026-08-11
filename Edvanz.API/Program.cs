@@ -414,6 +414,7 @@ options.AddPolicy(SpaCors, policy =>
     policy.WithOrigins(
               "http://localhost:4200",              // Angular dev
               "https://app-edvanz-admin.azurewebsites.net",
+              "https://muhammadkhha-png.github.io", // GitHub Pages admin (EdvanzAdminUI)
               "https://belalmuhamed.github.io") // prod admin origin
           .AllowAnyHeader()
           .AllowAnyMethod()
