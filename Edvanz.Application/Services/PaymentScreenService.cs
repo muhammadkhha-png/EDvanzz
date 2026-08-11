@@ -87,22 +87,50 @@ public class PaymentScreenService : IPaymentScreenService
 
     public async Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
-        long? collectedByUserId = null)
+        long? collectedByUserId = null,
+        DateTime? from = null, DateTime? to = null)
     {
-        // DASH-1: accept the SAME unified "YYYY-MM" month selector tracking/students take, while
-        // still honouring the legacy ?month=<int 1-12>&year=<int> form; default to the teacher's
-        // current local (Africa/Cairo) month/year when nothing is supplied (no more screen-load 422).
-        var errorKey = ResolveCollectionsMonthYear(
-            teacherId, month, year, out int resolvedYear, out int resolvedMonth);
-        if (errorKey is not null)
-            return Result<CollectionsByMonthResponse>.Failure(
-                _localizer, errorKey, HttpStatusCode.UnprocessableEntity);
-
         (page, limit) = NormalizePaging(page, limit);
 
-        var startDate = new DateTime(resolvedYear, resolvedMonth, 1);
-        var endDate = startDate.AddMonths(1).AddDays(-1);
-        var endExclusive = startDate.AddMonths(1);
+        int resolvedYear, resolvedMonth;
+        DateTime startDate, endDate, endExclusive;
+        DateTime? fromEcho = null, toEcho = null;
+        string monthLabel;
+
+        if (from.HasValue && to.HasValue)
+        {
+            // DATE-RANGE path (additive): an inclusive [from,to] day window, taking precedence over
+            // month/year. Boundaries mirror the month path — startDate inclusive, endDate the
+            // inclusive end-of-day for the paged query's `<=` filter, endExclusive for refunds.
+            var f = from.Value.Date;
+            var t = to.Value.Date;
+            if (t < f) (f, t) = (t, f);               // tolerate a reversed range
+            startDate = f;
+            endExclusive = t.AddDays(1);
+            endDate = endExclusive.AddTicks(-1);
+            resolvedYear = f.Year;
+            resolvedMonth = f.Month;
+            fromEcho = f;
+            toEcho = t;
+            monthLabel = f == t
+                ? f.ToString("d MMM yyyy", CultureInfo.InvariantCulture)
+                : $"{f.ToString("d MMM", CultureInfo.InvariantCulture)} – {t.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+        }
+        else
+        {
+            // MONTH path (unchanged): DASH-1 unified "YYYY-MM" OR legacy ?month=<int 1-12>&year=<int>;
+            // default to the teacher's current local (Africa/Cairo) month/year (no screen-load 422).
+            var errorKey = ResolveCollectionsMonthYear(
+                teacherId, month, year, out resolvedYear, out resolvedMonth);
+            if (errorKey is not null)
+                return Result<CollectionsByMonthResponse>.Failure(
+                    _localizer, errorKey, HttpStatusCode.UnprocessableEntity);
+
+            startDate = new DateTime(resolvedYear, resolvedMonth, 1);
+            endDate = startDate.AddMonths(1).AddDays(-1);
+            endExclusive = startDate.AddMonths(1);
+            monthLabel = startDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+        }
 
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
             .GetTransactionsByDateRangePagedAsync(
@@ -172,15 +200,123 @@ public class PaymentScreenService : IPaymentScreenService
         {
             Month = resolvedMonth,
             Year = resolvedYear,
-            MonthLabel = startDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            MonthLabel = monthLabel,
             Page = page,
             Limit = limit,
             TotalItems = totalCount + refundCount,
             TotalPages = transactionPages == 0 ? (refundCount > 0 ? 1 : 0) : transactionPages,
+            FromDate = fromEcho,
+            ToDate = toEcho,
             Items = rows
         };
 
         return Result<CollectionsByMonthResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
+        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null)
+    {
+        var repo = _unitOfWork.PaymentsRepo;
+
+        // ── Resolve the money/activity window (TRUE range). Both omitted → current local month. ──
+        DateTime startDate, endExclusive;
+        if (from.HasValue || to.HasValue)
+        {
+            var f = (from ?? to)!.Value.Date;
+            var t = (to ?? from)!.Value.Date;
+            if (t < f) (f, t) = (t, f);
+            startDate = f;
+            endExclusive = t.AddDays(1);
+        }
+        else
+        {
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            startDate = new DateTime(today.Year, today.Month, 1);
+            endExclusive = startDate.AddMonths(1);
+        }
+        DateTime toInclusive = endExclusive.AddDays(-1);   // last day of the window
+        DateTime endInclusiveTick = endExclusive.AddTicks(-1);
+
+        // ── Resolve the as-of month for the status buckets (payment status is per-month). ──
+        int asOfYear, asOfMonth_;
+        if (!string.IsNullOrWhiteSpace(asOfMonth))
+        {
+            if (!TryParseYearMonth(asOfMonth, out asOfYear, out asOfMonth_))
+                return Result<CollectionsSummaryResponse>.Failure(
+                    _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
+                    HttpStatusCode.UnprocessableEntity);
+        }
+        else
+        {
+            asOfYear = toInclusive.Year;
+            asOfMonth_ = toInclusive.Month;
+        }
+        var asOfMonthStart = new DateTime(asOfYear, asOfMonth_, 1);
+        var asOfMonthEnd = asOfMonthStart.AddMonths(1).AddDays(-1);
+
+        // ── Money / activity — honour the true [startDate, endExclusive) range. ──
+        decimal grossCash = await repo.GetCashCollectedInRangeAsync(teacherId, sessionId, startDate, endExclusive);
+        var refunds = await repo.GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
+        decimal refundsTotal = refunds.Sum(r => r.RefundAmount);
+        // GetCashCollectedInRange is net of soft-deleted (reversed) transactions, but departure
+        // refunds do NOT soft-delete the underlying collection — subtract them so the headline
+        // reconciles with the collections ledger and per-collector cards (mirrors GetTrackingAsync).
+        decimal netCash = grossCash - refundsTotal;
+        var (_, txCount) = await repo.GetTransactionsByDateRangePagedAsync(
+            teacherId, startDate, endInclusiveTick, sessionId, null, page: 1, pageSize: 1);
+        int studentsPaid = await repo.CountDistinctPayingStudentsInRangeAsync(
+            teacherId, sessionId, startDate, endExclusive);
+
+        // ── Student payment status — anchored to asOfMonth. ──
+        var (paidInFull, prorated, unpaid) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, asOfMonthEnd);
+        int partial = await repo.CountPartiallyPaidStudentsInMonthAsync(teacherId, asOfMonthStart, asOfMonthEnd);
+
+        // ── Departures — true range. ──
+        var (departedTotal, departedRefundDue, departedAmountOwed) =
+            await repo.CountDeparturesInRangeAsync(teacherId, startDate, endExclusive);
+
+        // ── Per-collector — true range; enriched with name + role exactly like GetTrackingAsync. ──
+        var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, startDate, toInclusive);
+        var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
+        var names = collectorUserIds.Count > 0
+            ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
+            : new Dictionary<long, string>();
+        var assistantUserIds = (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet();
+        var byCollector = collectors
+            .OrderByDescending(c => c.Collected)
+            .Select(c => new CollectionsSummaryCollectorDto
+            {
+                UserId = c.UserId.ToString(CultureInfo.InvariantCulture),
+                Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
+                Role = assistantUserIds.Contains(c.UserId) ? "Assistant" : "Teacher",
+                CollectedAmount = c.Collected,
+                TransactionCount = c.TransactionCount
+            })
+            .ToList();
+
+        var response = new CollectionsSummaryResponse
+        {
+            From = startDate,
+            To = toInclusive,
+            AsOfMonth = $"{asOfYear:D4}-{asOfMonth_:D2}",
+            AsOfMonthLabel = asOfMonthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            NetCashCollected = netCash,
+            RefundsTotal = refundsTotal,
+            TransactionCount = txCount,
+            StudentsPaidCount = studentsPaid,
+            PaidInFullCount = paidInFull,
+            PartialCount = partial,
+            ProratedCount = prorated,
+            UnpaidCount = unpaid,
+            DepartedCount = departedTotal,
+            DepartedRefundDueCount = departedRefundDue,
+            DepartedAmountOwedCount = departedAmountOwed,
+            ByCollector = byCollector
+        };
+
+        return Result<CollectionsSummaryResponse>.Success(
             response, _localizer, PaymentConstants.Messages.Success);
     }
 

@@ -227,6 +227,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
+    /// Count of DISTINCT students who made at least one (non-deleted) payment in
+    /// [startInclusive, endExclusive), optionally scoped to one session. Backs the date-filtered
+    /// collections summary ("how many students paid" over the range).
+    /// </summary>
+    Task<int> CountDistinctPayingStudentsInRangeAsync(
+        long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
     /// All collections a collector took in [startInclusive, endExclusive), unpaged —
     /// merged with refunds into a single chronological month log.
     /// </summary>
@@ -265,6 +273,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<(int Paid, int ProRated, int Unpaid)> GetStudentPaymentStatusCountsAsync(
         long teacherId, DateTime selectedMonthEnd);
+
+    /// <summary>
+    /// Count of assigned students with a period in [monthStart, monthEnd] that is
+    /// <c>PartiallyPaid</c> (0 &lt; AmountPaid &lt; AmountDue) — the "part paid this month" bucket,
+    /// matching the <c>status="partial"</c> classification in
+    /// <see cref="GetStudentsByPaymentStatusPagedAsync"/>. Backs the collections summary.
+    /// </summary>
+    Task<int> CountPartiallyPaidStudentsInMonthAsync(
+        long teacherId, DateTime monthStart, DateTime monthEnd);
 
     /// <summary>
     /// Adds a new payment period.
@@ -490,6 +507,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>Teacher-wide paged list of departed students (search by name/code), newest first.</summary>
     Task<(IReadOnlyList<DepartureListRow> Items, int TotalCount)> GetDeparturesPagedAsync(
         long teacherId, string? search, int page, int pageSize);
+
+    /// <summary>
+    /// Counts student departures confirmed in [startInclusive, endExclusive), split by outcome
+    /// (RefundDue / AmountOwed; the remainder is NoObligation). Backs the collections summary's
+    /// "departed" metric over the true date range.
+    /// </summary>
+    Task<(int Total, int RefundDue, int AmountOwed)> CountDeparturesInRangeAsync(
+        long teacherId, DateTime startInclusive, DateTime endExclusive);
 
     // ══════════════════════════════════════════════
     // SESSION TRANSFER QUERIES

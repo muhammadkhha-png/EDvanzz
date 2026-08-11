@@ -29,6 +29,14 @@ public class CollectionsByMonthResponse
     public int Limit { get; set; }
     public int TotalItems { get; set; }
     public int TotalPages { get; set; }
+
+    /// <summary>
+    /// Echo of an applied date-range filter (inclusive). Populated ONLY when the caller passed
+    /// <c>from</c>/<c>to</c>; null on the month/year path so existing consumers are unaffected.
+    /// </summary>
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+
     public List<CollectionRow> Items { get; set; } = new();
 }
 
@@ -54,6 +62,64 @@ public class CollectionRow
     /// Null for a normal collection.
     /// </summary>
     public string? RefundedForMonthLabel { get; set; }
+}
+
+// ── Screen: Collections summary (date-filtered) ────────────────────────────
+
+/// <summary>
+/// Period summary for the collections/payment screens when a date filter is applied. Composed
+/// entirely from existing repo aggregates (reuse-first). IMPORTANT — mixed time semantics, by design:
+/// the money/activity and departure/collector metrics honour the exact <c>[from,to]</c> range
+/// (keyed on transaction/departure date), while the student status counts are anchored to
+/// <c>asOfMonth</c> because payment status ("paid / partial / prorated / unpaid") is defined
+/// per calendar month, not over an arbitrary range. The frontend labels each group accordingly.
+/// </summary>
+public class CollectionsSummaryResponse
+{
+    // Echo of the applied filter.
+    public DateTime? From { get; set; }
+    public DateTime? To { get; set; }
+    /// <summary>The "YYYY-MM" the status counts are anchored to (defaults to the month of <c>To</c>).</summary>
+    public string AsOfMonth { get; set; } = string.Empty;
+    public string AsOfMonthLabel { get; set; } = string.Empty;
+
+    // ── Money / activity — TRUE [from,to] range ──
+    /// <summary>Cash physically collected in the range, net of departure refunds.</summary>
+    public decimal NetCashCollected { get; set; }
+    /// <summary>Departure refunds (money returned) confirmed in the range.</summary>
+    public decimal RefundsTotal { get; set; }
+    /// <summary>Number of collection transactions in the range.</summary>
+    public int TransactionCount { get; set; }
+    /// <summary>Distinct students who made at least one payment in the range.</summary>
+    public int StudentsPaidCount { get; set; }
+
+    // ── Student payment status — anchored to AsOfMonth ──
+    /// <summary>Assigned students with no outstanding period through the month (fully settled).</summary>
+    public int PaidInFullCount { get; set; }
+    /// <summary>Students with a period this month partially settled (0 &lt; paid &lt; due).</summary>
+    public int PartialCount { get; set; }
+    public int ProratedCount { get; set; }
+    public int UnpaidCount { get; set; }
+
+    // ── Departures — TRUE [from,to] range ──
+    public int DepartedCount { get; set; }
+    public int DepartedRefundDueCount { get; set; }
+    public int DepartedAmountOwedCount { get; set; }
+
+    // ── Per-collector breakdown — TRUE [from,to] range ──
+    public List<CollectionsSummaryCollectorDto> ByCollector { get; set; } = new();
+}
+
+/// <summary>One collector's collected total in the summary range (you or an assistant).</summary>
+public class CollectionsSummaryCollectorDto
+{
+    /// <summary>The collector's user id (matches <c>collectedByUserId</c> on the collections list).</summary>
+    public string UserId { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    /// <summary>Teacher | Assistant.</summary>
+    public string Role { get; set; } = "Collector";
+    public decimal CollectedAmount { get; set; }
+    public int TransactionCount { get; set; }
 }
 
 // ── Screen: AssistantWallet ────────────────────────────────────────────────

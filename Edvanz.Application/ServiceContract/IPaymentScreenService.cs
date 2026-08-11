@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
@@ -19,10 +20,28 @@ public interface IPaymentScreenService
     /// (1-12) paired with <paramref name="year"/>; both omitted → the teacher's current local
     /// (Africa/Cairo) month/year. Reuses <c>IPaymentRepo.GetTransactionsByDateRangePagedAsync</c>.
     /// Returns 422 for an invalid month/year.
+    ///
+    /// <para>DATE-RANGE (additive): when BOTH <paramref name="from"/> and <paramref name="to"/> are
+    /// supplied they take precedence over <paramref name="month"/>/<paramref name="year"/> — the
+    /// ledger is scoped to the inclusive <c>[from,to]</c> day range instead of a calendar month, and
+    /// <c>FromDate</c>/<c>ToDate</c> are echoed on the response. When they are null the behaviour is
+    /// unchanged (fully backward-compatible with the month path).</para>
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
-        long? collectedByUserId = null);
+        long? collectedByUserId = null,
+        DateTime? from = null, DateTime? to = null);
+
+    /// <summary>
+    /// Screen: Collections date-filtered SUMMARY. Period overview for the payment/collections
+    /// screens: money + activity + departures + per-collector honour the exact <c>[from,to]</c>
+    /// range; the paid/partial/prorated/unpaid student counts are anchored to <paramref name="asOfMonth"/>
+    /// (defaults to the month of <c>to</c>) because payment status is defined per calendar month.
+    /// Composed from existing repo aggregates. Both dates omitted → the teacher's current local month.
+    /// 422 on a malformed <paramref name="asOfMonth"/>.
+    /// </summary>
+    Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
+        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null);
 
     /// <summary>
     /// Withdrawal/reset history for one assistant's wallet (newest first) — the record of every
