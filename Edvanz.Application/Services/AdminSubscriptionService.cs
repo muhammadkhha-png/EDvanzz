@@ -73,9 +73,32 @@ public class AdminSubscriptionService : IAdminSubscriptionService
     /// <inheritdoc />
     public async Task<Result<CurrentSubscriptionDto>> ActivateAsync(
         long adminUserId, AdminActivateRequest request)
+        => await ActivateCoreAsync(
+            adminUserId, request.TeacherId, request.StartDate, request.EndDate,
+            SubscriptionPlanType.Full, removeExistingLinks: false,
+            SubscriptionConstants.Messages.SubscriptionActivated);
+
+    /// <inheritdoc />
+    public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialAsync(
+        long adminUserId, AdminActivateManagerialRequest request)
+        => await ActivateCoreAsync(
+            adminUserId, request.TeacherId, request.StartDate, request.EndDate,
+            SubscriptionPlanType.Managerial, request.RemoveExistingLinks,
+            SubscriptionConstants.Messages.SubscriptionManagerialActivated);
+
+    /// <summary>
+    /// Shared no-payment activation core for both Full and Managerial plans. Inserts a new
+    /// IsCurrent = true TeacherSubscription (PaymentChannel = SuperAdminOverride, AmountPaidEGP = 0)
+    /// stamped with <paramref name="planType"/> and flips the previous current row, all inside one
+    /// transaction. When <paramref name="removeExistingLinks"/> is true (managerial only), it also
+    /// severs every live student link and active parent link for the teacher in the SAME transaction.
+    /// </summary>
+    private async Task<Result<CurrentSubscriptionDto>> ActivateCoreAsync(
+        long adminUserId, long teacherId, DateTime? startDateOpt, DateTime? endDateOpt,
+        SubscriptionPlanType planType, bool removeExistingLinks, string successMessageKey)
     {
         // ── Validation ──
-        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(request.TeacherId);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null)
         {
             return Result<CurrentSubscriptionDto>.Failure(
@@ -83,8 +106,8 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         }
 
         DateTime now = DateTime.UtcNow;
-        DateTime startDate = request.StartDate ?? now;
-        DateTime endDate = request.EndDate ?? startDate.AddDays(_defaults.PeriodDays);
+        DateTime startDate = startDateOpt ?? now;
+        DateTime endDate = endDateOpt ?? startDate.AddDays(_defaults.PeriodDays);
 
         if (endDate <= startDate)
         {
@@ -95,10 +118,11 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         // ── Build the override row ──
         var newSubscription = new TeacherSubscription
         {
-            TeacherId = request.TeacherId,
+            TeacherId = teacherId,
             StartDate = startDate,
             EndDate = endDate,
             IsCurrent = true,
+            PlanType = planType,
             PaymentMethod = PaymentMethod.SuperAdminManual,
             PaymentChannel = PaymentChannel.SuperAdminOverride,
             AmountPaidEGP = 0m,
@@ -114,10 +138,25 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         try
         {
             var previousCurrent = await _unitOfWork.Users
-                .GetCurrentSubscriptionForUpdateAsync(request.TeacherId);
+                .GetCurrentSubscriptionForUpdateAsync(teacherId);
 
             await _unitOfWork.Users.FlipCurrentAndInsertNewAsync(previousCurrent, newSubscription);
             await _unitOfWork.SaveChangesAsync();
+
+            // Managerial "remove existing links": sever every live student + active parent link
+            // in the same transaction so the roster is empty the moment the plan takes effect.
+            if (removeExistingLinks)
+            {
+                int studentsRemoved = await _unitOfWork.Users
+                    .RemoveAllLiveStudentLinksForTeacherAsync(teacherId, adminUserId);
+                int parentsRemoved = await _unitOfWork.Users
+                    .RemoveAllActiveParentLinksForTeacherAsync(teacherId);
+
+                _logger.LogInformation(
+                    "Managerial activation for teacher {TeacherId} removed {StudentLinks} student link(s) and {ParentLinks} parent link(s)",
+                    teacherId, studentsRemoved, parentsRemoved);
+            }
+
             await _unitOfWork.CommitAsync();
         }
         catch
@@ -127,10 +166,9 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         }
 
         // ── Invalidate cache so the next request sees the new row ──
-        await _cache.InvalidateAsync(request.TeacherId);
+        await _cache.InvalidateAsync(teacherId);
 
-        return await BuildCurrentDtoResultAsync(
-            request.TeacherId, SubscriptionConstants.Messages.SubscriptionActivated);
+        return await BuildCurrentDtoResultAsync(teacherId, successMessageKey);
     }
 
     /// <inheritdoc />

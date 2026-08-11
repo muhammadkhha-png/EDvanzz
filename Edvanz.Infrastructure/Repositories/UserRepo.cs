@@ -564,6 +564,33 @@ namespace Edvanz.Infrastructure.Repositories
             await Task.CompletedTask;
         }
 
+        /// <inheritdoc />
+        public async Task<int> RemoveAllLiveStudentLinksForTeacherAsync(long teacherId, long removedByUserId)
+        {
+            DateTime now = DateTime.UtcNow;
+            // Set-based: any Active/Pending row becomes a terminal RemovedByTeacher row.
+            // Terminal rows are retained for audit; the filtered live-row unique index
+            // ([LinkStatus] IN (1,3)) only covers Active/Pending, so this cannot collide.
+            return await _context.Set<StudentTeacherLink>()
+                .Where(l => l.TeacherId == teacherId
+                         && (l.LinkStatus == LinkStatus.Active || l.LinkStatus == LinkStatus.Pending))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.LinkStatus, LinkStatus.RemovedByTeacher)
+                    .SetProperty(l => l.RemovedByUserId, removedByUserId)
+                    .SetProperty(l => l.UnlinkedAt, now));
+        }
+
+        /// <inheritdoc />
+        public async Task<int> RemoveAllActiveParentLinksForTeacherAsync(long teacherId)
+        {
+            DateTime now = DateTime.UtcNow;
+            return await _context.Set<ParentChildTeacherLink>()
+                .Where(l => l.TeacherId == teacherId && l.LinkStatus == LinkStatus.Active)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(l => l.LinkStatus, LinkStatus.RemovedByTeacher)
+                    .SetProperty(l => l.UnlinkedAt, now));
+        }
+
         // ── Request/approval flow (replaces the student-side 3-credential flow) ──
 
         /// <inheritdoc />
@@ -1055,6 +1082,7 @@ namespace Edvanz.Infrastructure.Repositories
                           StartDate = sub.StartDate,
                           EndDate = sub.EndDate,
                           AmountPaidEGP = sub.AmountPaidEGP,
+                          PlanType = sub.PlanType,
                           StudentCapacityPackageId = teacher.StudentCapacityPackageId
                       })
                 .FirstOrDefaultAsync();

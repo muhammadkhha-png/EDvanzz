@@ -14,6 +14,16 @@ public interface ISubscriptionGateService
     Task<bool> HasActiveSubscriptionAsync(long teacherId);
 
     /// <summary>
+    /// True when the teacher's CURRENT subscription is a Managerial plan AND is still
+    /// active (Active or ExpiringSoon). A managerial subscription forbids any student or
+    /// parent account from being linked to the teacher and forbids direct roster additions,
+    /// so every student/parent-linking chokepoint calls this and returns Forbidden when true.
+    /// False for Full subscriptions, expired/never-subscribed teachers, and (defensively)
+    /// any row whose plan type is not explicitly Managerial.
+    /// </summary>
+    Task<bool> IsManagerialAsync(long teacherId);
+
+    /// <summary>
     /// Whether the teacher may create another item in <paramref name="moduleKey"/>:
     /// subscribed → always true; otherwise the current count (from <paramref name="currentCountFactory"/>)
     /// must be below the module's free-tier limit. The count factory is only invoked when needed

@@ -1,6 +1,7 @@
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.TeacherLinks;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -21,15 +22,18 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStudentLinkNotifier _linkNotifier;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public TeacherStudentLinkService(
         IUnitOfWork unitOfWork,
         IStudentLinkNotifier linkNotifier,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _linkNotifier = linkNotifier;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -129,6 +133,11 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         if (link.LinkStatus != LinkStatus.Pending)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkRequestAlreadyResolved", HttpStatusCode.Conflict);
 
+        // A managerial subscription forbids connecting any student account to the teacher.
+        if (await _subscriptionGate.IsManagerialAsync(teacherId))
+            return Result<LinkedStudentListItemDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+
         // ── Accept CONNECTS the account (Active); binding it to a student record is
         // a SEPARATE step (BindStudentLinkAsync). TeacherStudentId or StudentCode is
         // an optional "Accept & link" shortcut — when both are omitted the link is
@@ -207,6 +216,11 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         // accepted first, terminal states are not linkable.
         if (link.LinkStatus != LinkStatus.Active)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
+
+        // A managerial subscription forbids binding a student to the teacher's roster.
+        if (await _subscriptionGate.IsManagerialAsync(teacherId))
+            return Result<LinkedStudentListItemDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
 
         // ── Resolve the target student record: explicit id wins, else by code ──
         var (rosterStudent, resolveFailure) =

@@ -356,6 +356,24 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task UpdateStudentTeacherLinkAsync(StudentTeacherLink link);
 
+        /// <summary>
+        /// Terminates EVERY live (Active or Pending) student-teacher link for the teacher,
+        /// setting LinkStatus = RemovedByTeacher, RemovedByUserId and UnlinkedAt. Used when a
+        /// managerial subscription is activated with the "remove existing links" option so no
+        /// student account remains connected. Runs as a single set-based UPDATE inside the
+        /// caller's transaction (no SaveChanges needed). Returns the number of rows affected.
+        /// </summary>
+        Task<int> RemoveAllLiveStudentLinksForTeacherAsync(long teacherId, long removedByUserId);
+
+        /// <summary>
+        /// Terminates EVERY Active parent-child-teacher link for the teacher, setting
+        /// LinkStatus = RemovedByTeacher and UnlinkedAt. Companion to
+        /// <see cref="RemoveAllLiveStudentLinksForTeacherAsync"/> for the managerial
+        /// activation "remove existing links" option. Set-based UPDATE inside the caller's
+        /// transaction. Returns the number of rows affected.
+        /// </summary>
+        Task<int> RemoveAllActiveParentLinksForTeacherAsync(long teacherId);
+
         // ── Request/approval flow (replaces the student-side 3-credential flow) ──
 
         /// <summary>
@@ -837,6 +855,13 @@ namespace Edvanz.Domain.Interfaces
         public DateTime EndDate { get; set; }
         public decimal AmountPaidEGP { get; set; }
         public long? StudentCapacityPackageId { get; set; }
+
+        /// <summary>
+        /// Full or Managerial. Read by SubscriptionGateService.IsManagerialAsync to
+        /// block student/parent linking on a managerial subscription. Backfilled to
+        /// Full for pre-existing rows, so a zero/missing value is treated as Full.
+        /// </summary>
+        public SubscriptionPlanType PlanType { get; set; } = SubscriptionPlanType.Full;
     }
     /// <summary>
     /// Lean Id/Name row for teacher select-dropdown lists. Deliberately excludes every

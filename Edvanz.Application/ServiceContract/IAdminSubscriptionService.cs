@@ -27,6 +27,17 @@ public interface IAdminSubscriptionService
         long adminUserId, AdminActivateRequest request);
 
     /// <summary>
+    /// Manual activation of a MANAGERIAL subscription that bypasses payment. Identical to
+    /// <see cref="ActivateAsync"/> (SuperAdminOverride row, AmountPaidEGP = 0, same period
+    /// defaults) except the new row is stamped PlanType = Managerial: while it is the teacher's
+    /// current active subscription, no student or parent account may be linked and no roster
+    /// student may be added. When request.RemoveExistingLinks is true, all existing live
+    /// student/parent links are severed atomically as part of the activation.
+    /// </summary>
+    Task<Result<CurrentSubscriptionDto>> ActivateManagerialAsync(
+        long adminUserId, AdminActivateManagerialRequest request);
+
+    /// <summary>
     /// Extends the teacher's current subscription EndDate by N days (FR-SUB-061 / REQ-ADM-016).
     /// Does NOT create a new row — mutates the current row's EndDate.
     /// Cache is invalidated synchronously after commit.

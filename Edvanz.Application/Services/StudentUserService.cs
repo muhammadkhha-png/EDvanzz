@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.StudentUser;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -35,6 +36,7 @@ public class StudentUserService : IStudentUserService
     private readonly IStudentAccountCodeGenerator _codeGenerator;
     private readonly IStudentLinkNotifier _linkNotifier;
     private readonly IQrCodeRenderer _qrCodeRenderer;
+    private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
 
     public StudentUserService(
@@ -42,12 +44,14 @@ public class StudentUserService : IStudentUserService
         IStudentAccountCodeGenerator codeGenerator,
         IStudentLinkNotifier linkNotifier,
         IQrCodeRenderer qrCodeRenderer,
+        ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer)
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _linkNotifier = linkNotifier;
         _qrCodeRenderer = qrCodeRenderer;
+        _subscriptionGate = subscriptionGate;
         _localizer = localizer;
     }
 
@@ -189,6 +193,11 @@ public class StudentUserService : IStudentUserService
         var teacher = await _unitOfWork.Users.GetActiveTeacherByCodeAsync(dto.TeacherCode.Trim());
         if (teacher is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
+
+        // ── 2b. A managerial-subscription teacher does not accept student links ──
+        if (await _subscriptionGate.IsManagerialAsync(teacher.Id))
+            return Result<StudentDashboardTeacherDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
 
         // ── 3. Validate the student-typed name (the teacher identifies the request by it) ──
         if (string.IsNullOrWhiteSpace(dto.StudentName))

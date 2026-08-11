@@ -119,6 +119,9 @@ public static class SubscriptionConstants
     public static class Messages
     {
         public const string SubscriptionActivated = "SubscriptionActivated";
+        public const string SubscriptionManagerialActivated = "SubscriptionManagerialActivated";
+        // Roster gate: a managerial subscription forbids linking any student/parent account.
+        public const string ManagerialSubscriptionNoStudents = "ManagerialSubscriptionNoStudents";
         public const string SubscriptionExtended = "SubscriptionExtended";
         public const string SubscriptionCancelled = "SubscriptionCancelled";   // ← add
         public const string SubscriptionEndDateUpdated = "SubscriptionEndDateUpdated";

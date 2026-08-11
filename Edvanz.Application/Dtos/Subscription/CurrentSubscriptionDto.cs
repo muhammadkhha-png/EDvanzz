@@ -36,6 +36,12 @@ public class CurrentSubscriptionDto
     public SubscriptionStatus Status { get; set; }
 
     /// <summary>
+    /// Plan type: Full (students/parents allowed) or Managerial (students/parents blocked).
+    /// Serialized as a string via the global JsonStringEnumConverter.
+    /// </summary>
+    public SubscriptionPlanType PlanType { get; set; }
+
+    /// <summary>
     /// Price the next renewal will charge, sourced from the teacher's current
     /// StudentCapacityPackage.MonthlyPriceEGP at read time (BR-SUB-009).
     /// Zero when the teacher has no package assigned yet.

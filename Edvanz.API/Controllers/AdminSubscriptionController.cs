@@ -110,6 +110,41 @@ public class AdminSubscriptionController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 1b: ACTIVATE MANAGERIAL
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Manually activates a teacher's subscription as a MANAGERIAL plan (no payment
+    //   record, PaymentChannel = SuperAdminOverride, PlanType = Managerial). While the
+    //   managerial subscription is current + active, no student or parent account may be
+    //   linked to the teacher and no roster student may be added.
+    //   When removeExistingLinks = true, every existing live student/parent link is
+    //   severed atomically as part of the activation; when false, existing links are kept
+    //   and only NEW links are blocked.
+    //
+    // TABLES WRITTEN: TeacherSubscriptions (flips previous IsCurrent + inserts new);
+    //                 StudentTeacherLinks / ParentChildTeacherLinks (only if removeExistingLinks)
+    // CACHE: invalidated synchronously after commit
+    //
+    // SAMPLE: POST /api/admin/subscriptions/activate-managerial
+    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("activate-managerial")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ActivateManagerial([FromBody] AdminActivateManagerialRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.ActivateManagerialAsync(adminUserId.Value, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 2: EXTEND (FR-SUB-061 / REQ-ADM-016)
     // ══════════════════════════════════════════════════════════════════════════
     //

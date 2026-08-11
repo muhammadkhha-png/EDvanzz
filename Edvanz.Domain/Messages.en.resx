@@ -1026,6 +1026,12 @@
   <data name="SubscriptionActivated" xml:space="preserve">
     <value>Subscription activated successfully</value>
   </data>
+  <data name="SubscriptionManagerialActivated" xml:space="preserve">
+    <value>Managerial subscription activated successfully</value>
+  </data>
+  <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
+    <value>This teacher has a managerial subscription, so no students or parents can be linked to them</value>
+  </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>Subscription extended successfully</value>
   </data>

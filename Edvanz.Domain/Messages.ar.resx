@@ -1026,6 +1026,12 @@
   <data name="SubscriptionActivated" xml:space="preserve">
     <value>تم تفعيل الاشتراك بنجاح</value>
   </data>
+  <data name="SubscriptionManagerialActivated" xml:space="preserve">
+    <value>تم تفعيل الاشتراك الإداري بنجاح</value>
+  </data>
+  <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
+    <value>المدرس ده عنده اشتراك إداري، فمش ممكن يتربط بيه أي طلاب أو أولياء أمور</value>
+  </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>تم تمديد الاشتراك بنجاح</value>
   </data>

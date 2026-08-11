@@ -62,6 +62,16 @@ public class TeacherSubscription : BaseEntity
     /// </summary>
     public bool IsCurrent { get; set; }
 
+    /// <summary>
+    /// The kind of subscription: Full (students/parents allowed) or Managerial
+    /// (students/parents blocked). Defaults to Full; existing rows are backfilled to
+    /// Full by migration. Independent of the derived Active/Expired status — a
+    /// Managerial subscription is activated/extended/expires exactly like a Full one.
+    /// The roster gate (SubscriptionGateService.IsManagerialAsync) reads this on the
+    /// teacher's current row to decide whether to block student/parent linking.
+    /// </summary>
+    public SubscriptionPlanType PlanType { get; set; } = SubscriptionPlanType.Full;
+
     // ──────────────────────────────────────────────────────────────
     // PAYMENT DETAILS
     // ──────────────────────────────────────────────────────────────

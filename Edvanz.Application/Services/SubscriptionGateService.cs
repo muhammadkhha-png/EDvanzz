@@ -56,6 +56,29 @@ public sealed class SubscriptionGateService : ISubscriptionGateService
     }
 
     /// <inheritdoc />
+    public async Task<bool> IsManagerialAsync(long teacherId)
+    {
+        var projection = await _unitOfWork.Users.GetCurrentSubscriptionStatusAsync(teacherId);
+        if (projection is null)
+            return false; // no current subscription → free tier, not managerial-blocked
+
+        // Only a Managerial plan blocks; anything else (Full, or a legacy/zero value) is allowed.
+        if (projection.PlanType != SubscriptionPlanType.Managerial)
+            return false;
+
+        // The block applies only while the managerial subscription is actually active.
+        var subForStatus = new TeacherSubscription
+        {
+            StartDate = projection.StartDate,
+            EndDate = projection.EndDate,
+            IsCurrent = true
+        };
+
+        var status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow);
+        return status == SubscriptionStatus.Active || status == SubscriptionStatus.ExpiringSoon;
+    }
+
+    /// <inheritdoc />
     public async Task<bool> CanCreateAsync(long teacherId, string moduleKey, Func<Task<int>> currentCountFactory)
     {
         if (await HasActiveSubscriptionAsync(teacherId))

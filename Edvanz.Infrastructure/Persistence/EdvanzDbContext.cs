@@ -523,6 +523,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(s => s.TransactionReference)
                 .HasMaxLength(100);
 
+            // (NEW) Plan type — Full (default) or Managerial. Stored as tinyint with a DB
+            // default of Full so pre-existing rows backfill to Full; the app always sends an
+            // explicit value (Full=1 / Managerial=2, never the CLR 0) so the default only
+            // ever applies to the historical-row backfill, never to a live insert.
+            entity.Property(s => s.PlanType)
+                .HasDefaultValue(SubscriptionPlanType.Full);
+
             // EncryptedPaymentDetails: nvarchar(max) by default — no explicit mapping needed.
 
             // ── Indexes ──────────────────────────────────────────────────
