@@ -1,4 +1,6 @@
-﻿namespace Edvanz.Application.Dtos.Teacher;
+﻿using Edvanz.Domain.Enums;
+
+namespace Edvanz.Application.Dtos.Teacher;
 
 /// <summary>
 /// Output DTO for a teacher's subscription record.
@@ -8,6 +10,13 @@ public class TeacherSubscriptionDto
 {
     public long Id { get; set; }
     public string SubscriptionStatus { get; set; } = null!;
+
+    /// <summary>
+    /// Plan type: Full (students/parents allowed) or Managerial (students/parents blocked).
+    /// Serialized as a string via the global JsonStringEnumConverter.
+    /// </summary>
+    public SubscriptionPlanType PlanType { get; set; }
+
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
 

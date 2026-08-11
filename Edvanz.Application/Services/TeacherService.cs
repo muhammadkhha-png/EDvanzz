@@ -677,6 +677,7 @@ public class TeacherService : ITeacherService
         {
             Id = currentSub.Id,
             SubscriptionStatus = derivedStatus.ToString(),
+            PlanType = currentSub.PlanType,
             StartDate = currentSub.StartDate,
             EndDate = currentSub.EndDate,
             DaysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(currentSub, now)
