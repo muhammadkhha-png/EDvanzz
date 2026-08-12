@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -1949,5 +1949,356 @@
   </data>
 <data name="FcmTokenUnregistered" xml:space="preserve">
     <value>تم إلغاء تسجيل الجهاز من الإشعارات الفورية</value>
+  </data>
+  <data name="PermissionDenied" xml:space="preserve">
+    <value>You don't have the permission required to perform this action.</value>
+  </data>
+  <data name="RoleNotAllowed" xml:space="preserve">
+    <value>Your account type isn't permitted to perform this action.</value>
+  </data>
+  <data name="AuthenticationRequired" xml:space="preserve">
+    <value>You must be logged in to perform this action.</value>
+  </data>
+  <data name="TokenInvalidated" xml:space="preserve">
+    <value>Your session is no longer valid. Please log in again.</value>
+  </data>
+  <data name="Module_Student" xml:space="preserve">
+    <value>Students</value>
+  </data>
+  <data name="Module_Session" xml:space="preserve">
+    <value>Sessions</value>
+  </data>
+  <data name="Module_Attendance" xml:space="preserve">
+    <value>Attendance</value>
+  </data>
+  <data name="Module_Payment" xml:space="preserve">
+    <value>Payments</value>
+  </data>
+  <data name="Module_EventBasedPayment" xml:space="preserve">
+    <value>Event Payments</value>
+  </data>
+  <data name="Module_ExamsAndHomework" xml:space="preserve">
+    <value>Exams &amp; Homework</value>
+  </data>
+  <data name="Module_Messaging" xml:space="preserve">
+    <value>Messaging</value>
+  </data>
+  <data name="Module_Videos" xml:space="preserve">
+    <value>Videos</value>
+  </data>
+  <data name="Module_OnlineExam" xml:space="preserve">
+    <value>Online Exams</value>
+  </data>
+  <data name="Permission_Student_ViewList" xml:space="preserve">
+    <value>View Student List</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewList" xml:space="preserve">
+    <value>Allows viewing the list of enrolled students.</value>
+  </data>
+  <data name="Permission_Student_ViewProfile" xml:space="preserve">
+    <value>View Student Profile</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewProfile" xml:space="preserve">
+    <value>Allows viewing a single student's profile details.</value>
+  </data>
+  <data name="Permission_Student_Add" xml:space="preserve">
+    <value>Add Student</value>
+  </data>
+  <data name="PermissionDescription_Student_Add" xml:space="preserve">
+    <value>Allows adding a new student to the roster.</value>
+  </data>
+  <data name="Permission_Student_Edit" xml:space="preserve">
+    <value>Edit Student</value>
+  </data>
+  <data name="PermissionDescription_Student_Edit" xml:space="preserve">
+    <value>Allows editing an existing student's details.</value>
+  </data>
+  <data name="Permission_Student_Delete" xml:space="preserve">
+    <value>Delete Student</value>
+  </data>
+  <data name="PermissionDescription_Student_Delete" xml:space="preserve">
+    <value>Allows removing a student from the roster.</value>
+  </data>
+  <data name="Permission_Student_Import" xml:space="preserve">
+    <value>Import Students</value>
+  </data>
+  <data name="PermissionDescription_Student_Import" xml:space="preserve">
+    <value>Allows bulk-importing students from a file.</value>
+  </data>
+  <data name="Permission_Student_ExportReports" xml:space="preserve">
+    <value>Export Student Reports</value>
+  </data>
+  <data name="PermissionDescription_Student_ExportReports" xml:space="preserve">
+    <value>Allows exporting student data and reports.</value>
+  </data>
+  <data name="Permission_Student_ViewBarcodes" xml:space="preserve">
+    <value>View Student Barcodes</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewBarcodes" xml:space="preserve">
+    <value>Allows viewing and printing student ID barcodes.</value>
+  </data>
+  <data name="Permission_Session_View" xml:space="preserve">
+    <value>View Sessions</value>
+  </data>
+  <data name="PermissionDescription_Session_View" xml:space="preserve">
+    <value>Allows viewing the session schedule.</value>
+  </data>
+  <data name="Permission_Session_Create" xml:space="preserve">
+    <value>Create Session</value>
+  </data>
+  <data name="PermissionDescription_Session_Create" xml:space="preserve">
+    <value>Allows creating a new session.</value>
+  </data>
+  <data name="Permission_Session_Edit" xml:space="preserve">
+    <value>Edit Session</value>
+  </data>
+  <data name="PermissionDescription_Session_Edit" xml:space="preserve">
+    <value>Allows editing an existing session's details.</value>
+  </data>
+  <data name="Permission_Session_Delete" xml:space="preserve">
+    <value>Delete Session</value>
+  </data>
+  <data name="PermissionDescription_Session_Delete" xml:space="preserve">
+    <value>Allows deleting a session.</value>
+  </data>
+  <data name="Permission_Session_ViewGroups" xml:space="preserve">
+    <value>View Session Groups</value>
+  </data>
+  <data name="PermissionDescription_Session_ViewGroups" xml:space="preserve">
+    <value>Allows viewing session groups.</value>
+  </data>
+  <data name="Permission_Session_AssignStudents" xml:space="preserve">
+    <value>Assign Students to Session</value>
+  </data>
+  <data name="PermissionDescription_Session_AssignStudents" xml:space="preserve">
+    <value>Allows assigning students to a session.</value>
+  </data>
+  <data name="Permission_Session_ManageGroups" xml:space="preserve">
+    <value>Manage Session Groups</value>
+  </data>
+  <data name="PermissionDescription_Session_ManageGroups" xml:space="preserve">
+    <value>Allows creating and managing session groups.</value>
+  </data>
+  <data name="Permission_Session_ViewMembership" xml:space="preserve">
+    <value>View Session Membership</value>
+  </data>
+  <data name="PermissionDescription_Session_ViewMembership" xml:space="preserve">
+    <value>Allows viewing which students belong to a session.</value>
+  </data>
+  <data name="Permission_Session_ManageMembership" xml:space="preserve">
+    <value>Manage Session Membership</value>
+  </data>
+  <data name="PermissionDescription_Session_ManageMembership" xml:space="preserve">
+    <value>Allows adding or removing students from a session.</value>
+  </data>
+  <data name="Permission_Attendance_Take" xml:space="preserve">
+    <value>Take Attendance</value>
+  </data>
+  <data name="PermissionDescription_Attendance_Take" xml:space="preserve">
+    <value>Allows recording student attendance for a session.</value>
+  </data>
+  <data name="Permission_Attendance_Edit" xml:space="preserve">
+    <value>Edit Attendance</value>
+  </data>
+  <data name="PermissionDescription_Attendance_Edit" xml:space="preserve">
+    <value>Allows editing a previously recorded attendance entry.</value>
+  </data>
+  <data name="Permission_Attendance_ViewHistory" xml:space="preserve">
+    <value>View Attendance History</value>
+  </data>
+  <data name="PermissionDescription_Attendance_ViewHistory" xml:space="preserve">
+    <value>Allows viewing past attendance records.</value>
+  </data>
+  <data name="Permission_Attendance_ViewAbsenceOverview" xml:space="preserve">
+    <value>View Absence Overview</value>
+  </data>
+  <data name="PermissionDescription_Attendance_ViewAbsenceOverview" xml:space="preserve">
+    <value>Allows viewing the absence overview across students.</value>
+  </data>
+  <data name="Permission_Attendance_GenerateReports" xml:space="preserve">
+    <value>Generate Attendance Reports</value>
+  </data>
+  <data name="PermissionDescription_Attendance_GenerateReports" xml:space="preserve">
+    <value>Allows generating and exporting attendance reports.</value>
+  </data>
+  <data name="Permission_Payment_Collect" xml:space="preserve">
+    <value>Collect Payment</value>
+  </data>
+  <data name="PermissionDescription_Payment_Collect" xml:space="preserve">
+    <value>Allows collecting a payment from a student.</value>
+  </data>
+  <data name="Permission_Payment_ViewHistory" xml:space="preserve">
+    <value>View Payment History</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewHistory" xml:space="preserve">
+    <value>Allows viewing a student's payment history.</value>
+  </data>
+  <data name="Permission_Payment_EditHistory" xml:space="preserve">
+    <value>Edit Payment History</value>
+  </data>
+  <data name="PermissionDescription_Payment_EditHistory" xml:space="preserve">
+    <value>Allows editing or deleting a previously recorded payment. Restricted — carries financial risk.</value>
+  </data>
+  <data name="Permission_Payment_ViewUnpaidStudents" xml:space="preserve">
+    <value>View Unpaid Students</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewUnpaidStudents" xml:space="preserve">
+    <value>Allows viewing the list of students with unpaid balances.</value>
+  </data>
+  <data name="Permission_Payment_ViewCollectorSummary" xml:space="preserve">
+    <value>View Collector Summary</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewCollectorSummary" xml:space="preserve">
+    <value>Allows viewing a summary of amounts collected by collector.</value>
+  </data>
+  <data name="Permission_Payment_GenerateReports" xml:space="preserve">
+    <value>Generate Payment Reports</value>
+  </data>
+  <data name="PermissionDescription_Payment_GenerateReports" xml:space="preserve">
+    <value>Allows generating and exporting payment reports.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_View" xml:space="preserve">
+    <value>View Events</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_View" xml:space="preserve">
+    <value>Allows viewing payment events.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Create" xml:space="preserve">
+    <value>Create Event</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Create" xml:space="preserve">
+    <value>Allows creating a new payment event.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Edit" xml:space="preserve">
+    <value>Edit Event</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Edit" xml:space="preserve">
+    <value>Allows editing an existing payment event.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Delete" xml:space="preserve">
+    <value>Delete Event</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Delete" xml:space="preserve">
+    <value>Allows deleting a payment event.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_CollectPayment" xml:space="preserve">
+    <value>Collect Event Payment</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_CollectPayment" xml:space="preserve">
+    <value>Allows collecting payment for an event.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_GenerateReports" xml:space="preserve">
+    <value>Generate Event Reports</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_GenerateReports" xml:space="preserve">
+    <value>Allows generating and exporting event payment reports.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_View" xml:space="preserve">
+    <value>View Assignments</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_View" xml:space="preserve">
+    <value>Allows viewing exam and homework assignments.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Create" xml:space="preserve">
+    <value>Create Assignment</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Create" xml:space="preserve">
+    <value>Allows creating a new exam or homework assignment.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Edit" xml:space="preserve">
+    <value>Edit Assignment</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Edit" xml:space="preserve">
+    <value>Allows editing an existing assignment.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Delete" xml:space="preserve">
+    <value>Delete Assignment</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Delete" xml:space="preserve">
+    <value>Allows deleting an assignment.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_RecordExamAttendanceAndGrades" xml:space="preserve">
+    <value>Record Exam Attendance &amp; Grades</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_RecordExamAttendanceAndGrades" xml:space="preserve">
+    <value>Allows recording exam attendance and grades.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_RecordHomeworkCompletion" xml:space="preserve">
+    <value>Record Homework Completion</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_RecordHomeworkCompletion" xml:space="preserve">
+    <value>Allows recording whether a student completed their homework.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_EnterPendingGrades" xml:space="preserve">
+    <value>Enter Pending Grades</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_EnterPendingGrades" xml:space="preserve">
+    <value>Allows entering grades that were left pending.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_GenerateReports" xml:space="preserve">
+    <value>Generate Assignment Reports</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_GenerateReports" xml:space="preserve">
+    <value>Allows generating and exporting exam/homework reports.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_ManageAssignments" xml:space="preserve">
+    <value>Manage Assignments</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_ManageAssignments" xml:space="preserve">
+    <value>Allows full management of exam/homework assignment templates and their configuration.</value>
+  </data>
+  <data name="Permission_Messaging_ViewHistory" xml:space="preserve">
+    <value>View Message History</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ViewHistory" xml:space="preserve">
+    <value>Allows viewing sent message history.</value>
+  </data>
+  <data name="Permission_Messaging_SendManual" xml:space="preserve">
+    <value>Send Manual Message</value>
+  </data>
+  <data name="PermissionDescription_Messaging_SendManual" xml:space="preserve">
+    <value>Allows manually sending a message to students or parents.</value>
+  </data>
+  <data name="Permission_Messaging_ManageTemplates" xml:space="preserve">
+    <value>Manage Message Templates</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ManageTemplates" xml:space="preserve">
+    <value>Allows creating and editing message templates.</value>
+  </data>
+  <data name="Permission_Messaging_ConfigureAutomatedTriggers" xml:space="preserve">
+    <value>Configure Automated Triggers</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ConfigureAutomatedTriggers" xml:space="preserve">
+    <value>Allows configuring automated message triggers.</value>
+  </data>
+  <data name="Permission_Videos_View" xml:space="preserve">
+    <value>View Videos</value>
+  </data>
+  <data name="PermissionDescription_Videos_View" xml:space="preserve">
+    <value>Allows viewing uploaded videos.</value>
+  </data>
+  <data name="Permission_Videos_ManageVideos" xml:space="preserve">
+    <value>Manage Videos</value>
+  </data>
+  <data name="PermissionDescription_Videos_ManageVideos" xml:space="preserve">
+    <value>Allows uploading, editing, and deleting videos.</value>
+  </data>
+  <data name="Permission_OnlineExam_View" xml:space="preserve">
+    <value>View Online Exams</value>
+  </data>
+  <data name="PermissionDescription_OnlineExam_View" xml:space="preserve">
+    <value>Allows viewing online exams.</value>
+  </data>
+  <data name="Permission_OnlineExam_ManageExams" xml:space="preserve">
+    <value>Manage Online Exams</value>
+  </data>
+  <data name="PermissionDescription_OnlineExam_ManageExams" xml:space="preserve">
+    <value>Allows creating, editing, and managing online exams.</value>
+  </data>
+  <data name="Permission_Payment_ConfirmDeparture" xml:space="preserve">
+    <value>Confirm Student Departure &amp; Refund</value>
+  </data>
+  <data name="PermissionDescription_Payment_ConfirmDeparture" xml:space="preserve">
+    <value>Allows confirming a student's course withdrawal and processing the associated refund or owed-amount settlement.</value>
   </data>
 </root>

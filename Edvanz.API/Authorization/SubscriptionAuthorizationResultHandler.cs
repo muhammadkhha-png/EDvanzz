@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Edvanz.Application.Security;
 using Edvanz.Domain.Resources;
 using Microsoft.AspNetCore.Authorization;
@@ -9,15 +9,21 @@ using Microsoft.Extensions.Localization;
 namespace Edvanz.API.Authorization;
 
 /// <summary>
-/// Custom <see cref="IAuthorizationMiddlewareResultHandler"/> that intercepts Forbidden results
-/// caused by known, user-actionable reasons and returns a clear, localized envelope instead of
-/// the framework's bare, body-less 403:
+/// Custom <see cref="IAuthorizationMiddlewareResultHandler"/> that intercepts two categories of
+/// framework outcome that otherwise reach the client as a bare, body-less response, and returns a
+/// clear, localized envelope instead:
 ///
-///   - <see cref="ActiveSubscriptionHandler.SubscriptionRequiredReason"/> → "please subscribe"
-///   - <see cref="PermissionHandler.ModuleNotAssignedReason"/> → "module not assigned to your account"
+///   Forbidden (403), for known, user-actionable reasons:
+///     - <see cref="ActiveSubscriptionHandler.SubscriptionRequiredReason"/> → "please subscribe"
+///     - <see cref="PermissionHandler.ModuleNotAssignedReason"/> → "module not assigned to your account"
 ///
-/// All other authorization outcomes (unauthenticated 401, other Forbidden reasons, success) are
-/// delegated unchanged to the framework's default handler. Envelope shape matches ApiBaseController.
+///   Challenged (401), i.e. the request carried no valid authenticated principal at all when it hit
+///   the global FallbackPolicy's RequireAuthenticatedUser() — distinct from
+///   SecurityStampValidationMiddleware's 401s, which cover a token that WAS present but is stale/
+///   invalid/revoked. This branch covers "no token / unparseable token" specifically.
+///
+/// All other authorization outcomes (other Forbidden reasons, success) are delegated unchanged to
+/// the framework's default handler. Envelope shape matches ApiBaseController.
 /// </summary>
 public sealed class SubscriptionAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -47,7 +53,7 @@ public sealed class SubscriptionAuthorizationResultHandler : IAuthorizationMiddl
 
             if (blockedForSubscription)
             {
-                await WriteEnvelopeAsync(context, "SubscriptionRequired", "subscriptionRequired");
+                await WriteEnvelopeAsync(context, "SubscriptionRequired", "subscriptionRequired", StatusCodes.Status403Forbidden);
                 return;
             }
 
@@ -56,21 +62,31 @@ public sealed class SubscriptionAuthorizationResultHandler : IAuthorizationMiddl
 
             if (blockedForMissingModule)
             {
-                await WriteEnvelopeAsync(context, "ModuleNotAssigned", "moduleAccessDenied");
+                await WriteEnvelopeAsync(context, "ModuleNotAssigned", "moduleAccessDenied", StatusCodes.Status403Forbidden);
                 return;
             }
+        }
+
+        // Unauthenticated: no principal reached us at all (missing/malformed Bearer token). A
+        // present-but-invalid token is instead caught earlier and 401'd by
+        // SecurityStampValidationMiddleware, which never lets an authenticated-but-stale principal
+        // reach here Forbidden — so this branch is specifically the "you never logged in" case.
+        if (authorizeResult.Challenged && !authenticated)
+        {
+            await WriteEnvelopeAsync(context, "AuthenticationRequired", "authenticationRequired", StatusCodes.Status401Unauthorized);
+            return;
         }
 
         await Default.HandleAsync(next, context, policy, authorizeResult);
     }
 
     /// <summary>
-    /// Writes the standard 403 envelope for a known, user-actionable Forbidden reason:
+    /// Writes the standard envelope for a known, user-actionable authorization outcome:
     /// <c>{ success: false, message: &lt;localized&gt;, [flagKey]: true }</c>.
     /// </summary>
-    private async Task WriteEnvelopeAsync(HttpContext context, string messageKey, string flagKey)
+    private async Task WriteEnvelopeAsync(HttpContext context, string messageKey, string flagKey, int statusCode)
     {
-        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json; charset=utf-8";
 
         var payload = JsonSerializer.Serialize(new Dictionary<string, object>

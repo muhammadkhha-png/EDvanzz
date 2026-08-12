@@ -263,6 +263,16 @@ public static class PaymentConstants
     /// <summary>Generate Payment Reports — allows tutor/assistant to generate and export reports (REQ-USR-018).</summary>
     public const string PermissionGenerateReports = "GenerateReports";
 
+    /// <summary>
+    /// Confirm Student Departure — allows tutor/assistant to confirm a student's course
+    /// withdrawal and process the associated refund or owed-amount settlement
+    /// (<c>PaymentController.ConfirmDeparture</c> / <c>PaymentService.ConfirmDepartureAsync</c>).
+    /// Replaces the previous <c>roleOnly: ["Teacher","SuperAdmin"]</c> gate on that endpoint —
+    /// Teachers/SuperAdmin still pass automatically (module-only / bypass), Assistants now
+    /// require this specific grant since it moves money.
+    /// </summary>
+    public const string PermissionConfirmDeparture = "ConfirmDeparture";
+
     // ══════════════════════════════════════════════
     // PERMISSION NAMES — EVENT-BASED PAYMENT MODULE
     // Values MUST match the Names seeded under the "Event-Based Payment" module.

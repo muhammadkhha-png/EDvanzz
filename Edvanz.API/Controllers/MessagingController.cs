@@ -105,7 +105,7 @@ namespace Edvanz.API.Controllers
         /// GET /api/messaging/templates
         [HttpGet("templates")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.MessageTemplateComponents.MessageTemplateSummaryDto>>>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> GetTemplates([FromQuery]TemplatesfilterReqDto req)
             => ToResponse(await _templateService.GetAllAsync(req));
 
@@ -113,7 +113,7 @@ namespace Edvanz.API.Controllers
         /// GET /api/messaging/templates/{id}
         [HttpGet("templates/details")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.MessageTemplateComponents.MessageTemplateDetailDto>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
 
         public async Task<IActionResult> GetTemplate([FromQuery]MessageTemplateReq req)
             => ToResponse(await _templateService.GetByIdAsync(req.teacherId, req.templateId));
@@ -121,7 +121,7 @@ namespace Edvanz.API.Controllers
         /// POST /api/messaging/templates
         [HttpPost("templates")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
 
         public async Task<IActionResult> CreateTemplate([FromBody] CreateMessageTemplateDto dto)
         {
@@ -132,7 +132,7 @@ namespace Edvanz.API.Controllers
         /// PUT /api/messaging/templates/{id}
         [HttpPut("templates")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> UpdateTemplate( [FromBody] UpdateMessageTemplateDto dto)
         {
            
@@ -143,21 +143,21 @@ namespace Edvanz.API.Controllers
         /// DELETE /api/messaging/templates/{id}
         [HttpDelete("templates")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> DeleteTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.DeleteAsync(req.teacherId, req.templateId));
 
         /// PATCH /api/messaging/templates/{id}/activate
         [HttpPatch("templates/activate")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> ActivateTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.ToggleActiveAsync(req.teacherId, req.templateId, true));
 
         /// PATCH /api/messaging/templates/{id}/deactivate
         [HttpPatch("templates/deactivate")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ManageTemplates", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> DeactivateTemplate(MessageTemplateReq req)
             => ToResponse(await _templateService.ToggleActiveAsync(req.teacherId, req.templateId, false));
         #endregion
@@ -166,28 +166,28 @@ namespace Edvanz.API.Controllers
         /// GET /api/messaging/triggers
         [HttpGet("triggers/all")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.TriggerDtos.TriggerDto>>>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> GetTriggers([FromQuery]TriggerFiltetrReq req)
             => ToResponse(await _triggerService.GetPagedAsync(req));
 
         /// GET /api/messaging/triggers/{id}
         [HttpGet("trigger/details")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.TriggerDtos.TriggerDto>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> GetTrigger(TriggerReqDto req)
             => ToResponse(await _triggerService.GetByIdAsync(req.teacherId, req.triggerId));
 
         /// POST /api/messaging/triggers
         [HttpPost("triggers")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> CreateTrigger([FromBody] CreateTriggerDto dto)
             => ToResponse(await _triggerService.CreateAsync(dto.teacherId, dto));
 
         /// PUT /api/messaging/triggers/{id}
         [HttpPut("triggers/{id:long}")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> UpdateTrigger(long id, [FromBody] UpdateTriggerDto dto)
         {
             if (dto.TriggerId != id)
@@ -203,7 +203,7 @@ namespace Edvanz.API.Controllers
         /// DELETE /api/messaging/triggers/{id}
         [HttpDelete("triggers/{id:long}")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
         public async Task<IActionResult> DeleteTrigger(long id,TriggerReqDto req)
         {
             if (req.triggerId != id)
@@ -217,7 +217,7 @@ namespace Edvanz.API.Controllers
         /// PATCH /api/messaging/triggers/{id}/activate
         [HttpPatch("triggers/{id:long}/activate")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
 
         public async Task<IActionResult> ActivateTrigger(long id ,TriggerReqDto req)
         {
@@ -231,7 +231,7 @@ namespace Edvanz.API.Controllers
         /// PATCH /api/messaging/triggers/{id}/deactivate
         [HttpPatch("triggers/{id:long}/deactivate")]
         [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
-        [ModulePermission("Messaging", "Messaging.ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
+        [ModulePermission("Messaging", "ConfigureAutomatedTriggers", ["Teacher", "SuperAdmin", "Assistant"])]
 
         public async Task<IActionResult> DeactivateTrigger(long id ,TriggerReqDto req)
         {

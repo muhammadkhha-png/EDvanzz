@@ -1,4 +1,4 @@
-using Edvanz.API.Attributes;
+﻿using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -628,12 +628,16 @@ public sealed class PaymentController : ModuleSixApiBaseController
     //   Confirms a student departure: unassigns, records event, handles refund/charge.
     //   REQ-PAY-073/075: Departure confirmed, optional tutor override.
     //
-    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    // AUTH: Payment.ConfirmDeparture permission (module-gated, not role-only).
+    //   Teacher/SuperAdmin still pass automatically — Teacher via the module-only gate,
+    //   SuperAdmin via the unconditional bypass in PermissionHandler. Assistants must now
+    //   hold the dedicated ConfirmDeparture permission (it moves money) rather than being
+    //   excluded outright as before.
     //   ConfirmedByUserId sourced from JWT — never from request body.
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("departure/confirm")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionConfirmDeparture)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentDepartureDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]

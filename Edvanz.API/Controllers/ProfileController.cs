@@ -74,7 +74,7 @@ namespace Edvanz.API.Controllers
         // Get single profile with its permissions (REQ-USR-014)
         // Access: Teacher | SuperAdmin
         [HttpGet("{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(ProfilePermissionDto), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetById(long id)
@@ -90,7 +90,7 @@ namespace Edvanz.API.Controllers
         // teacherId injected from JWT — client never sends it
         // Access: Teacher | SuperAdmin
         [HttpPost]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status201Created)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Create([FromBody] CreatePermissionsProfileDto dto)
@@ -107,7 +107,7 @@ namespace Edvanz.API.Controllers
         // Note: editing permissions syncs all assistants who have this template
         // Access: Teacher | SuperAdmin
         [HttpPut("{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -128,7 +128,7 @@ namespace Edvanz.API.Controllers
         // (safely — protected permissions from other templates are kept)
         // Access: Teacher | SuperAdmin
         [HttpDelete("{id:long}")]
-        [ModulePermission("Assistants")]
+        [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
         [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> Delete(long id)

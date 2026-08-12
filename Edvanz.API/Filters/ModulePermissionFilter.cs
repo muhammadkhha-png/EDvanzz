@@ -52,7 +52,7 @@ namespace Edvanz.API.Filters
                 if (_roles.Any(r => user.IsInRole(r)))
                     return;
 
-                context.Result = ForbidWithMessage(_localizer["Unauthorized"].Value, "roleNotAllowed");
+                context.Result = ForbidWithMessage(_localizer["RoleNotAllowed"].Value, "roleNotAllowed");
                 return;
             }
 
@@ -67,7 +67,7 @@ namespace Edvanz.API.Filters
 
             context.Result = moduleNotAssigned
                 ? ForbidWithMessage(_localizer["ModuleNotAssigned"].Value, "moduleAccessDenied")
-                : ForbidWithMessage(_localizer["Unauthorized"].Value, "permissionDenied");
+                : ForbidWithMessage(_localizer["PermissionDenied"].Value, "permissionDenied");
         }
 
         /// <summary>

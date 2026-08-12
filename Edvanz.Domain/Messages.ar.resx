@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -1937,5 +1937,356 @@
   </data>
   <data name="FcmTokenUnregistered" xml:space="preserve">
     <value>تم إلغاء تسجيل الجهاز من الإشعارات الفورية</value>
+  </data>
+  <data name="PermissionDenied" xml:space="preserve">
+    <value>معندكش الصلاحية اللازمة عشان تعمل العملية دي</value>
+  </data>
+  <data name="RoleNotAllowed" xml:space="preserve">
+    <value>نوع حسابك مش مسموح له يعمل العملية دي</value>
+  </data>
+  <data name="AuthenticationRequired" xml:space="preserve">
+    <value>لازم تسجل دخول الأول عشان تعمل العملية دي</value>
+  </data>
+  <data name="TokenInvalidated" xml:space="preserve">
+    <value>جلستك خلصت. سجّل دخول تاني.</value>
+  </data>
+  <data name="Module_Student" xml:space="preserve">
+    <value>الطلاب</value>
+  </data>
+  <data name="Module_Session" xml:space="preserve">
+    <value>الحصص</value>
+  </data>
+  <data name="Module_Attendance" xml:space="preserve">
+    <value>الحضور والغياب</value>
+  </data>
+  <data name="Module_Payment" xml:space="preserve">
+    <value>المدفوعات</value>
+  </data>
+  <data name="Module_EventBasedPayment" xml:space="preserve">
+    <value>مدفوعات الفعاليات</value>
+  </data>
+  <data name="Module_ExamsAndHomework" xml:space="preserve">
+    <value>الامتحانات والواجبات</value>
+  </data>
+  <data name="Module_Messaging" xml:space="preserve">
+    <value>الرسائل</value>
+  </data>
+  <data name="Module_Videos" xml:space="preserve">
+    <value>الفيديوهات</value>
+  </data>
+  <data name="Module_OnlineExam" xml:space="preserve">
+    <value>الامتحانات الأونلاين</value>
+  </data>
+  <data name="Permission_Student_ViewList" xml:space="preserve">
+    <value>عرض قائمة الطلاب</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewList" xml:space="preserve">
+    <value>بيسمح بعرض قائمة الطلاب المسجلين.</value>
+  </data>
+  <data name="Permission_Student_ViewProfile" xml:space="preserve">
+    <value>عرض ملف الطالب</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewProfile" xml:space="preserve">
+    <value>بيسمح بعرض تفاصيل ملف طالب معين.</value>
+  </data>
+  <data name="Permission_Student_Add" xml:space="preserve">
+    <value>إضافة طالب</value>
+  </data>
+  <data name="PermissionDescription_Student_Add" xml:space="preserve">
+    <value>بيسمح بإضافة طالب جديد للقائمة.</value>
+  </data>
+  <data name="Permission_Student_Edit" xml:space="preserve">
+    <value>تعديل بيانات الطالب</value>
+  </data>
+  <data name="PermissionDescription_Student_Edit" xml:space="preserve">
+    <value>بيسمح بتعديل بيانات طالب موجود.</value>
+  </data>
+  <data name="Permission_Student_Delete" xml:space="preserve">
+    <value>حذف طالب</value>
+  </data>
+  <data name="PermissionDescription_Student_Delete" xml:space="preserve">
+    <value>بيسمح بحذف طالب من القائمة.</value>
+  </data>
+  <data name="Permission_Student_Import" xml:space="preserve">
+    <value>استيراد طلاب</value>
+  </data>
+  <data name="PermissionDescription_Student_Import" xml:space="preserve">
+    <value>بيسمح باستيراد مجموعة طلاب دفعة واحدة من ملف.</value>
+  </data>
+  <data name="Permission_Student_ExportReports" xml:space="preserve">
+    <value>تصدير تقارير الطلاب</value>
+  </data>
+  <data name="PermissionDescription_Student_ExportReports" xml:space="preserve">
+    <value>بيسمح بتصدير بيانات وتقارير الطلاب.</value>
+  </data>
+  <data name="Permission_Student_ViewBarcodes" xml:space="preserve">
+    <value>عرض باركود الطلاب</value>
+  </data>
+  <data name="PermissionDescription_Student_ViewBarcodes" xml:space="preserve">
+    <value>بيسمح بعرض وطباعة أكواد الباركود الخاصة بالطلاب.</value>
+  </data>
+  <data name="Permission_Session_View" xml:space="preserve">
+    <value>عرض الحصص</value>
+  </data>
+  <data name="PermissionDescription_Session_View" xml:space="preserve">
+    <value>بيسمح بعرض جدول الحصص.</value>
+  </data>
+  <data name="Permission_Session_Create" xml:space="preserve">
+    <value>إنشاء حصة</value>
+  </data>
+  <data name="PermissionDescription_Session_Create" xml:space="preserve">
+    <value>بيسمح بإنشاء حصة جديدة.</value>
+  </data>
+  <data name="Permission_Session_Edit" xml:space="preserve">
+    <value>تعديل الحصة</value>
+  </data>
+  <data name="PermissionDescription_Session_Edit" xml:space="preserve">
+    <value>بيسمح بتعديل بيانات حصة موجودة.</value>
+  </data>
+  <data name="Permission_Session_Delete" xml:space="preserve">
+    <value>حذف حصة</value>
+  </data>
+  <data name="PermissionDescription_Session_Delete" xml:space="preserve">
+    <value>بيسمح بحذف حصة.</value>
+  </data>
+  <data name="Permission_Session_ViewGroups" xml:space="preserve">
+    <value>عرض مجموعات الحصص</value>
+  </data>
+  <data name="PermissionDescription_Session_ViewGroups" xml:space="preserve">
+    <value>بيسمح بعرض مجموعات الحصص.</value>
+  </data>
+  <data name="Permission_Session_AssignStudents" xml:space="preserve">
+    <value>تعيين طلاب للحصة</value>
+  </data>
+  <data name="PermissionDescription_Session_AssignStudents" xml:space="preserve">
+    <value>بيسمح بتعيين طلاب على حصة معينة.</value>
+  </data>
+  <data name="Permission_Session_ManageGroups" xml:space="preserve">
+    <value>إدارة مجموعات الحصص</value>
+  </data>
+  <data name="PermissionDescription_Session_ManageGroups" xml:space="preserve">
+    <value>بيسمح بإنشاء وإدارة مجموعات الحصص.</value>
+  </data>
+  <data name="Permission_Session_ViewMembership" xml:space="preserve">
+    <value>عرض أعضاء الحصة</value>
+  </data>
+  <data name="PermissionDescription_Session_ViewMembership" xml:space="preserve">
+    <value>بيسمح بعرض الطلاب المسجلين في حصة معينة.</value>
+  </data>
+  <data name="Permission_Session_ManageMembership" xml:space="preserve">
+    <value>إدارة أعضاء الحصة</value>
+  </data>
+  <data name="PermissionDescription_Session_ManageMembership" xml:space="preserve">
+    <value>بيسمح بإضافة أو إزالة طلاب من حصة معينة.</value>
+  </data>
+  <data name="Permission_Attendance_Take" xml:space="preserve">
+    <value>تسجيل الحضور</value>
+  </data>
+  <data name="PermissionDescription_Attendance_Take" xml:space="preserve">
+    <value>بيسمح بتسجيل حضور الطلاب في الحصة.</value>
+  </data>
+  <data name="Permission_Attendance_Edit" xml:space="preserve">
+    <value>تعديل الحضور</value>
+  </data>
+  <data name="PermissionDescription_Attendance_Edit" xml:space="preserve">
+    <value>بيسمح بتعديل تسجيل حضور تم إدخاله من قبل.</value>
+  </data>
+  <data name="Permission_Attendance_ViewHistory" xml:space="preserve">
+    <value>عرض سجل الحضور</value>
+  </data>
+  <data name="PermissionDescription_Attendance_ViewHistory" xml:space="preserve">
+    <value>بيسمح بعرض سجل الحضور السابق.</value>
+  </data>
+  <data name="Permission_Attendance_ViewAbsenceOverview" xml:space="preserve">
+    <value>عرض نظرة عامة على الغياب</value>
+  </data>
+  <data name="PermissionDescription_Attendance_ViewAbsenceOverview" xml:space="preserve">
+    <value>بيسمح بعرض نظرة عامة على غياب الطلاب.</value>
+  </data>
+  <data name="Permission_Attendance_GenerateReports" xml:space="preserve">
+    <value>إصدار تقارير الحضور</value>
+  </data>
+  <data name="PermissionDescription_Attendance_GenerateReports" xml:space="preserve">
+    <value>بيسمح بإصدار وتصدير تقارير الحضور.</value>
+  </data>
+  <data name="Permission_Payment_Collect" xml:space="preserve">
+    <value>تحصيل المدفوعات</value>
+  </data>
+  <data name="PermissionDescription_Payment_Collect" xml:space="preserve">
+    <value>بيسمح بتحصيل دفعة من الطالب.</value>
+  </data>
+  <data name="Permission_Payment_ViewHistory" xml:space="preserve">
+    <value>عرض سجل المدفوعات</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewHistory" xml:space="preserve">
+    <value>بيسمح بعرض سجل مدفوعات الطالب.</value>
+  </data>
+  <data name="Permission_Payment_EditHistory" xml:space="preserve">
+    <value>تعديل سجل المدفوعات</value>
+  </data>
+  <data name="PermissionDescription_Payment_EditHistory" xml:space="preserve">
+    <value>بيسمح بتعديل أو حذف دفعة مسجلة من قبل. صلاحية مقيّدة لأنها بتمس البيانات المالية.</value>
+  </data>
+  <data name="Permission_Payment_ViewUnpaidStudents" xml:space="preserve">
+    <value>عرض الطلاب غير المسددين</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewUnpaidStudents" xml:space="preserve">
+    <value>بيسمح بعرض قائمة الطلاب اللي عندهم مبالغ غير مسددة.</value>
+  </data>
+  <data name="Permission_Payment_ViewCollectorSummary" xml:space="preserve">
+    <value>عرض ملخص التحصيل</value>
+  </data>
+  <data name="PermissionDescription_Payment_ViewCollectorSummary" xml:space="preserve">
+    <value>بيسمح بعرض ملخص المبالغ المحصّلة لكل محصّل.</value>
+  </data>
+  <data name="Permission_Payment_GenerateReports" xml:space="preserve">
+    <value>إصدار تقارير المدفوعات</value>
+  </data>
+  <data name="PermissionDescription_Payment_GenerateReports" xml:space="preserve">
+    <value>بيسمح بإصدار وتصدير تقارير المدفوعات.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_View" xml:space="preserve">
+    <value>عرض الفعاليات</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_View" xml:space="preserve">
+    <value>بيسمح بعرض فعاليات الدفع.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Create" xml:space="preserve">
+    <value>إنشاء فعالية</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Create" xml:space="preserve">
+    <value>بيسمح بإنشاء فعالية دفع جديدة.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Edit" xml:space="preserve">
+    <value>تعديل الفعالية</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Edit" xml:space="preserve">
+    <value>بيسمح بتعديل فعالية دفع موجودة.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_Delete" xml:space="preserve">
+    <value>حذف الفعالية</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_Delete" xml:space="preserve">
+    <value>بيسمح بحذف فعالية دفع.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_CollectPayment" xml:space="preserve">
+    <value>تحصيل دفعة الفعالية</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_CollectPayment" xml:space="preserve">
+    <value>بيسمح بتحصيل دفعة خاصة بفعالية معينة.</value>
+  </data>
+  <data name="Permission_EventBasedPayment_GenerateReports" xml:space="preserve">
+    <value>إصدار تقارير الفعاليات</value>
+  </data>
+  <data name="PermissionDescription_EventBasedPayment_GenerateReports" xml:space="preserve">
+    <value>بيسمح بإصدار وتصدير تقارير مدفوعات الفعاليات.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_View" xml:space="preserve">
+    <value>عرض الواجبات والامتحانات</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_View" xml:space="preserve">
+    <value>بيسمح بعرض الامتحانات والواجبات.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Create" xml:space="preserve">
+    <value>إنشاء واجب أو امتحان</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Create" xml:space="preserve">
+    <value>بيسمح بإنشاء امتحان أو واجب جديد.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Edit" xml:space="preserve">
+    <value>تعديل الواجب أو الامتحان</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Edit" xml:space="preserve">
+    <value>بيسمح بتعديل امتحان أو واجب موجود.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_Delete" xml:space="preserve">
+    <value>حذف الواجب أو الامتحان</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_Delete" xml:space="preserve">
+    <value>بيسمح بحذف امتحان أو واجب.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_RecordExamAttendanceAndGrades" xml:space="preserve">
+    <value>تسجيل حضور ودرجات الامتحان</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_RecordExamAttendanceAndGrades" xml:space="preserve">
+    <value>بيسمح بتسجيل حضور الامتحان ودرجاته.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_RecordHomeworkCompletion" xml:space="preserve">
+    <value>تسجيل إنجاز الواجب</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_RecordHomeworkCompletion" xml:space="preserve">
+    <value>بيسمح بتسجيل إنجاز الطالب للواجب.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_EnterPendingGrades" xml:space="preserve">
+    <value>إدخال الدرجات المعلّقة</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_EnterPendingGrades" xml:space="preserve">
+    <value>بيسمح بإدخال الدرجات اللي لسه معلّقة.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_GenerateReports" xml:space="preserve">
+    <value>إصدار تقارير الواجبات والامتحانات</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_GenerateReports" xml:space="preserve">
+    <value>بيسمح بإصدار وتصدير تقارير الامتحانات والواجبات.</value>
+  </data>
+  <data name="Permission_ExamsAndHomework_ManageAssignments" xml:space="preserve">
+    <value>إدارة الواجبات والامتحانات</value>
+  </data>
+  <data name="PermissionDescription_ExamsAndHomework_ManageAssignments" xml:space="preserve">
+    <value>بيسمح بالإدارة الكاملة لإعدادات الامتحانات والواجبات.</value>
+  </data>
+  <data name="Permission_Messaging_ViewHistory" xml:space="preserve">
+    <value>عرض سجل الرسائل</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ViewHistory" xml:space="preserve">
+    <value>بيسمح بعرض سجل الرسائل المرسلة.</value>
+  </data>
+  <data name="Permission_Messaging_SendManual" xml:space="preserve">
+    <value>إرسال رسالة يدوية</value>
+  </data>
+  <data name="PermissionDescription_Messaging_SendManual" xml:space="preserve">
+    <value>بيسمح بإرسال رسالة يدوية للطلاب أو أولياء الأمور.</value>
+  </data>
+  <data name="Permission_Messaging_ManageTemplates" xml:space="preserve">
+    <value>إدارة قوالب الرسائل</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ManageTemplates" xml:space="preserve">
+    <value>بيسمح بإنشاء وتعديل قوالب الرسائل.</value>
+  </data>
+  <data name="Permission_Messaging_ConfigureAutomatedTriggers" xml:space="preserve">
+    <value>إعداد الرسائل التلقائية</value>
+  </data>
+  <data name="PermissionDescription_Messaging_ConfigureAutomatedTriggers" xml:space="preserve">
+    <value>بيسمح بإعداد شروط إرسال الرسائل التلقائية.</value>
+  </data>
+  <data name="Permission_Videos_View" xml:space="preserve">
+    <value>عرض الفيديوهات</value>
+  </data>
+  <data name="PermissionDescription_Videos_View" xml:space="preserve">
+    <value>بيسمح بعرض الفيديوهات المرفوعة.</value>
+  </data>
+  <data name="Permission_Videos_ManageVideos" xml:space="preserve">
+    <value>إدارة الفيديوهات</value>
+  </data>
+  <data name="PermissionDescription_Videos_ManageVideos" xml:space="preserve">
+    <value>بيسمح برفع الفيديوهات وتعديلها وحذفها.</value>
+  </data>
+  <data name="Permission_OnlineExam_View" xml:space="preserve">
+    <value>عرض الامتحانات الأونلاين</value>
+  </data>
+  <data name="PermissionDescription_OnlineExam_View" xml:space="preserve">
+    <value>بيسمح بعرض الامتحانات الأونلاين.</value>
+  </data>
+  <data name="Permission_OnlineExam_ManageExams" xml:space="preserve">
+    <value>إدارة الامتحانات الأونلاين</value>
+  </data>
+  <data name="PermissionDescription_OnlineExam_ManageExams" xml:space="preserve">
+    <value>بيسمح بإنشاء وتعديل وإدارة الامتحانات الأونلاين.</value>
+  </data>
+  <data name="Permission_Payment_ConfirmDeparture" xml:space="preserve">
+    <value>تأكيد انسحاب الطالب واسترداد المبلغ</value>
+  </data>
+  <data name="PermissionDescription_Payment_ConfirmDeparture" xml:space="preserve">
+    <value>بيسمح بتأكيد انسحاب الطالب من الكورس ومعالجة استرداد المبلغ أو تسوية المبلغ المستحق.</value>
   </data>
 </root>

@@ -2,6 +2,7 @@
 using Edvanz.Application.Dtos.AssistantDtos;
 using Edvanz.Application.Dtos.ModulesPermissions;
 using Edvanz.Application.Dtos.PermissionsDtos;
+using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Entities;
@@ -73,19 +74,21 @@ namespace Edvanz.Application.Services
             var permissions = await unitOfWork.GetRepository<Permission, long>()
                 .GetAsync(p => moduleIds.Contains(p.ModuleId));
 
-            // -- 4. Group by module -------------------------------------------------
+            // -- 4. Group by module (display fields localized per Accept-Language) --
             var result = teacherModules
                 .Select(m => new ModulePermissionsDto
                 {
                     id = m.Id,
-                    ModuleName = m.Name,
+                    ModuleName = localizer.GetLocalizedModuleName(m.Name),
                     permissions = permissions
                         .Where(p => p.ModuleId == m.Id)
                         .Select(p => new PermissionDto
                         {
                             permissionId = p.Id,
-                            permissionName = p.Name,
+                            permissionName = localizer.GetLocalizedPermissionName(m.Name, p.Name),
                             isRestricted = p.IsRestricted,
+                            moduleName = localizer.GetLocalizedModuleName(m.Name),
+                            description = localizer.GetLocalizedPermissionDescription(m.Name, p.Name, p.Description),
                         })
                         .ToList()
                 })

@@ -2,6 +2,7 @@
 using Edvanz.Application.Dtos.ModulesPermissions;
 using Edvanz.Application.Dtos.PermissionsDtos;
 using Edvanz.Application.Dtos.UsersPermissionsDtos;
+using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
@@ -45,12 +46,15 @@ namespace Edvanz.Application.Services
                     .Select(g => new ModulePermissionsDto
                     {
                         id = g.Key.Id,
-                        ModuleName = g.Key.Name,
+                        ModuleName = localizer.GetLocalizedModuleName(g.Key.Name),
                         permissions = g.Select(p => new PermissionDto
                         {
                             permissionId = p.Permission.Id,
-                            permissionName = p.Permission.Name,
-                            isRestricted = p.Permission.IsRestricted
+                            permissionName = localizer.GetLocalizedPermissionName(g.Key.Name, p.Permission.Name),
+                            isRestricted = p.Permission.IsRestricted,
+                            moduleName = localizer.GetLocalizedModuleName(g.Key.Name),
+                            description = localizer.GetLocalizedPermissionDescription(
+                                g.Key.Name, p.Permission.Name, p.Permission.Description),
                         }).ToList()
                     }).ToList()
                 : new List<ModulePermissionsDto>(); // return empty list if no permissions

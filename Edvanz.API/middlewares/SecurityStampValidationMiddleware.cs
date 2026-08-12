@@ -3,7 +3,9 @@ using Edvanz.API.Authorization;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
+using Edvanz.Domain.Resources;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
 
 namespace Edvanz.API.Middleware;
@@ -61,13 +63,16 @@ public class SecurityStampValidationMiddleware
 
     private readonly RequestDelegate _next;
     private readonly ILogger<SecurityStampValidationMiddleware> _logger;
+    private readonly IStringLocalizer<Messages> _localizer;
 
     public SecurityStampValidationMiddleware(
         RequestDelegate next,
-        ILogger<SecurityStampValidationMiddleware> logger)
+        ILogger<SecurityStampValidationMiddleware> logger,
+        IStringLocalizer<Messages> localizer)
     {
         _next = next;
         _logger = logger;
+        _localizer = localizer;
     }
 
     public async Task InvokeAsync(
@@ -153,16 +158,27 @@ public class SecurityStampValidationMiddleware
     }
 
     /// <summary>
-    /// Writes a 401 response with a stable message body. Kept private so the
-    /// rejection shape is consistent across all four rejection paths above.
-    /// The client distinguishes 401-with-this-message from a routing 401 and
-    /// triggers the re-authentication flow.
+    /// Writes a 401 response with a stable, localized body. Kept private so the
+    /// rejection shape is consistent across all five rejection paths above.
+    ///
+    /// Envelope shape matches the rest of the API (<see cref="Edvanz.Application.Dtos.Result{T}"/> /
+    /// <c>ApiBaseController.ToResponse</c>): <c>code</c> is the stable, language-independent key a
+    /// client can branch on to trigger its re-authentication flow; <c>message</c> is the localized,
+    /// human-readable text (per the current request's Accept-Language). Previously this endpoint sent
+    /// only a raw, non-localized "TokenInvalidated" string in the message field — <c>code</c> preserves
+    /// that exact stable value for any existing client-side matching, while <c>message</c> now carries
+    /// an actual explanation instead of a bare key.
     /// </summary>
-    private static async Task RejectAsync(HttpContext context, string message)
+    private async Task RejectAsync(HttpContext context, string messageKey)
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync(
-            $"{{\"success\":false,\"message\":\"{message}\"}}");
+        context.Response.ContentType = "application/json; charset=utf-8";
+        var payload = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["success"] = false,
+            ["code"] = messageKey,
+            ["message"] = _localizer[messageKey].Value
+        });
+        await context.Response.WriteAsync(payload);
     }
 }

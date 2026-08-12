@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.PermissionsDtos;
 using Edvanz.Application.Dtos.TemplatePermissionsDtos;
+using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
@@ -61,8 +62,11 @@ namespace Edvanz.Application.Services
                 Permissions = t.Profiles.Select(p => new PermissionDto
                 {
                     permissionId = p.permision.Id,
-                    permissionName = $"{p.permision.module.Name}.{p.permision.Name}",
+                    permissionName = localizer.GetLocalizedPermissionName(p.permision.module.Name, p.permision.Name),
                     isRestricted = p.permision.IsRestricted,
+                    moduleName = localizer.GetLocalizedModuleName(p.permision.module.Name),
+                    description = localizer.GetLocalizedPermissionDescription(
+                        p.permision.module.Name, p.permision.Name, p.permision.Description),
                 }).ToList()
             }).ToList();
 
@@ -85,8 +89,11 @@ namespace Edvanz.Application.Services
                 Permissions = template.Profiles.Select(p => new PermissionDto
                 {
                     permissionId = p.permision.Id,
-                    permissionName = $"{p.permision.module.Name}.{p.permision.Name}",
+                    permissionName = localizer.GetLocalizedPermissionName(p.permision.module.Name, p.permision.Name),
                     isRestricted = p.permision.IsRestricted,
+                    moduleName = localizer.GetLocalizedModuleName(p.permision.module.Name),
+                    description = localizer.GetLocalizedPermissionDescription(
+                        p.permision.module.Name, p.permision.Name, p.permision.Description),
                 }).ToList()
             };
 

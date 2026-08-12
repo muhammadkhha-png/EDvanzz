@@ -285,6 +285,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         modelBuilder.Entity<TutorModule>()
         .HasKey(ur => new { ur.TutorId, ur.ModuleId });
 
+        // Permission.Description — nullable, bounded free text (added for the permission-
+        // catalogue description feature). No other Fluent config exists for Permission today;
+        // this is the first entry for it, kept minimal to match that convention.
+        modelBuilder.Entity<Permission>()
+            .Property(p => p.Description)
+            .HasMaxLength(500);
+
         #endregion
 
         #region Existing unique constraints
