@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Text;
 using static Edvanz.Application.Services.UserService;
 
@@ -242,6 +243,40 @@ namespace Edvanz.Application.Services
                 refreshToken = refreshToken,
                 userAccountData = userDto
             }, _localizer, "successlogin");
+        }
+
+        /// <inheritdoc />
+        public async Task<Result<AuthResponse>> GetCurrentUserAsync(long userId)
+        {
+            var user = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (user == null)
+                return Result<AuthResponse>.Failure(_localizer, "UserNotFound", HttpStatusCode.Unauthorized);
+
+            // Same active-status gate as Login - a token minted before the account was
+            // deactivated must not be able to re-derive a usable session through /me.
+            if (user.IsActive != true)
+                return Result<AuthResponse>.Failure(_localizer, "AccountInactive", HttpStatusCode.Unauthorized);
+
+            // Single source of truth for accessToken + userDto - the exact same path
+            // Login, AdminLogin, and Refresh use. Any future change to what the login
+            // payload contains (new module, new permission shape, etc.) is picked up here
+            // automatically with zero duplication.
+            var (jwt, userDto) = await tokenService.BuildUserTokenData(user);
+            if (string.IsNullOrEmpty(jwt))
+                return Result<AuthResponse>.Failure(_localizer, "ServerError");
+
+            // Deliberately NOT calling IssueAndStageRefreshTokenAsync here. Unlike Login,
+            // /me is a read-only "who am I" check a client may call on every app foreground -
+            // persisting a brand-new RefreshToken row on every call would grow that table
+            // unboundedly with rows that never get used to refresh anything. refreshToken
+            // stays null, which AuthResponse already supports (see SigUpByGoogle's
+            // incomplete-profile branch).
+            return Result<AuthResponse>.Success(new AuthResponse
+            {
+                accessToken = jwt,
+                refreshToken = null,
+                userAccountData = userDto
+            }, _localizer, "CurrentUserRetrievedSuccess");
         }
 
         /// <inheritdoc />

@@ -135,6 +135,9 @@
   <data name="UserNotFound" xml:space="preserve">
     <value>مش لاقيين الحساب ده. من فضلك راجع البيانات وحاول تاني</value>
   </data>
+  <data name="CurrentUserRetrievedSuccess" xml:space="preserve">
+    <value>تم استرجاع بيانات حسابك بنجاح</value>
+  </data>
   <data name="TeacherInitializedSuccess" xml:space="preserve">
     <value>تم إنشاء حساب المعلم بنجاح. كود المعلم الخاص بك جاهز</value>
   </data>

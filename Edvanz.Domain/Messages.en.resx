@@ -135,6 +135,9 @@
   <data name="UserNotFound" xml:space="preserve">
     <value>We couldn't find this user account. Please check and try again</value>
   </data>
+  <data name="CurrentUserRetrievedSuccess" xml:space="preserve">
+    <value>Your account information was retrieved successfully</value>
+  </data>
   <data name="TeacherInitializedSuccess" xml:space="preserve">
     <value>Your teacher account has been created successfully. Your unique Teacher Code is ready</value>
   </data>

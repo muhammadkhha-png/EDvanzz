@@ -43,18 +43,21 @@ namespace Edvanz.API.Controllers
         private readonly IOtpService _otpService;
         private readonly IAuthService authService;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ICurrentUserService _currentUser;
 
         /// <summary>Initializes the controller with its service dependencies.</summary>
         public AuthController(
             IUserService userService,
             IOtpService otpService,
             IAuthService _authService,
-            IUnitOfWork unitOfWork)
+            IUnitOfWork unitOfWork,
+            ICurrentUserService currentUser)
         {
             _userService = userService;
             _otpService = otpService;
             authService = _authService;
             _unitOfWork = unitOfWork;
+            _currentUser = currentUser;
         }
 
         /// <summary>Registers a new self-service user account (Teacher, Student, or Parent).</summary>
@@ -136,6 +139,46 @@ namespace Edvanz.API.Controllers
         public async Task<IActionResult> Login(LoginDto req)
         {
             var result = await authService.Login(req);
+            return ToResponse(result);
+        }
+
+        /// <summary>Returns the current session's profile, in the exact shape <c>login</c> returns.</summary>
+        /// <remarks>
+        /// Authenticates purely via the Bearer access token already on the request - no
+        /// username/password or request body. Internally re-resolves the account from the
+        /// database and rebuilds the response through the same <c>TokenService.BuildUserTokenData</c>
+        /// path <c>login</c>/<c>admin-login</c>/<c>refresh</c> use, so <c>userAccountData</c>
+        /// (role, modules, permissions, linked teacher ids) always reflects the account's
+        /// CURRENT state rather than whatever was true when the token was originally issued.
+        ///
+        /// <para><c>refreshToken</c> is always <c>null</c> in this response. Unlike <c>login</c>,
+        /// this does not mint or persist a new refresh token - a read-only identity check an
+        /// app may call on every foreground/splash must not grow the RefreshTokens table on
+        /// every call. <c>accessToken</c> is still a freshly-signed, fully usable token.</para>
+        ///
+        /// <para><b>Auth note:</b> as with <c>change-password</c> and <c>delete-account</c>, the
+        /// intended gate is authenticated-only; send the Bearer token regardless of the
+        /// class-level <c>[AllowAnonymous]</c>. Enforcement here does not rely on that
+        /// attribute at all - <see cref="ApiBaseController.UserNotResolved"/> is checked
+        /// directly against the resolved claims, which is what actually returns 401 for a
+        /// missing, invalid, or expired token, or one without a usable identity claim.</para>
+        /// </remarks>
+        /// <response code="200">Authenticated; the current profile is returned in the login response shape.</response>
+        /// <response code="401">Token missing, invalid, expired, lacking a usable identity claim, or the account behind it no longer exists or is inactive.</response>
+        /// <response code="429">Rate limit exceeded.</response>
+        [Authorize]
+        [HttpGet("me")]
+        [EnableRateLimiting("auth")]
+        [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Auth.AuthResponse>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        public async Task<IActionResult> GetMe()
+        {
+            var userId = _currentUser.UserId;
+            if (userId is null)
+                return UserNotResolved();
+
+            var result = await authService.GetCurrentUserAsync(userId.Value);
             return ToResponse(result);
         }
 

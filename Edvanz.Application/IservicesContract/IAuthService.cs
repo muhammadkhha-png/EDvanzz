@@ -52,5 +52,22 @@ namespace Edvanz.Application.IservicesContract
         /// </returns>
         Task<Result<string>> ForceChangePasswordAsync(ForceChangePasswordDto req);
 
+        /// <summary>
+        /// Resolves the authenticated caller from their JWT and returns the same
+        /// <see cref="AuthResponse"/> shape as <see cref="Login"/> - a fresh access token
+        /// plus the current account profile. No credentials are accepted; <paramref name="userId"/>
+        /// must already be resolved from the validated token's claims by the caller.
+        /// </summary>
+        /// <param name="userId">The caller's user id, resolved from the JWT <c>NameIdentifier</c> claim.</param>
+        /// <returns>
+        /// Success with a rebuilt <see cref="AuthResponse"/> (userAccountData reflects the
+        /// account's CURRENT state - role, modules, permissions - not what was true when the
+        /// token was originally issued). <c>refreshToken</c> is always <c>null</c>: unlike
+        /// <see cref="Login"/>, this does not mint or persist a new refresh token. Failure
+        /// (401) with "UserNotFound" or "AccountInactive" if the account behind the token no
+        /// longer exists or has been deactivated since the token was issued.
+        /// </returns>
+        Task<Result<AuthResponse>> GetCurrentUserAsync(long userId);
+
     }
 }
