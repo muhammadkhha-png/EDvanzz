@@ -867,6 +867,38 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task<string?> GetUserLanguagePreferenceByUserIdAsync(long userId);
 
+        // ══════════════════════════════════════════════
+        // STUDENT ACCOUNTS — SUPER-ADMIN PAGINATED LIST
+        // ══════════════════════════════════════════════
+
+        /// <summary>
+        /// Pages ALL StudentUser accounts on the platform (not scoped to any teacher) for
+        /// the SuperAdmin "Student Accounts" screen. Excludes soft-deleted accounts via the
+        /// StudentUser/User query filters (no explicit predicate needed here).
+        ///
+        /// <paramref name="search"/> matches (case-insensitive, partial): the account's
+        /// <c>User.FullName</c>, OR the per-teacher <c>TeacherStudent.StudentCode</c> of any of
+        /// its ACTIVE teacher links. <paramref name="teacherId"/>, when supplied, restricts the
+        /// result to accounts holding an ACTIVE <see cref="Entities.StudentTeacherLink"/> to that
+        /// teacher. Ordered by <c>CreateAt</c> descending (newest account first), matching the
+        /// Teacher admin list's default ordering.
+        ///
+        /// Returns identity rows ONLY — call
+        /// <see cref="GetActiveLinkedTeachersForStudentUsersAsync"/> with the returned ids to
+        /// batch-load each account's linked teachers without an N+1.
+        /// </summary>
+        Task<(IReadOnlyList<StudentAccountRow> Items, int TotalCount)> GetStudentAccountsPagedAsync(
+            string? search, long? teacherId, int page, int pageSize);
+
+        /// <summary>
+        /// Batch-loads every ACTIVE <see cref="Entities.StudentTeacherLink"/> — teacher identity
+        /// plus the bound per-teacher student code — for the given set of StudentUser ids, in one
+        /// round trip. Used by <see cref="GetStudentAccountsPagedAsync"/>'s caller to enrich a page
+        /// of student accounts with their linked-teachers list (group the result by
+        /// <see cref="StudentAccountLinkedTeacherRow.StudentUserId"/>).
+        /// </summary>
+        Task<IReadOnlyList<StudentAccountLinkedTeacherRow>> GetActiveLinkedTeachersForStudentUsersAsync(
+            IReadOnlyList<long> studentUserIds);
 
     }
     // ══════════════════════════════════════════════════════════════════

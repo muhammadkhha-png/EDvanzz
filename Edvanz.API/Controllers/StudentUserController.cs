@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Edvanz.API.Attributes;
 using Edvanz.API.Common;
 using Edvanz.Application.Common;
@@ -293,6 +293,84 @@ public class StudentUserController : ApiBaseController
 
         var result = await _studentUserService.RegisterDeviceForTeacherAsync(
             studentUserId.Value, teacherId, this.ReadDeviceId());
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SUPER ADMIN: STUDENT ACCOUNTS LIST
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Pages ALL student accounts on the platform (not scoped to any teacher).
+    //   Each row is enriched with the list of teachers that account currently
+    //   holds an ACTIVE link to — teacher identity plus the per-teacher student
+    //   code that teacher assigned this account — in one call, no N+1.
+    //
+    // QUERY PARAMETERS:
+    //   - page (int, default 1): Page number (1-based)
+    //   - pageSize (int, default 20, max 100): Records per page
+    //   - search (string, optional): Matches account full name, OR the
+    //     per-teacher student code of any of the account's ACTIVE teacher links
+    //   - teacherId (long, optional): Only accounts ACTIVE-linked to this teacher
+    //
+    // TABLES READ:
+    //   StudentUsers, Users, StudentTeacherLinks, Teachers, TeacherStudents
+    //
+    // SOFT-DELETE:
+    //   Deleted student accounts (StudentUser.DeletedAt != null) and deleted
+    //   users (User.DeletedAt != null) are excluded by the EF Core global query
+    //   filters — they never appear in this list.
+    //
+    // SAMPLE REQUEST:
+    //   GET /api/studentuser/list?page=1&pageSize=20&search=ahmed&teacherId=12
+    //
+    // SAMPLE RESPONSE (200 OK):
+    //   {
+    //     "success": true,
+    //     "message": "Done successfully",
+    //     "data": {
+    //       "totalCount": 3,
+    //       "page": 1,
+    //       "pageSize": 20,
+    //       "totalPages": 1,
+    //       "data": [
+    //         {
+    //           "studentAccountId": 501,
+    //           "fullName": "Ahmed Mostafa",
+    //           "userName": "ahmed.m",
+    //           "phoneNumber": "01000000000",
+    //           "teachers": [
+    //             {
+    //               "teacherId": 12,
+    //               "teacherCode": "48291057",
+    //               "studentCode": "S001",
+    //               "teacherName": "Mariam Hassan"
+    //             }
+    //           ]
+    //         }
+    //       ]
+    //     }
+    //   }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// SuperAdmin-only: paginated list of every student account on the platform,
+    /// searchable by name / per-teacher student code and filterable by teacher.
+    /// Each row carries the account's ACTIVE teacher links (teacher identity +
+    /// the per-teacher student code), loaded via one batched query — no N+1.
+    /// </summary>
+    /// <response code="200">Paginated student-accounts page.</response>
+    /// <response code="401">JWT missing or expired.</response>
+    /// <response code="403">Caller is not a SuperAdmin.</response>
+    [HttpGet("list")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.StudentUser.StudentAccountListItemDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetStudentAccounts([FromQuery] StudentAccountListRequest request)
+    {
+        var result = await _studentUserService.GetStudentAccountsAsync(request);
         return ToResponse(result);
     }
 

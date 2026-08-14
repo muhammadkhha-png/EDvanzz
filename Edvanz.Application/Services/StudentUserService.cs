@@ -497,6 +497,53 @@ public class StudentUserService : IStudentUserService
 
         return Result<bool>.Failure(_localizer, StudentDeviceLockPolicy.MismatchCode, HttpStatusCode.Forbidden);
     }
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<StudentAccountListItemDto>>>> GetStudentAccountsAsync(
+        StudentAccountListRequest request)
+    {
+        var (items, totalCount) = await _unitOfWork.Users.GetStudentAccountsPagedAsync(
+            request.Search, request.TeacherId, request.Page, request.PageSize);
+
+        // Batch-load linked teachers for exactly this page's accounts — one extra
+        // query total, regardless of page size (same convention as
+        // GetMyTeachersAsync's GetTeacherDashboardDataAsync batch load above).
+        var studentAccountIds = items.Select(i => i.StudentAccountId).ToList();
+        var teacherRows = await _unitOfWork.Users.GetActiveLinkedTeachersForStudentUsersAsync(studentAccountIds);
+
+        var teachersByAccount = teacherRows
+            .GroupBy(r => r.StudentUserId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(r => new StudentAccountTeacherDto
+                {
+                    TeacherId = r.TeacherId,
+                    TeacherCode = r.TeacherCode,
+                    StudentCode = r.StudentCode,
+                    TeacherName = r.TeacherName
+                }).ToList());
+
+        var dtos = items.Select(i => new StudentAccountListItemDto
+        {
+            StudentAccountId = i.StudentAccountId,
+            FullName = i.FullName,
+            UserName = i.UserName,
+            PhoneNumber = i.PhoneNumber,
+            Teachers = teachersByAccount.TryGetValue(i.StudentAccountId, out var teachers)
+                ? teachers
+                : new List<StudentAccountTeacherDto>()
+        }).ToList();
+
+        var response = new PaginatedResponse<List<StudentAccountListItemDto>>
+        {
+            totalCount = totalCount,
+            page = request.Page,
+            pageSize = request.PageSize,
+            totalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)request.PageSize),
+            data = dtos
+        };
+
+        return Result<PaginatedResponse<List<StudentAccountListItemDto>>>.Success(response, _localizer);
+    }
 
     // ══════════════════════════════════════════════
     // PRIVATE HELPERS

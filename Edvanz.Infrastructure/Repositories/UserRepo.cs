@@ -1423,5 +1423,77 @@ namespace Edvanz.Infrastructure.Repositories
                 _ => null
             };
         }
+
+        // ══════════════════════════════════════════════
+        // STUDENT ACCOUNTS — SUPER-ADMIN PAGINATED LIST
+        // ══════════════════════════════════════════════
+
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<StudentAccountRow> Items, int TotalCount)> GetStudentAccountsPagedAsync(
+            string? search, long? teacherId, int page, int pageSize)
+        {
+            // StudentUser and User both carry their own soft-delete HasQueryFilter
+            // (DeletedAt == null) — no explicit predicate needed for either here.
+            var query = _context.Set<StudentUser>().AsNoTracking();
+
+            if (teacherId.HasValue)
+            {
+                query = query.Where(su => su.StudentTeacherLinks.Any(l =>
+                    l.TeacherId == teacherId.Value && l.LinkStatus == LinkStatus.Active));
+            }
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim();
+                query = query.Where(su =>
+                    su.User.FullName.Contains(term) ||
+                    su.StudentTeacherLinks.Any(l =>
+                        l.LinkStatus == LinkStatus.Active &&
+                        l.TeacherStudent != null &&
+                        l.TeacherStudent.StudentCode.Contains(term)));
+            }
+
+            int total = await query.CountAsync();
+
+            var items = await query
+                .OrderByDescending(su => su.CreateAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(su => new StudentAccountRow
+                {
+                    StudentAccountId = su.Id,
+                    FullName = su.User.FullName,
+                    UserName = su.User.Username,
+                    PhoneNumber = su.User.PhoneNumber
+                })
+                .ToListAsync();
+
+            return (items, total);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StudentAccountLinkedTeacherRow>> GetActiveLinkedTeachersForStudentUsersAsync(
+            IReadOnlyList<long> studentUserIds)
+        {
+            var idList = studentUserIds.ToList();
+            if (idList.Count == 0)
+                return Array.Empty<StudentAccountLinkedTeacherRow>();
+
+            // Required-nav projection (l.Teacher.*) implicitly applies Teacher's own
+            // soft-delete query filter — a link pointing at a deleted teacher is dropped,
+            // same behavior as every other Teacher-joining query in this repo.
+            return await _context.Set<StudentTeacherLink>()
+                .AsNoTracking()
+                .Where(l => l.LinkStatus == LinkStatus.Active && idList.Contains(l.StudentUserId))
+                .Select(l => new StudentAccountLinkedTeacherRow
+                {
+                    StudentUserId = l.StudentUserId,
+                    TeacherId = l.TeacherId,
+                    TeacherCode = l.Teacher.TeacherCode,
+                    TeacherName = l.Teacher.User.FullName,
+                    StudentCode = l.TeacherStudent != null ? l.TeacherStudent.StudentCode : null
+                })
+                .ToListAsync();
+        }
     }
 }

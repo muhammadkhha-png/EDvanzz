@@ -130,4 +130,15 @@ public interface IStudentUserService
     /// <param name="teacherId">The linked teacher to bind this device under (route segment).</param>
     /// <param name="deviceId">The caller's device id (X-Device-Id header).</param>
     Task<Result<bool>> RegisterDeviceForTeacherAsync(long studentUserId, long teacherId, string? deviceId);
+
+    /// <summary>
+    /// SuperAdmin-only: pages ALL student accounts on the platform (not scoped to
+    /// any teacher), each enriched with the list of teachers it currently holds
+    /// an ACTIVE link to. Supports searching by account full name or by the
+    /// per-teacher student code, and filtering to a single teacher's accounts.
+    /// </summary>
+    /// <param name="request">Page/pageSize plus the optional search term and teacherId filter.</param>
+    /// <returns>Result containing the paginated, enriched student-accounts page.</returns>
+    Task<Result<PaginatedResponse<List<StudentAccountListItemDto>>>> GetStudentAccountsAsync(
+        StudentAccountListRequest request);
 }
