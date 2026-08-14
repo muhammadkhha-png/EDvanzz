@@ -601,11 +601,13 @@ public sealed class PaymentController : ModuleSixApiBaseController
     //   Calculates and returns the pre-departure financial summary.
     //   REQ-PAY-067/068/072: Pro-rated obligation, departure summary screen.
     //
-    // AUTH: Teacher or SuperAdmin ONLY (roleOnly gate).
+    // AUTH: Payment.Collect permission (module-gated). Teacher/SuperAdmin pass
+    //   automatically; assistants with Collect can view the departure summary
+    //   (kept consistent with ConfirmDeparture below).
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("students/{teacherStudentId:long}/departure-summary")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DepartureSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
@@ -628,16 +630,17 @@ public sealed class PaymentController : ModuleSixApiBaseController
     //   Confirms a student departure: unassigns, records event, handles refund/charge.
     //   REQ-PAY-073/075: Departure confirmed, optional tutor override.
     //
-    // AUTH: Payment.ConfirmDeparture permission (module-gated, not role-only).
+    // AUTH: Payment.Collect permission (module-gated, not role-only).
     //   Teacher/SuperAdmin still pass automatically — Teacher via the module-only gate,
-    //   SuperAdmin via the unconditional bypass in PermissionHandler. Assistants must now
-    //   hold the dedicated ConfirmDeparture permission (it moves money) rather than being
-    //   excluded outright as before.
-    //   ConfirmedByUserId sourced from JWT — never from request body.
+    //   SuperAdmin via the unconditional bypass in PermissionHandler. Assistants who hold
+    //   Collect can confirm departures (it moves money, same class of action as a
+    //   collection/refund). Merged onto Collect because the dedicated ConfirmDeparture
+    //   permission was never seeded in DbInitializer and so was ungrantable — no assistant
+    //   could ever be given it. ConfirmedByUserId sourced from JWT — never from request body.
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("departure/confirm")]
-    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionConfirmDeparture)]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.StudentDepartureDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
@@ -658,10 +661,10 @@ public sealed class PaymentController : ModuleSixApiBaseController
     // DEPARTED STUDENTS LIST
     // GET api/payment/departures?search=&page=&limit=
     // Teacher-wide list of departed students (from the permanent StudentDeparture
-    // records), newest first. AUTH: Teacher or SuperAdmin.
+    // records), newest first. AUTH: Payment.Collect (Teacher/SuperAdmin auto-pass).
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("departures")]
-    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DeparturesResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
