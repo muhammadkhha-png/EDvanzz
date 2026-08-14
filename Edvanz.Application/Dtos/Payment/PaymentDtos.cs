@@ -575,6 +575,17 @@ public class DepartureListItemDto
     public decimal FinalAmount { get; set; }
     /// <summary>True when the departure produced a refund to the student.</summary>
     public bool IsRefund { get; set; }
+
+    /// <summary>Sessions attended in the anchored month (the "3" in "3/15").</summary>
+    public int AttendedOccurrences { get; set; }
+    /// <summary>Total sessions scheduled in the anchored month (the "15" in "3/15").</summary>
+    public int TotalOccurrencesInPeriod { get; set; }
+    /// <summary>The month's full price before attendance proration.</summary>
+    public decimal FullPeriodAmount { get; set; }
+    /// <summary>The attendance-prorated worth of the attended sessions.</summary>
+    public decimal ProRatedAmount { get; set; }
+    /// <summary>Payment status at departure (Paid | PartiallyPaid | Unpaid | …) — drives "didn't pay" copy.</summary>
+    public string PaymentStatusAtDeparture { get; set; } = string.Empty;
 }
 
 /// <summary>Paged response for the departed-students list.</summary>

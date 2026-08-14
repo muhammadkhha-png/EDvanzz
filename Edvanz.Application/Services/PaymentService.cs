@@ -1642,6 +1642,11 @@ public class PaymentService : IPaymentService
                 DepartureOutcome = r.DepartureOutcome.ToString(),
                 FinalAmount = r.FinalAmount,
                 IsRefund = r.DepartureOutcome == DepartureOutcome.RefundDue,
+                AttendedOccurrences = r.AttendedOccurrences,
+                TotalOccurrencesInPeriod = r.TotalOccurrencesInPeriod,
+                FullPeriodAmount = r.FullPeriodAmount,
+                ProRatedAmount = r.ProRatedAmount,
+                PaymentStatusAtDeparture = r.PaymentStatusAtDeparture.ToString(),
             }).ToList(),
         };
 

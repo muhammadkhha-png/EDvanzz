@@ -224,10 +224,42 @@
                 // Live session name for the collections ledger; the transaction's own SessionName is
                 // a collection-time snapshot that goes stale when the session is renamed.
                 .Include(t => t.Session)
+                // Per-period settlement slices → how many months this one cash event cleared.
+                .Include(t => t.Allocations)
                 .AsNoTracking()
                 .ToListAsync();
 
             return (items, totalCount);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<(decimal Amount, int Count)>> GetCollectionAmountTiersAsync(
+            long teacherId, DateTime startInclusive, DateTime endInclusive, long? collectedByUserId)
+        {
+            // Distribution of money collected by per-MONTH amount: group the settlement slices
+            // (one per cleared month) by their applied amount, so a multi-month payment counts once
+            // per month at its monthly amount rather than as one large lump. Scoped to non-deleted
+            // transactions in [start, end] for the teacher (and one collector when set).
+            var query = _context.Set<PaymentTransactionAllocation>()
+                .Where(a => a.TeacherId == teacherId
+                    && a.PaymentTransaction != null
+                    && !a.PaymentTransaction.IsDeleted
+                    && a.PaymentTransaction.CollectedAt >= startInclusive
+                    && a.PaymentTransaction.CollectedAt <= endInclusive);
+
+            if (collectedByUserId.HasValue)
+                query = query.Where(a => a.PaymentTransaction.CollectedByUserId == collectedByUserId.Value);
+
+            var rows = await query
+                .GroupBy(a => a.AmountApplied)
+                .Select(g => new { Amount = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            return rows
+                .Select(r => (r.Amount, r.Count))
+                .OrderByDescending(r => r.Count)
+                .ThenByDescending(r => r.Amount)
+                .ToList();
         }
 
         /// <inheritdoc />
@@ -1547,6 +1579,10 @@
                     FinalAmount = d.FinalAmount,
                     PaymentStatusAtDeparture = d.PaymentStatusAtDeparture,
                     IsTutorOverride = d.IsTutorOverride,
+                    AttendedOccurrences = d.AttendedOccurrences,
+                    TotalOccurrencesInPeriod = d.TotalOccurrencesInPeriod,
+                    FullPeriodAmount = d.FullPeriodAmount,
+                    ProRatedAmount = d.ProRatedAmount,
                 })
                 .AsNoTracking()
                 .ToListAsync();

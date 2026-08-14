@@ -103,6 +103,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         int page, int pageSize,
         string? search = null);
 
+    /// <summary>
+    /// Distribution of money collected by per-month amount in [start, end] for the teacher (optionally
+    /// one collector): groups the per-period settlement slices by applied amount so a multi-month
+    /// payment counts once per month. Drives the "how many paid X" summary cards.
+    /// </summary>
+    Task<IReadOnlyList<(decimal Amount, int Count)>> GetCollectionAmountTiersAsync(
+        long teacherId, DateTime startInclusive, DateTime endInclusive, long? collectedByUserId);
+
     // ══════════════════════════════════════════════
     // PAYMENT PERIOD QUERIES
     // ══════════════════════════════════════════════

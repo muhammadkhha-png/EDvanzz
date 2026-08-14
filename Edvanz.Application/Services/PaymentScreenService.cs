@@ -261,11 +261,22 @@ public class PaymentScreenService : IPaymentScreenService
                 StudentCode = tx.StudentCode,
                 Amount = tx.AmountPaid,
                 Status = "collected",
+                // Months this one cash event cleared (settlement slices); legacy rows w/o allocations → 1.
+                PeriodsCovered = tx.Allocations != null && tx.Allocations.Count > 0
+                    ? tx.Allocations.Count : 1,
                 // Live session name; the transaction's copy is a stale-on-rename snapshot.
                 SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
                 CollectedAt = tx.CollectedAt
             });
         }
+
+        // "How many paid X" distribution across the whole scope (not just this page), by per-month
+        // amount. Independent of search/paging so the cards summarise the full day/month.
+        var tiers = await _unitOfWork.PaymentsRepo
+            .GetCollectionAmountTiersAsync(teacherId, startDate, endDate, collectedByUserId);
+        var amountTiers = tiers
+            .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
+            .ToList();
 
         // Pagination follows the collections; the negative lines live entirely on page 1. Guarantee at
         // least one page when a range has ONLY negative lines so page 1 still renders.
@@ -281,7 +292,8 @@ public class PaymentScreenService : IPaymentScreenService
             TotalPages = transactionPages == 0 ? (negativeCount > 0 ? 1 : 0) : transactionPages,
             FromDate = fromEcho,
             ToDate = toEcho,
-            Items = rows
+            Items = rows,
+            AmountTiers = amountTiers
         };
 
         return Result<CollectionsByMonthResponse>.Success(

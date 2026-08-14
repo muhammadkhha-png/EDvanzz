@@ -177,4 +177,13 @@ public sealed class DepartureListRow
     public decimal FinalAmount { get; set; }
     public Edvanz.Domain.Enums.PaymentStatus PaymentStatusAtDeparture { get; set; }
     public bool IsTutorOverride { get; set; }
+
+    /// <summary>Sessions the student attended in the anchored month (the "3" in "3/15").</summary>
+    public int AttendedOccurrences { get; set; }
+    /// <summary>Total sessions scheduled in the anchored month (the "15" in "3/15").</summary>
+    public int TotalOccurrencesInPeriod { get; set; }
+    /// <summary>The month's full price before attendance proration.</summary>
+    public decimal FullPeriodAmount { get; set; }
+    /// <summary>The attendance-prorated amount (what the student's attended sessions are worth).</summary>
+    public decimal ProRatedAmount { get; set; }
 }

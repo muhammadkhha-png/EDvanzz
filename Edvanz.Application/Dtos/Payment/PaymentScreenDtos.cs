@@ -38,6 +38,23 @@ public class CollectionsByMonthResponse
     public DateTime? ToDate { get; set; }
 
     public List<CollectionRow> Items { get; set; } = new();
+
+    /// <summary>
+    /// Distribution of the money collected in this scope by per-month amount — one entry per distinct
+    /// amount (e.g. 300 → 12, 200 → 7, 100 → 20), highest count first. Derived from the per-period
+    /// settlement slices so a multi-month payment (e.g. 600 = 2×300) counts once per month at its
+    /// monthly amount. Covers the whole scope (not just the current page); withdrawals are excluded.
+    /// </summary>
+    public List<CollectionAmountTier> AmountTiers { get; set; } = new();
+}
+
+/// <summary>One "how many paid X" bucket for the collections summary cards.</summary>
+public class CollectionAmountTier
+{
+    /// <summary>The per-month amount collected (a settlement slice's applied amount).</summary>
+    public decimal Amount { get; set; }
+    /// <summary>How many month-payments were collected at this amount in scope.</summary>
+    public int Count { get; set; }
 }
 
 /// <summary>One row in the collected-payments ledger.</summary>
@@ -64,6 +81,14 @@ public class CollectionRow
     /// (negative amount, no student). Rendered as a hand-over line, not a student row.
     /// </summary>
     public bool IsWithdrawal { get; set; }
+
+    /// <summary>
+    /// Number of months (settlement slices) this collection cleared — 1 for a normal single-month
+    /// payment, &gt;1 when one cash event paid several months at once (e.g. 600 = 2 months). Lets the
+    /// client show "N months" so a large amount isn't mistaken for a single month. 0/1 for refund and
+    /// withdrawal lines.
+    /// </summary>
+    public int PeriodsCovered { get; set; }
 
     /// <summary>
     /// For a refund only: display label of the month the departure applies to (e.g. "March 2026").
