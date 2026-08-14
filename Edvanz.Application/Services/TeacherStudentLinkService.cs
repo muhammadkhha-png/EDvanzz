@@ -246,6 +246,8 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "RosterStudentAlreadyClaimed", HttpStatusCode.Conflict);
 
         link.TeacherStudentId = rosterStudent.Id;   // first bind, or re-point ("Change")
+        link.RemovedByUserId = null;                // (re)bound → clear any stale removal marker
+        link.UnlinkedAt = null;
         await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
         await _unitOfWork.SaveChangesAsync();
 
@@ -295,6 +297,16 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
         bool wasLinked = link.TeacherStudentId.HasValue;
         link.TeacherStudentId = null;               // stays Active (connected), loses access
+        if (wasLinked)
+        {
+            // Mark the removal (who + when) so the dashboard reports a concrete
+            // "RemovedByTeacher" for this Active-but-unbound row — vs an accepted-
+            // but-never-bound "AwaitingLink". UnlinkedAt doubles as the backfill
+            // marker for links unbound before this code existed (see migration
+            // BackfillUnbindRemovalMarker). Read only by the status projection.
+            link.RemovedByUserId = actingUserId;
+            link.UnlinkedAt = DateTime.UtcNow;
+        }
         await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
         await _unitOfWork.SaveChangesAsync();
 

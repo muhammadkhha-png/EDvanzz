@@ -1,6 +1,21 @@
 ﻿namespace Edvanz.Application.Dtos.StudentUser;
 
 /// <summary>
+/// Derived-only status strings the student dashboard may emit that are NOT
+/// persisted <see cref="Edvanz.Domain.Enums.LinkStatus"/> values. Kept separate
+/// from the stored enum (and its filtered unique index) so the enum is never
+/// polluted with display-only states.
+/// </summary>
+public static class DashboardLinkStatus
+{
+    /// <summary>
+    /// The teacher accepted the request but has not bound the student to a roster
+    /// record yet — connected, but no access to the teacher's data yet.
+    /// </summary>
+    public const string AwaitingLink = "AwaitingLink";
+}
+
+/// <summary>
 /// Output DTO representing a single Teacher entry on the Student's dashboard.
 /// One entry per teacher — the LATEST link row for that teacher, so the student
 /// sees the current state of their request (Pending / Active / Rejected / ...).
@@ -25,9 +40,16 @@ public class StudentDashboardTeacherDto
     public long LinkId { get; set; }
 
     /// <summary>
-    /// Link lifecycle state as a string (Pending, Active, Rejected, Unlinked,
-    /// RemovedByTeacher, CancelledByStudent). This is how the student KNOWS
-    /// whether their request was accepted or rejected.
+    /// The single AUTHORITATIVE status the student app renders — the server folds
+    /// the enrollment binding into the request lifecycle so the client never has to
+    /// combine fields. One of:
+    ///   Pending, Active, Rejected, Unlinked, RemovedByTeacher, CancelledByStudent
+    ///   (persisted <see cref="Edvanz.Domain.Enums.LinkStatus"/> names), plus the
+    ///   derived <see cref="DashboardLinkStatus.AwaitingLink"/>.
+    /// Notably, "Active" is returned ONLY when the student actually has access
+    /// (Active AND bound to a roster record). An Active link whose binding was
+    /// removed reports "RemovedByTeacher"; an accepted-but-not-yet-bound link
+    /// reports "AwaitingLink".
     /// </summary>
     public string Status { get; set; } = null!;
 
