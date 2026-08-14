@@ -690,7 +690,8 @@ namespace Edvanz.Infrastructure.Repositories
 
         /// <inheritdoc />
         public async Task<(IReadOnlyList<TeacherLinkedStudentRow> Items, int TotalCount, int LinkedCount)>
-            GetActiveLinkedStudentsForTeacherPagedAsync(long teacherId, int page, int pageSize)
+            GetActiveLinkedStudentsForTeacherPagedAsync(
+                long teacherId, int page, int pageSize, string? search = null)
         {
             // A student who deleted / deactivated their account (User.IsActive == false) must
             // never surface in the teacher's "My Students" list, even if a link row was somehow
@@ -701,29 +702,48 @@ namespace Edvanz.Infrastructure.Repositories
                 .Where(x => x.u.IsActive == true)
                 .Select(x => x.su.Id);
 
-            var query = _context.Set<StudentTeacherLink>()
+            var baseQuery = _context.Set<StudentTeacherLink>()
                 .AsNoTracking()
                 .Where(l => l.TeacherId == teacherId
                          && l.LinkStatus == LinkStatus.Active
                          && activeStudentUserIds.Contains(l.StudentUserId));
 
-            int total = await query.CountAsync();
-            // Linked = bound to a roster record; unlinked = accepted-but-unbound. Counted over
-            // the WHOLE Active set (not just the returned page) so the headcounts are correct.
-            int linked = await query.CountAsync(l => l.TeacherStudentId != null);
-
-            // Left-join the roster record: it is null when the teacher deleted the
-            // TeacherStudent after linking (SetNull FK — degraded enrollment state).
-            var items = await query
-                .OrderByDescending(l => l.LinkedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
+            // Join account identity (+ roster record via the TeacherStudent nav) up-front so an
+            // optional search can match the account name/code OR the bound roster name/code, and the
+            // total/linked counts stay consistent with the filtered, returned page. The join is 1:1,
+            // so paging after it yields the same rows as the pre-join paging did.
+            var joined = baseQuery
                 .Join(_context.Set<StudentUser>(),
                     l => l.StudentUserId, su => su.Id,
                     (l, su) => new { l, su })
                 .Join(_context.Set<User>(),
                     x => x.su.UserId, u => u.Id,
-                    (x, u) => new { x.l, x.su, u })
+                    (x, u) => new { x.l, x.su, u });
+
+            var term = search?.Trim();
+            if (!string.IsNullOrEmpty(term))
+            {
+                var like = $"%{term}%";
+                joined = joined.Where(x =>
+                    (x.u.FullName != null && EF.Functions.Like(x.u.FullName, like))
+                    || (x.su.StudentAccountCode != null && EF.Functions.Like(x.su.StudentAccountCode, like))
+                    || (x.l.TeacherStudent != null && x.l.TeacherStudent.StudentName != null
+                        && EF.Functions.Like(x.l.TeacherStudent.StudentName, like))
+                    || (x.l.TeacherStudent != null && x.l.TeacherStudent.StudentCode != null
+                        && EF.Functions.Like(x.l.TeacherStudent.StudentCode, like)));
+            }
+
+            int total = await joined.CountAsync();
+            // Linked = bound to a roster record; unlinked = accepted-but-unbound. Counted over the
+            // whole (optionally filtered) Active set, not just the returned page, so headcounts match.
+            int linked = await joined.CountAsync(x => x.l.TeacherStudentId != null);
+
+            // The roster record is null when the teacher deleted the TeacherStudent after linking
+            // (SetNull FK — degraded enrollment state).
+            var items = await joined
+                .OrderByDescending(x => x.l.LinkedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(x => new TeacherLinkedStudentRow
                 {
                     LinkId = x.l.Id,

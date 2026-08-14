@@ -382,12 +382,12 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
 
     /// <inheritdoc />
     public async Task<Result<LinkedStudentsPageResponse>> GetLinkedStudentsAsync(
-        long teacherId, int page, int pageSize)
+        long teacherId, int page, int pageSize, string? search = null)
     {
         (page, pageSize) = NormalizePaging(page, pageSize);
 
         var (rows, totalCount, linkedCount) = await _unitOfWork.Users
-            .GetActiveLinkedStudentsForTeacherPagedAsync(teacherId, page, pageSize);
+            .GetActiveLinkedStudentsForTeacherPagedAsync(teacherId, page, pageSize, search);
 
         var items = rows.Select(r => new LinkedStudentListItemDto
         {

@@ -47,6 +47,8 @@ public class CollectionRow
     public int Index { get; set; }
     public string? StudentId { get; set; }
     public string? StudentName { get; set; }
+    /// <summary>The teacher's roster code for the student (e.g. "123"); null for a withdrawal line.</summary>
+    public string? StudentCode { get; set; }
     /// <summary>Positive for a collection; NEGATIVE for a departure refund (money returned).</summary>
     public decimal Amount { get; set; }
     /// <summary>collected | pending | refund. A departure refund is a negative-amount ledger line.</summary>

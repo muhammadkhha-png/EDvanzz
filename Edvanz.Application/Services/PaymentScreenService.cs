@@ -88,7 +88,8 @@ public class PaymentScreenService : IPaymentScreenService
     public async Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
         long? collectedByUserId = null,
-        DateTime? from = null, DateTime? to = null)
+        DateTime? from = null, DateTime? to = null,
+        string? search = null)
     {
         (page, limit) = NormalizePaging(page, limit);
 
@@ -136,34 +137,42 @@ public class PaymentScreenService : IPaymentScreenService
             .GetTransactionsByDateRangePagedAsync(
                 teacherId, startDate, endDate,
                 sessionId: null, collectedByUserId: collectedByUserId,
-                page: page, pageSize: limit);
+                page: page, pageSize: limit, search: search);
 
-        // Student-departure refunds confirmed this month are money RETURNED to the student, so they
-        // appear as negative-amount ledger lines carrying the departed month they apply to. They are
-        // few (departures are rare), so the whole month's set is surfaced ONCE on page 1 (prepended,
-        // most visible) and counted into the totals; later pages simply page the collections.
-        // Skipped for a collector-scoped view (collectedByUserId set): a refund isn't "collected by"
-        // anyone, so it doesn't belong in one collector's own-collections list.
-        var refunds = collectedByUserId is null
-            ? await _unitOfWork.PaymentsRepo
-                .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive)
-            : (IReadOnlyList<DepartureRefundRow>)Array.Empty<DepartureRefundRow>();
-        int refundCount = refunds.Count;
+        // Negative-amount ledger lines (money OUT). They are few, so the whole in-range set is
+        // surfaced ONCE on page 1 (prepended, most visible) and counted into the totals; later pages
+        // simply page the collections. Two scopes:
+        //   • Teacher-wide (collectedByUserId == null): student-departure refunds confirmed in-range,
+        //     carrying the departed month they apply to.
+        //   • Collector-scoped (collectedByUserId set): THAT collector's own money-out — payment
+        //     edits/reversals AND departure refunds (the edit-log trail already contains the departure
+        //     reversals, so one source avoids double-counting) — so a collector's own-collections list
+        //     matches their ledger instead of hiding refunds.
+        var term = search?.Trim();
+        bool MatchesSearch(string? name, string? code) =>
+            string.IsNullOrEmpty(term)
+            || (name != null && name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            || (code != null && code.Contains(term, StringComparison.OrdinalIgnoreCase));
 
-        int baseIndex = (page - 1) * limit;
-        var rows = new List<CollectionRow>(items.Count + (page == 1 ? refundCount : 0));
-
-        if (page == 1)
+        var refundRows = new List<CollectionRow>();
+        int refundCount;
+        if (collectedByUserId is null)
         {
-            foreach (var r in refunds)
+            var refunds = (await _unitOfWork.PaymentsRepo
+                    .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive))
+                .Where(r => MatchesSearch(r.StudentName, r.StudentCode))
+                .ToList();
+            refundCount = refunds.Count;
+            if (page == 1)
             {
-                rows.Add(new CollectionRow
+                refundRows.AddRange(refunds.Select(r => new CollectionRow
                 {
                     Id = $"departure-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
                     // Refund lines are rendered with a distinct marker, not a ledger ordinal.
                     Index = 0,
                     StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
                     StudentName = r.StudentName,
+                    StudentCode = r.StudentCode,
                     Amount = -r.RefundAmount,
                     Status = "refund",
                     IsRefund = true,
@@ -172,9 +181,38 @@ public class PaymentScreenService : IPaymentScreenService
                         ? r.RefundPeriodStart.Value.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
                         : null,
                     CollectedAt = r.DepartedAt
-                });
+                }));
             }
         }
+        else
+        {
+            var refunds = (await _unitOfWork.PaymentsRepo
+                    .GetCollectorRefundsInRangeAsync(teacherId, collectedByUserId.Value, startDate, endExclusive))
+                .Where(r => r.RefundAmount > 0m && MatchesSearch(r.StudentName, r.StudentCode))
+                .ToList();
+            refundCount = refunds.Count;
+            if (page == 1)
+            {
+                refundRows.AddRange(refunds.Select(r => new CollectionRow
+                {
+                    Id = $"collector-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+                    Index = 0,
+                    StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+                    StudentName = r.StudentName,
+                    StudentCode = r.StudentCode,
+                    Amount = -r.RefundAmount,
+                    Status = "refund",
+                    IsRefund = true,
+                    SessionName = r.SessionName,
+                    RefundedForMonthLabel = null,
+                    CollectedAt = r.RefundedAt
+                }));
+            }
+        }
+
+        int baseIndex = (page - 1) * limit;
+        var rows = new List<CollectionRow>(items.Count + refundRows.Count);
+        rows.AddRange(refundRows);
 
         for (int i = 0; i < items.Count; i++)
         {
@@ -185,6 +223,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Index = baseIndex + i + 1,
                 StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
                 StudentName = tx.StudentName,
+                StudentCode = tx.StudentCode,
                 Amount = tx.AmountPaid,
                 Status = "collected",
                 // Live session name; the transaction's copy is a stale-on-rename snapshot.

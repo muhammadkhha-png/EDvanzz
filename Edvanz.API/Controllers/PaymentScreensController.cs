@@ -66,13 +66,15 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         // Optional date-range filter (inclusive). When BOTH are supplied they take precedence over
         // month/year; the response echoes them on FromDate/ToDate. Omitted → the month/year path.
         [FromQuery(Name = "from")] DateTime? fromDate = null,
-        [FromQuery(Name = "to")] DateTime? toDate = null)
+        [FromQuery(Name = "to")] DateTime? toDate = null,
+        // Optional filter over the ledger (collections + refund/edit lines) by student name/code.
+        [FromQuery] string? search = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectionsByMonthAsync(
-            teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate);
+            teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate, search);
         return ToResponse(result);
     }
 

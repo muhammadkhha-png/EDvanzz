@@ -196,7 +196,8 @@
                 long teacherId,
                 DateTime startDate, DateTime endDate,
                 long? sessionId, long? collectedByUserId,
-                int page, int pageSize)
+                int page, int pageSize,
+                string? search = null)
         {
             var query = _context.PaymentTransactions
                 .Where(t => t.TeacherId == teacherId
@@ -208,6 +209,12 @@
                 query = query.Where(t => t.SessionId == sessionId.Value);
             if (collectedByUserId.HasValue)
                 query = query.Where(t => t.CollectedByUserId == collectedByUserId.Value);
+            // Optional filter over the denormalized student name/code (case-insensitive, provider-side).
+            var term = search?.Trim();
+            if (!string.IsNullOrEmpty(term))
+                query = query.Where(t =>
+                    (t.StudentName != null && EF.Functions.Like(t.StudentName, $"%{term}%"))
+                    || (t.StudentCode != null && EF.Functions.Like(t.StudentCode, $"%{term}%")));
 
             int totalCount = await query.CountAsync();
             var items = await query

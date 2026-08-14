@@ -107,10 +107,11 @@ public interface ITeacherStudentLinkService
 
     /// <summary>
     /// Pages the teacher's linked students (Active links), newest first, with both
-    /// the account identity and the bound roster record.
+    /// the account identity and the bound roster record. Optional <paramref name="search"/>
+    /// filters by the account name/code and the bound roster name/code (case-insensitive).
     /// </summary>
     Task<Result<LinkedStudentsPageResponse>> GetLinkedStudentsAsync(
-        long teacherId, int page, int pageSize);
+        long teacherId, int page, int pageSize, string? search = null);
 
     /// <summary>
     /// SUPER-ADMIN ONLY: lists a teacher's Active links that are NOT yet bound to

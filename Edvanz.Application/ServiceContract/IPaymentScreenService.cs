@@ -26,11 +26,16 @@ public interface IPaymentScreenService
     /// ledger is scoped to the inclusive <c>[from,to]</c> day range instead of a calendar month, and
     /// <c>FromDate</c>/<c>ToDate</c> are echoed on the response. When they are null the behaviour is
     /// unchanged (fully backward-compatible with the month path).</para>
+    ///
+    /// <para>SEARCH (additive): <paramref name="search"/> filters both the collection rows and the
+    /// negative refund/edit lines by student name/code (case-insensitive substring); null/blank →
+    /// no filter.</para>
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
         long? collectedByUserId = null,
-        DateTime? from = null, DateTime? to = null);
+        DateTime? from = null, DateTime? to = null,
+        string? search = null);
 
     /// <summary>
     /// Screen: Collections date-filtered SUMMARY. Period overview for the payment/collections

@@ -307,12 +307,14 @@ public class TeacherStudentLinksController : ModuleSixApiBaseController
     [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetLinkedStudents(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20,
+        // Optional filter over the student's account name/code and bound roster name/code.
+        [FromQuery] string? search = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _linkService.GetLinkedStudentsAsync(teacherId.Value, page, pageSize);
+        var result = await _linkService.GetLinkedStudentsAsync(teacherId.Value, page, pageSize, search);
         return ToResponse(result);
     }
 

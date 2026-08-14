@@ -100,7 +100,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId,
         DateTime startDate, DateTime endDate,
         long? sessionId, long? collectedByUserId,
-        int page, int pageSize);
+        int page, int pageSize,
+        string? search = null);
 
     // ══════════════════════════════════════════════
     // PAYMENT PERIOD QUERIES
