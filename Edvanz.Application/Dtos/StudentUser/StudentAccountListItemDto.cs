@@ -15,6 +15,8 @@ public class StudentAccountListItemDto
 
     /// <summary>Account username, from the User table.</summary>
     public string UserName { get; set; } = null!;
+    public string AccountCode { get; set; } = null!;
+
 
     public string? PhoneNumber { get; set; }
 

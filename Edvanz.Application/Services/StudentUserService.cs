@@ -519,7 +519,8 @@ public class StudentUserService : IStudentUserService
                     TeacherId = r.TeacherId,
                     TeacherCode = r.TeacherCode,
                     StudentCode = r.StudentCode,
-                    TeacherName = r.TeacherName
+                    TeacherName = r.TeacherName,
+                    
                 }).ToList());
 
         var dtos = items.Select(i => new StudentAccountListItemDto
@@ -528,6 +529,7 @@ public class StudentUserService : IStudentUserService
             FullName = i.FullName,
             UserName = i.UserName,
             PhoneNumber = i.PhoneNumber,
+            AccountCode=i.StudentAccountCode,
             Teachers = teachersByAccount.TryGetValue(i.StudentAccountId, out var teachers)
                 ? teachers
                 : new List<StudentAccountTeacherDto>()

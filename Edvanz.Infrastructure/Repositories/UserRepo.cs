@@ -1462,6 +1462,7 @@ namespace Edvanz.Infrastructure.Repositories
                 .Select(su => new StudentAccountRow
                 {
                     StudentAccountId = su.Id,
+                    StudentAccountCode = su.StudentAccountCode,
                     FullName = su.User.FullName,
                     UserName = su.User.Username,
                     PhoneNumber = su.User.PhoneNumber

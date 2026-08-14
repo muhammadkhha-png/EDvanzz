@@ -21,7 +21,7 @@ public sealed class StudentAccountRow
 {
     /// <summary>StudentUser.Id — the value returned to the client as studentAccountId.</summary>
     public long StudentAccountId { get; set; }
-
+    public string StudentAccountCode { get; set; }
     public string FullName { get; set; } = null!;
     public string UserName { get; set; } = null!;
     public string? PhoneNumber { get; set; }
