@@ -594,7 +594,11 @@ public class StudentUserService : IStudentUserService
     {
         if (link.LinkStatus == LinkStatus.Active && !link.TeacherStudentId.HasValue)
         {
-            return link.RemovedByUserId.HasValue
+            // Either marker means the binding was removed after the student was
+            // linked (RemovedByUserId = who, UnlinkedAt = when / backfilled); with
+            // neither, the link was accepted but never bound yet ("AwaitingLink").
+            var wasRemoved = link.RemovedByUserId.HasValue || link.UnlinkedAt.HasValue;
+            return wasRemoved
                 ? nameof(LinkStatus.RemovedByTeacher)
                 : DashboardLinkStatus.AwaitingLink;
         }
