@@ -561,7 +561,7 @@ public class StudentUserService : IStudentUserService
         {
             TeacherId = teacherId,
             LinkId = link.Id,
-            Status = link.LinkStatus.ToString(),
+            Status = ComputeDisplayStatus(link),
             RequestedAt = link.RequestedAt,
             RespondedAt = link.RespondedAt,
             TeacherCode = teacher?.TeacherCode ?? string.Empty,
@@ -577,6 +577,29 @@ public class StudentUserService : IStudentUserService
             VisibilityVideo = config?.StudentVisibilityVideo ?? true,
             VisibilityOnlineExamDefault = config?.StudentVisibilityOnlineExamDefault ?? true
         };
+    }
+
+    /// <summary>
+    /// Resolves the single AUTHORITATIVE status string the student app renders,
+    /// folding the enrollment binding into the request lifecycle so the client
+    /// never combines fields. The stored <see cref="LinkStatus"/> deliberately
+    /// stays Active when a teacher unbinds (so the student can be re-bound without
+    /// a new request), so an Active row is reported as:
+    ///   • "Active" — only when still bound to a roster record (real access);
+    ///   • "RemovedByTeacher" — bound then unbound by the teacher (RemovedByUserId stamped);
+    ///   • "AwaitingLink" — accepted but never bound yet (connected, no access).
+    /// Every other state passes through its stored <see cref="LinkStatus"/> name.
+    /// </summary>
+    private static string ComputeDisplayStatus(StudentTeacherLink link)
+    {
+        if (link.LinkStatus == LinkStatus.Active && !link.TeacherStudentId.HasValue)
+        {
+            return link.RemovedByUserId.HasValue
+                ? nameof(LinkStatus.RemovedByTeacher)
+                : DashboardLinkStatus.AwaitingLink;
+        }
+
+        return link.LinkStatus.ToString();
     }
 
     /// <summary>
