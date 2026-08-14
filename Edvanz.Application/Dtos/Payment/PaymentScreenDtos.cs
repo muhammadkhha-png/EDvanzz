@@ -51,13 +51,19 @@ public class CollectionRow
     public string? StudentCode { get; set; }
     /// <summary>Positive for a collection; NEGATIVE for a departure refund (money returned).</summary>
     public decimal Amount { get; set; }
-    /// <summary>collected | pending | refund. A departure refund is a negative-amount ledger line.</summary>
+    /// <summary>collected | pending | refund | withdrawal. Refund/withdrawal are negative-amount lines.</summary>
     public string Status { get; set; } = "collected";
     public string? SessionName { get; set; }
     public DateTime? CollectedAt { get; set; }
 
     /// <summary>True when this row is a student-departure refund (negative amount).</summary>
     public bool IsRefund { get; set; }
+
+    /// <summary>
+    /// True when this row is a cash withdrawal/hand-over taken from this collector's wallet
+    /// (negative amount, no student). Rendered as a hand-over line, not a student row.
+    /// </summary>
+    public bool IsWithdrawal { get; set; }
 
     /// <summary>
     /// For a refund only: display label of the month the departure applies to (e.g. "March 2026").

@@ -476,6 +476,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsAsync(long teacherId, long assistantId);
 
+    /// <summary>
+    /// Cash withdrawals/hand-overs taken from a collector's OWN wallet within [start, endExclusive),
+    /// resolved from the collector's User id (→ their teacher-scoped Assistant record). Empty for a
+    /// collector without a wallet (e.g. the tutor). Drives the negative withdrawal lines on a
+    /// collector-scoped collections ledger.
+    /// </summary>
+    Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCollectorInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+
     // ══════════════════════════════════════════════
     // PAYMENT EDIT LOG QUERIES
     // ══════════════════════════════════════════════

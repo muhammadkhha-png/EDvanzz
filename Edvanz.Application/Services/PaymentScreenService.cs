@@ -210,9 +210,44 @@ public class PaymentScreenService : IPaymentScreenService
             }
         }
 
+        // Cash withdrawals (money handed over FROM this collector's wallet) — collector-scoped only.
+        // Skipped when a student search is active (a withdrawal has no student to match). The tutor's
+        // own "collected by me" view resolves to no wallet, so this is naturally empty there.
+        var withdrawalRows = new List<CollectionRow>();
+        int withdrawalCount = 0;
+        if (collectedByUserId is not null && string.IsNullOrEmpty(term))
+        {
+            var withdrawals = await _unitOfWork.PaymentsRepo
+                .GetWalletResetLogsForCollectorInRangeAsync(
+                    teacherId, collectedByUserId.Value, startDate, endExclusive);
+            withdrawalCount = withdrawals.Count;
+            if (page == 1)
+            {
+                withdrawalRows.AddRange(withdrawals.Select(w => new CollectionRow
+                {
+                    Id = $"withdrawal-{w.Id.ToString(CultureInfo.InvariantCulture)}",
+                    Index = 0,
+                    StudentId = null,
+                    StudentName = null,
+                    StudentCode = null,
+                    Amount = -w.AmountReset,
+                    Status = "withdrawal",
+                    IsWithdrawal = true,
+                    SessionName = null,
+                    RefundedForMonthLabel = null,
+                    CollectedAt = w.ResetAt
+                }));
+            }
+        }
+
+        // Negative lines (refunds/edits + withdrawals) live entirely on page 1; both are counted into
+        // the totals on every page so pagination stays correct.
+        int negativeCount = refundCount + withdrawalCount;
+
         int baseIndex = (page - 1) * limit;
-        var rows = new List<CollectionRow>(items.Count + refundRows.Count);
+        var rows = new List<CollectionRow>(items.Count + refundRows.Count + withdrawalRows.Count);
         rows.AddRange(refundRows);
+        rows.AddRange(withdrawalRows);
 
         for (int i = 0; i < items.Count; i++)
         {
@@ -232,8 +267,8 @@ public class PaymentScreenService : IPaymentScreenService
             });
         }
 
-        // Pagination follows the collections; refunds live entirely on page 1. Guarantee at least one
-        // page when a month has ONLY refunds so page 1 still renders.
+        // Pagination follows the collections; the negative lines live entirely on page 1. Guarantee at
+        // least one page when a range has ONLY negative lines so page 1 still renders.
         int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
         var response = new CollectionsByMonthResponse
         {
@@ -242,8 +277,8 @@ public class PaymentScreenService : IPaymentScreenService
             MonthLabel = monthLabel,
             Page = page,
             Limit = limit,
-            TotalItems = totalCount + refundCount,
-            TotalPages = transactionPages == 0 ? (refundCount > 0 ? 1 : 0) : transactionPages,
+            TotalItems = totalCount + negativeCount,
+            TotalPages = transactionPages == 0 ? (negativeCount > 0 ? 1 : 0) : transactionPages,
             FromDate = fromEcho,
             ToDate = toEcho,
             Items = rows

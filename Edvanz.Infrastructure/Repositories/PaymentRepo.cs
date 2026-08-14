@@ -1444,6 +1444,25 @@
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCollectorInRangeAsync(
+            long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+        {
+            // The collector's teacher-scoped Assistant record; a tutor collecting their own cash has no
+            // Assistant/wallet, so this resolves to nothing and no withdrawal lines are produced.
+            var assistantIds = _context.Set<Assistant>()
+                .Where(a => a.UserId == collectorUserId && a.TeacherAccountId == teacherId)
+                .Select(a => a.Id);
+
+            return await _context.WalletResetLogs
+                .Where(l => l.TeacherId == teacherId
+                    && assistantIds.Contains(l.AssistantId)
+                    && l.ResetAt >= startInclusive && l.ResetAt < endExclusive)
+                .OrderByDescending(l => l.ResetAt)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<DateTime?> GetLastWalletResetAtAsync(long teacherId, long assistantId)
         {
             return await _context.WalletResetLogs
