@@ -41,12 +41,7 @@ namespace Edvanz.Infrastructure.Migrations
                 columns: new[] { "Key", "TitleAr", "TitleEn" },
                 values: new object[] { "dashboard_basics", "إزاي تقرا الشاشة الرئيسية", "Reading your home screen" });
 
-            migrationBuilder.UpdateData(
-                table: "HelpArticles",
-                keyColumn: "Id",
-                keyValue: 4L,
-                columns: new[] { "DisplayOrder", "HelpModuleId", "Key", "TitleAr", "TitleEn" },
-                values: new object[] { 1, 3L, "monthly_vs_persession", "شهري مقابل بالحصة", "Monthly vs Per-session" });
+          
 
             migrationBuilder.UpdateData(
                 table: "HelpFaqItems",
@@ -139,7 +134,12 @@ namespace Edvanz.Infrastructure.Migrations
                 keyValue: 5L,
                 columns: new[] { "AnchorKey", "BodyAr", "BodyEn", "TitleAr", "TitleEn" },
                 values: new object[] { "dash_week_strip", "شريط الأيام فوق بيختار اليوم. الكروت اللي تحت بتوريك حصص اليوم ده بس — اليوم الفاضي معناه مفيش حصص فيه.", "The week strip at the top chooses the day. The cards below show only that day's sessions — an empty day just means nothing is scheduled then.", "اختار اليوم", "Pick a day" });
-
+            migrationBuilder.UpdateData(
+              table: "HelpArticles",
+              keyColumn: "Id",
+              keyValue: 4L,
+              columns: new[] { "DisplayOrder", "HelpModuleId", "Key", "TitleAr", "TitleEn" },
+              values: new object[] { 1, 3L, "monthly_vs_persession", "شهري مقابل بالحصة", "Monthly vs Per-session" });
             migrationBuilder.UpdateData(
                 table: "HelpTourSteps",
                 keyColumn: "Id",
