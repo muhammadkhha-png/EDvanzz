@@ -176,6 +176,27 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool IsDeviceLockEnabled { get; set; } = false;
 
+    // â”€â”€â”€ Attendance Screen Enrichment (teacher-facing, distinct from Student/ParentVisibility*) â”€â”€â”€
+
+    /// <summary>
+    /// Whether the Take/Edit Attendance student list (GET .../sessions/{sessionId}/students)
+    /// includes each student's payment/debt snapshot (unpaid-last-month flag, unpaid months
+    /// count, outstanding amount, unpaid month labels). Judged through the current cutoff month
+    /// per CLAUDE.md Â§7.4. When false, the payment lookup is skipped entirely (no extra query).
+    /// Default: false.
+    /// </summary>
+    public bool? ShowPaymentInfoOnAttendanceScreen { get; set; } = false;
+
+    /// <summary>
+    /// Whether the Take/Edit Attendance student list includes each student's course-scoped
+    /// absence count (current active StudentSessionAssignment only â€” distinct from the lifetime
+    /// StudentAbsenceCounter.TotalAbsences) and current-calendar-month absence count. Does NOT
+    /// gate WasAbsentLastSession/LastAbsenceDate/LastAbsenceSessionName, which stay unconditional
+    /// (REQ-ATT-028/029/060 absence-alert warning, unrelated to this display preference).
+    /// Default: false.
+    /// </summary>
+    public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; } = false;
+
     /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.
     /// </summary>

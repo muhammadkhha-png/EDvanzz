@@ -667,6 +667,34 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     Task<IReadOnlyList<SessionMonthStudentCounts>> GetSessionMonthAttendanceCountsAsync(
         long sessionId, DateTime monthStart, DateTime monthEndExclusive,
         IReadOnlyCollection<long> teacherStudentIds);
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // ATTENDANCE SCREEN HISTORY ENRICHMENT (ShowAttendanceHistoryOnAttendanceScreen)
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+    /// <summary>
+    /// Batched, per-student attendance-history snapshot for the Take/Edit Attendance list's
+    /// optional history enrichment â€” bounded to the caller's page of
+    /// <paramref name="teacherStudentIds"/>, never the full roster.
+    ///
+    /// <see cref="AttendanceHistoryCountsRow.CourseAbsences"/> is scoped strictly to the
+    /// student's CURRENT active <c>StudentSessionAssignment</c> â€” distinct from
+    /// <c>StudentAbsenceCounter.TotalAbsences</c>, which is lifetime across every session the
+    /// student has ever been assigned to (BR-ATT-004) and is never used here. A student with no
+    /// currently active assignment is simply absent from the returned dictionary â€” the caller
+    /// defaults such rows to zero.
+    ///
+    /// <see cref="AttendanceHistoryCountsRow.CurrentMonthAbsences"/> counts Absent records across
+    /// ALL of the student's sessions (not just their current one) in
+    /// [<paramref name="monthStart"/>, <paramref name="monthEndExclusive"/>), matching the
+    /// teacher-local-month convention used elsewhere (<c>ITimeZoneService.GetTeacherLocalDate</c>).
+    ///
+    /// Deliberately does NOT cover WasAbsentLastSession/LastAbsenceDate/LastAbsenceSessionName â€”
+    /// those stay unconditional on <see cref="PagedAttendanceStudentRow"/> (REQ-ATT-028/029/060).
+    /// </summary>
+    Task<Dictionary<long, AttendanceHistoryCountsRow>> GetAttendanceHistoryCountsBatchAsync(
+        long teacherId, IReadOnlyCollection<long> teacherStudentIds,
+        DateTime monthStart, DateTime monthEndExclusive);
 }
 
 /// <summary>Occurrence column for the session month matrix (query projection).</summary>
@@ -719,4 +747,17 @@ public class PagedAttendanceStudentRow
     public int TotalAbsences { get; set; }
     public DateTime? LastAbsenceDate { get; set; }
     public string? LastAbsenceSessionName { get; set; }
+}
+
+/// <summary>
+/// Per-student course-scoped and current-month absence counts (query projection) for the
+/// Attendance student-list screen's optional history enrichment
+/// (<c>ShowAttendanceHistoryOnAttendanceScreen</c>). See
+/// <see cref="IAttendanceRepo.GetAttendanceHistoryCountsBatchAsync"/> for scope details.
+/// </summary>
+public class AttendanceHistoryCountsRow
+{
+    public long TeacherStudentId { get; set; }
+    public int CourseAbsences { get; set; }
+    public int CurrentMonthAbsences { get; set; }
 }

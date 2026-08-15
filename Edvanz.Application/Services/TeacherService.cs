@@ -195,6 +195,8 @@ public class TeacherService : ITeacherService
                 ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
                 ParentVisibilityOnlineExamDefault = false, // mirrors ParentVisibilityExamDefault — opt-in only
                 ParentVisibilityVideo = true,
+                ShowPaymentInfoOnAttendanceScreen = false,
+                ShowAttendanceHistoryOnAttendanceScreen = false,
                 CreateAt = DateTime.UtcNow
             };
 
@@ -495,6 +497,8 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
             config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
+            config.ShowPaymentInfoOnAttendanceScreen = dto.ShowPaymentInfoOnAttendanceScreen;
+            config.ShowAttendanceHistoryOnAttendanceScreen = dto.ShowAttendanceHistoryOnAttendanceScreen;
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -575,6 +579,8 @@ public class TeacherService : ITeacherService
             ParentVisibilityHomework = config.ParentVisibilityHomework,
             ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
             IsDeviceLockEnabled = config.IsDeviceLockEnabled,
+            ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
+            ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
             UpdatedAt = config.UpdatedAt,
             ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
             {

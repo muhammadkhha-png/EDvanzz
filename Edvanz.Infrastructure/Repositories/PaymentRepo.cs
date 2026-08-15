@@ -1,4 +1,4 @@
-    using Edvanz.Domain.Constants;
+﻿    using Edvanz.Domain.Constants;
     using Edvanz.Domain.Entities;
     using Edvanz.Domain.Enums;
     using Edvanz.Domain.Interfaces;
@@ -1395,6 +1395,73 @@
                 AmountDue = overdueTotal,
                 IsUnpaid = overdueTotal > 0m
             };
+        }
+
+        // ----------------------------------------------
+        // ATTENDANCE SCREEN PAYMENT ENRICHMENT (ShowPaymentInfoOnAttendanceScreen)
+        // ----------------------------------------------
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, AttendanceScreenPaymentInfoRow>> GetPaymentInfoForAttendanceBatchAsync(
+            long teacherId, IReadOnlyCollection<long> teacherStudentIds,
+            DateTime throughMonthEnd, DateTime lastMonthStart, DateTime lastMonthEnd)
+        {
+            var idList = teacherStudentIds.Distinct().ToList();
+            if (idList.Count == 0)
+                return new Dictionary<long, AttendanceScreenPaymentInfoRow>();
+
+            // Same cutoff rule as GetUnpaidStudentsPagedAsync (CLAUDE.md Â§7.4): judge arrears only
+            // through the cutoff month so pre-generated future periods are never counted as owed.
+            var periodRefs = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId != null
+                    && idList.Contains(p.TeacherStudentId!.Value)
+                    && p.PaymentStatus != PaymentStatus.Paid
+                    && p.PeriodStart <= throughMonthEnd)
+                .OrderBy(p => p.PeriodSequence)
+                .Select(p => new
+                {
+                    StudentId = p.TeacherStudentId!.Value,
+                    Ref = new UnpaidPeriodRef
+                    {
+                        PeriodType = p.PeriodType,
+                        PeriodStart = p.PeriodStart,
+                        PeriodEnd = p.PeriodEnd,
+                        AmountRemaining = p.AmountDue - p.AmountPaid
+                    }
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            // Direct existence check against exactly last calendar month's period window â€” not
+            // derived from the unpaid-tail count â€” so it stays correct independent of the
+            // oldest-first collection assumption (BR-PAY-006).
+            var unpaidLastMonthStudentIds = (await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId != null
+                    && idList.Contains(p.TeacherStudentId!.Value)
+                    && p.PaymentStatus != PaymentStatus.Paid
+                    && p.PeriodStart >= lastMonthStart && p.PeriodStart <= lastMonthEnd)
+                .Select(p => p.TeacherStudentId!.Value)
+                .Distinct()
+                .ToListAsync())
+                .ToHashSet();
+
+            var result = new Dictionary<long, AttendanceScreenPaymentInfoRow>();
+            foreach (var group in periodRefs.GroupBy(x => x.StudentId))
+            {
+                var refs = group.Select(x => x.Ref).ToList();
+                result[group.Key] = new AttendanceScreenPaymentInfoRow
+                {
+                    TeacherStudentId = group.Key,
+                    HasUnpaidLastMonth = unpaidLastMonthStudentIds.Contains(group.Key),
+                    UnpaidMonthsCount = refs.Count,
+                    UnpaidAmount = refs.Sum(r => r.AmountRemaining),
+                    UnpaidPeriods = refs
+                };
+            }
+
+            return result;
         }
 
         // ----------------------------------------------

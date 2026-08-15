@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Attendance;
+using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;

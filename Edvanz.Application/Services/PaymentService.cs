@@ -1202,15 +1202,6 @@ public class PaymentService : IPaymentService
         return true;
     }
 
-    /// <summary>
-    /// Display label for one unpaid period: the calendar month for a Monthly obligation, the
-    /// occurrence date for a PerSession one.
-    /// </summary>
-    private static string FormatUnpaidPeriodLabel(UnpaidPeriodRef period) =>
-        period.PeriodType == PeriodType.Monthly
-            ? period.PeriodStart.ToString("MMMM yyyy")
-            : period.PeriodStart.ToString("yyyy-MM-dd");
-
     /// <inheritdoc />
     public async Task<Result<int>> GetUnpaidCountBySessionAsync(long teacherId, long sessionId)
     {

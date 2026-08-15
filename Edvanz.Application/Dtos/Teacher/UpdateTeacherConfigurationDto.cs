@@ -63,6 +63,8 @@ public class UpdateTeacherConfigurationDto
     /// Default: false.
     /// </summary>
     public bool IsDeviceLockEnabled { get; set; } = false;
+    public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
+    public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }
 }
 
 /// <summary>

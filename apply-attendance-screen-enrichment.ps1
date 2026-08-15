@@ -81,9 +81,23 @@ function Apply-Edit {
         throw "File not found: $Path"
     }
 
-    $content = Get-Content -Path $Path -Raw -Encoding UTF8
+    $rawContent = Get-Content -Path $Path -Raw -Encoding UTF8
 
-    $count = ([regex]::Matches($content, [regex]::Escape($Old))).Count
+    # Detect the file's ORIGINAL line-ending style so it can be restored after editing -
+    # a CRLF file stays CRLF, an LF file stays LF, and the diff never picks up unrelated
+    # line-ending churn as a side effect of this script.
+    $usesCrlf = $rawContent -match "`r`n"
+
+    # Normalize file content AND the anchor text to LF-only before comparing. A checkout's
+    # line endings (e.g. Windows git core.autocrlf converting to CRLF) do not necessarily
+    # match the line endings the anchor text in this script happens to carry - comparing on
+    # raw bytes silently fails the match (every line break misaligns) instead of erroring,
+    # which is worse: it looks like "already applied" when nothing was actually applied.
+    $normalizedContent = $rawContent -replace "`r`n", "`n"
+    $normalizedOld = $Old -replace "`r`n", "`n"
+    $normalizedNew = $New -replace "`r`n", "`n"
+
+    $count = ([regex]::Matches($normalizedContent, [regex]::Escape($normalizedOld))).Count
 
     if ($count -eq 0) {
         Write-Warning "SKIP  [$Description]  -  anchor not found in $Path (already applied, or file has diverged  -  check manually)."
@@ -93,7 +107,10 @@ function Apply-Edit {
         throw "ABORT [$Description]  -  anchor found $count times in $Path, expected exactly 1. Refusing to guess which one."
     }
 
-    $updated = $content.Replace($Old, $New)
+    $updatedNormalized = $normalizedContent.Replace($normalizedOld, $normalizedNew)
+
+    # Restore the file's original line-ending style before writing back.
+    $updated = if ($usesCrlf) { $updatedNormalized -replace "`n", "`r`n" } else { $updatedNormalized }
 
     # OneDrive (and sometimes an AV scanner) transiently locks files under a synced Desktop
     # path right after a write. Retry with backoff instead of failing the whole run on a

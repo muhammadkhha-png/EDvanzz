@@ -833,6 +833,58 @@ public class AttendanceStudentRowDto
     /// From <c>StudentAbsenceCounter.LastAbsenceSessionName</c>.
     /// </summary>
     public string? LastAbsenceSessionName { get; set; }
+
+    /// <summary>
+    /// Payment/debt snapshot, present only when the teacher has
+    /// <c>ShowPaymentInfoOnAttendanceScreen</c> enabled. Null means "not shown" per the teacher's
+    /// configuration â€” NOT "no debt" (a fully-paid student still gets a populated, zeroed object).
+    /// </summary>
+    public StudentPaymentInfoDto? PaymentInfo { get; set; }
+
+    /// <summary>
+    /// Course-scoped and current-month absence counts, present only when the teacher has
+    /// <c>ShowAttendanceHistoryOnAttendanceScreen</c> enabled. Deliberately separate from
+    /// <see cref="WasAbsentLastSession"/>/<see cref="LastAbsenceDate"/>/<see cref="LastAbsenceSessionName"/>
+    /// above, which stay unconditional (REQ-ATT-028/029/060).
+    /// </summary>
+    public StudentAttendanceHistoryInfoDto? HistoryInfo { get; set; }
+}
+
+/// <summary>
+/// Payment/debt snapshot for one student on the Attendance student-list screen
+/// (<c>ShowPaymentInfoOnAttendanceScreen</c>). Every figure is judged through the current
+/// teacher-local month cutoff (CLAUDE.md Â§7.4) â€” see
+/// <see cref="Edvanz.Domain.Interfaces.AttendanceScreenPaymentInfoRow"/>.
+/// </summary>
+public class StudentPaymentInfoDto
+{
+    /// <summary>True when the calendar month immediately before the teacher's current local
+    /// month has an unpaid Monthly obligation.</summary>
+    public bool HasUnpaidLastMonth { get; set; }
+
+    /// <summary>Count of unpaid periods through the current month cutoff.</summary>
+    public int UnpaidMonthsCount { get; set; }
+
+    /// <summary>Sum of (AmountDue - AmountPaid) over those periods.</summary>
+    public decimal UnpaidAmount { get; set; }
+
+    /// <summary>Display labels for each unpaid month/period, earliest first â€” e.g.
+    /// ["July 2026", "August 2026"]. Formatted via <c>PaymentLabelFormatter</c>.</summary>
+    public List<string> UnpaidMonthLabels { get; set; } = new();
+}
+
+/// <summary>
+/// Course-scoped and current-month absence counts for one student on the Attendance
+/// student-list screen (<c>ShowAttendanceHistoryOnAttendanceScreen</c>).
+/// </summary>
+public class StudentAttendanceHistoryInfoDto
+{
+    /// <summary>Absences within the student's CURRENT active session assignment only â€”
+    /// distinct from the lifetime <c>TotalAbsences</c> above (BR-ATT-004).</summary>
+    public int CourseAbsences { get; set; }
+
+    /// <summary>Absences within the teacher's current local calendar month.</summary>
+    public int CurrentMonthAbsences { get; set; }
 }
 
 /// <summary>

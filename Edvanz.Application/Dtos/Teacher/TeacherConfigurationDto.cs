@@ -47,4 +47,6 @@ public class TeacherConfigurationDto
     public bool IsDeviceLockEnabled { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
+    public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }
+    public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
 }
