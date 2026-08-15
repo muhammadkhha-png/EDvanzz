@@ -241,6 +241,8 @@ public class AddAttendanceRecordDto
 
     /// <summary>Who is adding the record.</summary>
     public long? RecordedByUserId { get; set; }
+    public StudentPaymentInfoDto? PaymentInfo { get; set; }
+    public StudentAttendanceHistoryInfoDto? HistoryInfo { get; set; }
 }
 
 /// <summary>
@@ -664,6 +666,22 @@ public class AttendanceRecordDto
     public DateTime RecordedAt { get; set; }
     public bool IsEdited { get; set; }
     public DateTime? LastEditedAt { get; set; }
+
+    /// <summary>
+    /// Payment/debt snapshot, present only when the teacher has
+    /// <c>ShowPaymentInfoOnAttendanceScreen</c> enabled AND the caller populated it. Null on
+    /// every endpoint that maps records via <c>MapToRecordDto</c> without this feature
+    /// (mark/bulk-mark/edit/sync/reports) â€” only <c>GetOccurrenceStudentsAsync</c> (Edit
+    /// Attendance past-date view) currently sets this.
+    /// </summary>
+    public StudentPaymentInfoDto? PaymentInfo { get; set; }
+
+    /// <summary>
+    /// Course-scoped and current-month absence counts, present only when the teacher has
+    /// <c>ShowAttendanceHistoryOnAttendanceScreen</c> enabled AND the caller populated it. Same
+    /// scoping as <see cref="PaymentInfo"/> â€” only <c>GetOccurrenceStudentsAsync</c> sets this.
+    /// </summary>
+    public StudentAttendanceHistoryInfoDto? HistoryInfo { get; set; }
 }
 
 /// <summary>

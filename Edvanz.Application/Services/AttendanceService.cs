@@ -318,8 +318,8 @@ public class AttendanceService : IAttendanceService
 
     /// <inheritdoc />
     public async Task<Result<AttendanceStudentListDto>> GetAttendanceStudentListAsync(
-        long teacherId, long sessionId, DateTime? occurrenceDate,
-        AttendanceStudentListRequest request)
+          long teacherId, long sessionId, DateTime? occurrenceDate,
+          AttendanceStudentListRequest request)
     {
         var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
         if (session is null)
@@ -337,24 +337,85 @@ public class AttendanceService : IAttendanceService
                 request.Search, request.UnmarkedOnly,
                 request.Page, request.PageSize);
 
-        var dtos = items.Select(row => new AttendanceStudentRowDto
+        // Optional per-teacher enrichment (ShowPaymentInfoOnAttendanceScreen /
+        // ShowAttendanceHistoryOnAttendanceScreen).
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? false;
+        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? false;
+
+        var teacherStudentIds = items.Select(r => r.TeacherStudentId).ToList();
+
+        Dictionary<long, AttendanceScreenPaymentInfoRow>? paymentInfoMap = null;
+        if (showPaymentInfo && teacherStudentIds.Count > 0)
         {
-            TeacherStudentId = row.TeacherStudentId,
-            StudentName = row.StudentName,
-            StudentCode = row.StudentCode,
-            Barcode = row.StudentCode, // FIX L7: REQ-ATT-009 — barcode encodes the student's unique code
-            CurrentStatus = row.CurrentStatus,
-            IsMarked = row.IsMarked,
-            IsHeld = row.CurrentStatus == AttendanceStatus.Held, // Step 3.1: Held indicator
-            IsCrossSessionStudent = row.IsFromLinkedSession,
-            SourceSessionName = row.SourceSessionName,
-            ConsecutiveAbsences = row.ConsecutiveAbsences,
-            TotalAbsences = row.TotalAbsences,
-            // "Was absent last session" warning, straight from the counter — same source
-            // MarkAttendanceResultDto uses (REQ-ATT-028/029/060), so no second lookup is needed.
-            WasAbsentLastSession = row.ConsecutiveAbsences > 0,
-            LastAbsenceDate = row.LastAbsenceDate,
-            LastAbsenceSessionName = row.LastAbsenceSessionName
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            var currentMonthStart = new DateTime(today.Year, today.Month, 1);
+            var currentMonthEnd = currentMonthStart.AddMonths(1).AddDays(-1);
+            var lastMonthStart = currentMonthStart.AddMonths(-1);
+            var lastMonthEnd = currentMonthStart.AddDays(-1);
+
+            paymentInfoMap = await _unitOfWork.PaymentsRepo.GetPaymentInfoForAttendanceBatchAsync(
+                teacherId, teacherStudentIds, currentMonthEnd, lastMonthStart, lastMonthEnd);
+        }
+
+        Dictionary<long, AttendanceHistoryCountsRow>? historyInfoMap = null;
+        if (showAttendanceHistory && teacherStudentIds.Count > 0)
+        {
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            var currentMonthStart = new DateTime(today.Year, today.Month, 1);
+            var currentMonthEndExclusive = currentMonthStart.AddMonths(1);
+
+            historyInfoMap = await _unitOfWork.AttendanceRepo.GetAttendanceHistoryCountsBatchAsync(
+                teacherId, teacherStudentIds, currentMonthStart, currentMonthEndExclusive);
+        }
+
+        var dtos = items.Select(row =>
+        {
+            var dto = new AttendanceStudentRowDto
+            {
+                TeacherStudentId = row.TeacherStudentId,
+                StudentName = row.StudentName,
+                StudentCode = row.StudentCode,
+                Barcode = row.StudentCode,
+                CurrentStatus = row.CurrentStatus,
+                IsMarked = row.IsMarked,
+                IsHeld = row.CurrentStatus == AttendanceStatus.Held,
+                IsCrossSessionStudent = row.IsFromLinkedSession,
+                SourceSessionName = row.SourceSessionName,
+                ConsecutiveAbsences = row.ConsecutiveAbsences,
+                TotalAbsences = row.TotalAbsences,
+                WasAbsentLastSession = row.ConsecutiveAbsences > 0,
+                LastAbsenceDate = row.LastAbsenceDate,
+                LastAbsenceSessionName = row.LastAbsenceSessionName
+            };
+
+            if (showPaymentInfo)
+            {
+                var pay = paymentInfoMap != null && paymentInfoMap.TryGetValue(row.TeacherStudentId, out var p)
+                    ? p : null;
+                dto.PaymentInfo = new StudentPaymentInfoDto
+                {
+                    HasUnpaidLastMonth = pay?.HasUnpaidLastMonth ?? false,
+                    UnpaidMonthsCount = pay?.UnpaidMonthsCount ?? 0,
+                    UnpaidAmount = pay?.UnpaidAmount ?? 0m,
+                    UnpaidMonthLabels = pay?.UnpaidPeriods
+                        .Select(PaymentLabelFormatter.FormatUnpaidPeriodLabel).ToList()
+                        ?? new List<string>()
+                };
+            }
+
+            if (showAttendanceHistory)
+            {
+                var hist = historyInfoMap != null && historyInfoMap.TryGetValue(row.TeacherStudentId, out var h)
+                    ? h : null;
+                dto.HistoryInfo = new StudentAttendanceHistoryInfoDto
+                {
+                    CourseAbsences = hist?.CourseAbsences ?? 0,
+                    CurrentMonthAbsences = hist?.CurrentMonthAbsences ?? 0
+                };
+            }
+
+            return dto;
         }).ToList();
 
         var response = new AttendanceStudentListDto
@@ -1481,7 +1542,7 @@ public class AttendanceService : IAttendanceService
 
     /// <inheritdoc />
     public async Task<Result<List<AttendanceRecordDto>>> GetOccurrenceStudentsAsync(
-        long teacherId, long sessionId, DateTime occurrenceDate)
+          long teacherId, long sessionId, DateTime occurrenceDate)
     {
         var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
         if (session is null)
@@ -1494,18 +1555,75 @@ public class AttendanceService : IAttendanceService
             return Result<List<AttendanceRecordDto>>.Success(
                 new List<AttendanceRecordDto>(), _localizer, AttendanceConstants.Messages.Success);
 
-        // Equivalence-aware: include cross-session visitors who physically attended THIS session on
-        // this date (their record lives on their home-session occurrence, tagged CrossSessionId=this).
         var records = await _unitOfWork.AttendanceRepo
             .GetRecordsForOccurrenceEditViewAsync(sessionId, occurrence.Id, occurrenceDate);
         var dtos = records.Select(r => MapToRecordDto(r,
             r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
             r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "")).ToList();
 
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? false;
+        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? false;
+
+        if ((showPaymentInfo || showAttendanceHistory) && dtos.Count > 0)
+        {
+            var teacherStudentIds = dtos.Select(d => d.TeacherStudentId).Distinct().ToList();
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            var currentMonthStart = new DateTime(today.Year, today.Month, 1);
+
+            Dictionary<long, AttendanceScreenPaymentInfoRow>? paymentInfoMap = null;
+            if (showPaymentInfo)
+            {
+                var currentMonthEnd = currentMonthStart.AddMonths(1).AddDays(-1);
+                var lastMonthStart = currentMonthStart.AddMonths(-1);
+                var lastMonthEnd = currentMonthStart.AddDays(-1);
+
+                paymentInfoMap = await _unitOfWork.PaymentsRepo.GetPaymentInfoForAttendanceBatchAsync(
+                    teacherId, teacherStudentIds, currentMonthEnd, lastMonthStart, lastMonthEnd);
+            }
+
+            Dictionary<long, AttendanceHistoryCountsRow>? historyInfoMap = null;
+            if (showAttendanceHistory)
+            {
+                var currentMonthEndExclusive = currentMonthStart.AddMonths(1);
+
+                historyInfoMap = await _unitOfWork.AttendanceRepo.GetAttendanceHistoryCountsBatchAsync(
+                    teacherId, teacherStudentIds, currentMonthStart, currentMonthEndExclusive);
+            }
+
+            foreach (var dto in dtos)
+            {
+                if (showPaymentInfo)
+                {
+                    var pay = paymentInfoMap != null && paymentInfoMap.TryGetValue(dto.TeacherStudentId, out var p)
+                        ? p : null;
+                    dto.PaymentInfo = new StudentPaymentInfoDto
+                    {
+                        HasUnpaidLastMonth = pay?.HasUnpaidLastMonth ?? false,
+                        UnpaidMonthsCount = pay?.UnpaidMonthsCount ?? 0,
+                        UnpaidAmount = pay?.UnpaidAmount ?? 0m,
+                        UnpaidMonthLabels = pay?.UnpaidPeriods
+                            .Select(PaymentLabelFormatter.FormatUnpaidPeriodLabel).ToList()
+                            ?? new List<string>()
+                    };
+                }
+
+                if (showAttendanceHistory)
+                {
+                    var hist = historyInfoMap != null && historyInfoMap.TryGetValue(dto.TeacherStudentId, out var h)
+                        ? h : null;
+                    dto.HistoryInfo = new StudentAttendanceHistoryInfoDto
+                    {
+                        CourseAbsences = hist?.CourseAbsences ?? 0,
+                        CurrentMonthAbsences = hist?.CurrentMonthAbsences ?? 0
+                    };
+                }
+            }
+        }
+
         return Result<List<AttendanceRecordDto>>.Success(
             dtos, _localizer, AttendanceConstants.Messages.Success);
     }
-
     /// <inheritdoc />
     public async Task<Result<AttendanceRecordDto>> EditAttendanceAsync(EditAttendanceDto dto)
     {

@@ -738,5 +738,18 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>Counts the (non-deleted) payment events owned by a teacher (free-tier quota).</summary>
     Task<int> CountEventsByTeacherAsync(long teacherId);
     Task<DateTime?> GetLastWalletResetAtAsync(long teacherId, long assistantId);
+    // ══════════════════════════════════════════════
+    // ATTENDANCE SCREEN PAYMENT ENRICHMENT (ShowPaymentInfoOnAttendanceScreen)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Batched, per-student payment/debt snapshot for the Take/Edit Attendance list's optional
+    /// payment enrichment — bounded to the caller's page of <paramref name="teacherStudentIds"/>,
+    /// never the full roster. Reuses the exact same arrears rules as the Unpaid Students Overview
+    /// (<see cref="UnpaidStudentRow"/>) per CLAUDE.md §7.4.
+    /// </summary>
+    Task<Dictionary<long, AttendanceScreenPaymentInfoRow>> GetPaymentInfoForAttendanceBatchAsync(
+        long teacherId, IReadOnlyCollection<long> teacherStudentIds,
+        DateTime throughMonthEnd, DateTime lastMonthStart, DateTime lastMonthEnd);
 
 }
