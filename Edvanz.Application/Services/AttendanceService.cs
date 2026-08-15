@@ -357,17 +357,7 @@ public class AttendanceService : IAttendanceService
             paymentInfoMap = await _unitOfWork.PaymentsRepo.GetPaymentInfoForAttendanceBatchAsync(
                 teacherId, teacherStudentIds, currentMonthEnd, lastMonthStart, lastMonthEnd);
         }
-
-        Dictionary<long, AttendanceHistoryCountsRow>? historyInfoMap = null;
-        if (showAttendanceHistory && teacherStudentIds.Count > 0)
-        {
-            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
-            var currentMonthStart = new DateTime(today.Year, today.Month, 1);
-            var currentMonthEndExclusive = currentMonthStart.AddMonths(1);
-
-            historyInfoMap = await _unitOfWork.AttendanceRepo.GetAttendanceHistoryCountsBatchAsync(
-                teacherId, teacherStudentIds, currentMonthStart, currentMonthEndExclusive);
-        }
+      
 
         var dtos = items.Select(row =>
         {
@@ -403,15 +393,18 @@ public class AttendanceService : IAttendanceService
                         ?? new List<string>()
                 };
             }
+            int absenceThreshold = config?.ConsecutiveAbsenceThreshold ?? 3;
 
             if (showAttendanceHistory)
             {
-                var hist = historyInfoMap != null && historyInfoMap.TryGetValue(row.TeacherStudentId, out var h)
-                    ? h : null;
                 dto.HistoryInfo = new StudentAttendanceHistoryInfoDto
                 {
-                    CourseAbsences = hist?.CourseAbsences ?? 0,
-                    CurrentMonthAbsences = hist?.CurrentMonthAbsences ?? 0
+                    WasAbsentLastSession = row.ConsecutiveAbsences > 0,
+                    ConsecutiveAbsences = row.ConsecutiveAbsences,
+                    TotalAbsences = row.TotalAbsences,
+                    AbsenceConsequenceLabel = BuildAbsenceConsequenceLabel(row.ConsecutiveAbsences, absenceThreshold),
+                    LastAbsenceDate = row.LastAbsenceDate,
+                    LastAbsenceSessionName = row.LastAbsenceSessionName
                 };
             }
 
@@ -1582,13 +1575,12 @@ public class AttendanceService : IAttendanceService
                     teacherId, teacherStudentIds, currentMonthEnd, lastMonthStart, lastMonthEnd);
             }
 
-            Dictionary<long, AttendanceHistoryCountsRow>? historyInfoMap = null;
+            Dictionary<long, StudentAbsenceCounter>? countersMap = null;
+            int absenceThreshold = config?.ConsecutiveAbsenceThreshold ?? 3;
             if (showAttendanceHistory)
             {
-                var currentMonthEndExclusive = currentMonthStart.AddMonths(1);
-
-                historyInfoMap = await _unitOfWork.AttendanceRepo.GetAttendanceHistoryCountsBatchAsync(
-                    teacherId, teacherStudentIds, currentMonthStart, currentMonthEndExclusive);
+                countersMap = await _unitOfWork.AttendanceRepo
+                    .GetAbsenceCountersBatchAsync(teacherId, teacherStudentIds);
             }
 
             foreach (var dto in dtos)
@@ -1610,12 +1602,17 @@ public class AttendanceService : IAttendanceService
 
                 if (showAttendanceHistory)
                 {
-                    var hist = historyInfoMap != null && historyInfoMap.TryGetValue(dto.TeacherStudentId, out var h)
-                        ? h : null;
+                    var counter = countersMap != null && countersMap.TryGetValue(dto.TeacherStudentId, out var c)
+                        ? c : null;
+                    int consecutive = counter?.ConsecutiveAbsences ?? 0;
                     dto.HistoryInfo = new StudentAttendanceHistoryInfoDto
                     {
-                        CourseAbsences = hist?.CourseAbsences ?? 0,
-                        CurrentMonthAbsences = hist?.CurrentMonthAbsences ?? 0
+                        WasAbsentLastSession = consecutive > 0,
+                        ConsecutiveAbsences = consecutive,
+                        TotalAbsences = counter?.TotalAbsences ?? 0,
+                        AbsenceConsequenceLabel = BuildAbsenceConsequenceLabel(consecutive, absenceThreshold),
+                        LastAbsenceDate = counter?.LastAbsenceDate,
+                        LastAbsenceSessionName = counter?.LastAbsenceSessionName
                     };
                 }
             }
@@ -3337,5 +3334,14 @@ public class AttendanceService : IAttendanceService
             AttendanceViewerType.Parent => config.ParentVisibilityAttendance,
             _ => false
         };
+    }
+    private string? BuildAbsenceConsequenceLabel(int consecutiveAbsences, int threshold)
+    {
+        if (consecutiveAbsences <= 0)
+            return null;
+
+        return consecutiveAbsences >= threshold
+            ? _localizer[AttendanceConstants.Messages.AttendanceConsecutiveAbsenceAlertReached, consecutiveAbsences]
+            : _localizer[AttendanceConstants.Messages.AttendanceConsecutiveAbsenceApproachingAlert, consecutiveAbsences, threshold];
     }
 }

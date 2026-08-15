@@ -56,7 +56,8 @@ public static class AttendanceConstants
         public const string SessionNotFound = "SessionNotFound";
         public const string StudentNotFound = "StudentNotFound";
         public const string Success = "Success";
-
+        public const string AttendanceConsecutiveAbsenceAlertReached = "AttendanceConsecutiveAbsenceAlertReached";
+        public const string AttendanceConsecutiveAbsenceApproachingAlert = "AttendanceConsecutiveAbsenceApproachingAlert";
         // Take Attendance
         public const string AttendanceMarkedSuccess = "AttendanceMarkedSuccess";
         public const string AttendanceBulkMarkedSuccess = "AttendanceBulkMarkedSuccess";

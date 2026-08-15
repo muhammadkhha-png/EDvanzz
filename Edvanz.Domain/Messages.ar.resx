@@ -2295,4 +2295,10 @@
   <data name="InvalidPersona" xml:space="preserve">
     <value>الفئة غير صحيحة. المتوقع مدرس أو طالب أو مساعد.</value>
   </data>
+  <data name="AttendanceConsecutiveAbsenceAlertReached" xml:space="preserve">
+    <value>تنبيه غياب — {0} غياب متتالي</value>
+  </data>
+  <data name="AttendanceConsecutiveAbsenceApproachingAlert" xml:space="preserve">
+    <value>{0} غياب متتالي (التنبيه عند {1})</value>
+  </data>
 </root>

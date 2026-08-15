@@ -2307,4 +2307,10 @@
   <data name="InvalidPersona" xml:space="preserve">
     <value>Invalid persona. Expected teacher, student, or assistant.</value>
   </data>
+  <data name="AttendanceConsecutiveAbsenceAlertReached" xml:space="preserve">
+    <value>Absence alert — {0} consecutive absences</value>
+  </data>
+  <data name="AttendanceConsecutiveAbsenceApproachingAlert" xml:space="preserve">
+    <value>{0} consecutive absences (alert at {1})</value>
+  </data>
 </root>

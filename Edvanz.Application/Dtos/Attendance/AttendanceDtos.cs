@@ -897,12 +897,12 @@ public class StudentPaymentInfoDto
 /// </summary>
 public class StudentAttendanceHistoryInfoDto
 {
-    /// <summary>Absences within the student's CURRENT active session assignment only â€”
-    /// distinct from the lifetime <c>TotalAbsences</c> above (BR-ATT-004).</summary>
-    public int CourseAbsences { get; set; }
-
-    /// <summary>Absences within the teacher's current local calendar month.</summary>
-    public int CurrentMonthAbsences { get; set; }
+    public bool WasAbsentLastSession { get; set; }
+    public int ConsecutiveAbsences { get; set; }
+    public int TotalAbsences { get; set; }
+    public string? AbsenceConsequenceLabel { get; set; }
+    public DateTime? LastAbsenceDate { get; set; }
+    public string? LastAbsenceSessionName { get; set; }
 }
 
 /// <summary>
