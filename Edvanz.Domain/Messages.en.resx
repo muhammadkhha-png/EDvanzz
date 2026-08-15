@@ -2304,4 +2304,7 @@
   <data name="PermissionDescription_Payment_ConfirmDeparture" xml:space="preserve">
     <value>Allows confirming a student's course withdrawal and processing the associated refund or owed-amount settlement.</value>
   </data>
+  <data name="InvalidPersona" xml:space="preserve">
+    <value>Invalid persona. Expected teacher, student, or assistant.</value>
+  </data>
 </root>

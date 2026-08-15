@@ -2292,4 +2292,7 @@
   <data name="PermissionDescription_Payment_ConfirmDeparture" xml:space="preserve">
     <value>بيسمح بتأكيد انسحاب الطالب من الكورس ومعالجة استرداد المبلغ أو تسوية المبلغ المستحق.</value>
   </data>
+  <data name="InvalidPersona" xml:space="preserve">
+    <value>الفئة غير صحيحة. المتوقع مدرس أو طالب أو مساعد.</value>
+  </data>
 </root>

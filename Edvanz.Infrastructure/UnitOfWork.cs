@@ -256,6 +256,12 @@ namespace Edvanz.Infrastructure
         /// <summary>Central file registry (<see cref="FileObject"/>) — see <see cref="IFileObjectRepo"/>.</summary>
         public IFileObjectRepo FileObjectsRepo
             => _fileObjectsRepo ??= new Repositories.FileObjectRepo(_Context);
+
+        private IHelpContentRepo? _helpContentRepo;
+
+        /// <summary>Help / Onboarding content lookup — see <see cref="IHelpContentRepo"/>.</summary>
+        public IHelpContentRepo HelpContentRepo
+            => _helpContentRepo ??= new Repositories.HelpContentRepo(_Context);
     }
 
 

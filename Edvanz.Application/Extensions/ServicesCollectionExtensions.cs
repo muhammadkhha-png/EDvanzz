@@ -2,6 +2,7 @@
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Application.Services;
+using Edvanz.Application.Services.Help;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.ServiceContract;
 using Edvanz.Infrastructure.Services;
@@ -46,6 +47,7 @@ public static class ServicesCollectionExtensions
         // Aggregated student "teacher home" screen — composes attendance/payment/videos/exams
         // behind the teacher's per-module student-visibility flags (one call for the whole page).
         services.AddScoped<IStudentTeacherHomeService, StudentTeacherHomeService>();
+        services.AddScoped<IHelpContentService, HelpContentService>();
         // Student-teacher link request/approval flow: teacher-side ops + shared notifier
         services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
         services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();

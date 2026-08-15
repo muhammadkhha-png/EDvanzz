@@ -183,5 +183,8 @@ namespace Edvanz.Domain.Interfaces
 
         /// <summary>Central file registry — one row per uploaded file, gated by <c>GET /api/files/{fileId}</c>.</summary>
         IFileObjectRepo FileObjectsRepo { get; }
+
+        /// <summary>Help / Onboarding content lookup — modules, tours, articles, FAQs (SuperAdmin-managed, global).</summary>
+        IHelpContentRepo HelpContentRepo { get; }
     }
 }
