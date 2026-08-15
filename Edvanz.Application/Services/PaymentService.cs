@@ -1,5 +1,6 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
+using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
@@ -1152,7 +1153,7 @@ public class PaymentService : IPaymentService
                 LastPaymentDate = row.LastPaymentDate,
                 // REQ-PAY-031: this list was declared on the DTO but never assigned — every
                 // response shipped an empty array.
-                UnpaidPeriodLabels = row.UnpaidPeriods.Select(FormatUnpaidPeriodLabel).ToList()
+                UnpaidPeriodLabels = row.UnpaidPeriods.Select(PaymentLabelFormatter.FormatUnpaidPeriodLabel).ToList()
             });
         }
 
