@@ -26,6 +26,15 @@ public class User: BaseEntity
     /// </summary>
     public long? IdImageFileId { get; set; }
     public bool? IsActive { get; set; } = true;
+
+    /// <summary>
+    /// UTC timestamp of this account's most recent successful login. Null until the
+    /// account logs in for the first time. Stamped by AuthService on every real login
+    /// path (password, Google, admin) — NOT on token refresh, which is not a login.
+    /// Surfaced on the SuperAdmin teacher and student-account lists (REQ-ADM-026).
+    /// </summary>
+    public DateTime? LastLoginAt { get; set; }
+
     [ForeignKey(nameof(CreateByUser))]
     public long? CreateByUserId { get; set; }
     public User? CreateByUser { get; set; }

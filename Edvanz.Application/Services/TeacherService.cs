@@ -866,7 +866,8 @@ public class TeacherService : ITeacherService
                 : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),
             PlanType = x.LatestSub?.PlanType,
             SubscriptionEndDate = x.LatestSub?.EndDate,
-            CreatedAt = x.Teacher.CreateAt
+            CreatedAt = x.Teacher.CreateAt,
+            LastLoginAt = x.User?.LastLoginAt
         }).ToList();
 
         // ── 10. Build response ─────────────────────────────────────────────────

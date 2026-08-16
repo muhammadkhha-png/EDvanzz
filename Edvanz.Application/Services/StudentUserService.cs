@@ -530,6 +530,7 @@ public class StudentUserService : IStudentUserService
             UserName = i.UserName,
             PhoneNumber = i.PhoneNumber,
             AccountCode=i.StudentAccountCode,
+            LastLoginAt = i.LastLoginAt,
             Teachers = teachersByAccount.TryGetValue(i.StudentAccountId, out var teachers)
                 ? teachers
                 : new List<StudentAccountTeacherDto>()

@@ -37,4 +37,10 @@ public class TeacherListItemDto
 
     public DateTime? SubscriptionEndDate { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// UTC timestamp of the teacher's most recent successful login, or null if the
+    /// teacher has never logged in. Sourced from User.LastLoginAt (REQ-ADM-026).
+    /// </summary>
+    public DateTime? LastLoginAt { get; set; }
 }

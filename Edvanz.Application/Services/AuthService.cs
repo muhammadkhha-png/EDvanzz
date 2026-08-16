@@ -179,6 +179,9 @@ namespace Edvanz.Application.Services
             await _unitOfWork.GetRepository<RefreshToken, long>()
                 .AddAsync(refreshTokenEntity);
 
+            // Stamp last login (SuperAdmin dashboard column) on the tracked user.
+            user.LastLoginAt = DateTime.UtcNow;
+
             var saveResult = await _unitOfWork.SaveChangesAsync();
             if (saveResult <= 0)
             {
@@ -232,6 +235,12 @@ namespace Edvanz.Application.Services
             }
 
             var refreshToken = await IssueAndStageRefreshTokenAsync(user);
+
+            // Record the successful login for the SuperAdmin dashboard "last login"
+            // column (teachers + student accounts). Set on the tracked user so it joins
+            // this same SaveChanges. Kept out of BuildUserTokenData/Refresh — a refresh
+            // is not a login.
+            user.LastLoginAt = DateTime.UtcNow;
 
             var res = await _unitOfWork.SaveChangesAsync();
             if (res <= 0)
@@ -549,6 +558,9 @@ namespace Edvanz.Application.Services
                         return Result<AuthResponse>.Failure(_localizer, "ServerError");
 
                     var loginRefreshToken = await IssueAndStageRefreshTokenAsync(existingUser);
+
+                    // Stamp last login (SuperAdmin dashboard column) on the tracked user.
+                    existingUser.LastLoginAt = DateTime.UtcNow;
 
                     var loginSave = await _unitOfWork.SaveChangesAsync();
                     if (loginSave <= 0)

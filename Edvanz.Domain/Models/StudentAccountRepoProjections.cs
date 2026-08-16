@@ -25,6 +25,9 @@ public sealed class StudentAccountRow
     public string FullName { get; set; } = null!;
     public string UserName { get; set; } = null!;
     public string? PhoneNumber { get; set; }
+
+    /// <summary>User.LastLoginAt — most recent successful login, or null if never.</summary>
+    public DateTime? LastLoginAt { get; set; }
 }
 
 /// <summary>

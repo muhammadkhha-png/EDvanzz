@@ -1485,7 +1485,8 @@ namespace Edvanz.Infrastructure.Repositories
                     StudentAccountCode = su.StudentAccountCode,
                     FullName = su.User.FullName,
                     UserName = su.User.Username,
-                    PhoneNumber = su.User.PhoneNumber
+                    PhoneNumber = su.User.PhoneNumber,
+                    LastLoginAt = su.User.LastLoginAt
                 })
                 .ToListAsync();
 

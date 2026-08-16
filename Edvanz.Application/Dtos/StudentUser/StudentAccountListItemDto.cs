@@ -21,6 +21,12 @@ public class StudentAccountListItemDto
     public string? PhoneNumber { get; set; }
 
     /// <summary>
+    /// UTC timestamp of the account's most recent successful login, or null if it has
+    /// never logged in. Sourced from User.LastLoginAt.
+    /// </summary>
+    public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
     /// Every teacher this account currently holds an ACTIVE
     /// <see cref="Edvanz.Domain.Entities.StudentTeacherLink"/> to. Empty when the
     /// account has never linked to a teacher, or all its links are
