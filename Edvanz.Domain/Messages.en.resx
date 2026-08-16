@@ -1706,6 +1706,48 @@
   <data name="CapacityRequestSubmitted" xml:space="preserve">
     <value>Your capacity increase request was submitted. Awaiting administrator approval</value>
   </data>
+  <data name="SubscriptionRequestSubmitted" xml:space="preserve">
+    <value>Your subscription request was sent. Our team will review it and set you up shortly.</value>
+  </data>
+  <data name="SubscriptionRequestAlreadyPending" xml:space="preserve">
+    <value>You already have a subscription request under review.</value>
+  </data>
+  <data name="SubscriptionRequestNotFound" xml:space="preserve">
+    <value>Subscription request not found.</value>
+  </data>
+  <data name="SubscriptionRequestNotPending" xml:space="preserve">
+    <value>This request is no longer pending.</value>
+  </data>
+  <data name="SubscriptionRequestCancelled" xml:space="preserve">
+    <value>Your subscription request was cancelled.</value>
+  </data>
+  <data name="SubscriptionRequestApproved" xml:space="preserve">
+    <value>The subscription request was approved and the subscription activated.</value>
+  </data>
+  <data name="SubscriptionRequestRejected" xml:space="preserve">
+    <value>The subscription request was rejected.</value>
+  </data>
+  <data name="RequestedStudentsRequired" xml:space="preserve">
+    <value>Please enter the number of students for the subscription.</value>
+  </data>
+  <data name="RequestedStudentsTooLarge" xml:space="preserve">
+    <value>The number of students is too large.</value>
+  </data>
+  <data name="SubscriptionStatusActive" xml:space="preserve">
+    <value>Your subscription is active.</value>
+  </data>
+  <data name="SubscriptionStatusExpiringSoon" xml:space="preserve">
+    <value>Your subscription expires in {0} day(s). Renew now to avoid interruption.</value>
+  </data>
+  <data name="SubscriptionStatusExpired" xml:space="preserve">
+    <value>Your subscription has expired. Renew to keep using all features.</value>
+  </data>
+  <data name="SubscriptionStatusNone" xml:space="preserve">
+    <value>Subscribe to unlock all features.</value>
+  </data>
+  <data name="SubscriptionStatusRequestPending" xml:space="preserve">
+    <value>Your subscription request is under review.</value>
+  </data>
   <data name="CapacityRequestAlreadyPending" xml:space="preserve">
     <value>You already have a capacity request awaiting review</value>
   </data>

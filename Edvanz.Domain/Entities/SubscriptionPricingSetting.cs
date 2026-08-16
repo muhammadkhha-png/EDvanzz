@@ -18,6 +18,13 @@ public class SubscriptionPricingSetting : BaseEntity
     /// <summary>Monthly price per student, in EGP (decimal(10,2) via Fluent). Must be &gt; 0 to allow renewals.</summary>
     public decimal PricePerStudentEGP { get; set; }
 
+    /// <summary>
+    /// Flat monthly price for a MANAGERIAL subscription, in EGP (decimal(10,2) via Fluent). A
+    /// managerial plan has no per-student component, so its fee is this single value regardless
+    /// of roster size. Seeded @ 500.00; edited through the admin pricing endpoint. Must be &gt; 0.
+    /// </summary>
+    public decimal ManagerialMonthlyPriceEGP { get; set; }
+
     /// <summary>When the rate was last changed via the admin endpoint (UTC). Null = never edited since seeding.</summary>
     public DateTime? UpdatedAt { get; set; }
 

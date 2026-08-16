@@ -33,6 +33,37 @@ public interface ISubscriptionService
     Task<Result<CurrentSubscriptionDto>> GetCurrentAsync(long teacherId);
 
     /// <summary>
+    /// Returns the single backend-driven indicator/banner contract (SubscriptionStatusDto):
+    /// derived status, days remaining, attention level, call-to-action, a localized message, and
+    /// the support WhatsApp number. Never a Failure for a new tutor — a subscription-less teacher
+    /// gets HasSubscription=false with a "subscribe" CTA. The client renders this verbatim.
+    /// </summary>
+    Task<Result<SubscriptionStatusDto>> GetStatusAsync(long teacherId);
+
+    /// <summary>
+    /// Live subscription prices for the app to display the fee before a request
+    /// (per-student monthly rate + flat managerial monthly). Display only — the request path
+    /// always recomputes the authoritative amount server-side.
+    /// </summary>
+    Task<Result<SubscriptionPlansDto>> GetPlansAsync();
+
+    /// <summary>
+    /// Teacher submits a NEW-subscription request (plan + student count) for the super admin to
+    /// activate. One live Pending request per teacher. The fee is computed server-side; Full
+    /// requires a positive student count, Managerial ignores it.
+    /// </summary>
+    Task<Result<SubscriptionRequestDto>> CreateSubscriptionRequestAsync(
+        long teacherId, long actingUserId, CreateSubscriptionRequestRequest request);
+
+    /// <summary>Paginated history of the teacher's own subscription requests, newest first, all statuses.</summary>
+    Task<Result<PaginatedResponse<List<SubscriptionRequestDto>>>> GetSubscriptionRequestsPagedAsync(
+        long teacherId, int page, int pageSize);
+
+    /// <summary>Teacher withdraws a Pending subscription request. Terminal rows are kept for audit.</summary>
+    Task<Result<SubscriptionRequestDto>> CancelSubscriptionRequestAsync(
+        long teacherId, long actingUserId, long requestId);
+
+    /// <summary>
     /// Paginated payment history (REQ-SUB-022 / FR-SUB-039).
     /// Phone numbers and reference details are masked in the returned DTOs (BR-SUB-011).
     /// </summary>

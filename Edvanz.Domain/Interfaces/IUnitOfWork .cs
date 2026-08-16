@@ -125,6 +125,12 @@ namespace Edvanz.Domain.Interfaces
         ICapacityIncreaseRequestRepo CapacityRequestsRepo { get; }
 
         /// <summary>
+        /// Teacher-initiated NEW-subscription requests (new tutors / renewals choosing a plan +
+        /// student count; Pending → Approved/Rejected/Cancelled). Approval activates the plan.
+        /// </summary>
+        ISubscriptionRequestRepo SubscriptionRequestsRepo { get; }
+
+        /// <summary>
         /// Single-row per-student pricing settings (renewal price = capacity × rate).
         /// </summary>
         ISubscriptionPricingRepo SubscriptionPricingRepo { get; }

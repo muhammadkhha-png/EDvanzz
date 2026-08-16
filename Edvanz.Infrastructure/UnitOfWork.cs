@@ -51,6 +51,7 @@ namespace Edvanz.Infrastructure
         private ISubscriptionPaymentRepo? _subscriptionPaymentsRepo;
         private ISubscriptionAlertRepo? _subscriptionAlertsRepo;
         private ICapacityIncreaseRequestRepo? _capacityRequestsRepo;
+        private ISubscriptionRequestRepo? _subscriptionRequestsRepo;
         private ISubscriptionPricingRepo? _subscriptionPricingRepo;
         private IUserNotificationRepo? _userNotificationsRepo;
         private IUserDeviceTokenRepo? _userDeviceTokensRepo;
@@ -200,6 +201,9 @@ namespace Edvanz.Infrastructure
 
         public ICapacityIncreaseRequestRepo CapacityRequestsRepo
             => _capacityRequestsRepo ??= new CapacityIncreaseRequestRepo(_Context);
+
+        public ISubscriptionRequestRepo SubscriptionRequestsRepo
+            => _subscriptionRequestsRepo ??= new SubscriptionRequestRepo(_Context);
 
         public ISubscriptionPricingRepo SubscriptionPricingRepo
             => _subscriptionPricingRepo ??= new SubscriptionPricingRepo(_Context);

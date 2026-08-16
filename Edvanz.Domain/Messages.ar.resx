@@ -1724,6 +1724,48 @@
   <data name="CapacityRequestSubmitted" xml:space="preserve">
     <value>تم إرسال طلب زيادة السعة. في انتظار موافقة الإدارة</value>
   </data>
+  <data name="SubscriptionRequestSubmitted" xml:space="preserve">
+    <value>تم إرسال طلب الاشتراك. الفريق هيراجعه ويجهّزلك الاشتراك في أقرب وقت.</value>
+  </data>
+  <data name="SubscriptionRequestAlreadyPending" xml:space="preserve">
+    <value>عندك طلب اشتراك قيد المراجعة بالفعل.</value>
+  </data>
+  <data name="SubscriptionRequestNotFound" xml:space="preserve">
+    <value>طلب الاشتراك مش موجود.</value>
+  </data>
+  <data name="SubscriptionRequestNotPending" xml:space="preserve">
+    <value>الطلب ده مبقاش قيد الانتظار.</value>
+  </data>
+  <data name="SubscriptionRequestCancelled" xml:space="preserve">
+    <value>تم إلغاء طلب الاشتراك.</value>
+  </data>
+  <data name="SubscriptionRequestApproved" xml:space="preserve">
+    <value>تمت الموافقة على طلب الاشتراك وتفعيله.</value>
+  </data>
+  <data name="SubscriptionRequestRejected" xml:space="preserve">
+    <value>تم رفض طلب الاشتراك.</value>
+  </data>
+  <data name="RequestedStudentsRequired" xml:space="preserve">
+    <value>من فضلك اكتب عدد الطلاب للاشتراك.</value>
+  </data>
+  <data name="RequestedStudentsTooLarge" xml:space="preserve">
+    <value>عدد الطلاب كبير جدًا.</value>
+  </data>
+  <data name="SubscriptionStatusActive" xml:space="preserve">
+    <value>اشتراكك فعّال.</value>
+  </data>
+  <data name="SubscriptionStatusExpiringSoon" xml:space="preserve">
+    <value>اشتراكك هيخلص خلال {0} يوم. جدّد دلوقتي عشان الخدمة متتقطعش.</value>
+  </data>
+  <data name="SubscriptionStatusExpired" xml:space="preserve">
+    <value>اشتراكك خلص. جدّد عشان تكمّل استخدام كل المميزات.</value>
+  </data>
+  <data name="SubscriptionStatusNone" xml:space="preserve">
+    <value>اشترك عشان تفتح كل المميزات.</value>
+  </data>
+  <data name="SubscriptionStatusRequestPending" xml:space="preserve">
+    <value>طلب اشتراكك قيد المراجعة.</value>
+  </data>
   <data name="CapacityRequestAlreadyPending" xml:space="preserve">
     <value>عندك طلب زيادة سعة قيد المراجعة بالفعل</value>
   </data>

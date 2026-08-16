@@ -267,6 +267,87 @@ public class SubscriptionController : ApiBaseController
         return ToResponse(result);
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 9: SUBSCRIPTION STATUS (backend-driven indicator/banner)
+    // Single contract driving the side-menu badge, home banner, and page card:
+    // days remaining, attention level, CTA, localized message, support number.
+    // SAMPLE: GET /api/subscription/status
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("status")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionStatusDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetStatus()
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.GetStatusAsync(teacherId.Value);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 10: PLANS / PRICING (display-only fee for the subscription page)
+    // SAMPLE: GET /api/subscription/pricing
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("pricing")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionPlansDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPlans()
+    {
+        var result = await _subscriptionService.GetPlansAsync();
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 11: SUBMIT A NEW-SUBSCRIPTION REQUEST (plan + student count → admin)
+    // SAMPLE: POST /api/subscription/requests { "planType": "Full", "requestedStudents": 200 }
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("requests")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitSubscriptionRequest([FromBody] CreateSubscriptionRequestRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.CreateSubscriptionRequestAsync(
+            teacherId.Value, _currentUser.UserId!.Value, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 12: LIST MY SUBSCRIPTION REQUESTS (pending/approved/rejected history)
+    // SAMPLE: GET /api/subscription/requests?page=1&pageSize=20
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("requests")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.SubscriptionRequestDto>>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSubscriptionRequests(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.GetSubscriptionRequestsPagedAsync(teacherId.Value, page, pageSize);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 13: CANCEL A PENDING SUBSCRIPTION REQUEST
+    // SAMPLE: DELETE /api/subscription/requests/42
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("requests/{requestId:long}")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelSubscriptionRequest([FromRoute] long requestId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _subscriptionService.CancelSubscriptionRequestAsync(
+            teacherId.Value, _currentUser.UserId!.Value, requestId);
+        return ToResponse(result);
+    }
+
     // ════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ════════════════════════════════════════════════

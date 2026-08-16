@@ -85,6 +85,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<PendingSubscriptionPayment> PendingSubscriptionPayments { get; set; }
     public DbSet<SubscriptionAlert> SubscriptionAlerts { get; set; }
     public DbSet<CapacityIncreaseRequest> CapacityIncreaseRequests { get; set; }
+    public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
     public DbSet<SubscriptionPricingSetting> SubscriptionPricingSettings { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
@@ -661,18 +662,25 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(p => p.PricePerStudentEGP)
                 .HasColumnType("decimal(10,2)");
 
+            // Flat managerial monthly price (no per-student component). decimal(10,2), defaults to
+            // 500 so the single existing settings row is backfilled on migration.
+            entity.Property(p => p.ManagerialMonthlyPriceEGP)
+                .HasColumnType("decimal(10,2)")
+                .HasDefaultValue(500.00m);
+
             // UpdatedByUser is an audit FK — keep the row even if the admin user is removed.
             entity.HasOne(p => p.UpdatedByUser)
                 .WithMany()
                 .HasForeignKey(p => p.UpdatedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Seed the single settings row: 1 student = 2.50 EGP / month.
+            // Seed the single settings row: 1 student = 2.50 EGP / month, managerial = 500 / month.
             // Static values only (HasData requirement).
             entity.HasData(new SubscriptionPricingSetting
             {
                 Id = 1,
                 PricePerStudentEGP = 2.50m,
+                ManagerialMonthlyPriceEGP = 500.00m,
                 CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, DateTimeKind.Utc)
             });
         });
@@ -715,6 +723,47 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Admin FIFO queue listing (Status = Pending, RequestedAt ASC).
             entity.HasIndex(r => new { r.Status, r.RequestedAt })
                 .HasDatabaseName("IX_CapacityIncreaseRequests_Status_RequestedAt");
+        });
+        #endregion
+
+        #region SubscriptionRequest (teacher-requested subscription activation, admin-approved)
+        modelBuilder.Entity<SubscriptionRequest>(entity =>
+        {
+            entity.ToTable("SubscriptionRequests");
+
+            entity.Property(r => r.ComputedAmountEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.Property(r => r.Note)
+                .HasMaxLength(500);
+
+            entity.Property(r => r.RejectionReason)
+                .HasMaxLength(500);
+
+            // ── Relationships ──
+            // NoAction on the owning Teacher: requests are tenant-scoped audit rows.
+            entity.HasOne(r => r.Teacher)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ResolvedByUser is an audit FK — keep the row even if the admin user is removed.
+            entity.HasOne(r => r.ResolvedByUser)
+                .WithMany()
+                .HasForeignKey(r => r.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // ── Indexes ──
+            // One LIVE Pending request per teacher; terminal rows accumulate for audit.
+            // Keep the [Status] literal in sync with SubscriptionRequestStatus.Pending = 1.
+            entity.HasIndex(r => r.TeacherId)
+                .IsUnique()
+                .HasFilter("[Status] = 1")
+                .HasDatabaseName("UX_SubscriptionRequests_Teacher_Pending");
+
+            // Admin FIFO queue listing (Status = Pending, RequestedAt ASC).
+            entity.HasIndex(r => new { r.Status, r.RequestedAt })
+                .HasDatabaseName("IX_SubscriptionRequests_Status_RequestedAt");
         });
         #endregion
 

@@ -248,6 +248,9 @@ builder.Services.Configure<Edvanz.Application.Options.FreeTierQuotaOptions>(
 // tunable via App Service settings "AutoAbsent__Enabled" / "AutoAbsent__EffectiveFrom" etc.
 builder.Services.Configure<Edvanz.Application.Options.AutoAbsentOptions>(
     builder.Configuration.GetSection(Edvanz.Application.Options.AutoAbsentOptions.Section));
+
+builder.Services.Configure<Edvanz.Application.Options.SupportOptions>(
+    builder.Configuration.GetSection(Edvanz.Application.Options.SupportOptions.Section));
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
 // Turns a subscription-only Forbidden into a clear localized "please subscribe" envelope
 // (instead of the framework's bare, body-less 403) on every gated action.

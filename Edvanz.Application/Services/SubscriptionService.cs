@@ -49,6 +49,7 @@ public class SubscriptionService : ISubscriptionService
     private readonly IEncryptionService _encryption;
     private readonly IBackgroundJobClient _backgroundJobs;
     private readonly SubscriptionDefaultsOptions _defaults;
+    private readonly SupportOptions _support;
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly ILogger<SubscriptionService> _logger;
 
@@ -58,6 +59,7 @@ public class SubscriptionService : ISubscriptionService
         IEncryptionService encryption,
         IBackgroundJobClient backgroundJobs,
         IOptions<SubscriptionDefaultsOptions> defaults,
+        IOptions<SupportOptions> support,
         IStringLocalizer<Messages> localizer,
         ILogger<SubscriptionService> logger)
     {
@@ -66,6 +68,7 @@ public class SubscriptionService : ISubscriptionService
         _encryption = encryption;
         _backgroundJobs = backgroundJobs;
         _defaults = defaults.Value;
+        _support = support.Value;
         _localizer = localizer;
         _logger = logger;
     }
@@ -113,6 +116,257 @@ public class SubscriptionService : ISubscriptionService
 
         return Result<CurrentSubscriptionDto>.Success(dto, _localizer);
     }
+
+    // ════════════════════════════════════════════════
+    // QUERY: STATUS (backend-driven indicator/banner contract)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionStatusDto>> GetStatusAsync(long teacherId)
+    {
+        var projection = await _unitOfWork.Users.GetCurrentSubscriptionStatusAsync(teacherId);
+        bool hasPending = await _unitOfWork.SubscriptionRequestsRepo.HasPendingRequestAsync(teacherId);
+        string? whatsApp = string.IsNullOrWhiteSpace(_support.WhatsAppNumber) ? null : _support.WhatsAppNumber;
+
+        // Brand-new tutor (or a purged subscription) — no subscription at all.
+        if (projection is null)
+        {
+            return Result<SubscriptionStatusDto>.Success(new SubscriptionStatusDto
+            {
+                HasSubscription = false,
+                DaysRemaining = 0,
+                AttentionLevel = "critical",
+                CtaType = hasPending ? "none" : "subscribe",
+                HasPendingRequest = hasPending,
+                WhatsAppNumber = whatsApp,
+                Message = hasPending
+                    ? _localizer[SubscriptionConstants.Messages.SubscriptionStatusRequestPending]
+                    : _localizer[SubscriptionConstants.Messages.SubscriptionStatusNone]
+            }, _localizer);
+        }
+
+        var subForStatus = new TeacherSubscription
+        {
+            StartDate = projection.StartDate,
+            EndDate = projection.EndDate,
+            IsCurrent = true
+        };
+        var status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow);
+        int daysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(subForStatus, DateTime.UtcNow);
+        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId);
+
+        // ALL presentation logic decided here so the client renders it verbatim.
+        string attention;
+        string cta;
+        string message;
+        if (status == SubscriptionStatus.Expired)
+        {
+            attention = "critical";
+            cta = hasPending ? "none" : "renew";
+            message = hasPending
+                ? _localizer[SubscriptionConstants.Messages.SubscriptionStatusRequestPending]
+                : _localizer[SubscriptionConstants.Messages.SubscriptionStatusExpired];
+        }
+        else if (status == SubscriptionStatus.ExpiringSoon)
+        {
+            attention = "warning";
+            cta = hasPending ? "none" : "renew";
+            message = hasPending
+                ? _localizer[SubscriptionConstants.Messages.SubscriptionStatusRequestPending]
+                : _localizer[SubscriptionConstants.Messages.SubscriptionStatusExpiringSoon, daysRemaining];
+        }
+        else
+        {
+            attention = "none";
+            cta = "none";
+            message = _localizer[SubscriptionConstants.Messages.SubscriptionStatusActive];
+        }
+
+        return Result<SubscriptionStatusDto>.Success(new SubscriptionStatusDto
+        {
+            HasSubscription = true,
+            PlanType = projection.PlanType,
+            Status = status,
+            DaysRemaining = daysRemaining,
+            EndDate = projection.EndDate,
+            RenewalAmountEGP = renewalAmount,
+            AttentionLevel = attention,
+            CtaType = cta,
+            Message = message,
+            HasPendingRequest = hasPending,
+            WhatsAppNumber = whatsApp
+        }, _localizer);
+    }
+
+    // ════════════════════════════════════════════════
+    // QUERY: PLANS / PRICING (display-only fee)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionPlansDto>> GetPlansAsync()
+    {
+        var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
+        return Result<SubscriptionPlansDto>.Success(new SubscriptionPlansDto
+        {
+            PerStudentMonthlyEGP = setting?.PricePerStudentEGP ?? 0m,
+            ManagerialMonthlyEGP = setting?.ManagerialMonthlyPriceEGP ?? 0m
+        }, _localizer);
+    }
+
+    // ════════════════════════════════════════════════
+    // NEW-SUBSCRIPTION REQUESTS (teacher side)
+    // ════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionRequestDto>> CreateSubscriptionRequestAsync(
+        long teacherId, long actingUserId, CreateSubscriptionRequestRequest request)
+    {
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher is null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+        }
+
+        var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
+        if (setting is null || setting.PricePerStudentEGP <= 0)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured);
+        }
+
+        // ── Server-authoritative fee: Full = students × rate; Managerial = flat monthly. ──
+        int students;
+        decimal amount;
+        if (request.PlanType == SubscriptionPlanType.Managerial)
+        {
+            students = 0;
+            amount = setting.ManagerialMonthlyPriceEGP;
+        }
+        else
+        {
+            if (request.RequestedStudents <= 0)
+            {
+                return Result<SubscriptionRequestDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.RequestedStudentsRequired);
+            }
+            if (request.RequestedStudents > SubscriptionConstants.MaxStudentCapacity)
+            {
+                return Result<SubscriptionRequestDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.RequestedStudentsTooLarge);
+            }
+            students = request.RequestedStudents;
+            amount = students * setting.PricePerStudentEGP;
+        }
+
+        if (await _unitOfWork.SubscriptionRequestsRepo.HasPendingRequestAsync(teacherId))
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestAlreadyPending,
+                HttpStatusCode.Conflict);
+        }
+
+        string? note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+        if (note is { Length: > 500 }) note = note[..500];
+
+        var row = new SubscriptionRequest
+        {
+            TeacherId = teacherId,
+            PlanType = request.PlanType,
+            RequestedStudents = students,
+            ComputedAmountEGP = amount,
+            Note = note,
+            Status = SubscriptionRequestStatus.Pending,
+            RequestedAt = DateTime.UtcNow,
+            RequestedByUserId = actingUserId,
+            CreateAt = DateTime.UtcNow
+        };
+
+        await _unitOfWork.SubscriptionRequestsRepo.AddAsync(row);
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+        {
+            // Race-loss on UX_SubscriptionRequests_Teacher_Pending.
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestAlreadyPending,
+                HttpStatusCode.Conflict);
+        }
+
+        return Result<SubscriptionRequestDto>.Success(
+            ToSubscriptionRequestDto(row),
+            _localizer,
+            SubscriptionConstants.Messages.SubscriptionRequestSubmitted);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<SubscriptionRequestDto>>>> GetSubscriptionRequestsPagedAsync(
+        long teacherId, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (items, totalCount) = await _unitOfWork.SubscriptionRequestsRepo
+            .GetByTeacherPagedAsync(teacherId, page, pageSize);
+
+        var paged = new PaginatedResponse<List<SubscriptionRequestDto>>
+        {
+            data = items.Select(ToSubscriptionRequestDto).ToList(),
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount
+        };
+
+        return Result<PaginatedResponse<List<SubscriptionRequestDto>>>.Success(paged, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionRequestDto>> CancelSubscriptionRequestAsync(
+        long teacherId, long actingUserId, long requestId)
+    {
+        var row = await _unitOfWork.SubscriptionRequestsRepo
+            .GetByIdAndTeacherAsync(requestId, teacherId);
+
+        if (row is null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotFound, HttpStatusCode.NotFound);
+        }
+
+        if (row.Status != SubscriptionRequestStatus.Pending)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotPending,
+                HttpStatusCode.Conflict);
+        }
+
+        row.Status = SubscriptionRequestStatus.Cancelled;
+        row.ResolvedAt = DateTime.UtcNow;
+        row.ResolvedByUserId = actingUserId;
+        _unitOfWork.SubscriptionRequestsRepo.UpdateRequest(row);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<SubscriptionRequestDto>.Success(
+            ToSubscriptionRequestDto(row),
+            _localizer,
+            SubscriptionConstants.Messages.SubscriptionRequestCancelled);
+    }
+
+    internal static SubscriptionRequestDto ToSubscriptionRequestDto(SubscriptionRequest row) => new()
+    {
+        Id = row.Id,
+        PlanType = row.PlanType,
+        RequestedStudents = row.RequestedStudents,
+        ComputedAmountEGP = row.ComputedAmountEGP,
+        Status = row.Status,
+        Note = row.Note,
+        RejectionReason = row.RejectionReason,
+        RequestedAt = row.RequestedAt,
+        ResolvedAt = row.ResolvedAt
+    };
 
     // ════════════════════════════════════════════════
     // QUERY: PAYMENT HISTORY (FR-SUB-039)

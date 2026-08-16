@@ -458,6 +458,171 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         return Result<PaginatedResponse<List<AdminCapacityRequestQueueItemDto>>>.Success(paged, _localizer);
     }
 
+    // ══════════════════════════════════════════════
+    // NEW-SUBSCRIPTION REQUEST QUEUE (teacher chose plan + student count)
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<List<AdminSubscriptionRequestQueueItemDto>>>> GetSubscriptionRequestQueueAsync(
+        int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        var (items, totalCount) = await _unitOfWork.SubscriptionRequestsRepo
+            .GetAdminQueuePagedAsync(page, pageSize);
+
+        var dtoList = new List<AdminSubscriptionRequestQueueItemDto>(items.Count);
+        foreach (var request in items)
+        {
+            var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(request.TeacherId);
+            var teacherInfo = await _unitOfWork.Users.GetTeacherForReminderAsync(request.TeacherId);
+
+            dtoList.Add(new AdminSubscriptionRequestQueueItemDto
+            {
+                Id = request.Id,
+                TeacherId = request.TeacherId,
+                TeacherName = teacherInfo?.FullName ?? string.Empty,
+                TeacherCode = teacher?.TeacherCode ?? string.Empty,
+                PlanType = request.PlanType,
+                RequestedStudents = request.RequestedStudents,
+                ComputedAmountEGP = request.ComputedAmountEGP,
+                Note = request.Note,
+                RequestedAt = request.RequestedAt
+            });
+        }
+
+        var paged = new PaginatedResponse<List<AdminSubscriptionRequestQueueItemDto>>
+        {
+            data = dtoList,
+            page = page,
+            pageSize = pageSize,
+            totalCount = totalCount
+        };
+
+        return Result<PaginatedResponse<List<AdminSubscriptionRequestQueueItemDto>>>.Success(paged, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionRequestDto>> ApproveSubscriptionRequestAsync(
+        long adminUserId, long requestId)
+    {
+        var request = await _unitOfWork.SubscriptionRequestsRepo.GetByIdForAdminAsync(requestId);
+        if (request is null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotFound, HttpStatusCode.NotFound);
+        }
+
+        if (request.Status != SubscriptionRequestStatus.Pending)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotPending, HttpStatusCode.Conflict);
+        }
+
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(request.TeacherId);
+        if (teacher is null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+        }
+
+        DateTime now = DateTime.UtcNow;
+        var newSubscription = new TeacherSubscription
+        {
+            TeacherId = request.TeacherId,
+            StartDate = now,
+            EndDate = now.AddDays(_defaults.PeriodDays),
+            IsCurrent = true,
+            PlanType = request.PlanType,
+            PaymentMethod = PaymentMethod.SuperAdminManual,
+            PaymentChannel = PaymentChannel.SuperAdminOverride,
+            AmountPaidEGP = 0m,
+            TransactionReference = null,
+            EncryptedPaymentDetails = null,
+            PaymentConfirmedAt = now,
+            CreatedByUserId = adminUserId,
+            CreateAt = now
+        };
+
+        // Grant capacity (Full only), activate the subscription, and flip the request — atomically.
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            if (request.PlanType == SubscriptionPlanType.Full && request.RequestedStudents > 0)
+            {
+                teacher.StudentCapacity = request.RequestedStudents;
+                await _unitOfWork.Users.UpdateTeacherAsync(teacher);
+            }
+
+            var previousCurrent = await _unitOfWork.Users
+                .GetCurrentSubscriptionForUpdateAsync(request.TeacherId);
+            await _unitOfWork.Users.FlipCurrentAndInsertNewAsync(previousCurrent, newSubscription);
+
+            request.Status = SubscriptionRequestStatus.Approved;
+            request.ResolvedAt = now;
+            request.ResolvedByUserId = adminUserId;
+            _unitOfWork.SubscriptionRequestsRepo.UpdateRequest(request);
+
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        await _cache.InvalidateAsync(request.TeacherId);
+
+        return Result<SubscriptionRequestDto>.Success(
+            SubscriptionService.ToSubscriptionRequestDto(request),
+            _localizer,
+            SubscriptionConstants.Messages.SubscriptionRequestApproved);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<SubscriptionRequestDto>> RejectSubscriptionRequestAsync(
+        long adminUserId, long requestId, string rejectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(rejectionReason))
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RejectionReasonRequired);
+        }
+
+        var request = await _unitOfWork.SubscriptionRequestsRepo.GetByIdForAdminAsync(requestId);
+        if (request is null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotFound, HttpStatusCode.NotFound);
+        }
+
+        if (request.Status != SubscriptionRequestStatus.Pending)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.SubscriptionRequestNotPending, HttpStatusCode.Conflict);
+        }
+
+        string trimmedReason = rejectionReason.Trim();
+        if (trimmedReason.Length > SubscriptionConstants.RejectionReasonMaxLength)
+        {
+            trimmedReason = trimmedReason[..SubscriptionConstants.RejectionReasonMaxLength];
+        }
+
+        request.Status = SubscriptionRequestStatus.Rejected;
+        request.ResolvedAt = DateTime.UtcNow;
+        request.ResolvedByUserId = adminUserId;
+        request.RejectionReason = trimmedReason;
+        _unitOfWork.SubscriptionRequestsRepo.UpdateRequest(request);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<SubscriptionRequestDto>.Success(
+            SubscriptionService.ToSubscriptionRequestDto(request),
+            _localizer,
+            SubscriptionConstants.Messages.SubscriptionRequestRejected);
+    }
+
     /// <inheritdoc />
     public async Task<Result<CapacityRequestDto>> ApproveCapacityRequestAsync(
         long adminUserId, long requestId)

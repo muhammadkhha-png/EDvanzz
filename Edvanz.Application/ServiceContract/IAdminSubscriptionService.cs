@@ -118,6 +118,26 @@ public interface IAdminSubscriptionService
     // PRICING (per-student rate: renewal = capacity × rate)
     // ══════════════════════════════════════════════
 
+    // ══════════════════════════════════════════════
+    // NEW-SUBSCRIPTION REQUEST QUEUE (teacher chose plan + student count)
+    // ══════════════════════════════════════════════
+
+    /// <summary>Paginated FIFO queue of Pending subscription requests, enriched with teacher context.</summary>
+    Task<Result<PaginatedResponse<List<AdminSubscriptionRequestQueueItemDto>>>> GetSubscriptionRequestQueueAsync(
+        int page, int pageSize);
+
+    /// <summary>
+    /// Approves a subscription request: activates the matching subscription for the teacher
+    /// (Full → capacity = RequestedStudents; Managerial → managerial activation) inside one
+    /// transaction with the request's status flip, then notifies the teacher post-commit.
+    /// </summary>
+    Task<Result<SubscriptionRequestDto>> ApproveSubscriptionRequestAsync(
+        long adminUserId, long requestId);
+
+    /// <summary>Rejects a subscription request with a required reason, then notifies the teacher.</summary>
+    Task<Result<SubscriptionRequestDto>> RejectSubscriptionRequestAsync(
+        long adminUserId, long requestId, string rejectionReason);
+
     /// <summary>Returns the current per-student monthly rate with its audit fields.</summary>
     Task<Result<SubscriptionPricingDto>> GetPricingAsync();
 

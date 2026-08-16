@@ -165,6 +165,32 @@ public static class SubscriptionConstants
         public const string CapacityRequestRejectedTitle = "CapacityRequestRejectedTitle";
         public const string CapacityRequestRejectedBody = "CapacityRequestRejectedBody";
 
+        // ── New-subscription requests (teacher chooses plan + student count; admin activates) ──
+        public const string SubscriptionRequestSubmitted = "SubscriptionRequestSubmitted";
+        public const string SubscriptionRequestAlreadyPending = "SubscriptionRequestAlreadyPending";
+        public const string SubscriptionRequestNotFound = "SubscriptionRequestNotFound";
+        public const string SubscriptionRequestNotPending = "SubscriptionRequestNotPending";
+        public const string SubscriptionRequestCancelled = "SubscriptionRequestCancelled";
+        public const string SubscriptionRequestApproved = "SubscriptionRequestApproved";
+        public const string SubscriptionRequestRejected = "SubscriptionRequestRejected";
+        public const string RequestedStudentsRequired = "RequestedStudentsRequired";
+        public const string RequestedStudentsTooLarge = "RequestedStudentsTooLarge";
+        // Teacher-facing notifications on resolution.
+        public const string SubscriptionRequestApprovedTitle = "SubscriptionRequestApprovedTitle";
+        public const string SubscriptionRequestApprovedBody = "SubscriptionRequestApprovedBody";
+        public const string SubscriptionRequestRejectedTitle = "SubscriptionRequestRejectedTitle";
+        public const string SubscriptionRequestRejectedBody = "SubscriptionRequestRejectedBody";
+        // SuperAdmin-facing notification when a new request arrives.
+        public const string NewSubscriptionRequestTitle = "NewSubscriptionRequestTitle";
+        public const string NewSubscriptionRequestBody = "NewSubscriptionRequestBody";
+
+        // ── Backend-driven status/indicator text (GET /api/subscription/status) ──
+        public const string SubscriptionStatusActive = "SubscriptionStatusActive";
+        public const string SubscriptionStatusExpiringSoon = "SubscriptionStatusExpiringSoon";
+        public const string SubscriptionStatusExpired = "SubscriptionStatusExpired";
+        public const string SubscriptionStatusNone = "SubscriptionStatusNone";
+        public const string SubscriptionStatusRequestPending = "SubscriptionStatusRequestPending";
+
         // ── Module-quota admin ──
         public const string ModuleQuotaNotFound = "ModuleQuotaNotFound";
         public const string ModuleQuotaUpdated = "ModuleQuotaUpdated";

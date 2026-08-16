@@ -372,6 +372,59 @@ public class AdminSubscriptionController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // NEW-SUBSCRIPTION REQUEST QUEUE (teacher chose plan + student count)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // GET /api/admin/subscriptions/requests?page=1&pageSize=20 — FIFO pending queue.
+    [HttpGet("requests")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<System.Collections.Generic.List<Edvanz.Application.Dtos.Subscription.AdminSubscriptionRequestQueueItemDto>>>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetSubscriptionRequestQueue(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.GetSubscriptionRequestQueueAsync(page, pageSize);
+        return ToResponse(result);
+    }
+
+    // POST /api/admin/subscriptions/requests/42/approve — activates the requested plan
+    // (Full → capacity = requested students; Managerial → managerial activation).
+    [HttpPost("requests/{requestId:long}/approve")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ApproveSubscriptionRequest([FromRoute] long requestId)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.ApproveSubscriptionRequestAsync(adminUserId.Value, requestId);
+        return ToResponse(result);
+    }
+
+    // POST /api/admin/subscriptions/requests/42/reject { "rejectionReason": "..." }
+    [HttpPost("requests/{requestId:long}/reject")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.SubscriptionRequestDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectSubscriptionRequest(
+        [FromRoute] long requestId,
+        [FromBody] RejectSubscriptionRequestRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.RejectSubscriptionRequestAsync(
+            adminUserId.Value, requestId, request.RejectionReason);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 10: GET / UPDATE PER-STUDENT PRICING
     // ══════════════════════════════════════════════════════════════════════════
     //
