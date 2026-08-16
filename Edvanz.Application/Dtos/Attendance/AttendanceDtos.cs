@@ -880,6 +880,9 @@ public class StudentPaymentInfoDto
     /// month has an unpaid Monthly obligation.</summary>
     public bool HasUnpaidLastMonth { get; set; }
 
+    /// <summary>True when the teacher's current local month has an unpaid Monthly obligation.</summary>
+    public bool HasUnpaidCurrentMonth { get; set; }
+
     /// <summary>Count of unpaid periods through the current month cutoff.</summary>
     public int UnpaidMonthsCount { get; set; }
 
@@ -927,6 +930,21 @@ public class AttendanceStudentListDto : PaginatedResponse<List<AttendanceStudent
     /// </summary>
     [JsonPropertyName("hold_count")]
     public int HoldCount { get; set; }
+
+    /// <summary>
+    /// Whether this teacher has the attendance-history alert enabled
+    /// (<c>ShowAttendanceHistoryOnAttendanceScreen</c>). Explicit gate for the app's absence
+    /// pop-up/row indicator — the client relies on this flag, not on whether <c>HistoryInfo</c>
+    /// happens to be present on a row.
+    /// </summary>
+    public bool ShowAttendanceHistory { get; set; }
+
+    /// <summary>
+    /// Whether this teacher has the unpaid-payment alert enabled
+    /// (<c>ShowPaymentInfoOnAttendanceScreen</c>). Explicit gate for the app's payment
+    /// pop-up/row chip — the client relies on this flag, not on <c>PaymentInfo</c> presence.
+    /// </summary>
+    public bool ShowPaymentInfo { get; set; }
 }
 
 /// <summary>

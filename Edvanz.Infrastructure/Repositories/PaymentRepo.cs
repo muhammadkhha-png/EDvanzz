@@ -1433,19 +1433,13 @@
                 .AsNoTracking()
                 .ToListAsync();
 
-            // Direct existence check against exactly last calendar month's period window â€” not
-            // derived from the unpaid-tail count â€” so it stays correct independent of the
-            // oldest-first collection assumption (BR-PAY-006).
-            var unpaidLastMonthStudentIds = (await _context.PaymentPeriods
-                .Where(p => p.TeacherId == teacherId
-                    && p.TeacherStudentId != null
-                    && idList.Contains(p.TeacherStudentId!.Value)
-                    && p.PaymentStatus != PaymentStatus.Paid
-                    && p.PeriodStart >= lastMonthStart && p.PeriodStart <= lastMonthEnd)
-                .Select(p => p.TeacherStudentId!.Value)
-                .Distinct()
-                .ToListAsync())
-                .ToHashSet();
+            // Both month flags are derived in-memory from periodRefs above (which already fetched
+            // ALL unpaid periods with PeriodStart <= throughMonthEnd, so last-month and current-month
+            // periods are both present). No extra query is needed. throughMonthEnd is the last day of
+            // the teacher's current local month, so its first-of-month is the current-month window
+            // start. Existence is judged against the exact period window (not the unpaid-tail count),
+            // so it stays correct independent of the oldest-first collection assumption (BR-PAY-006).
+            var currentMonthStart = new DateTime(throughMonthEnd.Year, throughMonthEnd.Month, 1);
 
             var result = new Dictionary<long, AttendanceScreenPaymentInfoRow>();
             foreach (var group in periodRefs.GroupBy(x => x.StudentId))
@@ -1454,7 +1448,10 @@
                 result[group.Key] = new AttendanceScreenPaymentInfoRow
                 {
                     TeacherStudentId = group.Key,
-                    HasUnpaidLastMonth = unpaidLastMonthStudentIds.Contains(group.Key),
+                    HasUnpaidLastMonth = refs.Any(r =>
+                        r.PeriodStart >= lastMonthStart && r.PeriodStart <= lastMonthEnd),
+                    HasUnpaidCurrentMonth = refs.Any(r =>
+                        r.PeriodStart >= currentMonthStart && r.PeriodStart <= throughMonthEnd),
                     UnpaidMonthsCount = refs.Count,
                     UnpaidAmount = refs.Sum(r => r.AmountRemaining),
                     UnpaidPeriods = refs

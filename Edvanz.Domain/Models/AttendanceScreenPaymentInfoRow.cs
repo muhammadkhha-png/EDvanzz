@@ -32,6 +32,12 @@ public sealed class AttendanceScreenPaymentInfoRow
     public bool HasUnpaidLastMonth { get; set; }
 
     /// <summary>
+    /// True when a Monthly <c>PaymentPeriod</c> starting in the teacher's current local month
+    /// exists and is not fully paid.
+    /// </summary>
+    public bool HasUnpaidCurrentMonth { get; set; }
+
+    /// <summary>
     /// Count of unpaid periods through the current month cutoff. Contiguous tail (BR-PAY-006),
     /// same semantics as <see cref="UnpaidStudentRow.UnpaidPeriodCount"/>.
     /// </summary>

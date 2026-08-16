@@ -183,9 +183,9 @@ public class TeacherConfiguration : BaseEntity
     /// includes each student's payment/debt snapshot (unpaid-last-month flag, unpaid months
     /// count, outstanding amount, unpaid month labels). Judged through the current cutoff month
     /// per CLAUDE.md Â§7.4. When false, the payment lookup is skipped entirely (no extra query).
-    /// Default: false.
+    /// Default: true.
     /// </summary>
-    public bool? ShowPaymentInfoOnAttendanceScreen { get; set; } = false;
+    public bool? ShowPaymentInfoOnAttendanceScreen { get; set; } = true;
 
     /// <summary>
     /// Whether the Take/Edit Attendance student list includes each student's course-scoped
@@ -193,9 +193,9 @@ public class TeacherConfiguration : BaseEntity
     /// StudentAbsenceCounter.TotalAbsences) and current-calendar-month absence count. Does NOT
     /// gate WasAbsentLastSession/LastAbsenceDate/LastAbsenceSessionName, which stay unconditional
     /// (REQ-ATT-028/029/060 absence-alert warning, unrelated to this display preference).
-    /// Default: false.
+    /// Default: true.
     /// </summary>
-    public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; } = false;
+    public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; } = true;
 
     /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.

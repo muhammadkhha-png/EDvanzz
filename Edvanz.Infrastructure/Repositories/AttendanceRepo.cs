@@ -1479,40 +1479,4 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 g => (IReadOnlyList<StudentSessionAssignment>)g.ToList());
     }
 
-    /// <inheritdoc />
-    public async Task<Dictionary<long, AttendanceHistoryCountsRow>> GetAttendanceHistoryCountsBatchAsync(
-        long teacherId, IReadOnlyCollection<long> teacherStudentIds,
-        DateTime monthStart, DateTime monthEndExclusive)
-    {
-        var idList = teacherStudentIds.Distinct().ToList();
-        if (idList.Count == 0)
-            return new Dictionary<long, AttendanceHistoryCountsRow>();
-
-        // Course-scoped absences: strictly the student's CURRENT active assignment (confirmed
-        // scope — Option A), NOT StudentAbsenceCounter.TotalAbsences, which is lifetime across
-        // every session ever assigned (BR-ATT-004). Every AttendanceRecord is written with the
-        // originating StudentSessionAssignmentId, so this is a direct, precise correlated count.
-        // A student can have at most one active assignment (GetActiveAssignmentAsync contract),
-        // so TeacherStudentId is unique in the result — safe direct ToDictionary below.
-        var rows = await _context.StudentSessionAssignments
-            .Where(a => a.IsActive && a.TeacherId == teacherId
-                && a.TeacherStudentId.HasValue && idList.Contains(a.TeacherStudentId.Value))
-            .Select(a => new AttendanceHistoryCountsRow
-            {
-                TeacherStudentId = a.TeacherStudentId!.Value,
-                CourseAbsences = _context.AttendanceRecords.Count(r =>
-                    r.StudentSessionAssignmentId == a.Id && r.Status == AttendanceStatus.Absent),
-                // Current-month count is NOT scoped to this assignment/session — it counts the
-                // student's absences across whichever session(s) they were marked in that month,
-                // matching the teacher-local-month convention used elsewhere in this codebase.
-                CurrentMonthAbsences = _context.AttendanceRecords.Count(r =>
-                    r.TeacherStudentId == a.TeacherStudentId
-                    && r.Status == AttendanceStatus.Absent
-                    && r.OccurrenceDate >= monthStart && r.OccurrenceDate < monthEndExclusive)
-            })
-            .AsNoTracking()
-            .ToListAsync();
-
-        return rows.ToDictionary(r => r.TeacherStudentId);
-    }
 }

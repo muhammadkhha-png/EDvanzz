@@ -340,8 +340,8 @@ public class AttendanceService : IAttendanceService
         // Optional per-teacher enrichment (ShowPaymentInfoOnAttendanceScreen /
         // ShowAttendanceHistoryOnAttendanceScreen).
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? false;
-        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? false;
+        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? true;
+        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? true;
 
         var teacherStudentIds = items.Select(r => r.TeacherStudentId).ToList();
 
@@ -386,6 +386,7 @@ public class AttendanceService : IAttendanceService
                 dto.PaymentInfo = new StudentPaymentInfoDto
                 {
                     HasUnpaidLastMonth = pay?.HasUnpaidLastMonth ?? false,
+                    HasUnpaidCurrentMonth = pay?.HasUnpaidCurrentMonth ?? false,
                     UnpaidMonthsCount = pay?.UnpaidMonthsCount ?? 0,
                     UnpaidAmount = pay?.UnpaidAmount ?? 0m,
                     UnpaidMonthLabels = pay?.UnpaidPeriods
@@ -420,7 +421,9 @@ public class AttendanceService : IAttendanceService
             data = dtos,
             AssignedCount = assignedCount,
             NotAssignedCount = notAssignedCount,
-            HoldCount = holdCount
+            HoldCount = holdCount,
+            ShowAttendanceHistory = showAttendanceHistory,
+            ShowPaymentInfo = showPaymentInfo
         };
 
         return Result<AttendanceStudentListDto>.Success(
@@ -1555,8 +1558,8 @@ public class AttendanceService : IAttendanceService
             r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "")).ToList();
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? false;
-        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? false;
+        bool showPaymentInfo = config?.ShowPaymentInfoOnAttendanceScreen ?? true;
+        bool showAttendanceHistory = config?.ShowAttendanceHistoryOnAttendanceScreen ?? true;
 
         if ((showPaymentInfo || showAttendanceHistory) && dtos.Count > 0)
         {
@@ -1592,6 +1595,7 @@ public class AttendanceService : IAttendanceService
                     dto.PaymentInfo = new StudentPaymentInfoDto
                     {
                         HasUnpaidLastMonth = pay?.HasUnpaidLastMonth ?? false,
+                        HasUnpaidCurrentMonth = pay?.HasUnpaidCurrentMonth ?? false,
                         UnpaidMonthsCount = pay?.UnpaidMonthsCount ?? 0,
                         UnpaidAmount = pay?.UnpaidAmount ?? 0m,
                         UnpaidMonthLabels = pay?.UnpaidPeriods

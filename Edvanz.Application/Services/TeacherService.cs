@@ -195,8 +195,8 @@ public class TeacherService : ITeacherService
                 ParentVisibilityExamDefault = false, // AAM-BR-10: default hidden
                 ParentVisibilityOnlineExamDefault = false, // mirrors ParentVisibilityExamDefault — opt-in only
                 ParentVisibilityVideo = true,
-                ShowPaymentInfoOnAttendanceScreen = false,
-                ShowAttendanceHistoryOnAttendanceScreen = false,
+                ShowPaymentInfoOnAttendanceScreen = true,
+                ShowAttendanceHistoryOnAttendanceScreen = true,
                 CreateAt = DateTime.UtcNow
             };
 
