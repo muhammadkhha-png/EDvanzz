@@ -42,6 +42,21 @@ namespace Edvanz.Infrastructure.Repositories
             return (studentUser.Id, teacherIds);
         }
 
-       
+        /// <inheritdoc />
+        public async Task<Dictionary<long, int>> GetActiveLinkedCountsAsync(
+            IReadOnlyCollection<long> teacherIds)
+        {
+            if (teacherIds.Count == 0) return new Dictionary<long, int>();
+
+            return await _context.StudentTeacherLinks
+                .AsNoTracking()
+                .Where(l => teacherIds.Contains(l.TeacherId) &&
+                            l.LinkStatus == Domain.Enums.LinkStatus.Active)
+                .GroupBy(l => l.TeacherId)
+                .Select(g => new { TeacherId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TeacherId, x => x.Count);
+        }
+
+
     }
 }

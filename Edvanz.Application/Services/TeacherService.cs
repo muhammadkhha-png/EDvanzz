@@ -839,7 +839,13 @@ public class TeacherService : ITeacherService
         //    SubscriptionEndDate = x.LatestSub?.EndDate,
         //    CreatedAt = x.Teacher.CreateAt
         //}).ToList();
-        // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
+        // ── 8b. Per-teacher student counts for the PAGE only (two GROUP BY queries) ──
+        var pagedTeacherIds = paged.Select(x => x.Teacher.Id).ToList();
+        var studentCounts = await _unitOfWork.Students
+            .GetActiveStudentCountsAsync(pagedTeacherIds);
+        var linkedCounts = await _unitOfWork.studentTeacherLinkRepo
+            .GetActiveLinkedCountsAsync(pagedTeacherIds);
+
         // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
         var dtoNow = DateTime.UtcNow;
         var items = paged.Select(x => new TeacherListItemDto
@@ -851,6 +857,8 @@ public class TeacherService : ITeacherService
             TeacherCode = x.Teacher.TeacherCode,
             PhoneNumber = x.User?.PhoneNumber,
             StudentCapacity = x.Teacher.StudentCapacity,
+            StudentCount = studentCounts.GetValueOrDefault(x.Teacher.Id, 0),
+            LinkedStudentCount = linkedCounts.GetValueOrDefault(x.Teacher.Id, 0),
             AccountStatus = x.Teacher.AccountStatus.ToString(),
             IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
             SubscriptionStatus = x.LatestSub is null

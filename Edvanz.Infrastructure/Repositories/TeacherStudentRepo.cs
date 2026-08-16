@@ -110,6 +110,19 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
             .CountAsync(ts => ts.TeacherId == teacherId);
     }
 
+    public async Task<Dictionary<long, int>> GetActiveStudentCountsAsync(
+        IReadOnlyCollection<long> teacherIds)
+    {
+        if (teacherIds.Count == 0) return new Dictionary<long, int>();
+
+        // Global filter already excludes soft-deleted students. One GROUP BY for the page.
+        return await _context.TeacherStudents
+            .Where(ts => teacherIds.Contains(ts.TeacherId))
+            .GroupBy(ts => ts.TeacherId)
+            .Select(g => new { TeacherId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TeacherId, x => x.Count);
+    }
+
     /// <inheritdoc />
     public async Task<int> CountRecycleBinStudentsAsync(long teacherId)
     {

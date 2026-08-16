@@ -94,6 +94,12 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     Task<int> CountActiveStudentsAsync(long teacherId);
 
     /// <summary>
+    /// Batch active (created, non-deleted) student counts for a set of teachers — one GROUP BY
+    /// query for the whole page (admin teacher list). Teachers with no students are absent.
+    /// </summary>
+    Task<Dictionary<long, int>> GetActiveStudentCountsAsync(IReadOnlyCollection<long> teacherIds);
+
+    /// <summary>
     /// Counts students currently in the recycle bin for a teacher.
     /// REQ-STU-UX-009: Recycle bin badge count.
     /// Requires IgnoreQueryFilters to see soft-deleted records.

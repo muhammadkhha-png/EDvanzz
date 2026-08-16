@@ -18,6 +18,13 @@ public class TeacherListItemDto
     public string TeacherCode { get; set; } = null!;
     public string? PhoneNumber { get; set; }
     public int StudentCapacity { get; set; }
+
+    /// <summary>Number of students CREATED (active roster) under this teacher.</summary>
+    public int StudentCount { get; set; }
+
+    /// <summary>Number of students who have an ACTIVE account link (connected) to this teacher.</summary>
+    public int LinkedStudentCount { get; set; }
+
     public string AccountStatus { get; set; } = null!;
     public bool IsConfigurationCompleted { get; set; }
     public string? SubscriptionStatus { get; set; }
