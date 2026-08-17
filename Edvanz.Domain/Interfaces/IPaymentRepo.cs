@@ -351,6 +351,19 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<List<PaymentTransactionAllocation>> GetAllocationsByPeriodAsync(long paymentPeriodId);
 
     /// <summary>
+    /// ADMIN one-off support (duplicate-period cleanup): distinct <c>TeacherStudentId</c>s that own at least
+    /// one payment period, optionally scoped to one teacher (null = every teacher). Nulls excluded.
+    /// </summary>
+    Task<List<long>> GetStudentIdsWithPeriodsAsync(long? teacherId);
+
+    /// <summary>
+    /// ADMIN one-off support (duplicate-period cleanup): of the given period ids, the subset referenced by
+    /// ANY <c>PaymentTransaction.PaymentPeriodId</c> or <c>PaymentTransactionAllocation.PaymentPeriodId</c>
+    /// (deleted rows included — a reference of any kind makes a period unsafe to delete).
+    /// </summary>
+    Task<HashSet<long>> GetReferencedPeriodIdsAsync(IReadOnlyCollection<long> periodIds);
+
+    /// <summary>
     /// ADMIN one-off support: repoints the denormalized <c>PaymentTransaction.PaymentPeriodId</c> of every
     /// NON-deleted transaction currently pointing at <paramref name="fromPeriodId"/> to
     /// <paramref name="toPeriodId"/> (bulk ExecuteUpdate). Returns the number of rows changed.

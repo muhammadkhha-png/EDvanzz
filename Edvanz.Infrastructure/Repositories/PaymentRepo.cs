@@ -845,6 +845,45 @@
         }
 
         /// <inheritdoc />
+        public async Task<List<long>> GetStudentIdsWithPeriodsAsync(long? teacherId)
+        {
+            var query = _context.PaymentPeriods.Where(p => p.TeacherStudentId != null);
+            if (teacherId.HasValue)
+                query = query.Where(p => p.TeacherId == teacherId.Value);
+
+            return await query
+                .Select(p => p.TeacherStudentId!.Value)
+                .Distinct()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<HashSet<long>> GetReferencedPeriodIdsAsync(IReadOnlyCollection<long> periodIds)
+        {
+            if (periodIds.Count == 0) return new HashSet<long>();
+
+            // Any transaction OR allocation pointing at a period (deleted rows included via IgnoreQueryFilters)
+            // makes that period unsafe to delete — we must never orphan a cash record.
+            var txRefs = await _context.PaymentTransactions
+                .IgnoreQueryFilters()
+                .Where(t => t.PaymentPeriodId != null && periodIds.Contains(t.PaymentPeriodId.Value))
+                .Select(t => t.PaymentPeriodId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var allocRefs = await _context.PaymentTransactionAllocations
+                .IgnoreQueryFilters()
+                .Where(a => a.PaymentPeriodId != null && periodIds.Contains(a.PaymentPeriodId.Value))
+                .Select(a => a.PaymentPeriodId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var referenced = new HashSet<long>(txRefs);
+            referenced.UnionWith(allocRefs);
+            return referenced;
+        }
+
+        /// <inheritdoc />
         public async Task<int> RepointTransactionsToPeriodAsync(long fromPeriodId, long toPeriodId)
         {
             // Bulk repoint of the denormalized display FK. Non-deleted only (active settlement); a

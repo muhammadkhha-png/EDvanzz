@@ -2615,19 +2615,42 @@ public class PaymentService : IPaymentService
             await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
         }
 
+        var allStudentPeriods = await _unitOfWork.PaymentsRepo
+            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+
         // Months / dates the student has ALREADY paid (any session) — skip them below so a paid or
         // pre-paid period "reflects" under the session it was paid on and is never double-billed
         // when moving to a new session. No-op on a first assignment (the student has no periods).
-        var alreadyPaidPeriods = (await _unitOfWork.PaymentsRepo
-                .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId))
+        var alreadyPaidPeriods = allStudentPeriods
             .Where(p => p.AmountPaid > 0m
                 || p.PaymentStatus == PaymentStatus.Paid
                 || p.PaymentStatus == PaymentStatus.Overpaid)
             .ToList();
-        var paidMonths = alreadyPaidPeriods
+        var skipMonths = alreadyPaidPeriods
             .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
             .ToHashSet();
-        var paidDates = alreadyPaidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
+        var skipDates = alreadyPaidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
+
+        // IDEMPOTENCY GUARD (root-cause fix for duplicate period ladders): also skip every month/date
+        // that ALREADY has a period for THIS SAME session — regardless of status. Without this, a
+        // second assign to a session the student already has periods for (e.g. an assign called twice
+        // with no intervening unassign — a double-submit, a create-then-assign, or a reassign that did
+        // not clear the ladder) regenerated a FULL parallel ladder: it only skipped PAID months, so the
+        // still-UNPAID months were duplicated. That split the student across two ladders — one month
+        // Paid on ladder A while its twin stayed Unpaid on ladder B — so the roster read them "unpaid"
+        // while the collected-by-session card saw the paid twin (prod: student 1594 / session 84 read
+        // 1/300 while the roster read 0). The move path already carries this guard (skips the
+        // destination's own pre-existing months); the plain assign path was missing it. Making assign a
+        // no-op for months it already covers is exactly the intent — a student is never billed twice for
+        // the same month of the same session. A genuine reassign still regenerates correctly: its
+        // unassign step deletes the future UNPAID periods first, so those months no longer have a period
+        // and are re-created here.
+        var sessionExistingPeriods = allStudentPeriods
+            .Where(p => p.SessionId == sessionId)
+            .ToList();
+        skipMonths.UnionWith(sessionExistingPeriods
+            .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
+        skipDates.UnionWith(sessionExistingPeriods.Select(p => p.PeriodStart.Date));
 
         // Generate initial payment periods. Extracted into BuildSessionPeriodsAsync so the
         // session-move path (OnStudentMovedBetweenSessionsAsync) reuses the SAME proration / custom
@@ -2636,7 +2659,7 @@ public class PaymentService : IPaymentService
             .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, sessionId) + 1;
         var periods = await BuildSessionPeriodsAsync(
             teacherId, teacherStudentId, session, sessionName, assignedAt, counter, student,
-            sequence, paidMonths, paidDates);
+            sequence, skipMonths, skipDates);
 
         if (periods.Count > 0)
         {
@@ -3689,6 +3712,137 @@ public class PaymentService : IPaymentService
             if (ownsTransaction) await _unitOfWork.RollbackAsync();
             throw;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<DuplicatePeriodsReconcileReport>> ReconcileDuplicatePeriodsAsync(
+        long? teacherId, bool dryRun)
+    {
+        var report = new DuplicatePeriodsReconcileReport { DryRun = dryRun, TeacherId = teacherId };
+
+        var studentIds = await _unitOfWork.PaymentsRepo.GetStudentIdsWithPeriodsAsync(teacherId);
+
+        foreach (var studentId in studentIds)
+        {
+            // Tracked periods so the junk twins can be deleted in place.
+            var periods = await _unitOfWork.PaymentsRepo.GetTrackedPaymentPeriodsByStudentAsync(studentId);
+            if (periods.Count < 2) continue;
+
+            // A duplicate group = periods sharing (SessionId, period MONTH). Monthly billing duplicates a
+            // calendar month; PerSession periods share PeriodStart == occurrence date, so the key still holds.
+            var groups = periods
+                .Where(p => p.SessionId.HasValue)
+                .GroupBy(p => new { p.SessionId, Month = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1) })
+                .Where(g => g.Count() > 1)
+                .ToList();
+            if (groups.Count == 0) continue;
+
+            // Period ids referenced by a transaction/allocation — unsafe to delete (would orphan cash).
+            var referenced = await _unitOfWork.PaymentsRepo
+                .GetReferencedPeriodIdsAsync(periods.Select(p => p.Id).ToList());
+
+            // A period "carries meaning" (never delete): any cash, forgiveness, a non-Unpaid status, the
+            // carried-forward flag, OR a settlement-ledger reference.
+            bool CarriesMeaning(PaymentPeriod p) =>
+                p.AmountPaid > 0m
+                || (p.ForgivenAmount ?? 0m) > 0m
+                || p.PaymentStatus != PaymentStatus.Unpaid
+                || p.IsCarriedForward
+                || referenced.Contains(p.Id);
+
+            var toDelete = new List<PaymentPeriod>();
+            var item = new DuplicatePeriodsStudentItem
+            {
+                TeacherId = periods[0].TeacherId,
+                TeacherStudentId = studentId,
+                StudentName = periods[0].StudentName,
+                StudentCode = periods[0].StudentCode,
+                DuplicateGroups = groups.Count
+            };
+
+            foreach (var g in groups)
+            {
+                var members = g.OrderBy(p => p.PeriodSequence).ThenBy(p => p.Id).ToList();
+                var meaningful = members.Where(CarriesMeaning).ToList();
+                var empties = members.Where(p => !CarriesMeaning(p)).ToList();
+
+                string monthLabel = g.Key.Month.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+                string label = $"{monthLabel} — {members[0].SessionName ?? $"session {g.Key.SessionId}"}";
+
+                if (meaningful.Count > 1)
+                {
+                    // Two+ money/reference twins for one month — real cash on both. NEVER auto-delete.
+                    item.ConflictMonths.Add(label);
+                    report.Conflicts++;
+                    continue;
+                }
+
+                // Keep the single meaningful period if present, else the lowest-sequence empty one; every
+                // other empty, unreferenced Unpaid twin is redundant and deleted.
+                var removable = meaningful.Count == 1 ? empties : empties.Skip(1).ToList();
+                foreach (var p in removable)
+                {
+                    toDelete.Add(p);
+                    item.DeletedMonths.Add(label);
+                    item.DeletedAmountDue += p.AmountDue;
+                }
+            }
+
+            if (toDelete.Count == 0)
+            {
+                // Nothing safe to delete — surface the student only if there were conflicts to review.
+                if (item.ConflictMonths.Count > 0)
+                {
+                    report.Students.Add(item);
+                    report.StudentsAffected++;
+                }
+                continue;
+            }
+
+            item.PeriodsDeleted = toDelete.Count;
+            report.PeriodsDeleted += toDelete.Count;
+            report.DeletedAmountDue += item.DeletedAmountDue;
+            report.StudentsAffected++;
+            report.Students.Add(item);
+
+            if (dryRun) continue;
+
+            // APPLY (per student, own boundary): delete the junk twins + resync the counter. Deleted twins
+            // are Unpaid with AmountPaid == 0, so each removed AmountDue leaves TotalOutstanding and each
+            // row leaves TotalUnpaidPeriods — the exact inverse of the inflation the duplicate assign added
+            // (mirrors OnStudentUnassignedFromSessionAsync). TotalPaidPeriods is untouched.
+            bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+            if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                var periodRepo = _unitOfWork.GetRepository<PaymentPeriod, long>();
+                await periodRepo.DeleteRangeAsync(toDelete);
+
+                var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(item.TeacherId, studentId);
+                if (counter is not null)
+                {
+                    counter.TotalOutstanding = Math.Max(0m, counter.TotalOutstanding - toDelete.Sum(p => p.AmountDue));
+                    counter.TotalUnpaidPeriods = Math.Max(0, counter.TotalUnpaidPeriods - toDelete.Count);
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                    // Flush the deletes before the consecutive-unpaid recompute reads the surviving ladder.
+                    await _unitOfWork.SaveChangesAsync();
+                    counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+                        .RecalculateConsecutiveUnpaidAsync(item.TeacherId, studentId);
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                }
+
+                await _unitOfWork.SaveChangesAsync();
+                if (ownsTransaction) await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
+        return Result<DuplicatePeriodsReconcileReport>.Success(
+            report, _localizer, PaymentConstants.Messages.Success);
     }
 
     /// <inheritdoc />

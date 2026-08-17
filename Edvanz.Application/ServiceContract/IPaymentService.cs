@@ -400,6 +400,19 @@ public interface IPaymentService
     Task<Result<RecomputeAssistantWalletReport>> RecomputeAssistantWalletAsync(long assistantId, bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). Repairs students left with a DUPLICATE period ladder for the same
+    /// session (root cause: a non-idempotent assign that regenerated a full parallel ladder, only
+    /// skipping PAID months — now fixed in <c>OnStudentAssignedToSessionAsync</c>). For each group of
+    /// periods sharing (TeacherStudentId, SessionId, month) it KEEPS one — a money/meaning period
+    /// (paid/partial/forgiven/carried, or referenced by a transaction/allocation) if present, else the
+    /// lowest-sequence empty one — and DELETES the other empty, UNREFERENCED Unpaid twins, then
+    /// resyncs the student's counter. A twin holding cash or a reference is never deleted; it is
+    /// reported as a conflict for manual review. <paramref name="teacherId"/> null = every teacher.
+    /// <paramref name="dryRun"/>=true (default) writes NOTHING and reports exactly what WOULD change.
+    /// </summary>
+    Task<Result<DuplicatePeriodsReconcileReport>> ReconcileDuplicatePeriodsAsync(long? teacherId, bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.
