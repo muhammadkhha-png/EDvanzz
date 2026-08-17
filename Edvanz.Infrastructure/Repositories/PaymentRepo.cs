@@ -624,7 +624,13 @@
                     // so this drops them; the TeacherStudentId guard drops any purge-orphaned null-student
                     // period. Mirrors the BUG-8 "Where(x => x.TeacherStudent != null)" pattern (§7.4
                     // "aggregates exclude orphans").
-                    && p.TeacherStudentId != null && p.TeacherStudent != null)
+                    && p.TeacherStudentId != null && p.TeacherStudent != null
+                    // ...AND currently assigned to THIS session: the card must reconcile with the roster,
+                    // which lists only students whose current SessionId == this session. A student who was
+                    // UNASSIGNED (SessionId null) or MOVED to another session — even one with a partial
+                    // paid period still tagged to this session — is no longer on the roster, so their paid
+                    // amount must not show as "collected here" when they can't be seen in the list.
+                    && p.TeacherStudent.SessionId == p.SessionId)
                 .GroupBy(p => p.SessionId!.Value)
                 .Select(g => new
                 {
