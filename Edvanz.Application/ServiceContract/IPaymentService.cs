@@ -386,6 +386,19 @@ public interface IPaymentService
         long teacherStudentId, string targetMonth, string fromAdvanceMonth, bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). Recomputes an assistant wallet's <c>CurrentBalance</c> using the same
+    /// reset-aware rule as the wallet-reversal fix, to repair a balance corrupted by pre-reset reversals
+    /// (e.g. salma −2700 → 0). Anchors at the last instant the collector's real held cash (collections,
+    /// including later-deleted ones, minus hand-overs) returned to zero, then held cash = collections
+    /// taken after it − partial (departure) reversals of those collections − partial withdrawals after
+    /// it. Cash collected before a hand-over — and its later refunds — is excluded. Reports old vs new
+    /// balance and the components. <paramref name="dryRun"/>=true (default) writes NOTHING; false sets
+    /// <c>CurrentBalance</c> only (TotalCollected/lifetime untouched). <paramref name="assistantId"/> is
+    /// the Assistant.Id.
+    /// </summary>
+    Task<Result<RecomputeAssistantWalletReport>> RecomputeAssistantWalletAsync(long assistantId, bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

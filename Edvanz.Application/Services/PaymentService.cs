@@ -3579,6 +3579,109 @@ public class PaymentService : IPaymentService
     }
 
     /// <inheritdoc />
+    public async Task<Result<RecomputeAssistantWalletReport>> RecomputeAssistantWalletAsync(
+        long assistantId, bool dryRun)
+    {
+        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletByAssistantIdAsync(assistantId);
+        if (wallet is null)
+            return Result<RecomputeAssistantWalletReport>.Failure(
+                _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
+
+        long teacherId = wallet.TeacherId;
+        long userId = wallet.AssistantUserId;
+        DateTime now = DateTime.UtcNow;
+
+        // Full signed history for this collector (same sources the wallet SCREEN uses, so the recompute
+        // stays consistent with it):
+        //  • collections — IgnoreQueryFilters so soft-deleted (fully-refunded) rows are included with
+        //    their preserved AmountPaid; needed so the anchor sees cash that WAS held at hand-over time.
+        //  • reversals — includeDeleted:false → only Reversed (partial departure) refunds, whose
+        //    collection is still non-deleted; each carries the underlying collection's CollectedAt. A
+        //    fully-deleted collection needs no separate refund line — it is simply excluded from held cash.
+        //  • hand-overs — full resets AND partial withdrawals (both are WalletResetLog rows).
+        var txns = await _unitOfWork.PaymentsRepo
+            .GetCollectorTransactionsInRangeAsync(teacherId, userId, DateTime.MinValue, now);
+        var reversals = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, userId, DateTime.MinValue, now, includeDeleted: false);
+        var resets = wallet.AssistantId.HasValue
+            ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsAsync(teacherId, wallet.AssistantId.Value)
+            : (wallet.CenterAssistantId.HasValue
+                ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsForCenterAssistantAsync(teacherId, wallet.CenterAssistantId.Value)
+                : (IReadOnlyList<WalletResetLog>)Array.Empty<WalletResetLog>());
+
+        // ── Anchor: the last instant the collector's REAL held cash returned to zero (a full hand-over).
+        // Replay only genuine held-cash movements — collections in (+, incl. later-deleted), hand-overs
+        // out (−). Refunds are deliberately EXCLUDED here: a refund of already-handed-over cash must not
+        // create a phantom negative that mis-anchors the window (that phantom is exactly the salma bug).
+        var anchorEvents = new List<(DateTime At, decimal Amount)>(txns.Count + resets.Count);
+        anchorEvents.AddRange(txns.Select(t => (t.CollectedAt, t.AmountPaid)));
+        anchorEvents.AddRange(resets.Select(r => (r.ResetAt, -r.AmountReset)));
+        // Chronological; on a same-instant tie, money-IN before money-OUT (matches the wallet screen) so
+        // a collect-then-handover at one timestamp nets correctly.
+        anchorEvents.Sort((a, b) =>
+        {
+            int byTime = a.At.CompareTo(b.At);
+            return byTime != 0 ? byTime : b.Amount.CompareTo(a.Amount);
+        });
+        decimal running = 0m;
+        DateTime? anchor = null;
+        foreach (var e in anchorEvents)
+        {
+            running += e.Amount;
+            if (running == 0m) anchor = e.At;
+        }
+        DateTime anchorAt = anchor ?? DateTime.MinValue;
+
+        // ── Held cash after the anchor = still-held collections − their partial reversals − later
+        // partial withdrawals. Fully-deleted collections are excluded (IsDeleted); their delete refunds
+        // are not in `reversals` (includeDeleted:false), so no double count.
+        var postCollections = txns.Where(t => !t.IsDeleted && t.CollectedAt > anchorAt).ToList();
+        decimal postCollectionsSum = postCollections.Sum(t => t.AmountPaid);
+        decimal postReversalsSum = reversals.Where(r => r.CollectedAt > anchorAt).Sum(r => r.RefundAmount);
+        decimal postWithdrawalsSum = resets.Where(r => r.ResetAt > anchorAt).Sum(r => r.AmountReset);
+        decimal newBalance = postCollectionsSum - postReversalsSum - postWithdrawalsSum;
+
+        var report = new RecomputeAssistantWalletReport
+        {
+            DryRun = dryRun,
+            TeacherId = teacherId,
+            AssistantId = assistantId,
+            AssistantUserId = userId,
+            AssistantName = wallet.Assistant?.User?.FullName ?? wallet.CenterAssistant?.User?.FullName,
+            OldBalance = wallet.CurrentBalance,
+            NewBalance = newBalance,
+            Delta = newBalance - wallet.CurrentBalance,
+            AnchorHandoverAt = anchor,
+            PostHandoverCollections = postCollectionsSum,
+            PostHandoverCollectionCount = postCollections.Count,
+            PostHandoverReversals = postReversalsSum,
+            PostHandoverWithdrawals = postWithdrawalsSum
+        };
+
+        if (dryRun)
+            return Result<RecomputeAssistantWalletReport>.Success(
+                report, _localizer, PaymentConstants.Messages.RecomputeWalletSuccess);
+
+        // ── APPLY: set CurrentBalance only. TotalCollected (lifetime) is intentionally untouched.
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            wallet.CurrentBalance = newBalance;
+            await _unitOfWork.PaymentsRepo.UpdateAssistantWalletAsync(wallet);
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+            return Result<RecomputeAssistantWalletReport>.Success(
+                report, _localizer, PaymentConstants.Messages.RecomputeWalletSuccess);
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<Result<bool>> OnSessionDeletingAsync(long teacherId, long sessionId)
     {
         await _unitOfWork.PaymentsRepo.NullifySessionIdOnPaymentRecordsAsync(sessionId);

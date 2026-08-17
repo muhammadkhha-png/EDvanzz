@@ -158,6 +158,13 @@ public sealed class CollectorRefundRow
     public string? SessionName { get; set; }
     public decimal RefundAmount { get; set; }
     public DateTime RefundedAt { get; set; }
+
+    /// <summary>
+    /// CollectedAt (UTC) of the UNDERLYING collection this refund reverses. Lets a reset-aware caller
+    /// (the wallet recompute) tell whether the reversed cash was collected before or after the last
+    /// hand-over. Zero-default for callers that ignore it.
+    /// </summary>
+    public DateTime CollectedAt { get; set; }
 }
 
 /// <summary>

@@ -596,7 +596,9 @@
                     // reverses part of the period); Deleted writes NewAmount=0 so a full
                     // delete still yields the full amount.
                     RefundAmount = l.PreviousAmount - l.NewAmount,
-                    RefundedAt = l.EditedAt
+                    RefundedAt = l.EditedAt,
+                    // Instant the reversed cash was originally collected — for reset-aware callers.
+                    CollectedAt = l.PaymentTransaction!.CollectedAt
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -1577,6 +1579,16 @@
                     .ThenInclude(ca => ca.User)
                 .FirstOrDefaultAsync(w => w.TeacherId == teacherId
                     && w.AssistantUserId == assistantUserId);
+        }
+
+        /// <inheritdoc />
+        public async Task<AssistantWallet?> GetAssistantWalletByAssistantIdAsync(long assistantId)
+        {
+            // Cross-tenant (SuperAdmin recompute); tracked so the caller can write CurrentBalance.
+            return await _context.AssistantWallets
+                .Include(w => w.Assistant)
+                    .ThenInclude(a => a.User)
+                .FirstOrDefaultAsync(w => w.AssistantId == assistantId);
         }
 
         /// <inheritdoc />

@@ -495,6 +495,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<AssistantWallet?> GetAssistantWalletAsync(long teacherId, long assistantId);
 
     /// <summary>
+    /// ADMIN one-off support: resolves an assistant wallet by its <c>AssistantId</c> alone (NOT
+    /// teacher-scoped — for the cross-tenant SuperAdmin recompute). Tracked, with the assistant's user
+    /// eager-loaded for the display name. Null when no wallet has that AssistantId (e.g. a
+    /// center-assistant wallet, which keys on CenterAssistantId).
+    /// </summary>
+    Task<AssistantWallet?> GetAssistantWalletByAssistantIdAsync(long assistantId);
+
+    /// <summary>
     /// Gets the wallet by assistant user ID.
     /// Used during payment collection to find the collector's wallet.
     /// </summary>
