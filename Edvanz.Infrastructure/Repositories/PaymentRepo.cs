@@ -1385,20 +1385,34 @@
                     ts.StudentName,
                     ts.StudentCode,
                     Group = ts.Session != null ? ts.Session.SessionName : null,
-                    SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null
+                    SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null,
+                    // Per-student custom override (BR-PAY-003) wins over the session amount.
+                    CustomAmount = _context.StudentPaymentCounters
+                        .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
+                        .Select(c => c.CustomPaymentAmount)
+                        .FirstOrDefault()
                 })
                 .FirstOrDefaultAsync();
 
             if (student is null) return null;
 
-            // AmountDue = the student's TOTAL arrears through the selected/current month (sum of every
-            // unpaid month's remaining), not a single month. Excludes months in advance. IsUnpaid is
-            // simply whether any such arrears exist.
-            decimal overdueTotal = await _context.PaymentPeriods
+            // AmountDue/totalOwed = the student's TOTAL arrears through the selected/current month (sum
+            // of every unpaid month's remaining), not a single month. Excludes months in advance.
+            // monthsOwed = how many unpaid months make up that total. One grouped query returns both.
+            var arrears = await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
                     && p.PaymentStatus != PaymentStatus.Paid
                     && p.PeriodStart <= throughMonthEnd)
-                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
+                .GroupBy(p => 1)
+                .Select(g => new
+                {
+                    Total = g.Sum(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m,
+                    Count = g.Count()
+                })
+                .FirstOrDefaultAsync();
+
+            decimal overdueTotal = arrears?.Total ?? 0m;
+            int monthsOwed = arrears?.Count ?? 0;
 
             return new CollectLookupRow
             {
@@ -1407,7 +1421,10 @@
                 StudentCode = student.StudentCode,
                 Group = student.Group,
                 AmountDue = overdueTotal,
-                IsUnpaid = overdueTotal > 0m
+                IsUnpaid = overdueTotal > 0m,
+                // Per-month rate: custom override else the session amount else 0.
+                MonthlyAmount = student.CustomAmount ?? student.SessionAmount ?? 0m,
+                MonthsOwed = monthsOwed
             };
         }
 

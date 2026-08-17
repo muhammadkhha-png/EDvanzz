@@ -52,6 +52,13 @@ public class CollectPaymentDto
     public DateTime? OfflineCollectedAt { get; set; }
 
     /// <summary>
+    /// Feature C: optional free-text note captured with the collection. Stored on the transaction and
+    /// shown in history. Required by <c>/api/v1/collect/submit</c> when the amount is partial/custom
+    /// (that path sets it); ignored/optional on other collection paths.
+    /// </summary>
+    public string? CollectionNote { get; set; }
+
+    /// <summary>
     /// Client-generated unique id for offline records (uuid). Replaying a
     /// record whose ClientEntryId already exists for this teacher returns
     /// success without recording again (exactly-once sync). Ignored for
@@ -159,6 +166,9 @@ public class PaymentTransactionDto
     public string? OnlineTransactionRef { get; set; }
     public string? PeriodLabel { get; set; }
     public bool IsEdited { get; set; }
+
+    /// <summary>Feature C: the note captured at collection time (null when none). Shown in history.</summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>

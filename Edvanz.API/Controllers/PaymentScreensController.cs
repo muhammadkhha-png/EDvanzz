@@ -344,7 +344,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         var result = await _screenService.SubmitCollectionAsync(
             teacherId.Value, GetActingUserId(),
             request?.Month, request?.ClassSessionId,
-            request?.Students ?? new List<SubmitCollectionItem>(), idempotencyKey);
+            request?.Students ?? new List<SubmitCollectionItem>(), request?.Note, idempotencyKey);
         return ToResponse(result);
     }
 

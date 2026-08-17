@@ -1847,6 +1847,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(t => t.OnlineTransactionRef).HasMaxLength(PaymentConstants.OnlineTransactionRefMaxLength);
             entity.Property(t => t.OfflineDeviceId).HasMaxLength(PaymentConstants.OfflineDeviceIdMaxLength);
             entity.Property(t => t.ProRatedTierLabel).HasMaxLength(PaymentConstants.ProRatedTierLabelMaxLength);
+            entity.Property(t => t.CollectionNote).HasMaxLength(PaymentConstants.EditReasonMaxLength);
 
             // Optimistic concurrency
             entity.Property(t => t.RowVersion).IsRowVersion();

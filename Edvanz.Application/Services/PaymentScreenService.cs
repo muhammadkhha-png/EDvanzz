@@ -819,7 +819,11 @@ public class PaymentScreenService : IPaymentScreenService
                 AvatarUrl = null
             },
             AmountDue = row.AmountDue,
-            PaymentStatus = row.IsUnpaid ? "unpaid" : "paid"
+            PaymentStatus = row.IsUnpaid ? "unpaid" : "paid",
+            // Feature C (additive): per-month rate + how many months / how much is owed.
+            MonthlyAmount = row.MonthlyAmount,
+            MonthsOwed = row.MonthsOwed,
+            TotalOwed = row.AmountDue
         };
 
         return Result<CollectLookupResponse>.Success(
@@ -1082,11 +1086,31 @@ public class PaymentScreenService : IPaymentScreenService
     /// <inheritdoc />
     public async Task<Result<SubmitCollectionResponse>> SubmitCollectionAsync(
         long teacherId, long actingUserId, string? month, long? classSessionId,
-        List<SubmitCollectionItem> students, string? idempotencyKey)
+        List<SubmitCollectionItem> students, string? note, string? idempotencyKey)
     {
         if (students is null || students.Count == 0)
             return Result<SubmitCollectionResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentSubmitBatchEmpty, HttpStatusCode.Conflict);
+
+        note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+
+        // Feature C: when no note is supplied, a note is REQUIRED if any resolvable item's amount is a
+        // partial/custom value — i.e. NOT a whole-month multiple of that student's monthly rate. A
+        // whole-month multiple (N × rate) is a plain "pay N months" and needs none. Unresolved students
+        // / invalid amounts are left to the per-item loop below (they fail there, not as a note error).
+        if (note is null)
+        {
+            foreach (var item in students)
+            {
+                if (item.Amount <= 0m) continue;
+                var st = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(item.StudentId, teacherId);
+                if (st is null) continue;
+                decimal rate = await _unitOfWork.PaymentsRepo.GetStudentMonthlyRateAsync(teacherId, item.StudentId);
+                if (!Extensions.PaymentAmountRules.IsWholeMonthMultiple(item.Amount, rate))
+                    return Result<SubmitCollectionResponse>.Failure(
+                        _localizer, PaymentConstants.Messages.CollectNoteRequired, HttpStatusCode.BadRequest);
+            }
+        }
 
         var stored = await _idempotency.GetStoredResultAsync("submit", teacherId, idempotencyKey);
         if (stored is not null)
@@ -1140,6 +1164,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Amount = item.Amount,
                 PaymentMethod = PaymentCollectionMethod.BarcodeScan,
                 CollectedByUserId = actingUserId,
+                CollectionNote = note,
                 DuplicateConfirmed = true,
                 AlreadyPaidConfirmed = true
             });

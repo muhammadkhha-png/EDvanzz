@@ -136,6 +136,12 @@ public sealed class CollectLookupRow
     public string? Group { get; set; }
     public decimal AmountDue { get; set; }
     public bool IsUnpaid { get; set; }
+
+    /// <summary>The student's per-month rate: custom override else session amount else 0.</summary>
+    public decimal MonthlyAmount { get; set; }
+
+    /// <summary>Count of unpaid months making up <see cref="AmountDue"/> (arrears through the month).</summary>
+    public int MonthsOwed { get; set; }
 }
 
 /// <summary>

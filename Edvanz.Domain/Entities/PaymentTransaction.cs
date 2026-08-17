@@ -196,6 +196,14 @@ public class PaymentTransaction : BaseEntity
     /// </summary>
     public string? OnlineTransactionRef { get; set; }
 
+    /// <summary>
+    /// Feature C: optional free-text note captured at collection time. REQUIRED by the
+    /// <c>/api/v1/collect/submit</c> path when the collected amount is a partial/custom value (not a
+    /// whole-month multiple of the student's monthly rate); optional otherwise. Surfaced in the
+    /// student payment history alongside the transaction. Nullable — additive column.
+    /// </summary>
+    public string? CollectionNote { get; set; }
+
     // ══════════════════════════════════════════════
     // OFFLINE SYNC (REQ-PAY-076 through 084)
     // ══════════════════════════════════════════════

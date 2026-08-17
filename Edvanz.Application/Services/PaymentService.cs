@@ -371,6 +371,7 @@ public class PaymentService : IPaymentService
                 IsOnlinePayment = dto.PaymentMethod == PaymentCollectionMethod.OnlinePhoneCash
                     || dto.PaymentMethod == PaymentCollectionMethod.OnlineInstaPay,
                 OnlineTransactionRef = dto.OnlineTransactionRef,
+                CollectionNote = string.IsNullOrWhiteSpace(dto.CollectionNote) ? null : dto.CollectionNote.Trim(),
                 IsOfflineRecord = dto.IsOfflineRecord,
                 OfflineDeviceId = dto.OfflineDeviceId,
                 ClientEntryId = dto.IsOfflineRecord ? dto.ClientEntryId : null,
@@ -3785,7 +3786,8 @@ public class PaymentService : IPaymentService
         IsProRated = t.IsProRated,
         ProRatedTierLabel = t.ProRatedTierLabel,
         IsOnlinePayment = t.IsOnlinePayment,
-        OnlineTransactionRef = t.OnlineTransactionRef
+        OnlineTransactionRef = t.OnlineTransactionRef,
+        Note = t.CollectionNote
     };
 
     /// <summary>

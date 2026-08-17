@@ -354,6 +354,17 @@ public class CollectLookupResponse
     public decimal AmountDue { get; set; }
     /// <summary>paid | unpaid</summary>
     public string PaymentStatus { get; set; } = "unpaid";
+
+    // ── Feature C additions (additive — existing fields above are unchanged) ──
+
+    /// <summary>The student's per-month rate: custom override (else session amount, else 0).</summary>
+    public decimal MonthlyAmount { get; set; }
+
+    /// <summary>Number of unpaid months making up <see cref="TotalOwed"/> (arrears through the month).</summary>
+    public int MonthsOwed { get; set; }
+
+    /// <summary>Total arrears through the current teacher-local month — equal to <see cref="AmountDue"/>.</summary>
+    public decimal TotalOwed { get; set; }
 }
 
 public class CollectLookupStudentDto
@@ -473,6 +484,13 @@ public class SubmitCollectionRequest
     public string? Month { get; set; }
     public long? ClassSessionId { get; set; }
     public List<SubmitCollectionItem> Students { get; set; } = new();
+
+    /// <summary>
+    /// Feature C: optional note applied to every collection in this submit. REQUIRED (else 400
+    /// <c>CollectNoteRequired</c>) when any item's amount is a partial/custom value — not a whole-month
+    /// multiple of that student's monthly rate. Stored on each transaction and shown in history.
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 public class SubmitCollectionItem
