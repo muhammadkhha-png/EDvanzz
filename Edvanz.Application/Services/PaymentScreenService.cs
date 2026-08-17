@@ -190,8 +190,14 @@ public class PaymentScreenService : IPaymentScreenService
         }
         else
         {
+            // includeDeleted: false — this "view more" list reads collections with the !IsDeleted filter
+            // (GetTransactionsByDateRangePagedAsync), so a fully-DELETED collection's positive row is
+            // already excluded; keeping its Deleted refund line here would be an orphaned −amount with no
+            // positive counterpart (the Omar bug). Reversed (partial departure) refunds are still shown —
+            // their transaction stays visible, so the positive row is on the list to net against.
             var refunds = (await _unitOfWork.PaymentsRepo
-                    .GetCollectorRefundsInRangeAsync(teacherId, collectedByUserId.Value, startDate, endExclusive))
+                    .GetCollectorRefundsInRangeAsync(teacherId, collectedByUserId.Value, startDate, endExclusive,
+                        includeDeleted: false))
                 .Where(r => r.RefundAmount > 0m && MatchesSearch(r.StudentName, r.StudentCode))
                 .ToList();
             refundCount = refunds.Count;

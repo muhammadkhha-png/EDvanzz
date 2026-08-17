@@ -560,20 +560,26 @@
 
         /// <inheritdoc />
         public async Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
-            long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+            long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
+            bool includeDeleted = true)
         {
             // A refund = the collector's collection being fully handed back: a delete or reversal
             // (refund = the whole PreviousAmount). Partial amount-edits are treated as corrections to
             // the collected figure (reflected in the collection's own amount), not refund lines, so the
             // month log never double-counts. IgnoreQueryFilters because the transaction is soft-deleted.
+            //
+            // includeDeleted=false (the "view more" collections list) drops Deleted rows: a full delete
+            // ALSO removes the collection's positive row from that !IsDeleted-filtered list, so surfacing
+            // its refund line there is an orphaned negative with no positive counterpart. Reversed rows
+            // (partial departure reversals) keep their still-visible positive row and are always shown.
             var rows = await _context.PaymentEditLogs
                 .IgnoreQueryFilters()
                 .Where(l => l.PaymentTransaction != null
                     && l.PaymentTransaction.TeacherId == teacherId
                     && l.PaymentTransaction.CollectedByUserId == collectorUserId
                     && l.EditedAt >= startInclusive && l.EditedAt < endExclusive
-                    && (l.EditAction == PaymentEditAction.Deleted
-                        || l.EditAction == PaymentEditAction.Reversed))
+                    && (l.EditAction == PaymentEditAction.Reversed
+                        || (includeDeleted && l.EditAction == PaymentEditAction.Deleted)))
                 .Select(l => new CollectorRefundRow
                 {
                     Id = l.Id,

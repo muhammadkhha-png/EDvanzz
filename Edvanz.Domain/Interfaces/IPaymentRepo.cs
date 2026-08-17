@@ -261,9 +261,21 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>
     /// Refunds taken back from a collector in [startInclusive, endExclusive), from the payment
     /// edit-log trail (delete/reversal = full amount; amount reduction = the drop).
+    /// <para>
+    /// <paramref name="includeDeleted"/> (default <c>true</c>) keeps the historical behaviour used by
+    /// the assistant-wallet CARD, which reads collections with <c>IgnoreQueryFilters()</c> and so
+    /// PAIRS a fully-deleted collection's positive row with its negative <c>Deleted</c> refund line
+    /// (they net to zero). Pass <c>false</c> ONLY on the "view more" collections list
+    /// (<c>GetCollectionsByMonthAsync</c>), which reads collections with the <c>!IsDeleted</c> filter:
+    /// there the deleted collection's positive row is already gone, so its <c>Deleted</c> refund line
+    /// would show as an ORPHANED negative with no positive counterpart. <c>Reversed</c> rows (partial
+    /// departure reversals whose transaction stays visible) are ALWAYS included — their positive
+    /// counterpart is still on the list.
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
-        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
+        bool includeDeleted = true);
 
     /// <summary>
     /// Student-departure refunds (RefundDue) confirmed within [startInclusive, endExclusive), sourced
