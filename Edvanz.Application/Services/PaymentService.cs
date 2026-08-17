@@ -2813,11 +2813,17 @@ public class PaymentService : IPaymentService
         public List<PaymentPeriod> FutureToCancel { get; } = new();
         /// <summary>Partially-paid periods → settle the paid part in source, carry the REMAINDER to dest.</summary>
         public List<PaymentPeriod> PartialsToSplit { get; } = new();
-        /// <summary>Periods LEFT in place because the destination already bills that month (cleanup guard).</summary>
+        /// <summary>Partially-paid periods whose month the destination ALREADY bills — real cash, so LEFT
+        /// in place and flagged for manual review (cleanup guard; never auto-touched).</summary>
         public List<PaymentPeriod> OverlapSkipped { get; } = new();
+        /// <summary>Fully-UNPAID periods whose month the destination ALREADY bills → a redundant duplicate
+        /// of an obligation the current session already carries → DELETE (cleanup only; touches no cash and
+        /// clears the stranded-period misclassification).</summary>
+        public List<PaymentPeriod> OverlapRedundantToDelete { get; } = new();
         /// <summary>First-of-month keys carried into the destination (moved + partial-remainder).</summary>
         public HashSet<DateTime> MovedMonths { get; } = new();
 
+        public decimal RedundantDeletedAmount => OverlapRedundantToDelete.Sum(p => p.AmountDue - p.AmountPaid);
         public decimal MovedAmount => UnpaidDueToMove.Sum(p => p.AmountDue - p.AmountPaid);
         public decimal SettledRemainderAmount => PartialsToSplit.Sum(p => p.AmountDue - p.AmountPaid);
         public decimal SettledInSourceAmount => PartialsToSplit.Sum(p => p.AmountPaid);
@@ -2850,8 +2856,14 @@ public class PaymentService : IPaymentService
             var monthKey = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
             if (destExistingMonths is not null && destExistingMonths.Contains(monthKey))
             {
-                // Destination already bills this month — do NOT move/settle (would double-bill). Flag it.
-                plan.OverlapSkipped.Add(p);
+                // Destination already bills this month. A fully-UNPAID source period here is a redundant
+                // duplicate of an obligation the current session already carries → DELETE it (no cash;
+                // this is what actually clears the stranded-period misclassification). A partially-paid
+                // one holds real cash, so leave it flagged for manual review rather than guess.
+                if (p.AmountPaid <= 0m)
+                    plan.OverlapRedundantToDelete.Add(p);
+                else
+                    plan.OverlapSkipped.Add(p);
                 continue;
             }
 
@@ -2940,10 +2952,15 @@ public class PaymentService : IPaymentService
         if (remainders.Count > 0)
             await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(remainders);
 
-        if (plan.FutureToCancel.Count > 0)
+        // Deletes: future obligations the student no longer has (left the source) + redundant unpaid
+        // duplicates of months the destination already bills (cleanup overlap). Both are fully-unpaid
+        // (no cash) — see BuildCarryOverPlan.
+        var toDelete = new List<PaymentPeriod>(plan.FutureToCancel);
+        toDelete.AddRange(plan.OverlapRedundantToDelete);
+        if (toDelete.Count > 0)
         {
             var periodRepo = _unitOfWork.GetRepository<PaymentPeriod, long>();
-            await periodRepo.DeleteRangeAsync(plan.FutureToCancel);
+            await periodRepo.DeleteRangeAsync(toDelete);
         }
 
         return destSequence;
@@ -3235,9 +3252,11 @@ public class PaymentService : IPaymentService
                         MovedMonths = plan.UnpaidDueToMove.Select(FormatPeriodLabel).ToList(),
                         CancelledMonths = plan.FutureToCancel.Select(FormatPeriodLabel).ToList(),
                         SettledMonths = plan.PartialsToSplit.Select(FormatPeriodLabel).ToList(),
+                        RedundantDeletedMonths = plan.OverlapRedundantToDelete.Select(FormatPeriodLabel).ToList(),
                         OverlapSkippedMonths = plan.OverlapSkipped.Select(FormatPeriodLabel).ToList(),
                         MovedAmount = plan.MovedAmount,
                         CancelledAmount = plan.CancelledAmount,
+                        RedundantDeletedAmount = plan.RedundantDeletedAmount,
                         SettledAmount = plan.SettledInSourceAmount,
                         RemainderBilledAmount = plan.SettledRemainderAmount
                     };
@@ -3246,9 +3265,11 @@ public class PaymentService : IPaymentService
                     item.PeriodsMoved += plan.UnpaidDueToMove.Count;
                     item.PeriodsCancelled += plan.FutureToCancel.Count;
                     item.PartialsSettled += plan.PartialsToSplit.Count;
+                    item.RedundantDeleted += plan.OverlapRedundantToDelete.Count;
                     item.OverlapSkipped += plan.OverlapSkipped.Count;
                     item.MovedAmount += plan.MovedAmount;
                     item.CancelledAmount += plan.CancelledAmount;
+                    item.RedundantDeletedAmount += plan.RedundantDeletedAmount;
                     item.SettledAmount += plan.SettledInSourceAmount;
                     item.RemainderBilledAmount += plan.SettledRemainderAmount;
 
@@ -3309,6 +3330,7 @@ public class PaymentService : IPaymentService
             report.StudentsAffected++;
             report.TotalMovedAmount += item.MovedAmount;
             report.TotalCancelledAmount += item.CancelledAmount;
+            report.TotalRedundantDeletedAmount += item.RedundantDeletedAmount;
             report.TotalSettledAmount += item.SettledAmount;
             report.TotalRemainderBilledAmount += item.RemainderBilledAmount;
         }

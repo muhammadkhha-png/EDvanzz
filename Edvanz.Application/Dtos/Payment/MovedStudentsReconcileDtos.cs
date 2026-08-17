@@ -27,6 +27,10 @@ public sealed class MovedStudentsReconcileReport
     /// <summary>Sum of unpaid FUTURE balances CANCELLED from old sessions.</summary>
     public decimal TotalCancelledAmount { get; set; }
 
+    /// <summary>Sum of unpaid REDUNDANT-DUPLICATE balances DELETED (old-session months the current
+    /// session already bills). Zero cash — these are the junk rows that mislabel a paid student.</summary>
+    public decimal TotalRedundantDeletedAmount { get; set; }
+
     /// <summary>Sum of the paid parts SETTLED in old sessions as history (partial months).</summary>
     public decimal TotalSettledAmount { get; set; }
 
@@ -59,14 +63,19 @@ public sealed class MovedStudentReconcileItem
     /// <summary>Partially-paid periods settled in the old session + remainder re-billed.</summary>
     public int PartialsSettled { get; set; }
 
+    /// <summary>Fully-unpaid redundant-duplicate periods DELETED because the current session already
+    /// bills that month (no cash; this is what actually clears the misclassification).</summary>
+    public int RedundantDeleted { get; set; }
+
     /// <summary>
-    /// Stranded periods LEFT in place because the current session already bills that month
-    /// (overlap guard — never double-bill). Surfaced for manual review; not carried over.
+    /// PARTIALLY-paid stranded periods LEFT in place because the current session already bills that
+    /// month (holds real cash — never auto-touched). Surfaced for manual review only.
     /// </summary>
     public int OverlapSkipped { get; set; }
 
     public decimal MovedAmount { get; set; }
     public decimal CancelledAmount { get; set; }
+    public decimal RedundantDeletedAmount { get; set; }
     public decimal SettledAmount { get; set; }
     public decimal RemainderBilledAmount { get; set; }
 
@@ -89,11 +98,15 @@ public sealed class MovedStudentReconcileDetail
     /// <summary>Month labels of the partially-paid periods settled + remainder re-billed.</summary>
     public List<string> SettledMonths { get; set; } = new();
 
-    /// <summary>Month labels left in place because the current session already bills them (overlap guard).</summary>
+    /// <summary>Month labels of the redundant-duplicate unpaid periods DELETED (current session already bills them).</summary>
+    public List<string> RedundantDeletedMonths { get; set; } = new();
+
+    /// <summary>Month labels of PARTIALLY-paid periods left in place for manual review (real cash).</summary>
     public List<string> OverlapSkippedMonths { get; set; } = new();
 
     public decimal MovedAmount { get; set; }
     public decimal CancelledAmount { get; set; }
+    public decimal RedundantDeletedAmount { get; set; }
     public decimal SettledAmount { get; set; }
     public decimal RemainderBilledAmount { get; set; }
 }
