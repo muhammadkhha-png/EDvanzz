@@ -213,9 +213,17 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<int> CountAssignedStudentsAsync(long teacherId);
 
     /// <summary>
-    /// Per-session actual cash collected in [startInclusive, endExclusive) and the count of
-    /// distinct students who paid into that session in the window — the month-scoped per-session
-    /// dashboard card (net of refunds).
+    /// Per-session collection for the "collected by session" tracking card, scoped BY PERIOD to
+    /// [startInclusive, endExclusive): <c>CashCollected</c> = sum of <c>PaymentPeriod.AmountPaid</c>
+    /// on the session's periods whose <c>PeriodStart</c> falls in the window; <c>PaidStudents</c> =
+    /// distinct students with <c>AmountPaid &gt; 0</c> on their period(s) for that session in the
+    /// window. This answers "how much of THIS session's THIS-month bill was collected, and how many
+    /// students paid their this-month bill" — so a payment toward a previous month reflects under
+    /// that previous month's card, NOT the current month's (reconciles with the roster's paid/unpaid
+    /// split). Deliberately DIFFERENT from the transaction-date/cash-based dashboard + assistant
+    /// "collected this month" figures (<see cref="GetCashCollectedInRangeAsync"/> /
+    /// <see cref="GetDashboardPerCollectorAsync"/>), which are unchanged. Excludes soft-deleted /
+    /// purge-orphaned students. §7.4.
     /// </summary>
     Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
         GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive);

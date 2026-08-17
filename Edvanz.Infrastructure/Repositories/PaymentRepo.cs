@@ -602,25 +602,35 @@
         public async Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
             GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive)
         {
-            // Per session: actual cash collected this month and how many distinct students paid into it
-            // this month (net of refunds via the !IsDeleted filter).
-            var rows = await _context.PaymentTransactions
-                .Where(t => t.TeacherId == teacherId && t.SessionId.HasValue
-                    && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive
-                    // LIVE students only: a DEPARTED (soft-deleted) student's cash must not inflate a
-                    // session's "collected" total or its paid count — they already left the session.
-                    // The global soft-delete filter nulls the TeacherStudent navigation for a departed
-                    // student, so this drops them (and any purge-orphaned null-student row). Mirrors the
-                    // BUG-8 "Where(a => a.TeacherStudent != null)" pattern; keeps per-session cash
-                    // reconciled with the current roster instead of counting money that was refunded on
-                    // departure.
-                    && t.TeacherStudent != null)
-                .GroupBy(t => t.SessionId!.Value)
+            // Per session, month-scoped BY PERIOD (not by transaction date): how much of THIS session's
+            // THIS-month bill has been collected, and how many students paid THEIR this-month bill. The
+            // window filters on PaymentPeriod.PeriodStart, so a payment toward a PREVIOUS month reflects
+            // under that PREVIOUS month's card (view July → July's payers), NOT the current month's —
+            // which reconciles this card with the roster's paid/unpaid split (a student who pays their
+            // July bill in August still owes August here). This deliberately DIFFERS from the main
+            // dashboard / assistant "collected this month" figures, which stay transaction-date/cash
+            // based via GetCashCollectedInRangeAsync / GetDashboardPerCollectorAsync (unchanged). §7.4.
+            //
+            // AmountPaid >= 0 always (refunds/reversals reduce it back down), so filtering AmountPaid > 0
+            // in the outer Where leaves the SUM identical (zero-paid periods add nothing) while making the
+            // distinct paid-student count exact — a non-payer's period is simply excluded.
+            var rows = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue
+                    && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
+                    && p.AmountPaid > 0m
+                    // LIVE students only: a DEPARTED (soft-deleted) student's paid amount must not inflate
+                    // a session's collected total or its paid count — they already left the session. The
+                    // global soft-delete filter nulls the TeacherStudent navigation for a departed student,
+                    // so this drops them; the TeacherStudentId guard drops any purge-orphaned null-student
+                    // period. Mirrors the BUG-8 "Where(x => x.TeacherStudent != null)" pattern (§7.4
+                    // "aggregates exclude orphans").
+                    && p.TeacherStudentId != null && p.TeacherStudent != null)
+                .GroupBy(p => p.SessionId!.Value)
                 .Select(g => new
                 {
                     SessionId = g.Key,
-                    CashCollected = g.Sum(t => t.AmountPaid),
-                    PaidStudents = g.Select(t => t.TeacherStudentId).Distinct().Count()
+                    CashCollected = g.Sum(p => p.AmountPaid),
+                    PaidStudents = g.Select(p => p.TeacherStudentId).Distinct().Count()
                 })
                 .ToListAsync();
 
