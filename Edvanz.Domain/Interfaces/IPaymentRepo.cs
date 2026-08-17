@@ -171,7 +171,7 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// departure refund when proration is DISABLED (refund the full paid amount of that single
     /// period, not a pro-rated or cumulative amount). Null if the student has paid nothing.
     /// </summary>
-    Task<PaymentPeriod?> GetLatestPaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId);
+    Task<PaymentPeriod?> GetLatestPaidPeriodAsync(long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd);
 
     /// <summary>
     /// Gets a payment period by ID.

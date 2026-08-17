@@ -1727,8 +1727,12 @@ public class PaymentService : IPaymentService
         // paid for — never a cumulative since-they-joined figure. When they never paid anything in
         // this session there is no cash to give back, so we anchor on the teacher-local CURRENT
         // month and treat the paid amount as 0 (the outcome is then owed / nothing).
+        // Bound the anchor to the teacher-local CURRENT month so a stray future advance/partial payment
+        // never becomes the refund anchor (see GetLatestPaidPeriodAsync — the session-84 orphaned-period bug).
+        var todayLocal = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var anchorThroughMonthEnd = new DateTime(todayLocal.Year, todayLocal.Month, 1).AddMonths(1).AddDays(-1);
         var paidPeriod = await _unitOfWork.PaymentsRepo
-            .GetLatestPaidPeriodAsync(teacherId, teacherStudentId, student.SessionId);
+            .GetLatestPaidPeriodAsync(teacherId, teacherStudentId, student.SessionId, anchorThroughMonthEnd);
 
         DateTime monthStart;
         decimal paidAmount;

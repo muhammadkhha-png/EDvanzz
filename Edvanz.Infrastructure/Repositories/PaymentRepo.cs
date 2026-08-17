@@ -395,18 +395,26 @@
 
         /// <inheritdoc />
         public async Task<PaymentPeriod?> GetLatestPaidPeriodAsync(
-            long teacherId, long teacherStudentId, long? sessionId)
+            long teacherId, long teacherStudentId, long? sessionId, DateTime throughMonthEnd)
         {
             var query = _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId
                     && p.TeacherStudentId == teacherStudentId
-                    && p.AmountPaid > 0);
+                    && p.AmountPaid > 0
+                    // Anchor the departure refund on the CURRENT month the student is actually leaving —
+                    // never a FUTURE month that merely holds a stray advance / partial payment. Bounding by
+                    // the teacher's current-month end (§7.4) and ordering by PeriodStart (NOT PeriodSequence)
+                    // stops a later, partially-paid month (e.g. 6 EGP that spilled into September) from
+                    // out-ranking the current FULLY-paid month (August). That mis-anchor reversed the wrong
+                    // period and left an orphaned Aug/Paid period on a departed student (the session-84 bug).
+                    && p.PeriodStart <= throughMonthEnd);
 
             if (sessionId.HasValue)
                 query = query.Where(p => p.SessionId == sessionId.Value);
 
             return await query
-                .OrderByDescending(p => p.PeriodSequence)
+                .OrderByDescending(p => p.PeriodStart)
+                .ThenByDescending(p => p.PeriodSequence)
                 .FirstOrDefaultAsync();
         }
 
@@ -626,19 +634,21 @@
                 .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue
                     && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
                     && p.AmountPaid > 0m
-                    // LIVE students only: a DEPARTED (soft-deleted) student's paid amount must not inflate
-                    // a session's collected total or its paid count — they already left the session. The
-                    // global soft-delete filter nulls the TeacherStudent navigation for a departed student,
-                    // so this drops them; the TeacherStudentId guard drops any purge-orphaned null-student
-                    // period. Mirrors the BUG-8 "Where(x => x.TeacherStudent != null)" pattern (§7.4
-                    // "aggregates exclude orphans").
-                    && p.TeacherStudentId != null && p.TeacherStudent != null
-                    // ...AND currently assigned to THIS session: the card must reconcile with the roster,
-                    // which lists only students whose current SessionId == this session. A student who was
-                    // UNASSIGNED (SessionId null) or MOVED to another session — even one with a partial
-                    // paid period still tagged to this session — is no longer on the roster, so their paid
-                    // amount must not show as "collected here" when they can't be seen in the list.
-                    && p.TeacherStudent.SessionId == p.SessionId)
+                    // ACTIVE + INSIDE this session — checked via a DbSet-ROOT subquery over TeacherStudents,
+                    // the ONE membership predicate proven to reliably exclude soft-deleted / unassigned
+                    // students. The previous navigation dereference (p.TeacherStudent != null &&
+                    // p.TeacherStudent.SessionId == p.SessionId) relied on EF auto-applying TeacherStudent's
+                    // !IsDeleted query filter THROUGH the navigation, which did NOT hold on prod: a departed
+                    // student's ORPHANED fully-paid period leaked into the card (session read 300/1 while the
+                    // roster read 0 — because a partial departure refund reversed the WRONG month, leaving an
+                    // Aug/Paid period on a soft-deleted, unassigned student). This is the SAME DbSet-root
+                    // pattern GetStudentPaymentStatusCountsAsync uses, so the card now queries the IDENTICAL
+                    // roster-membership set and "collected by session" can NEVER diverge from the roster's
+                    // paid/unpaid split again. (active = the global !IsDeleted filter on the DbSet; inside
+                    // the session = the student's CURRENT SessionId equals this period's session.)
+                    && p.TeacherStudentId.HasValue
+                    && _context.TeacherStudents.Any(ts =>
+                        ts.Id == p.TeacherStudentId!.Value && ts.SessionId == p.SessionId))
                 .GroupBy(p => p.SessionId!.Value)
                 .Select(g => new
                 {
