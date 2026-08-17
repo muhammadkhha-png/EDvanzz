@@ -630,31 +630,34 @@
             // AmountPaid >= 0 always (refunds/reversals reduce it back down), so filtering AmountPaid > 0
             // in the outer Where leaves the SUM identical (zero-paid periods add nothing) while making the
             // distinct paid-student count exact — a non-payer's period is simply excluded.
-            var rows = await _context.PaymentPeriods
-                .Where(p => p.TeacherId == teacherId && p.SessionId.HasValue
+            // Currently-assigned, ACTIVE students as (StudentId, current SessionId) pairs. Building this as
+            // an explicit _context.TeacherStudents.Where(...).Select(...) subquery — the SAME shape the roster
+            // (GetStudentPaymentStatusCountsAsync) uses — reliably applies TeacherStudent's !IsDeleted global
+            // filter. (A correlated _context.TeacherStudents.Any(...) over the DbSet did NOT: on prod a
+            // soft-deleted departed student's ORPHANED fully-paid period still leaked into the card — 300/1
+            // while the roster read 0 — because the filter didn't propagate into that Any() subquery.) The
+            // INNER JOIN below keeps a period ONLY when its (student, session) matches a currently-active
+            // member of THAT session, so the card's membership is identical to the roster's and "collected by
+            // session" can never diverge from the roster's paid/unpaid split again.
+            var assignedMembers = _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+                .Select(ts => new { ts.Id, SessionId = ts.SessionId!.Value });
+
+            var rows = await (
+                from p in _context.PaymentPeriods
+                where p.TeacherId == teacherId && p.SessionId.HasValue
                     && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
                     && p.AmountPaid > 0m
-                    // ACTIVE + INSIDE this session — checked via a DbSet-ROOT subquery over TeacherStudents,
-                    // the ONE membership predicate proven to reliably exclude soft-deleted / unassigned
-                    // students. The previous navigation dereference (p.TeacherStudent != null &&
-                    // p.TeacherStudent.SessionId == p.SessionId) relied on EF auto-applying TeacherStudent's
-                    // !IsDeleted query filter THROUGH the navigation, which did NOT hold on prod: a departed
-                    // student's ORPHANED fully-paid period leaked into the card (session read 300/1 while the
-                    // roster read 0 — because a partial departure refund reversed the WRONG month, leaving an
-                    // Aug/Paid period on a soft-deleted, unassigned student). This is the SAME DbSet-root
-                    // pattern GetStudentPaymentStatusCountsAsync uses, so the card now queries the IDENTICAL
-                    // roster-membership set and "collected by session" can NEVER diverge from the roster's
-                    // paid/unpaid split again. (active = the global !IsDeleted filter on the DbSet; inside
-                    // the session = the student's CURRENT SessionId equals this period's session.)
                     && p.TeacherStudentId.HasValue
-                    && _context.TeacherStudents.Any(ts =>
-                        ts.Id == p.TeacherStudentId!.Value && ts.SessionId == p.SessionId))
-                .GroupBy(p => p.SessionId!.Value)
-                .Select(g => new
+                join a in assignedMembers
+                    on new { Sid = p.TeacherStudentId!.Value, Ses = p.SessionId!.Value }
+                    equals new { Sid = a.Id, Ses = a.SessionId }
+                group p by p.SessionId!.Value into g
+                select new
                 {
                     SessionId = g.Key,
-                    CashCollected = g.Sum(p => p.AmountPaid),
-                    PaidStudents = g.Select(p => p.TeacherStudentId).Distinct().Count()
+                    CashCollected = g.Sum(x => x.AmountPaid),
+                    PaidStudents = g.Select(x => x.TeacherStudentId).Distinct().Count()
                 })
                 .ToListAsync();
 
