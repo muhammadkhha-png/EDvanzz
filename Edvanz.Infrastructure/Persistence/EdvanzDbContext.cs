@@ -2034,6 +2034,33 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(p => new { p.TeacherId, p.PaymentStatus, p.PeriodStart })
                 .HasDatabaseName("IX_PP_TeacherId_Status_PeriodStart");
 
+            // UNIQUENESS BACKSTOP — at most ONE Monthly period per (student, session, month).
+            // Root-cause guard for the duplicate-ladder corruption: a non-idempotent assign used to
+            // append a full parallel ladder of unpaid twins (the app fix lives in
+            // PaymentService.OnStudentAssignedToSessionAsync, which now skips months already covered
+            // for the session). This filtered UNIQUE index makes the corruption physically impossible
+            // for any future code path OR race — a duplicating INSERT fails loudly instead of silently
+            // splitting a student across two ladders (one month Paid on ladder A, its twin Unpaid on B,
+            // which desynced the roster from the collected-by-session card). Filtered to ASSIGNED
+            // (non-null student+session) MONTHLY rows only: PeriodType 2 (PerSession) periods are keyed
+            // by occurrence date and left unconstrained, and purge-nulled orphan periods are excluded.
+            // For Monthly rows PeriodStart is always the 1st of the month, so this is exactly one row
+            // per calendar month. Existing prod duplicates were cleared first via
+            // reconcile-duplicate-periods, so the index is creatable.
+            entity.HasIndex(p => new { p.TeacherStudentId, p.SessionId, p.PeriodStart })
+                .HasDatabaseName("UX_PP_Student_Session_Month_Monthly")
+                .IsUnique()
+                .HasFilter("[TeacherStudentId] IS NOT NULL AND [SessionId] IS NOT NULL AND [PeriodType] = 1");
+
+            // Preserve the by-student-id lookup index explicitly. The filtered unique index above leads
+            // with TeacherStudentId, so EF would otherwise treat the auto-generated FK index as
+            // redundant and DROP it — but that index is FILTERED (Monthly, non-null only), so it would
+            // NOT cover the by-student-id queries that read ALL of a student's periods regardless of
+            // type/nullability (GetAllPaymentPeriodsByStudentAsync / GetTrackedPaymentPeriodsByStudentAsync,
+            // which filter on TeacherStudentId alone — it is globally unique). Keep the full FK index.
+            entity.HasIndex(p => p.TeacherStudentId)
+                .HasDatabaseName("IX_PaymentPeriods_TeacherStudentId");
+
             // ── FOREIGN KEYS ──
 
             // ── FOREIGN KEYS ──
