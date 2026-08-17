@@ -2499,7 +2499,9 @@ public class PaymentService : IPaymentService
         PaidOnDate = paidOn,
         MonthsOverdue = monthsOverdue,
         IsProRated = p.IsProRated,
-        IsCarriedForward = p.IsCarriedForward
+        IsCarriedForward = p.IsCarriedForward,
+        MovedFromSessionId = p.MovedFromSessionId,
+        MovedFromSessionName = p.MovedFromSessionName
     };
 
     /// <summary>Latest non-deleted transaction's local collection date for a period, or null.</summary>
@@ -3179,6 +3181,8 @@ public class PaymentService : IPaymentService
         PeriodSequence = p.PeriodSequence,
         IsCarriedForward = p.IsCarriedForward,
         OriginSessionName = p.OriginSessionName,
+        MovedFromSessionId = p.MovedFromSessionId,
+        MovedFromSessionName = p.MovedFromSessionName,
         // Surface the period's collection(s), including the collector id, so a per-period view can
         // show "Collected by". Requires the caller to have eager-loaded PaymentTransactions; a
         // period whose transactions were not loaded maps to an empty list (unchanged behaviour).

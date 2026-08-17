@@ -127,4 +127,13 @@ public class StudentPaymentPeriodDto
 
     /// <summary>True when this period's balance was carried in from another session (transfer).</summary>
     public bool IsCarriedForward { get; set; }
+
+    /// <summary>
+    /// Id of the session this obligation was moved FROM on a student reassignment (A → B);
+    /// null for a normal (non-moved) period. Pairs with <see cref="MovedFromSessionName"/>.
+    /// </summary>
+    public long? MovedFromSessionId { get; set; }
+
+    /// <summary>Display snapshot of the session this obligation was moved FROM; null if not moved.</summary>
+    public string? MovedFromSessionName { get; set; }
 }

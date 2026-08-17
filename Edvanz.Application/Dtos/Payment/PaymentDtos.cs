@@ -195,6 +195,19 @@ public class PaymentPeriodDto
     public int PeriodSequence { get; set; }
     public bool IsCarriedForward { get; set; }
     public string? OriginSessionName { get; set; }
+
+    /// <summary>
+    /// When this obligation was carried over from another session on a student reassignment
+    /// (A → B), the id of the session it was moved FROM. Null for a normal (non-moved) period.
+    /// </summary>
+    public long? MovedFromSessionId { get; set; }
+
+    /// <summary>
+    /// Display snapshot of the session this obligation was moved FROM. Null for a normal period.
+    /// The frontend can build a "moved from &lt;name&gt;" label from this + <see cref="IsCarriedForward"/>.
+    /// </summary>
+    public string? MovedFromSessionName { get; set; }
+
     public List<PaymentTransactionDto> Transactions { get; set; } = new();
 }
 
