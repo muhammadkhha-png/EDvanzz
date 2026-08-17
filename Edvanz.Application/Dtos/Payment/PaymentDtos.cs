@@ -249,6 +249,24 @@ public class EditPaymentDto
     public PaymentStatus? NewStatus { get; set; }
     public long? NewPaymentPeriodId { get; set; }
     public string? EditReason { get; set; }
+
+    /// <summary>
+    /// Feature B: audit note shown per edit (the wire field is <c>note</c>). Stored on the
+    /// <c>PaymentEditLog</c> (reusing the <c>EditReason</c> column) and returned in edit history.
+    /// When <see cref="EnforceNoteOnPartial"/> is set and the edit is to a partial/custom amount, this
+    /// (or the legacy <see cref="EditReason"/>) is REQUIRED. Null falls back to <see cref="EditReason"/>.
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
+    /// Feature B gate — set ONLY by the single <c>PUT /api/Payment/transactions/{id}</c> path. When
+    /// true, an amount edit that is not a whole-month multiple of the student's monthly rate requires a
+    /// note (else 400 <c>EditNoteRequired</c>). Batch edit/revert leave this false, preserving their
+    /// existing behaviour. Server-set — never bound from the request body.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool EnforceNoteOnPartial { get; set; } = false;
+
     public long EditedByUserId { get; set; }
 }
 

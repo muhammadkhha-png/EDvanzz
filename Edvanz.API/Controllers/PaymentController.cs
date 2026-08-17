@@ -188,6 +188,8 @@ public sealed class PaymentController : ModuleSixApiBaseController
         dto.TeacherId = teacherId.Value;
         dto.TransactionId = transactionId;
         dto.EditedByUserId = GetActingUserId();
+        // Feature B: this single-edit endpoint requires a note when the amount becomes partial/custom.
+        dto.EnforceNoteOnPartial = true;
 
         var result = await _paymentService.EditPaymentAsync(dto);
         return ToResponse(result);

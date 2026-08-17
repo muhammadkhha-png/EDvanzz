@@ -563,6 +563,25 @@ public class PaymentService : IPaymentService
             return Result<PaymentTransactionDto>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentAmountNegative, HttpStatusCode.UnprocessableEntity);
 
+        // Feature B: effective audit note — the new `note` field, else the legacy EditReason.
+        string? effectiveNote = string.IsNullOrWhiteSpace(dto.Note) ? dto.EditReason : dto.Note;
+
+        // Feature B (single-edit path only): a note is REQUIRED when editing to a partial/custom
+        // amount — one that is NOT a whole-month multiple of the student's monthly rate. A whole-month
+        // multiple (N × rate) is a plain "pay N months" and needs no note. Batch edit/revert do not set
+        // EnforceNoteOnPartial, so their behaviour is unchanged.
+        if (dto.EnforceNoteOnPartial && dto.NewAmount.HasValue)
+        {
+            decimal monthlyRate = transaction.TeacherStudentId.HasValue
+                ? await _unitOfWork.PaymentsRepo
+                    .GetStudentMonthlyRateAsync(dto.TeacherId, transaction.TeacherStudentId.Value)
+                : 0m;
+            if (!Extensions.PaymentAmountRules.IsWholeMonthMultiple(dto.NewAmount.Value, monthlyRate)
+                && string.IsNullOrWhiteSpace(effectiveNote))
+                return Result<PaymentTransactionDto>.Failure(
+                    _localizer, PaymentConstants.Messages.EditNoteRequired, HttpStatusCode.BadRequest);
+        }
+
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
             await _unitOfWork.BeginTransactionAsync();
@@ -580,7 +599,9 @@ public class PaymentService : IPaymentService
                 NewStatus = dto.NewStatus ?? transaction.PaymentTransactionStatus,
                 EditedByUserId = dto.EditedByUserId,
                 EditedAt = DateTime.UtcNow,
-                EditReason = dto.EditReason,
+                // Feature B: store the note (new `note` field, falling back to legacy EditReason) on the
+                // EditReason column; returned per edit in the edit-logs endpoint.
+                EditReason = effectiveNote,
                 CreateAt = DateTime.UtcNow
             };
             await _unitOfWork.PaymentsRepo.AddPaymentEditLogAsync(editLog);
