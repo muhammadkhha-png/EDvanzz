@@ -369,6 +369,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
+        // Tutor / center OWNER only — an assistant caller (teacher- or center-assistant) cannot withdraw.
+        if (AssistantScopeUserId() is not null) return Forbid();
+
         var result = await _screenService.WithdrawAsync(
             teacherId.Value, assistantId, request?.Amount, GetActingUserId(), idempotencyKey);
         return ToResponse(result);

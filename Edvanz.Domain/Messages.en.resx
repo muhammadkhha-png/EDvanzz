@@ -2355,4 +2355,91 @@
   <data name="AttendanceConsecutiveAbsenceApproachingAlert" xml:space="preserve">
     <value>{0} consecutive absences (alert at {1})</value>
   </data>
+  <data name="CenterNameRequired" xml:space="preserve">
+    <value>Center name is required.</value>
+  </data>
+  <data name="InvalidRevenueSharePercent" xml:space="preserve">
+    <value>Revenue share percentage must be between 0 and 100.</value>
+  </data>
+  <data name="CenterCreated" xml:space="preserve">
+    <value>Center created successfully.</value>
+  </data>
+  <data name="CenterNotFound" xml:space="preserve">
+    <value>Center not found.</value>
+  </data>
+  <data name="CenterDeactivated" xml:space="preserve">
+    <value>Center deactivated.</value>
+  </data>
+  <data name="TeacherNameRequired" xml:space="preserve">
+    <value>Teacher name is required.</value>
+  </data>
+  <data name="CenterTeacherSlotExhausted" xml:space="preserve">
+    <value>You've reached your subscription's teacher limit for this plan. Upgrade your package to add more teachers.</value>
+  </data>
+  <data name="CenterStudentCapacityExhausted" xml:space="preserve">
+    <value>You've reached your subscription's student capacity. Upgrade your package to add more students.</value>
+  </data>
+  <data name="CenterTeacherCreated" xml:space="preserve">
+    <value>Teacher added successfully.</value>
+  </data>
+  <data name="CenterTeacherNotFound" xml:space="preserve">
+    <value>Teacher not found under this center.</value>
+  </data>
+  <data name="CenterTeacherUpdated" xml:space="preserve">
+    <value>Teacher updated successfully.</value>
+  </data>
+  <data name="CenterTeacherDeactivated" xml:space="preserve">
+    <value>Teacher deactivated.</value>
+  </data>
+  <data name="ActingTeacherNotSelected" xml:space="preserve">
+    <value>Select a teacher first to continue.</value>
+  </data>
+  <data name="TeacherNotInCenter" xml:space="preserve">
+    <value>This teacher does not belong to your center.</value>
+  </data>
+  <data name="CenterSubscriptionActivated" xml:space="preserve">
+    <value>Center subscription activated.</value>
+  </data>
+  <data name="CenterSubscriptionRequestSubmitted" xml:space="preserve">
+    <value>Your subscription request has been submitted for approval.</value>
+  </data>
+  <data name="CenterSubscriptionRequestPending" xml:space="preserve">
+    <value>You already have a pending subscription request.</value>
+  </data>
+  <data name="CenterSubscriptionRequestApproved" xml:space="preserve">
+    <value>Center subscription request approved.</value>
+  </data>
+  <data name="CenterSubscriptionRequestRejected" xml:space="preserve">
+    <value>Center subscription request rejected.</value>
+  </data>
+  <data name="CenterSubscriptionRequestNotFound" xml:space="preserve">
+    <value>Subscription request not found.</value>
+  </data>
+  <data name="CenterSubscriptionRequestNotPending" xml:space="preserve">
+    <value>This request has already been resolved.</value>
+  </data>
+  <data name="InvalidQuotaPackage" xml:space="preserve">
+    <value>Invalid quota package. All values must be zero or greater.</value>
+  </data>
+  <data name="CenterHasNoActiveSubscription" xml:space="preserve">
+    <value>The center has no active subscription.</value>
+  </data>
+  <data name="CenterPricingUpdated" xml:space="preserve">
+    <value>Center pricing updated.</value>
+  </data>
+  <data name="StudentCodeCandidates" xml:space="preserve">
+    <value>Multiple teachers use this code — pick the right student.</value>
+  </data>
+  <data name="AssistantNameRequired" xml:space="preserve">
+    <value>Assistant name is required.</value>
+  </data>
+  <data name="CenterAssistantCreated" xml:space="preserve">
+    <value>Assistant added successfully.</value>
+  </data>
+  <data name="CenterAssistantDeactivated" xml:space="preserve">
+    <value>Assistant deactivated.</value>
+  </data>
+  <data name="CenterSettingsUpdated" xml:space="preserve">
+    <value>Center settings updated.</value>
+  </data>
 </root>

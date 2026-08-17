@@ -1267,8 +1267,8 @@ public class PaymentService : IPaymentService
     /// <summary>Maps an <see cref="AssistantWallet"/> row to its wire DTO (single-sourced mapper).</summary>
     private static AssistantWalletDto MapWalletDto(AssistantWallet w) => new()
     {
-        AssistantId = w.AssistantId,
-        AssistantName = w.Assistant?.User?.FullName ?? "Unknown",
+        AssistantId = w.AssistantId ?? w.CenterAssistantId ?? 0,
+        AssistantName = w.Assistant?.User?.FullName ?? w.CenterAssistant?.User?.FullName ?? "Unknown",
         CurrentBalance = w.CurrentBalance,
         TotalCollected = w.TotalCollected,
         TransactionCount = w.TransactionCount,
@@ -1297,7 +1297,10 @@ public class PaymentService : IPaymentService
         }
 
         var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
-        var dtos = wallets.Select(MapWalletDto).ToList();
+        // Sort by the resolved collector name in memory (repo no longer orders in SQL — see its note).
+        var dtos = wallets.Select(MapWalletDto)
+            .OrderBy(d => d.AssistantName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         var summary = new AssistantWalletsSummaryDto
         {
@@ -1331,7 +1334,10 @@ public class PaymentService : IPaymentService
     /// <inheritdoc />
     public async Task<Result<WalletResetLogDto>> ResetWalletAsync(WalletResetDto dto)
     {
-        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(dto.TeacherId, dto.AssistantId);
+        // The route id is an Assistant.Id for a normal assistant wallet, OR a CenterAssistant.Id for a
+        // center-assistant wallet (both are surfaced as `assistantId` in the wallets DTO). Resolve either.
+        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(dto.TeacherId, dto.AssistantId)
+            ?? await _unitOfWork.PaymentsRepo.GetAssistantWalletByCenterAssistantIdAsync(dto.TeacherId, dto.AssistantId);
         if (wallet is null)
             return Result<WalletResetLogDto>.Failure(
                 _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
@@ -1345,12 +1351,13 @@ public class PaymentService : IPaymentService
             var resetLog = new WalletResetLog
             {
                 TeacherId = dto.TeacherId,
-                AssistantId = dto.AssistantId,
+                AssistantId = wallet.AssistantId,
+                CenterAssistantId = wallet.CenterAssistantId,
                 AssistantWalletId = wallet.Id,
                 AmountReset = wallet.CurrentBalance,
                 ResetByUserId = dto.ResetByUserId,
                 ResetAt = DateTime.UtcNow,
-                AssistantName = wallet.Assistant?.User?.FullName,
+                AssistantName = wallet.Assistant?.User?.FullName ?? wallet.CenterAssistant?.User?.FullName,
                 CreateAt = DateTime.UtcNow
             };
             await _unitOfWork.PaymentsRepo.AddWalletResetLogAsync(resetLog);
@@ -1384,7 +1391,9 @@ public class PaymentService : IPaymentService
     public async Task<Result<WalletWithdrawalResult>> WithdrawFromWalletAsync(
         long teacherId, long assistantId, decimal? amount, long withdrawnByUserId)
     {
-        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId);
+        // assistantId is an Assistant.Id OR a CenterAssistant.Id (see ResetWalletAsync note) — resolve either.
+        var wallet = await _unitOfWork.PaymentsRepo.GetAssistantWalletAsync(teacherId, assistantId)
+            ?? await _unitOfWork.PaymentsRepo.GetAssistantWalletByCenterAssistantIdAsync(teacherId, assistantId);
         if (wallet is null)
             return Result<WalletWithdrawalResult>.Failure(
                 _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
@@ -1412,12 +1421,13 @@ public class PaymentService : IPaymentService
             var log = new WalletResetLog
             {
                 TeacherId = teacherId,
-                AssistantId = assistantId,
+                AssistantId = wallet.AssistantId,
+                CenterAssistantId = wallet.CenterAssistantId,
                 AssistantWalletId = wallet.Id,
                 AmountReset = withdrawAmount,
                 ResetByUserId = withdrawnByUserId,
                 ResetAt = DateTime.UtcNow,
-                AssistantName = wallet.Assistant?.User?.FullName,
+                AssistantName = wallet.Assistant?.User?.FullName ?? wallet.CenterAssistant?.User?.FullName,
                 CreateAt = DateTime.UtcNow
             };
             await _unitOfWork.PaymentsRepo.AddWalletResetLogAsync(log);
@@ -3011,7 +3021,24 @@ public class PaymentService : IPaymentService
     {
         var wallet = await _unitOfWork.PaymentsRepo
             .GetAssistantWalletByUserIdAsync(teacherId, collectedByUserId);
-        if (wallet is null) return; // Not an assistant — no wallet to update
+        if (wallet is null)
+        {
+            // A CenterAssistant collector has no permission-grant flow that pre-creates a wallet, so
+            // create it lazily on first collect (keyed by TeacherId + their userId). A teacher-owner
+            // collector has no wallet by design → skip.
+            var centerAssistant = await _unitOfWork.Centers.GetCenterAssistantByUserIdAsync(collectedByUserId);
+            if (centerAssistant is null) return;
+
+            wallet = new AssistantWallet
+            {
+                TeacherId = teacherId,
+                CenterAssistantId = centerAssistant.Id,
+                AssistantUserId = collectedByUserId,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.PaymentsRepo.AddAssistantWalletAsync(wallet);
+            await _unitOfWork.SaveChangesAsync();
+        }
 
         for (int retry = 0; retry < PaymentConstants.MaxConcurrencyRetries; retry++)
         {

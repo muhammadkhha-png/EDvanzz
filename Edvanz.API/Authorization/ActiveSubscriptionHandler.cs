@@ -1,5 +1,6 @@
 ﻿using Edvanz.API.Attributes;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
@@ -163,6 +164,12 @@ public class ActiveSubscriptionHandler : AuthorizationHandler<ActiveSubscription
     private async Task<long?> ResolveTeacherIdAsync()
     {
         long userId = _currentUser.UserId!.Value;
+
+        // Center tier: the effective teacher is the acting teacher (X-Acting-Teacher-Id), validated
+        // against center membership. Its subscription is evaluated as the center's (CenterId redirect).
+        if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+            || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            return await _currentUser.ResolveActingTeacherIdAsync();
 
         if (string.Equals(_currentUser.Role, AssistantRole, StringComparison.Ordinal))
         {

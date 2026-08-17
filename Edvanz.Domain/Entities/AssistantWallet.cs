@@ -23,17 +23,26 @@ public class AssistantWallet : BaseEntity
     public Teacher Teacher { get; set; } = null!;
 
     /// <summary>
-    /// Foreign key to the assistant whose wallet this tracks.
+    /// Foreign key to the (teacher-owned) assistant whose wallet this tracks. NULLABLE: a wallet owned
+    /// by a <see cref="CenterAssistant"/> (see <see cref="CenterAssistantId"/>) has no Assistant row.
     /// NO ACTION: Wallet preserved for historical reset log integrity.
-    /// App logic handles cleanup when assistant is deactivated.
     /// </summary>
     [ForeignKey(nameof(Assistant))]
-    public long AssistantId { get; set; }
-    public Assistant Assistant { get; set; } = null!;
+    public long? AssistantId { get; set; }
+    public Assistant? Assistant { get; set; }
 
     /// <summary>
-    /// The assistant's User ID for direct lookup.
-    /// Stored for performance: avoids join through Assistant table.
+    /// Foreign key to the <see cref="Entities.CenterAssistant"/> whose wallet this is — set (and
+    /// AssistantId null) for a center-assistant collector, who spans many teachers but keeps a
+    /// per-teacher wallet keyed by (TeacherId, this). Null for a normal teacher-assistant wallet.
+    /// Configured in Fluent API (no OnDelete annotation, per the BUG-4 rule).
+    /// </summary>
+    public long? CenterAssistantId { get; set; }
+    public CenterAssistant? CenterAssistant { get; set; }
+
+    /// <summary>
+    /// The collector's User ID for direct lookup (works for both an Assistant and a CenterAssistant).
+    /// Stored for performance: avoids a join through the Assistant/CenterAssistant table.
     /// </summary>
     public long AssistantUserId { get; set; }
 

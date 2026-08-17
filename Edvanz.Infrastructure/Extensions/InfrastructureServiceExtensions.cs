@@ -27,6 +27,9 @@ public static class InfrastructureServiceExtensions
         // Teacher code generator (AAM-FR-03.3 / AAM-NFR-03)
         services.AddScoped<ITeacherCodeGenerator, TeacherCodeGenerator>();
 
+        // Center code generator (8-digit shareable center code)
+        services.AddScoped<ICenterCodeGenerator, CenterCodeGenerator>();
+
         // Student account code generator (AAM-FR-05.3 — StudentUser account code)
         services.AddScoped<IStudentAccountCodeGenerator, StudentAccountCodeGenerator>();
 

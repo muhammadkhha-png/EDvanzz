@@ -81,11 +81,15 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
     }
 
     /// <inheritdoc />
-    public async Task<string> GenerateNextCodeAsync(long teacherId, GenerationLanguage language = GenerationLanguage.English)
+    public async Task<string> GenerateNextCodeAsync(long teacherId, GenerationLanguage language = GenerationLanguage.English, long? centerId = null)
     {
         var letters = GetLetterSequence(language);
 
-        var candidates = await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
+        // Center-owned teacher on Auto → sequence against the WHOLE center's codes so auto codes are
+        // unique center-wide; otherwise per-teacher.
+        var candidates = centerId.HasValue
+            ? await _unitOfWork.Centers.GetAllStudentCodesForCenterAsync(centerId.Value)
+            : (IReadOnlyList<string>)await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
         var highest = FindHighestParseable(candidates, letters);
 
         if (highest is null)
@@ -99,7 +103,7 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
 
     /// <inheritdoc />
     public async Task<List<string>> GenerateSequentialCodesAsync(
-        long teacherId, int count, GenerationLanguage language = GenerationLanguage.English)
+        long teacherId, int count, GenerationLanguage language = GenerationLanguage.English, long? centerId = null)
     {
         var result = new List<string>(Math.Max(0, count));
         if (count <= 0)
@@ -110,7 +114,10 @@ public class StudentCodeGeneratorService : IStudentCodeGenerator
         // SINGLE DB read for the whole batch — then increment purely in memory. Calling
         // GenerateNextCodeAsync per row instead re-queries every time and, since the new codes are
         // not yet persisted, keeps returning the same value (spin + DB hammering).
-        var candidates = await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
+        // Center-owned teacher on Auto → sequence against the whole center's codes (center-wide unique).
+        var candidates = centerId.HasValue
+            ? await _unitOfWork.Centers.GetAllStudentCodesForCenterAsync(centerId.Value)
+            : (IReadOnlyList<string>)await _unitOfWork.Students.GetSequentialCandidateCodesAsync(teacherId);
         var highest = FindHighestParseable(candidates, letters);
 
         string next = highest is null

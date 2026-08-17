@@ -2343,4 +2343,91 @@
   <data name="AttendanceConsecutiveAbsenceApproachingAlert" xml:space="preserve">
     <value>{0} غياب متتالي (التنبيه عند {1})</value>
   </data>
+  <data name="CenterNameRequired" xml:space="preserve">
+    <value>اسم السنتر مطلوب.</value>
+  </data>
+  <data name="InvalidRevenueSharePercent" xml:space="preserve">
+    <value>نسبة العمولة لازم تكون بين 0 و 100.</value>
+  </data>
+  <data name="CenterCreated" xml:space="preserve">
+    <value>تم إنشاء السنتر بنجاح.</value>
+  </data>
+  <data name="CenterNotFound" xml:space="preserve">
+    <value>السنتر مش موجود.</value>
+  </data>
+  <data name="CenterDeactivated" xml:space="preserve">
+    <value>تم إيقاف السنتر.</value>
+  </data>
+  <data name="TeacherNameRequired" xml:space="preserve">
+    <value>اسم المدرس مطلوب.</value>
+  </data>
+  <data name="CenterTeacherSlotExhausted" xml:space="preserve">
+    <value>وصلت للحد الأقصى لعدد المدرسين في باقتك. رقّي الباقة عشان تضيف مدرسين أكتر.</value>
+  </data>
+  <data name="CenterStudentCapacityExhausted" xml:space="preserve">
+    <value>وصلت للحد الأقصى لعدد الطلاب في باقتك. رقّي الباقة عشان تضيف طلاب أكتر.</value>
+  </data>
+  <data name="CenterTeacherCreated" xml:space="preserve">
+    <value>تمت إضافة المدرس بنجاح.</value>
+  </data>
+  <data name="CenterTeacherNotFound" xml:space="preserve">
+    <value>المدرس مش موجود تحت السنتر ده.</value>
+  </data>
+  <data name="CenterTeacherUpdated" xml:space="preserve">
+    <value>تم تعديل بيانات المدرس بنجاح.</value>
+  </data>
+  <data name="CenterTeacherDeactivated" xml:space="preserve">
+    <value>تم إيقاف المدرس.</value>
+  </data>
+  <data name="ActingTeacherNotSelected" xml:space="preserve">
+    <value>اختار مدرس الأول عشان تكمّل.</value>
+  </data>
+  <data name="TeacherNotInCenter" xml:space="preserve">
+    <value>المدرس ده مش تابع للسنتر بتاعك.</value>
+  </data>
+  <data name="CenterSubscriptionActivated" xml:space="preserve">
+    <value>تم تفعيل اشتراك السنتر.</value>
+  </data>
+  <data name="CenterSubscriptionRequestSubmitted" xml:space="preserve">
+    <value>تم إرسال طلب الاشتراك للمراجعة.</value>
+  </data>
+  <data name="CenterSubscriptionRequestPending" xml:space="preserve">
+    <value>عندك طلب اشتراك قيد المراجعة بالفعل.</value>
+  </data>
+  <data name="CenterSubscriptionRequestApproved" xml:space="preserve">
+    <value>تمت الموافقة على طلب اشتراك السنتر.</value>
+  </data>
+  <data name="CenterSubscriptionRequestRejected" xml:space="preserve">
+    <value>تم رفض طلب اشتراك السنتر.</value>
+  </data>
+  <data name="CenterSubscriptionRequestNotFound" xml:space="preserve">
+    <value>طلب الاشتراك مش موجود.</value>
+  </data>
+  <data name="CenterSubscriptionRequestNotPending" xml:space="preserve">
+    <value>الطلب ده اتحل بالفعل.</value>
+  </data>
+  <data name="InvalidQuotaPackage" xml:space="preserve">
+    <value>باقة غير صحيحة. كل القيم لازم تكون صفر أو أكتر.</value>
+  </data>
+  <data name="CenterHasNoActiveSubscription" xml:space="preserve">
+    <value>السنتر ملوش اشتراك فعّال.</value>
+  </data>
+  <data name="CenterPricingUpdated" xml:space="preserve">
+    <value>تم تحديث أسعار السنتر.</value>
+  </data>
+  <data name="StudentCodeCandidates" xml:space="preserve">
+    <value>أكتر من مدرس بيستخدم الكود ده — اختار الطالب الصح.</value>
+  </data>
+  <data name="AssistantNameRequired" xml:space="preserve">
+    <value>اسم المساعد مطلوب.</value>
+  </data>
+  <data name="CenterAssistantCreated" xml:space="preserve">
+    <value>تمت إضافة المساعد بنجاح.</value>
+  </data>
+  <data name="CenterAssistantDeactivated" xml:space="preserve">
+    <value>تم إيقاف المساعد.</value>
+  </data>
+  <data name="CenterSettingsUpdated" xml:space="preserve">
+    <value>تم تحديث إعدادات السنتر.</value>
+  </data>
 </root>

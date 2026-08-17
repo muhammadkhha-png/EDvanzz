@@ -1503,18 +1503,35 @@
             return await _context.AssistantWallets
                 .Include(w => w.Assistant)
                     .ThenInclude(a => a.User)
+                .Include(w => w.CenterAssistant)
+                    .ThenInclude(ca => ca.User)
                 .FirstOrDefaultAsync(w => w.TeacherId == teacherId
                     && w.AssistantUserId == assistantUserId);
         }
 
         /// <inheritdoc />
+        public async Task<AssistantWallet?> GetAssistantWalletByCenterAssistantIdAsync(
+            long teacherId, long centerAssistantId)
+        {
+            return await _context.AssistantWallets
+                .Include(w => w.CenterAssistant)
+                    .ThenInclude(ca => ca.User)
+                .FirstOrDefaultAsync(w => w.TeacherId == teacherId
+                    && w.CenterAssistantId == centerAssistantId);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<AssistantWallet>> GetAllAssistantWalletsAsync(long teacherId)
         {
+            // NOTE: no SQL ORDER BY here — a center-assistant wallet has no Assistant nav, and a
+            // null-safe CASE across two optional navs is fragile to translate. The caller sorts by
+            // the resolved name in memory (the per-teacher wallet list is tiny).
             return await _context.AssistantWallets
                 .Where(w => w.TeacherId == teacherId)
                 .Include(w => w.Assistant)
                     .ThenInclude(a => a.User)
-                .OrderBy(w => w.Assistant.User.FullName)
+                .Include(w => w.CenterAssistant)
+                    .ThenInclude(ca => ca.User)
                 .AsNoTracking()
                 .ToListAsync();
         }
@@ -1554,18 +1571,34 @@
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCenterAssistantAsync(
+            long teacherId, long centerAssistantId)
+        {
+            return await _context.WalletResetLogs
+                .Where(l => l.TeacherId == teacherId && l.CenterAssistantId == centerAssistantId)
+                .OrderByDescending(l => l.ResetAt)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCollectorInRangeAsync(
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
         {
             // The collector's teacher-scoped Assistant record; a tutor collecting their own cash has no
-            // Assistant/wallet, so this resolves to nothing and no withdrawal lines are produced.
+            // Assistant/wallet, so this resolves to nothing and no withdrawal lines are produced. A
+            // CenterAssistant collector resolves via CenterAssistant instead.
             var assistantIds = _context.Set<Assistant>()
                 .Where(a => a.UserId == collectorUserId && a.TeacherAccountId == teacherId)
-                .Select(a => a.Id);
+                .Select(a => (long?)a.Id);
+            var centerAssistantIds = _context.Set<CenterAssistant>()
+                .Where(a => a.UserId == collectorUserId)
+                .Select(a => (long?)a.Id);
 
             return await _context.WalletResetLogs
                 .Where(l => l.TeacherId == teacherId
-                    && assistantIds.Contains(l.AssistantId)
+                    && ((l.AssistantId != null && assistantIds.Contains(l.AssistantId))
+                        || (l.CenterAssistantId != null && centerAssistantIds.Contains(l.CenterAssistantId)))
                     && l.ResetAt >= startInclusive && l.ResetAt < endExclusive)
                 .OrderByDescending(l => l.ResetAt)
                 .AsNoTracking()

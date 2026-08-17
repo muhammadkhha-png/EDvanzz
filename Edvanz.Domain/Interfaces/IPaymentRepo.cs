@@ -451,6 +451,9 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<AssistantWallet?> GetAssistantWalletByUserIdAsync(long teacherId, long assistantUserId);
 
+    /// <summary>Finds a center-assistant's wallet under a teacher by CenterAssistantId (its unique key).</summary>
+    Task<AssistantWallet?> GetAssistantWalletByCenterAssistantIdAsync(long teacherId, long centerAssistantId);
+
     /// <summary>
     /// Gets all assistant wallets for a teacher.
     /// REQ-PAY-035: View current wallet balance of each assistant.
@@ -483,6 +486,9 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// REQ-PAY-059: Assistant Wallet History Report.
     /// </summary>
     Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsAsync(long teacherId, long assistantId);
+
+    /// <summary>Reset/withdrawal ledger entries for a center-assistant's wallet (keyed by CenterAssistantId).</summary>
+    Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCenterAssistantAsync(long teacherId, long centerAssistantId);
 
     /// <summary>
     /// Cash withdrawals/hand-overs taken from a collector's OWN wallet within [start, endExclusive),

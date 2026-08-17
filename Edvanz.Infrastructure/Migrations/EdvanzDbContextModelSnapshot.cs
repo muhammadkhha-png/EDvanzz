@@ -349,10 +349,13 @@ namespace Edvanz.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
-                    b.Property<long>("AssistantId")
+                    b.Property<long?>("AssistantId")
                         .HasColumnType("bigint");
 
                     b.Property<long>("AssistantUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("CenterAssistantId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreateAt")
@@ -383,12 +386,20 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.HasIndex("AssistantId");
 
+                    b.HasIndex("CenterAssistantId");
+
                     b.HasIndex("TeacherId", "AssistantId")
                         .IsUnique()
-                        .HasDatabaseName("IX_AW_TeacherId_AssistantId");
+                        .HasDatabaseName("IX_AW_TeacherId_AssistantId")
+                        .HasFilter("[AssistantId] IS NOT NULL");
 
                     b.HasIndex("TeacherId", "AssistantUserId")
                         .HasDatabaseName("IX_AW_TeacherId_AssistantUserId");
+
+                    b.HasIndex("TeacherId", "CenterAssistantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AW_TeacherId_CenterAssistantId")
+                        .HasFilter("[CenterAssistantId] IS NOT NULL");
 
                     b.ToTable("AssistantWallets", (string)null);
                 });
@@ -658,6 +669,293 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasDatabaseName("IX_CapacityIncreaseRequests_Status_RequestedAt");
 
                     b.ToTable("CapacityIncreaseRequests", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.Center", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AccountStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CenterCode")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("DefaultRevenueSharePercent")
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LanguagePreference")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("StudentCodeGenerationMode")
+                        .HasColumnType("int");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterCode")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Centers_CenterCode");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Centers_UserId");
+
+                    b.ToTable("Centers", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterAssistant", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AccountStatus")
+                        .HasColumnType("int");
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeactivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LanguagePreference")
+                        .HasMaxLength(5)
+                        .HasColumnType("nvarchar(5)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId")
+                        .HasDatabaseName("IX_CenterAssistants_CenterId");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CenterAssistants_UserId");
+
+                    b.ToTable("CenterAssistants", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscription", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("AmountPaidEGP")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("CreatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("EndDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FullTeacherSlots")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ManagerialTeacherSlots")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("PaymentConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("StudentCapacityTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentCapacityUnderFull")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentCapacityUnderManagerial")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CenterSubscriptions_Current")
+                        .HasFilter("[IsCurrent] = 1");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CenterId", "EndDate")
+                        .HasDatabaseName("IX_CenterSubscriptions_CenterId_EndDate");
+
+                    b.ToTable("CenterSubscriptions", (string)null);
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscriptionPricingSetting", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("FullTeacherSlotPriceEGP")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("ManagerialTeacherSlotPriceEGP")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("UpdatedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("CenterSubscriptionPricingSettings", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1L,
+                            CreateAt = new DateTime(2026, 8, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            FullTeacherSlotPriceEGP = 100.00m,
+                            ManagerialTeacherSlotPriceEGP = 50.00m
+                        });
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscriptionRequest", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("ComputedAmountEGP")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<DateTime>("CreateAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FullTeacherSlots")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ManagerialTeacherSlots")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("RequestedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("ResolvedByUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte>("Status")
+                        .HasColumnType("tinyint");
+
+                    b.Property<int>("StudentCapacityTotal")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentCapacityUnderFull")
+                        .HasColumnType("int");
+
+                    b.Property<int>("StudentCapacityUnderManagerial")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_CenterSubscriptionRequests_Center_Pending")
+                        .HasFilter("[Status] = 1");
+
+                    b.HasIndex("ResolvedByUserId");
+
+                    b.HasIndex("Status", "RequestedAt")
+                        .HasDatabaseName("IX_CenterSubscriptionRequests_Status_RequestedAt");
+
+                    b.ToTable("CenterSubscriptionRequests", (string)null);
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Chat.ChatMessage", b =>
@@ -5963,6 +6261,12 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<int>("AccountStatus")
                         .HasColumnType("int");
 
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<byte?>("CenterPlanType")
+                        .HasColumnType("tinyint");
+
                     b.Property<DateTime>("CreateAt")
                         .HasColumnType("datetime2");
 
@@ -5986,11 +6290,17 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasMaxLength(5)
                         .HasColumnType("nvarchar(5)");
 
+                    b.Property<decimal?>("RevenueSharePercentOverride")
+                        .HasColumnType("decimal(5,2)");
+
                     b.Property<int>("StudentCapacity")
                         .HasColumnType("int");
 
                     b.Property<long?>("StudentCapacityPackageId")
                         .HasColumnType("bigint");
+
+                    b.Property<int?>("StudentCodeModeOverride")
+                        .HasColumnType("int");
 
                     b.Property<string>("TeacherCode")
                         .IsRequired()
@@ -6001,6 +6311,9 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasColumnType("bigint");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CenterId")
+                        .HasDatabaseName("IX_Teachers_CenterId");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -7231,7 +7544,7 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Property<decimal>("AmountReset")
                         .HasColumnType("decimal(12,2)");
 
-                    b.Property<long>("AssistantId")
+                    b.Property<long?>("AssistantId")
                         .HasColumnType("bigint");
 
                     b.Property<string>("AssistantName")
@@ -7239,6 +7552,9 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasColumnType("nvarchar(200)");
 
                     b.Property<long>("AssistantWalletId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("CenterAssistantId")
                         .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreateAt")
@@ -7259,8 +7575,13 @@ namespace Edvanz.Infrastructure.Migrations
 
                     b.HasIndex("AssistantWalletId");
 
+                    b.HasIndex("CenterAssistantId");
+
                     b.HasIndex("TeacherId", "AssistantId")
                         .HasDatabaseName("IX_WRL_TeacherId_AssistantId");
+
+                    b.HasIndex("TeacherId", "CenterAssistantId")
+                        .HasDatabaseName("IX_WRL_TeacherId_CenterAssistantId");
 
                     b.ToTable("WalletResetLogs", (string)null);
                 });
@@ -7407,8 +7728,12 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasOne("Edvanz.Domain.Entities.Assistant", "Assistant")
                         .WithMany()
                         .HasForeignKey("AssistantId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Edvanz.Domain.Entities.CenterAssistant", "CenterAssistant")
+                        .WithMany()
+                        .HasForeignKey("CenterAssistantId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Edvanz.Domain.Entities.Teacher", "Teacher")
                         .WithMany()
@@ -7417,6 +7742,8 @@ namespace Edvanz.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Assistant");
+
+                    b.Navigation("CenterAssistant");
 
                     b.Navigation("Teacher");
                 });
@@ -7504,6 +7831,89 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Navigation("ResolvedByUser");
 
                     b.Navigation("Teacher");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.Center", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Edvanz.Domain.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("Edvanz.Domain.Entities.Center", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterAssistant", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.Center", "Center")
+                        .WithMany("CenterAssistants")
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Edvanz.Domain.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("Edvanz.Domain.Entities.CenterAssistant", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Center");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscription", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.Center", "Center")
+                        .WithMany("Subscriptions")
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Edvanz.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Center");
+
+                    b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscriptionPricingSetting", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.User", "UpdatedByUser")
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UpdatedByUser");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.CenterSubscriptionRequest", b =>
+                {
+                    b.HasOne("Edvanz.Domain.Entities.Center", "Center")
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("Edvanz.Domain.Entities.User", "ResolvedByUser")
+                        .WithMany()
+                        .HasForeignKey("ResolvedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Center");
+
+                    b.Navigation("ResolvedByUser");
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Chat.ChatMessage", b =>
@@ -8464,6 +8874,11 @@ namespace Edvanz.Infrastructure.Migrations
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Teacher", b =>
                 {
+                    b.HasOne("Edvanz.Domain.Entities.Center", "Center")
+                        .WithMany("Teachers")
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("Edvanz.Domain.Entities.User", "CreatedByUser")
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
@@ -8479,6 +8894,8 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasForeignKey("Edvanz.Domain.Entities.Teacher", "UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Center");
 
                     b.Navigation("CreatedByUser");
 
@@ -8993,14 +9410,18 @@ namespace Edvanz.Infrastructure.Migrations
                     b.HasOne("Edvanz.Domain.Entities.Assistant", "Assistant")
                         .WithMany()
                         .HasForeignKey("AssistantId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Edvanz.Domain.Entities.AssistantWallet", "AssistantWallet")
                         .WithMany()
                         .HasForeignKey("AssistantWalletId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
+
+                    b.HasOne("Edvanz.Domain.Entities.CenterAssistant", "CenterAssistant")
+                        .WithMany()
+                        .HasForeignKey("CenterAssistantId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("Edvanz.Domain.Entities.Teacher", "Teacher")
                         .WithMany()
@@ -9011,6 +9432,8 @@ namespace Edvanz.Infrastructure.Migrations
                     b.Navigation("Assistant");
 
                     b.Navigation("AssistantWallet");
+
+                    b.Navigation("CenterAssistant");
 
                     b.Navigation("Teacher");
                 });
@@ -9035,6 +9458,15 @@ namespace Edvanz.Infrastructure.Migrations
             modelBuilder.Entity("Edvanz.Domain.Entities.AttendanceRecord", b =>
                 {
                     b.Navigation("EditLogs");
+                });
+
+            modelBuilder.Entity("Edvanz.Domain.Entities.Center", b =>
+                {
+                    b.Navigation("CenterAssistants");
+
+                    b.Navigation("Subscriptions");
+
+                    b.Navigation("Teachers");
                 });
 
             modelBuilder.Entity("Edvanz.Domain.Entities.Chat.Conversation", b =>

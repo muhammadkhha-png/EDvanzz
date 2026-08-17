@@ -131,6 +131,11 @@ namespace Edvanz.Application.Services
             var userId = currentUserService.UserId;
             if (userId is null) return null;
 
+            // Center tier: resolve the acting teacher (X-Acting-Teacher-Id) validated against membership.
+            if (string.Equals(currentUserService.Role, UserRoles.Center, StringComparison.Ordinal)
+                || string.Equals(currentUserService.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+                return await currentUserService.ResolveActingTeacherIdAsync();
+
             long? callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;
             if (callerTeacherId is null)
             {

@@ -82,6 +82,39 @@ public class Teacher : BaseEntity
     public long? CreatedByUserId { get; set; }
     public User? CreatedByUser { get; set; }
 
+    // ── Center tenancy tier (multi-teacher account) ─────────────────
+    // A null CenterId is a STANDALONE teacher (unchanged behavior); a set CenterId means the
+    // teacher is owned/operated by a Center. Center-owned teachers have NO usable login (their
+    // User row is created with IsActive = false). FK configured in Fluent API (BUG-4 rule).
+
+    /// <summary>
+    /// The <see cref="Center"/> that owns this teacher, or null for a standalone teacher.
+    /// </summary>
+    public long? CenterId { get; set; }
+    public Center? Center { get; set; }
+
+    /// <summary>
+    /// Managerial vs Full plan for a CENTER-OWNED teacher. Center-owned teachers have no
+    /// <see cref="TeacherSubscription"/> to carry PlanType, so the managerial gate
+    /// (SubscriptionGateService.IsManagerialAsync) reads this instead. Null / meaningless for a
+    /// standalone teacher (whose plan lives on the current TeacherSubscription).
+    /// </summary>
+    public SubscriptionPlanType? CenterPlanType { get; set; }
+
+    /// <summary>
+    /// Optional per-teacher override of the center's revenue-share percentage. Effective share =
+    /// <c>RevenueSharePercentOverride ?? Center.DefaultRevenueSharePercent</c>. Null = use the
+    /// center default. Stored as decimal(5,2) via Fluent.
+    /// </summary>
+    public decimal? RevenueSharePercentOverride { get; set; }
+
+    /// <summary>
+    /// Optional per-teacher override of the center's student-code mode (<see cref="Center.StudentCodeGenerationMode"/>).
+    /// Null = inherit the center default; set = this teacher diverges (the app surfaces a clear
+    /// "overriding center setting" message). Only meaningful for a center-owned teacher.
+    /// </summary>
+    public GenerationMode? StudentCodeModeOverride { get; set; }
+
     // Navigation properties
     public TeacherConfiguration? Configuration { get; set; }
     public ICollection<TeacherSubject> TeacherSubjects { get; set; } = new List<TeacherSubject>();

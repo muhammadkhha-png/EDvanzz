@@ -43,4 +43,17 @@ public class TeacherListItemDto
     /// teacher has never logged in. Sourced from User.LastLoginAt (REQ-ADM-026).
     /// </summary>
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// The owning Center's id when this teacher is center-owned (operated by a Center account with no
+    /// login of its own); null for a standalone teacher. Additive — lets the SuperAdmin list identify
+    /// and filter center-owned teachers.
+    /// </summary>
+    public long? CenterId { get; set; }
+
+    /// <summary>
+    /// The Managerial/Full plan of a CENTER-OWNED teacher (which has no individual TeacherSubscription,
+    /// so the <see cref="PlanType"/>/<see cref="SubscriptionStatus"/> above are null). Null for standalone.
+    /// </summary>
+    public SubscriptionPlanType? CenterPlanType { get; set; }
 }

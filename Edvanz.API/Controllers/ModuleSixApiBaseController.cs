@@ -1,5 +1,6 @@
 using System.Net;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -40,6 +41,12 @@ public abstract class ModuleSixApiBaseController : ApiBaseController
         long? userId = _currentUser.UserId;
         if (userId is null) return null;
 
+        // Center tier: resolve the acting teacher from the X-Acting-Teacher-Id header, validated
+        // fail-closed against center membership (shared helper — honors §3.3 / BUG-12).
+        if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+            || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            return await _currentUser.ResolveActingTeacherIdAsync();
+
         if (string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal))
         {
             var assistant = await _currentUser.GetAssistantDataAsync();
@@ -69,7 +76,11 @@ public abstract class ModuleSixApiBaseController : ApiBaseController
     /// end-to-end by BOTH frontend and backend — this flag only powers the interim scoping.
     /// </summary>
     protected bool IsAssistantCaller() =>
-        string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal);
+        string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal)
+        // A CenterAssistant gets the SAME scoped-down payment experience as a teacher assistant —
+        // their own wallet/collections + Collect and Student-Leaving only (never full revenue / edits).
+        // Scoping keys on their own userId (GetActingUserId), so their wallet is per acting-teacher.
+        || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal);
 
     /// <summary>
     /// Convenience for the interim assistant-scoping: the caller's own user id when they are an

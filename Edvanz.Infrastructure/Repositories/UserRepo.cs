@@ -128,6 +128,10 @@ namespace Edvanz.Infrastructure.Repositories
             // - Teacher: their own Teacher.Id
             // - Assistant: Assistant.TeacherAccountId (BR-SUB-002 / BR-USR-005)
             // - SuperAdmin / Student / Parent: null — no tutor scope applies
+            // - Center / CenterAssistant: null HERE by design — a center has no SINGLE teacher scope;
+            //   it "acts as" one teacher per request (X-Acting-Teacher-Id), resolved separately by
+            //   ICurrentUserService.ResolveActingTeacherIdAsync. The center tier is role-sufficient in
+            //   PermissionHandler, so the empty modules/permissions below are intentional (not a lockout).
             long? teacherScopeId = userCore.UserType switch
             {
                 UserType.Teacher => await _context.Set<Teacher>()
@@ -1164,6 +1168,38 @@ namespace Edvanz.Infrastructure.Repositories
         /// <inheritdoc />
         public async Task<CurrentSubscriptionStatusProjection?> GetCurrentSubscriptionStatusAsync(long teacherId)
         {
+            // ── Center redirect ──
+            // A center-owned teacher has NO per-teacher TeacherSubscription — its access AND plan are
+            // governed by the CENTER's current subscription. Resolving here means every consumer
+            // (ActiveSubscriptionHandler, SubscriptionGateService.HasActive/IsManagerial, admin lists)
+            // is correct without each having to special-case CenterId. Cache invalidation on center
+            // subscription change fans out to the center's teachers (AdminCenterSubscriptionService).
+            var teacherRow = await _context.Set<Teacher>()
+                .AsNoTracking()
+                .Where(t => t.Id == teacherId)
+                .Select(t => new { t.CenterId, t.CenterPlanType, t.StudentCapacityPackageId })
+                .FirstOrDefaultAsync();
+
+            if (teacherRow?.CenterId is long centerId)
+            {
+                return await _context.Set<CenterSubscription>()
+                    .AsNoTracking()
+                    .Where(s => s.CenterId == centerId && s.IsCurrent)
+                    .Select(s => new CurrentSubscriptionStatusProjection
+                    {
+                        SubscriptionId = s.Id,
+                        TeacherId = teacherId,
+                        StartDate = s.StartDate,
+                        EndDate = s.EndDate,
+                        AmountPaidEGP = s.AmountPaidEGP,
+                        // Plan (Full/Managerial) for a center teacher lives on the Teacher, not the sub.
+                        PlanType = teacherRow.CenterPlanType ?? Domain.Enums.SubscriptionPlanType.Full,
+                        StudentCapacityPackageId = teacherRow.StudentCapacityPackageId
+                    })
+                    .FirstOrDefaultAsync();
+            }
+
+            // ── Standalone teacher — original per-teacher path ──
             // Single indexed read against IX_TeacherSubscriptions_Current.
             // Project to the lean DTO so the cache value stays small (<200 bytes JSON).
             return await _context.Set<TeacherSubscription>()

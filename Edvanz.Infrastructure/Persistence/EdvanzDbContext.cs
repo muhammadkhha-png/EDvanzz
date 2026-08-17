@@ -87,6 +87,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<CapacityIncreaseRequest> CapacityIncreaseRequests { get; set; }
     public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
     public DbSet<SubscriptionPricingSetting> SubscriptionPricingSettings { get; set; }
+
+    // ── Center tenancy tier (multi-teacher account above the Teacher) ──
+    public DbSet<Center> Centers { get; set; }
+    public DbSet<CenterSubscription> CenterSubscriptions { get; set; }
+    public DbSet<CenterSubscriptionRequest> CenterSubscriptionRequests { get; set; }
+    public DbSet<CenterAssistant> CenterAssistants { get; set; }
+    public DbSet<CenterSubscriptionPricingSetting> CenterSubscriptionPricingSettings { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
 
@@ -577,6 +584,201 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             //   it indexed no longer exists (Critique C-6 / D-08). Queries that filtered
             //   by status now derive status in-memory or via vw_TeacherSubscriptionStatus.
         });
+        // ════════════════════════════════════════════════
+        // CENTER TENANCY TIER (multi-teacher account above the Teacher)
+        // ════════════════════════════════════════════════
+        // No global query filters on the center entities (mirrors the Assistant precedent —
+        // soft-delete is filtered in CenterRepo) so the new FKs don't trip EF's query-filter
+        // mismatch warnings. All FK behavior is Fluent-only (BUG-4 rule).
+
+        #region Center
+        modelBuilder.Entity<Center>(entity =>
+        {
+            entity.ToTable("Centers");
+
+            entity.Property(c => c.Name)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            // CenterCode: unique, immutable, 8-digit (mirrors Teacher.TeacherCode).
+            entity.Property(c => c.CenterCode)
+                .HasMaxLength(8)
+                .IsRequired();
+
+            entity.HasIndex(c => c.CenterCode)
+                .IsUnique()
+                .HasDatabaseName("IX_Centers_CenterCode");
+
+            // 1:1 with the login User.
+            entity.HasIndex(c => c.UserId)
+                .IsUnique()
+                .HasDatabaseName("IX_Centers_UserId");
+
+            entity.HasOne(c => c.User)
+                .WithOne()
+                .HasForeignKey<Center>(c => c.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(c => c.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(c => c.CreatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(c => c.DefaultRevenueSharePercent)
+                .HasColumnType("decimal(5,2)");
+
+            entity.Property(c => c.LanguagePreference)
+                .HasMaxLength(5);
+
+            // Center → Teachers (the tenancy link). Optional FK on Teacher.CenterId; app-layer
+            // cascade (NoAction) per §4.2. This is the sole place the Teacher.CenterId FK is set.
+            entity.HasMany(c => c.Teachers)
+                .WithOne(t => t.Center)
+                .HasForeignKey(t => t.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region Teacher (center-tier additive fields)
+        modelBuilder.Entity<Teacher>(entity =>
+        {
+            // Per-teacher revenue-share override (null = use Center.DefaultRevenueSharePercent).
+            entity.Property(t => t.RevenueSharePercentOverride)
+                .HasColumnType("decimal(5,2)");
+
+            // Lookup index for center-scoped teacher queries (list / overview / revenue / resolve).
+            entity.HasIndex(t => t.CenterId)
+                .HasDatabaseName("IX_Teachers_CenterId");
+        });
+        #endregion
+
+        #region CenterSubscription
+        modelBuilder.Entity<CenterSubscription>(entity =>
+        {
+            entity.ToTable("CenterSubscriptions");
+
+            entity.HasOne(s => s.Center)
+                .WithMany(c => c.Subscriptions)
+                .HasForeignKey(s => s.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(s => s.CreatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(s => s.AmountPaidEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.Property(s => s.Note)
+                .HasMaxLength(500);
+
+            entity.Property(s => s.RowVersion)
+                .IsRowVersion()
+                .IsConcurrencyToken();
+
+            // Expiry scan (mirrors IX_TeacherSubscriptions_TeacherId_EndDate).
+            entity.HasIndex(s => new { s.CenterId, s.EndDate })
+                .HasDatabaseName("IX_CenterSubscriptions_CenterId_EndDate");
+
+            // Exactly one current row per center (mirrors IX_TeacherSubscriptions_Current).
+            entity.HasIndex(s => s.CenterId)
+                .HasFilter("[IsCurrent] = 1")
+                .IsUnique()
+                .HasDatabaseName("IX_CenterSubscriptions_Current");
+        });
+        #endregion
+
+        #region CenterSubscriptionRequest
+        modelBuilder.Entity<CenterSubscriptionRequest>(entity =>
+        {
+            entity.ToTable("CenterSubscriptionRequests");
+
+            entity.Property(r => r.ComputedAmountEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.Property(r => r.Note)
+                .HasMaxLength(500);
+
+            entity.Property(r => r.RejectionReason)
+                .HasMaxLength(500);
+
+            entity.HasOne(r => r.Center)
+                .WithMany()
+                .HasForeignKey(r => r.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(r => r.ResolvedByUser)
+                .WithMany()
+                .HasForeignKey(r => r.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // One LIVE Pending request per center (keep [Status] literal in sync with
+            // SubscriptionRequestStatus.Pending = 1).
+            entity.HasIndex(r => r.CenterId)
+                .IsUnique()
+                .HasFilter("[Status] = 1")
+                .HasDatabaseName("UX_CenterSubscriptionRequests_Center_Pending");
+
+            entity.HasIndex(r => new { r.Status, r.RequestedAt })
+                .HasDatabaseName("IX_CenterSubscriptionRequests_Status_RequestedAt");
+        });
+        #endregion
+
+        #region CenterAssistant
+        modelBuilder.Entity<CenterAssistant>(entity =>
+        {
+            entity.ToTable("CenterAssistants");
+
+            entity.HasIndex(a => a.UserId)
+                .IsUnique()
+                .HasDatabaseName("IX_CenterAssistants_UserId");
+
+            entity.HasOne(a => a.User)
+                .WithOne()
+                .HasForeignKey<CenterAssistant>(a => a.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(a => a.Center)
+                .WithMany(c => c.CenterAssistants)
+                .HasForeignKey(a => a.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.Property(a => a.LanguagePreference)
+                .HasMaxLength(5);
+
+            entity.HasIndex(a => a.CenterId)
+                .HasDatabaseName("IX_CenterAssistants_CenterId");
+        });
+        #endregion
+
+        #region CenterSubscriptionPricingSetting (single-row per-slot center rates)
+        modelBuilder.Entity<CenterSubscriptionPricingSetting>(entity =>
+        {
+            entity.ToTable("CenterSubscriptionPricingSettings");
+
+            entity.Property(p => p.FullTeacherSlotPriceEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.Property(p => p.ManagerialTeacherSlotPriceEGP)
+                .HasColumnType("decimal(10,2)");
+
+            entity.HasOne(p => p.UpdatedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.UpdatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Seed the single settings row. Placeholder per-slot rates — admin-editable.
+            entity.HasData(new CenterSubscriptionPricingSetting
+            {
+                Id = 1,
+                FullTeacherSlotPriceEGP = 100.00m,
+                ManagerialTeacherSlotPriceEGP = 50.00m,
+                CreateAt = new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc)
+            });
+        });
+        #endregion
+
         // ════════════════════════════════════════════════
         // SUBSCRIPTION MANAGEMENT MODULE CONFIGURATION (Module 11 — v1.2)
         // ════════════════════════════════════════════════
@@ -1905,12 +2107,21 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Optimistic concurrency
             entity.Property(w => w.RowVersion).IsRowVersion();
 
-            // Unique: one wallet per assistant per teacher
+            // Unique: one wallet per assistant per teacher. FILTERED to non-null AssistantId now that a
+            // wallet may instead belong to a CenterAssistant (AssistantId null) — SQL Server would treat
+            // multiple NULLs as colliding on an unfiltered unique index.
             entity.HasIndex(w => new { w.TeacherId, w.AssistantId })
                 .IsUnique()
+                .HasFilter("[AssistantId] IS NOT NULL")
                 .HasDatabaseName("IX_AW_TeacherId_AssistantId");
 
-            // Fast lookup by user ID during collection
+            // Unique: one wallet per center-assistant per teacher (the center-assistant counterpart).
+            entity.HasIndex(w => new { w.TeacherId, w.CenterAssistantId })
+                .IsUnique()
+                .HasFilter("[CenterAssistantId] IS NOT NULL")
+                .HasDatabaseName("IX_AW_TeacherId_CenterAssistantId");
+
+            // Fast lookup by user ID during collection (works for Assistant AND CenterAssistant).
             entity.HasIndex(w => new { w.TeacherId, w.AssistantUserId })
                 .HasDatabaseName("IX_AW_TeacherId_AssistantUserId");
 
@@ -1924,6 +2135,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasOne(w => w.Assistant)
                 .WithMany()
                 .HasForeignKey(w => w.AssistantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // CenterAssistant FK (Fluent-only, NoAction) — the center-assistant wallet owner.
+            entity.HasOne(w => w.CenterAssistant)
+                .WithMany()
+                .HasForeignKey(w => w.CenterAssistantId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
@@ -1950,6 +2167,15 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithMany()
                 .HasForeignKey(l => l.AssistantId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            // CenterAssistant FK (Fluent-only, NoAction) — the center-assistant reset ledger.
+            entity.HasOne(l => l.CenterAssistant)
+                .WithMany()
+                .HasForeignKey(l => l.CenterAssistantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasIndex(l => new { l.TeacherId, l.CenterAssistantId })
+                .HasDatabaseName("IX_WRL_TeacherId_CenterAssistantId");
 
             entity.HasOne(l => l.AssistantWallet)
                 .WithMany()

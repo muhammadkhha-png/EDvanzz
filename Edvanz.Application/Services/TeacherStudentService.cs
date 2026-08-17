@@ -87,6 +87,56 @@ public class TeacherStudentService : ITeacherStudentService
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
+    /// <summary>
+    /// The center's REMAINING roster capacity for this teacher (min of the overall pool and the
+    /// per-plan pool), or null when the teacher is not center-owned or the center has no active
+    /// subscription (in which case only the per-teacher <c>StudentCapacity</c> applies). Center pools
+    /// are enforced ON TOP of the per-teacher cap so a center can't exceed its purchased package.
+    /// </summary>
+    private async Task<int?> GetCenterRemainingStudentCapacityAsync(Domain.Entities.Teacher teacher)
+    {
+        if (teacher.CenterId is not long centerId) return null;
+        var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
+        if (sub is null) return null;
+
+        var total = await _unitOfWork.Centers.CountCenterStudentsTotalAsync(centerId);
+        var plan = teacher.CenterPlanType ?? Domain.Enums.SubscriptionPlanType.Full;
+        var pool = await _unitOfWork.Centers.CountCenterStudentsByPlanAsync(centerId, plan);
+        var poolCap = plan == Domain.Enums.SubscriptionPlanType.Managerial
+            ? sub.StudentCapacityUnderManagerial
+            : sub.StudentCapacityUnderFull;
+
+        var remainingTotal = sub.StudentCapacityTotal - total;
+        var remainingPool = poolCap - pool;
+        return Math.Max(0, Math.Min(remainingTotal, remainingPool));
+    }
+
+    /// <summary>Returns the resx key when adding <paramref name="addCount"/> students would exceed the
+    /// center pool, else null.</summary>
+    private async Task<string?> CheckCenterStudentCapacityAsync(Domain.Entities.Teacher teacher, int addCount)
+    {
+        var remaining = await GetCenterRemainingStudentCapacityAsync(teacher);
+        if (remaining is null) return null;
+        return addCount > remaining.Value ? "CenterStudentCapacityExhausted" : null;
+    }
+
+    /// <summary>
+    /// The effective student-code mode for a teacher: for a CENTER-owned teacher it's the teacher's
+    /// own override, else the center default; for a standalone teacher it's the teacher's config.
+    /// </summary>
+    private async Task<GenerationMode> ResolveEffectiveCodeModeAsync(
+        Domain.Entities.Teacher teacher, Domain.Entities.TeacherConfiguration? config)
+    {
+        if (teacher.CenterId is long centerId)
+        {
+            if (teacher.StudentCodeModeOverride.HasValue)
+                return teacher.StudentCodeModeOverride.Value;
+            var center = await _unitOfWork.Centers.GetCenterByIdAsync(centerId);
+            return center?.StudentCodeGenerationMode ?? GenerationMode.Auto;
+        }
+        return config?.StudentCodeGenerationMode ?? GenerationMode.Auto;
+    }
+
     public async Task<Result<TeacherStudentDto>> CreateStudentAsync(long teacherId, CreateTeacherStudentDto dto)
     {
         // 1. Validate teacher exists
@@ -116,16 +166,23 @@ public class TeacherStudentService : ITeacherStudentService
         if (phoneError is not null)
             return Result<TeacherStudentDto>.Failure(_localizer, phoneError, HttpStatusCode.BadRequest);
 
-        // 3. Check student capacity limit
+        // 3. Check student capacity limit (per-teacher)
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         if (activeCount >= teacher.StudentCapacity)
             return Result<TeacherStudentDto>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
 
-        // 4. Resolve student code based on teacher configuration
+        // 3b. Center student-pool limit (only for center-owned teachers with an active center subscription).
+        var centerCapError = await CheckCenterStudentCapacityAsync(teacher, 1);
+        if (centerCapError is not null)
+            return Result<TeacherStudentDto>.Failure(_localizer, centerCapError, HttpStatusCode.Conflict);
+
+        // 4. Resolve student code based on the EFFECTIVE mode (center default + per-teacher override for
+        //    center-owned teachers; the teacher's own config for standalone teachers).
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        var effectiveCodeMode = await ResolveEffectiveCodeModeAsync(teacher, config);
         string studentCode;
 
-        if (config?.StudentCodeGenerationMode == GenerationMode.Manual)
+        if (effectiveCodeMode == GenerationMode.Manual)
         {
             // REQ-STU-011.1: Manual mode — code is required
             if (string.IsNullOrWhiteSpace(dto.StudentCode))
@@ -153,7 +210,8 @@ public class TeacherStudentService : ITeacherStudentService
 
             // FIX GAP-1: Pass the teacher's configured language preference (AAM-FR-04.2)
             var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
-            studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage);
+            // Center-owned teacher → generate center-wide-unique (pass CenterId); standalone → per-teacher.
+            studentCode = await _codeGenerator.GenerateNextCodeAsync(teacherId, codeLanguage, teacher.CenterId);
         }
 
         // 5. Generate hashed token (auto-generated, REQ-STU-004)
@@ -346,7 +404,9 @@ public class TeacherStudentService : ITeacherStudentService
         //    - Manual mode: a supplied code is validated for format + uniqueness and applied; a blank
         //      code leaves the existing code unchanged (an edit that simply doesn't touch the code).
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
+        var teacherForMode = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        bool isManualMode = teacherForMode is not null
+            && await ResolveEffectiveCodeModeAsync(teacherForMode, config) == GenerationMode.Manual;
 
         if (!isManualMode)
         {
@@ -719,6 +779,10 @@ public class TeacherStudentService : ITeacherStudentService
             int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
             if (activeCount >= teacher.StudentCapacity)
                 return Result<TeacherStudentDto>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
+
+            var centerCapError = await CheckCenterStudentCapacityAsync(teacher, 1);
+            if (centerCapError is not null)
+                return Result<TeacherStudentDto>.Failure(_localizer, centerCapError, HttpStatusCode.Conflict);
         }
 
         // REQ-STU-031: Restore with all original data intact
@@ -744,8 +808,16 @@ public class TeacherStudentService : ITeacherStudentService
             int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
             int remaining = teacher.StudentCapacity - activeCount;
 
+            // Clamp by the center's remaining pool for center-owned teachers.
+            var centerRemaining = await GetCenterRemainingStudentCapacityAsync(teacher);
+            if (centerRemaining is not null)
+                remaining = Math.Min(remaining, centerRemaining.Value);
+
             if (dto.StudentIds.Count > remaining)
-                return Result<int>.Failure(_localizer, "StudentCapacityReached", HttpStatusCode.BadRequest);
+                return Result<int>.Failure(_localizer,
+                    teacher.CenterId is not null && centerRemaining is not null && centerRemaining.Value < dto.StudentIds.Count
+                        ? "CenterStudentCapacityExhausted" : "StudentCapacityReached",
+                    HttpStatusCode.BadRequest);
         }
 
         var students = await _unitOfWork.Students.GetDeletedByIdsAndTeacherAsync(teacherId, dto.StudentIds);
@@ -907,8 +979,9 @@ public class TeacherStudentService : ITeacherStudentService
         // FIX GAP-1: Resolve the teacher's configured code generation language
         var codeLanguage = config?.StudentCodeLanguage ?? GenerationLanguage.English;
 
-        // FIX GAP-2: Determine if the teacher uses manual code entry
-        bool isManualMode = config?.StudentCodeGenerationMode == GenerationMode.Manual;
+        // FIX GAP-2: Determine if the teacher uses manual code entry (EFFECTIVE mode — center default +
+        // per-teacher override for center-owned teachers).
+        bool isManualMode = await ResolveEffectiveCodeModeAsync(teacher, config) == GenerationMode.Manual;
 
         // Session assignment can be specified per-row (BulkImportStudentRowDto.SessionId) and/or as
         // an envelope-level default (dto.SessionId) applied to rows that omit their own. Each
@@ -925,9 +998,12 @@ public class TeacherStudentService : ITeacherStudentService
             return resolved;
         }
 
-        // 2. Check capacity
+        // 2. Check capacity (per-teacher, then clamp by the center's remaining pool if center-owned)
         int activeCount = await _unitOfWork.Students.CountActiveStudentsAsync(teacherId);
         int remainingCapacity = teacher.StudentCapacity - activeCount;
+        var centerRemainingImport = await GetCenterRemainingStudentCapacityAsync(teacher);
+        if (centerRemainingImport is not null)
+            remainingCapacity = Math.Min(remainingCapacity, centerRemainingImport.Value);
 
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
         var validStudents = new List<TeacherStudent>();
@@ -1132,7 +1208,7 @@ public class TeacherStudentService : ITeacherStudentService
         if (pendingAutoCode.Count > 0)
         {
             var generated = await _codeGenerator.GenerateSequentialCodesAsync(
-                teacherId, pendingAutoCode.Count + usedCodes.Count, codeLanguage);
+                teacherId, pendingAutoCode.Count + usedCodes.Count, codeLanguage, teacher.CenterId);
 
             int gi = 0;
             foreach (var s in pendingAutoCode)

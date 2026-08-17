@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Security;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Resources;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -50,6 +51,15 @@ namespace Edvanz.API.Filters
             if (_roleOnly)
             {
                 if (_roles.Any(r => user.IsInRole(r)))
+                    return;
+
+                // Center tier operates its teachers by "acting as" one per request. So any endpoint
+                // gated to the Teacher role is also reachable by a Center / CenterAssistant login —
+                // tenant isolation is enforced by the acting-as tenant resolvers (X-Acting-Teacher-Id
+                // validated against center membership), NOT by this role gate. Endpoints gated to
+                // SuperAdmin / Student / Parent only (no "Teacher" in the array) stay closed to centers.
+                if (_roles.Any(r => string.Equals(r, UserRoles.Teacher, StringComparison.Ordinal))
+                    && (user.IsInRole(UserRoles.Center) || user.IsInRole(UserRoles.CenterAssistant)))
                     return;
 
                 context.Result = ForbidWithMessage(_localizer["RoleNotAllowed"].Value, "roleNotAllowed");

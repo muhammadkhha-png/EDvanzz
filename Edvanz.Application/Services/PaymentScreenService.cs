@@ -66,8 +66,11 @@ public class PaymentScreenService : IPaymentScreenService
         // Every withdrawal/reset the teacher took from this assistant's wallet — the "receipt"
         // trail (amount + when + who) that answers "where did the money I took go?". The cash was
         // already counted as revenue at collection time; this ledger records the hand-over.
-        var logs = await _unitOfWork.PaymentsRepo
-            .GetWalletResetLogsAsync(teacherId, assistantId);
+        // assistantId is an Assistant.Id OR a CenterAssistant.Id (surfaced identically in the wallet
+        // DTO). Try the teacher-assistant ledger, then fall back to the center-assistant ledger.
+        var logs = await _unitOfWork.PaymentsRepo.GetWalletResetLogsAsync(teacherId, assistantId);
+        if (logs.Count == 0)
+            logs = await _unitOfWork.PaymentsRepo.GetWalletResetLogsForCenterAssistantAsync(teacherId, assistantId);
 
         var dtos = logs
             .OrderByDescending(l => l.ResetAt)
@@ -443,8 +446,13 @@ public class PaymentScreenService : IPaymentScreenService
             .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
         // Wallet hand-overs (full reset OR partial withdrawal) are money OUT of the held balance and
         // belong in the same ledger as negative lines, keyed on the wallet's AssistantId.
-        var allResets = await _unitOfWork.PaymentsRepo
-            .GetWalletResetLogsAsync(teacherId, wallet.AssistantId);
+        // Reset/withdrawal ledger — keyed by AssistantId for a normal assistant, or CenterAssistantId
+        // for a center-assistant wallet.
+        var allResets = wallet.AssistantId.HasValue
+            ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsAsync(teacherId, wallet.AssistantId.Value)
+            : (wallet.CenterAssistantId.HasValue
+                ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsForCenterAssistantAsync(teacherId, wallet.CenterAssistantId.Value)
+                : (IReadOnlyList<Domain.Entities.WalletResetLog>)System.Array.Empty<Domain.Entities.WalletResetLog>());
 
         // NOTE: student-departure refunds are ALREADY in allRefunds — the departure-confirm path
         // reverses the period via ReverseDeparturePeriodAsync, which writes a PaymentEditLog(Reversed)
@@ -567,7 +575,7 @@ public class PaymentScreenService : IPaymentScreenService
             Assistant = new AssistantWalletAssistantDto
             {
                 Id = assistantId.ToString(CultureInfo.InvariantCulture),
-                Name = wallet.Assistant?.User?.FullName,
+                Name = wallet.Assistant?.User?.FullName ?? wallet.CenterAssistant?.User?.FullName,
                 Role = "Assistant",
                 AvatarUrl = null,
                 TransactionCount = wallet.TransactionCount
@@ -910,7 +918,7 @@ public class PaymentScreenService : IPaymentScreenService
                     Role = "Assistant",
                     TransactionCount = c.TransactionCount,
                     CollectedAmount = c.Collected,
-                    AssistantId = w.AssistantId.ToString(CultureInfo.InvariantCulture),
+                    AssistantId = (w.AssistantId ?? w.CenterAssistantId ?? 0).ToString(CultureInfo.InvariantCulture),
                     WalletBalance = w.CurrentBalance
                 };
             })

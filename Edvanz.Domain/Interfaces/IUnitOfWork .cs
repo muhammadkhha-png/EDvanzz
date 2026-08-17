@@ -192,5 +192,11 @@ namespace Edvanz.Domain.Interfaces
 
         /// <summary>Help / Onboarding content lookup — modules, tours, articles, FAQs (SuperAdmin-managed, global).</summary>
         IHelpContentRepo HelpContentRepo { get; }
+
+        /// <summary>
+        /// Center tenancy tier — the Center account, login/assistant resolution, acting-as
+        /// membership checks, quota-enforcement counts, and current-subscription lookup.
+        /// </summary>
+        ICenterRepo Centers { get; }
     }
 }

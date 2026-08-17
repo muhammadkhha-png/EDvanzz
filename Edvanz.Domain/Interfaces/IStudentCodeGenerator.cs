@@ -34,7 +34,10 @@ public interface IStudentCodeGenerator
     /// <exception cref="InvalidOperationException">
     /// Thrown if the code space is exhausted (beyond Z999 / ي999).
     /// </exception>
-    Task<string> GenerateNextCodeAsync(long teacherId, GenerationLanguage language = GenerationLanguage.English);
+    /// <param name="centerId">When set (a center-owned teacher on Auto), the next code is computed to
+    /// be unique across ALL the center's teachers, not just this one — so center-wide auto codes never
+    /// collide. Null = per-teacher sequencing (the default / standalone teacher).</param>
+    Task<string> GenerateNextCodeAsync(long teacherId, GenerationLanguage language = GenerationLanguage.English, long? centerId = null);
 
     /// <summary>
     /// Generates <paramref name="count"/> sequential codes in a SINGLE database read, incrementing
@@ -47,5 +50,5 @@ public interface IStudentCodeGenerator
     /// <param name="teacherId">The teacher's Id (multi-tenant scope).</param>
     /// <param name="count">How many sequential codes to produce.</param>
     /// <param name="language">Code language (AAM-FR-04.2).</param>
-    Task<List<string>> GenerateSequentialCodesAsync(long teacherId, int count, GenerationLanguage language = GenerationLanguage.English);
+    Task<List<string>> GenerateSequentialCodesAsync(long teacherId, int count, GenerationLanguage language = GenerationLanguage.English, long? centerId = null);
 }

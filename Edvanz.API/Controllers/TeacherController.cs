@@ -1,4 +1,5 @@
 ﻿using Edvanz.API.Attributes;
+using Edvanz.Domain.Constants;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.ServiceContract;
@@ -53,6 +54,11 @@ public class TeacherController : ApiBaseController
     {
         if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
             return explicitTeacherId;
+
+        // Center tier: resolve the acting teacher (X-Acting-Teacher-Id) validated against membership.
+        if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+            || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            return await _currentUser.ResolveActingTeacherIdAsync();
 
         var userId = _currentUser.UserId;
         if (userId is null) return null;

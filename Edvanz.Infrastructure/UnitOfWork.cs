@@ -266,6 +266,12 @@ namespace Edvanz.Infrastructure
         /// <summary>Help / Onboarding content lookup — see <see cref="IHelpContentRepo"/>.</summary>
         public IHelpContentRepo HelpContentRepo
             => _helpContentRepo ??= new Repositories.HelpContentRepo(_Context);
+
+        private ICenterRepo? _centersRepo;
+
+        /// <summary>Center tenancy tier — see <see cref="ICenterRepo"/>.</summary>
+        public ICenterRepo Centers
+            => _centersRepo ??= new Repositories.CenterRepo(_Context);
     }
 
 

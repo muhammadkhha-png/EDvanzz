@@ -521,6 +521,10 @@ public sealed class PaymentController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
+        // Only the owning tutor / center OWNER may reset a wallet (BR-PAY-002). An assistant caller —
+        // teacher-assistant OR center-assistant — is blocked (they collect, they don't take the cash).
+        if (AssistantScopeUserId() is not null) return Forbid();
+
         // Actor identity from JWT — WalletResetDto.ResetByUserId is never trusted from the body.
         dto.TeacherId = teacherId.Value;
         dto.AssistantId = assistantId;

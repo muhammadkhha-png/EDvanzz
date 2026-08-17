@@ -1145,10 +1145,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                     .FirstOrDefault()
             });
 
-        if (!string.IsNullOrWhiteSpace(search))
+        // Trimmed exact search term (null when no search) — used both for the substring filter and to
+        // rank an EXACT StudentCode match first (see the ordering below).
+        string? trimmedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+
+        if (trimmedSearch is not null)
         {
             // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{trimmedSearch}%";
             rowQuery = rowQuery.Where(r =>
                 EF.Functions.Like(r.StudentName, pattern)
                 || EF.Functions.Like(r.StudentCode, pattern));
@@ -1171,8 +1175,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         int holdCount = await rowQuery.CountAsync(
             r => r.AttendanceRecord != null && r.AttendanceRecord.Status == AttendanceStatus.Held);
 
+        // When searching by an exact student code (barcode/manual-scan lookup), rank the EXACT
+        // StudentCode match FIRST — otherwise a short code like "8A" is a substring of "18A/28A/108A…"
+        // and, if it's already marked, sorts to the very end and never reaches the first page the
+        // scanner loads → a real, in-session student wrongly reads as "not found in this session".
         var pagedResults = await rowQuery
-            .OrderBy(r => r.AttendanceRecord != null ? 1 : 0)
+            .OrderBy(r => trimmedSearch != null && r.StudentCode == trimmedSearch ? 0 : 1)
+            .ThenBy(r => r.AttendanceRecord != null ? 1 : 0)
             .ThenBy(r => r.StudentName)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)

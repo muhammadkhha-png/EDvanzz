@@ -114,6 +114,14 @@ public static class ServicesCollectionExtensions
         // Super-admin operations (§4.4 / FR-SUB-060…064)
         services.AddScoped<IAdminSubscriptionService, AdminSubscriptionService>();
 
+        // Center tenancy tier — SuperAdmin provisioning + center self-service (teacher management).
+        services.AddScoped<IAdminCenterService, AdminCenterService>();
+        services.AddScoped<ICenterService, CenterService>();
+        services.AddScoped<IAdminCenterSubscriptionService, AdminCenterSubscriptionService>();
+        services.AddScoped<ICenterSubscriptionService, CenterSubscriptionService>();
+        services.AddScoped<ICenterRevenueService, CenterRevenueService>();
+        services.AddScoped<ICenterAssistantService, CenterAssistantService>();
+
         // Reminder dispatcher + per-teacher worker (§7)
         services.AddScoped<ISubscriptionReminderService, SubscriptionReminderService>();
 

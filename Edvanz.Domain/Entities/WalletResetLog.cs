@@ -22,12 +22,21 @@ public class WalletResetLog : BaseEntity
     public Teacher Teacher { get; set; } = null!;
 
     /// <summary>
-    /// Foreign key to the assistant whose wallet was reset.
+    /// Foreign key to the (teacher-owned) assistant whose wallet was reset. NULLABLE: a reset of a
+    /// <see cref="Entities.CenterAssistant"/>'s wallet records <see cref="CenterAssistantId"/> instead.
     /// NO ACTION: log survives assistant deletion for ledger permanence.
     /// </summary>
     [ForeignKey(nameof(Assistant))]
-    public long AssistantId { get; set; }
-    public Assistant Assistant { get; set; } = null!;
+    public long? AssistantId { get; set; }
+    public Assistant? Assistant { get; set; }
+
+    /// <summary>
+    /// Foreign key to the <see cref="Entities.CenterAssistant"/> whose wallet was reset (mutually
+    /// exclusive with <see cref="AssistantId"/>). Null for a normal teacher-assistant reset.
+    /// Configured in Fluent API (no OnDelete annotation, per the BUG-4 rule).
+    /// </summary>
+    public long? CenterAssistantId { get; set; }
+    public CenterAssistant? CenterAssistant { get; set; }
 
     /// <summary>
     /// Foreign key to the assistant wallet record.

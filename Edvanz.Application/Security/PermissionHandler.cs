@@ -52,6 +52,8 @@ namespace Edvanz.Application.Security
         private const string ParentRole = "Parent";
         private const string TeacherRole = "Teacher";
         private const string AssistantRole = "Assistant";
+        private const string CenterRole = "Center";
+        private const string CenterAssistantRole = "CenterAssistant";
         private const string CompleteProfilePermission = "CompleteProfile";
         /// <summary>
         /// Marker written to <see cref="AuthorizationFailureReason"/> when the caller's tutor
@@ -88,13 +90,22 @@ namespace Edvanz.Application.Security
                 return Task.CompletedTask;
             }
 
-            // ── 2. SuperAdmin / Student / Parent bypass ─────────────────────
+            // ── 2. SuperAdmin / Student / Parent / Center tier bypass ───────
             // Same v1 behavior: these roles are governed by separate authorization
             // surfaces (e.g., SuperAdmin sees everything; Student/Parent endpoints
             // are typically scoped by user id, not by module/permission grants).
+            //
+            // Center / CenterAssistant are ROLE-SUFFICIENT in v1: a center operates its
+            // own teachers by "acting as" one per request (X-Acting-Teacher-Id, validated
+            // fail-closed against center membership by the tenant resolvers), so DATA
+            // isolation is already enforced at resolution time — the center's snapshot has
+            // no single teacher/module scope to gate on. Per-center-assistant granular
+            // permissions are a P5 refinement; until then both center roles pass this gate.
             if (principal.IsInRole(SuperAdminRole)
                 || principal.IsInRole(StudentRole)
-                || principal.IsInRole(ParentRole))
+                || principal.IsInRole(ParentRole)
+                || principal.IsInRole(CenterRole)
+                || principal.IsInRole(CenterAssistantRole))
             {
                 context.Succeed(requirement);
                 return Task.CompletedTask;

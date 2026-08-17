@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Domain.Constants;
 using Edvanz.Application.Dtos.PermissionsDtos;
 using Edvanz.Application.Dtos.TemplatePermissionsDtos;
 using Edvanz.Application.Extensions;
@@ -36,6 +37,13 @@ namespace Edvanz.Application.Services
         {
             if (string.Equals(_currentUser.Role, "SuperAdmin", StringComparison.Ordinal))
                 return true;
+            // Center tier: owns the teacher it is currently acting as (membership-validated).
+            if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+                || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            {
+                var actingId = await _currentUser.ResolveActingTeacherIdAsync();
+                return actingId is not null && ownerTeacherId == actingId.Value;
+            }
             var userId = _currentUser.UserId;
             if (userId is null) return false;
             long? callerTeacherId = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId.Value))?.Id;

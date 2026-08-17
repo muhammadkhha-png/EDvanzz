@@ -1,4 +1,5 @@
 ﻿using Edvanz.API.Attributes;
+using Edvanz.Domain.Constants;
 using Edvanz.Application.Dtos.Subscription;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -363,6 +364,11 @@ public class SubscriptionController : ApiBaseController
     {
         long? userId = _currentUser.UserId;
         if (userId is null) return null;
+
+        // Center tier: resolve the acting teacher (X-Acting-Teacher-Id) validated against membership.
+        if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+            || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            return await _currentUser.ResolveActingTeacherIdAsync();
 
         if (string.Equals(_currentUser.Role, "Assistant", StringComparison.Ordinal))
         {

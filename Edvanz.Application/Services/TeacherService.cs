@@ -867,7 +867,9 @@ public class TeacherService : ITeacherService
             PlanType = x.LatestSub?.PlanType,
             SubscriptionEndDate = x.LatestSub?.EndDate,
             CreatedAt = x.Teacher.CreateAt,
-            LastLoginAt = x.User?.LastLoginAt
+            LastLoginAt = x.User?.LastLoginAt,
+            CenterId = x.Teacher.CenterId,
+            CenterPlanType = x.Teacher.CenterPlanType
         }).ToList();
 
         // ── 10. Build response ─────────────────────────────────────────────────

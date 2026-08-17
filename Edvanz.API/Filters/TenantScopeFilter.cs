@@ -1,4 +1,5 @@
 using Edvanz.Application.IservicesContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -59,6 +60,12 @@ public sealed class TenantScopeFilter : IAsyncActionFilter
 
     private async Task<long?> ResolveCallerTeacherIdAsync(long userId)
     {
+        // Center tier: the caller's effective tenant is the acting teacher (X-Acting-Teacher-Id),
+        // validated against center membership. Any teacherId in the route/body is overwritten with it.
+        if (string.Equals(_currentUser.Role, UserRoles.Center, StringComparison.Ordinal)
+            || string.Equals(_currentUser.Role, UserRoles.CenterAssistant, StringComparison.Ordinal))
+            return await _currentUser.ResolveActingTeacherIdAsync();
+
         long? id = (await _unitOfWork.Users.GetTeacherByUserIdAsync(userId))?.Id;
         if (id is null)
         {

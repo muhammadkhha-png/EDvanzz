@@ -263,6 +263,44 @@ namespace Edvanz.Application.Services
 
                 jwt = GenerateJwtToken(user, permissions, null);
             }
+            else if (user.UserType == Domain.Enums.UserType.Center)
+            {
+                // A Center login: no single teacher scope — it "acts as" any of its teachers via the
+                // X-Acting-Teacher-Id header. Emit the center identity + the full list of the
+                // center's teacher ids so the app can preload the acting-as switcher. Modules are
+                // per-acting-teacher (resolved after selection), so none are emitted on the token.
+                var center = await _unitOfWork.Centers.GetCenterByUserIdAsync(user.Id);
+                if (center != null)
+                {
+                    userDto.centerId = center.Id;
+                    userDto.centerName = center.Name;
+                    teacherIds = (await _unitOfWork.Centers.GetTeacherIdsByCenterAsync(center.Id)).ToList();
+                    userDto.teacherIds = teacherIds;
+                }
+
+                userDto.models = null;
+                userDto.permissions = permissions;
+
+                jwt = GenerateJwtToken(user, permissions, null);
+            }
+            else if (user.UserType == Domain.Enums.UserType.CenterAssistant)
+            {
+                // A CenterAssistant login: same as Center, resolved via the assistant's center.
+                var centerAssistant = await _unitOfWork.Centers.GetCenterAssistantByUserIdAsync(user.Id);
+                var center = centerAssistant?.Center;
+                if (center != null)
+                {
+                    userDto.centerId = center.Id;
+                    userDto.centerName = center.Name;
+                    teacherIds = (await _unitOfWork.Centers.GetTeacherIdsByCenterAsync(center.Id)).ToList();
+                    userDto.teacherIds = teacherIds;
+                }
+
+                userDto.models = null;
+                userDto.permissions = permissions;
+
+                jwt = GenerateJwtToken(user, permissions, null);
+            }
 
             #endregion
 
