@@ -2001,6 +2001,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(p => p.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(p => p.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
             entity.Property(p => p.OriginSessionName).HasMaxLength(PaymentConstants.NameMaxLength);
+            // Session-move carry-over tracking (A → B reassignment). MovedFromSessionId is a plain
+            // denormalized long with NO FK (avoids the §4.1 FK/OnDelete conflict and survives source
+            // session hard-delete); MovedFromSessionName is its display snapshot.
+            entity.Property(p => p.MovedFromSessionName).HasMaxLength(PaymentConstants.NameMaxLength);
 
             // ── INDEXES ──
 

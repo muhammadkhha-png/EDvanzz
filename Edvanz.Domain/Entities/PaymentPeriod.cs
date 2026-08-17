@@ -157,6 +157,22 @@ public class PaymentPeriod : BaseEntity
     /// </summary>
     public string? OriginSessionName { get; set; }
 
+    /// <summary>
+    /// The session this billing obligation was MOVED FROM when the student was reassigned to a new
+    /// session (A → B). Set on a period whose unpaid/partial balance was carried over to the new
+    /// session so the money is trackable back to where it was originally owed. Null for a normal
+    /// (non-moved) period. Plain denormalized id — NO FK (survives the source session's hard-delete;
+    /// see §4.1: a plain nullable long avoids the FK/OnDelete conflict entirely).
+    /// </summary>
+    public long? MovedFromSessionId { get; set; }
+
+    /// <summary>
+    /// Denormalized snapshot of the source session's name at move time. Pairs with
+    /// <see cref="MovedFromSessionId"/> so the frontend can render "moved from &lt;name&gt;" without a
+    /// join, and it survives the source session's hard-delete. Null for a normal (non-moved) period.
+    /// </summary>
+    public string? MovedFromSessionName { get; set; }
+
     // ══════════════════════════════════════════════
     // DENORMALIZED CONTEXT
     // ══════════════════════════════════════════════
