@@ -639,6 +639,18 @@
             // INNER JOIN below keeps a period ONLY when its (student, session) matches a currently-active
             // member of THAT session, so the card's membership is identical to the roster's and "collected by
             // session" can never diverge from the roster's paid/unpaid split again.
+            //
+            // NOT-DEPARTED gate: "collected = paid this month, in the session, active, NOT departed" (the
+            // teacher's rule). A departure is recorded in the SEPARATE StudentDepartures table — it does NOT
+            // unassign (SessionId stays) or soft-delete the roster row, so the membership join above still
+            // matches a student who has LEFT. Their attendance-based leaving refund can leave a RESIDUAL paid
+            // amount on the period, which would otherwise surface here as phantom "collected" (the prod case:
+            // a whole session's students paid early in the month then departed, yet the card still read 300/1).
+            // Exclude any student who departed THIS session on/before the end of the viewed month — a
+            // departure DATED AFTER the month is NOT excluded (they were an active payer that month, so a past
+            // month's card is preserved: e.g. July still reads its full count when the departures happened in
+            // August). StudentDepartures carries no global query filter, so a correlated Any() over it is
+            // reliable here (unlike the TeacherStudent case above, this does not depend on filter propagation).
             var assignedMembers = _context.TeacherStudents
                 .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
                 .Select(ts => new { ts.Id, SessionId = ts.SessionId!.Value });
@@ -649,6 +661,11 @@
                     && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
                     && p.AmountPaid > 0m
                     && p.TeacherStudentId.HasValue
+                    && !_context.StudentDepartures.Any(dpt =>
+                           dpt.TeacherId == teacherId
+                        && dpt.TeacherStudentId == p.TeacherStudentId
+                        && dpt.SessionId == p.SessionId
+                        && dpt.DepartedAt < endExclusive)
                 join a in assignedMembers
                     on new { Sid = p.TeacherStudentId!.Value, Ses = p.SessionId!.Value }
                     equals new { Sid = a.Id, Ses = a.SessionId }
