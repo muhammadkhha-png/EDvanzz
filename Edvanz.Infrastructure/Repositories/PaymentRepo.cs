@@ -505,7 +505,10 @@
                     && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive);
 
             if (sessionId.HasValue)
-                query = query.Where(t => t.SessionId == sessionId.Value);
+                // Per-session view = LIVE students only: exclude a departed (soft-deleted) student's
+                // cash — they already left the session (the global soft-delete filter nulls the
+                // navigation). Teacher-wide totals (sessionId == null) stay unscoped by design.
+                query = query.Where(t => t.SessionId == sessionId.Value && t.TeacherStudent != null);
 
             return await query.SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
         }
@@ -523,7 +526,10 @@
                     && t.TeacherStudentId != null);
 
             if (sessionId.HasValue)
-                query = query.Where(t => t.SessionId == sessionId.Value);
+                // Per-session view = LIVE students only: a departed (soft-deleted) student is not
+                // counted among the session's payers (the global soft-delete filter nulls the
+                // navigation). Teacher-wide counts (sessionId == null) stay unscoped by design.
+                query = query.Where(t => t.SessionId == sessionId.Value && t.TeacherStudent != null);
 
             return await query
                 .Select(t => t.TeacherStudentId!.Value)
@@ -600,7 +606,15 @@
             // this month (net of refunds via the !IsDeleted filter).
             var rows = await _context.PaymentTransactions
                 .Where(t => t.TeacherId == teacherId && t.SessionId.HasValue
-                    && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+                    && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive
+                    // LIVE students only: a DEPARTED (soft-deleted) student's cash must not inflate a
+                    // session's "collected" total or its paid count — they already left the session.
+                    // The global soft-delete filter nulls the TeacherStudent navigation for a departed
+                    // student, so this drops them (and any purge-orphaned null-student row). Mirrors the
+                    // BUG-8 "Where(a => a.TeacherStudent != null)" pattern; keeps per-session cash
+                    // reconciled with the current roster instead of counting money that was refunded on
+                    // departure.
+                    && t.TeacherStudent != null)
                 .GroupBy(t => t.SessionId!.Value)
                 .Select(g => new
                 {
