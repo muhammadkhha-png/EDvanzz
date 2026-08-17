@@ -320,6 +320,23 @@ public interface IPaymentService
     Task<Result<bool>> BackfillSessionPeriodsThroughEndDateAsync(long teacherId, long sessionId);
 
     /// <summary>
+    /// Called by TeacherStudentService when a student is MOVED between two sessions (A → B) — i.e. both
+    /// the previous and the new session are non-null. Carries the student's billing over in one
+    /// transaction (§7.4): PAID months stay in A as history; UNPAID months still owed (past arrears +
+    /// the current month) MOVE to B keeping the original amount, tagged MovedFrom*/IsCarriedForward; a
+    /// PARTIALLY-paid month is settled in A to what was paid and only its REMAINING balance is billed in
+    /// B; UNPAID FUTURE months in A are CANCELLED and B generates its own future months (never
+    /// re-billing a moved or already-paid month). A <c>SessionTransferEvent</c> audit row is written and
+    /// the student's counter is recomputed from the resulting periods. PerSession sessions fall back to
+    /// the unassign+assign behavior. Runs on the caller's transaction when one is active, else owns its own.
+    /// </summary>
+    Task<Result<bool>> OnStudentMovedBetweenSessionsAsync(
+        long teacherId, long teacherStudentId,
+        long fromSessionId, string fromSessionName,
+        long toSessionId, string toSessionName,
+        DateTime movedAt);
+
+    /// <summary>
     /// Called by SessionService when a student is unassigned from a session.
     /// Preserves complete payment history.
     /// </summary>

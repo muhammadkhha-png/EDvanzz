@@ -2554,11 +2554,6 @@ public class PaymentService : IPaymentService
             await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
         }
 
-        // Generate initial payment periods
-        var periods = new List<PaymentPeriod>();
-        int sequence = await _unitOfWork.PaymentsRepo
-            .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, sessionId) + 1;
-
         // Months / dates the student has ALREADY paid (any session) — skip them below so a paid or
         // pre-paid period "reflects" under the session it was paid on and is never double-billed
         // when moving to a new session. No-op on a first assignment (the student has no periods).
@@ -2573,107 +2568,14 @@ public class PaymentService : IPaymentService
             .ToHashSet();
         var paidDates = alreadyPaidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
 
-        if (session.PaymentType == PaymentType.Monthly)
-        {
-            // Generate monthly periods from assignment month to session end
-            var startMonth = new DateTime(assignedAt.Year, assignedAt.Month, 1);
-            var endMonth = new DateTime(session.EndDate.Year, session.EndDate.Month, 1);
-
-            // Check pro-rating for first month
-            bool applyProRate = false;
-            decimal proRateFraction = 1.0m;
-            var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-
-            if (config?.IsProratedPaymentEnabled == true)
-            {
-                var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
-
-                int joinDay = assignedAt.Day;
-                var matchingTier = tiers
-                    .OrderBy(t => t.TierNumber)
-                    .FirstOrDefault(t => joinDay >= t.ThresholdDayStart && joinDay <= t.ThresholdDayEnd);
-
-                // GAP FIX: previously, when the join day fell outside every configured tier
-                // range, matchingTier was null and the student was silently billed FULL price.
-                // Clamp to the nearest tier instead: a join day past every tier's end uses the
-                // tier with the max ThresholdDayEnd (e.g. a day-31 join in a 1-10/11-20/21-30
-                // config now uses the 0.3333 tier), and a join day before every tier's start
-                // uses the tier with the min ThresholdDayStart. Exact matches are unchanged.
-                if (matchingTier is null && tiers.Any())
-                {
-                    if (joinDay > tiers.Max(t => t.ThresholdDayEnd))
-                        matchingTier = tiers.OrderByDescending(t => t.ThresholdDayEnd).First();
-                    else if (joinDay < tiers.Min(t => t.ThresholdDayStart))
-                        matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
-                }
-
-                if (matchingTier is not null && matchingTier.FractionRate < 1.0m)
-                {
-                    applyProRate = true;
-                    proRateFraction = matchingTier.FractionRate;
-                }
-            }
-
-            decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
-
-            for (var month = startMonth; month <= endMonth; month = month.AddMonths(1))
-            {
-                if (paidMonths.Contains(month))
-                    continue; // already paid this month elsewhere — don't double-bill
-                bool isFirstPeriod = month == startMonth && applyProRate;
-                decimal periodAmount = isFirstPeriod
-                    ? Math.Round(baseAmount * proRateFraction, 2)
-                    : baseAmount;
-
-                periods.Add(new PaymentPeriod
-                {
-                    TeacherId = teacherId,
-                    SessionId = sessionId,
-                    TeacherStudentId = teacherStudentId,
-                    PeriodType = PeriodType.Monthly,
-                    PeriodStart = month,
-                    PeriodEnd = month.AddMonths(1).AddDays(-1),
-                    AmountDue = periodAmount,
-                    PaymentStatus = PaymentStatus.Unpaid,
-                    IsProRated = isFirstPeriod,
-                    ProRatedFraction = isFirstPeriod ? proRateFraction : 1.0m,
-                    PeriodSequence = sequence++,
-                    SessionName = sessionName,
-                    StudentName = student.StudentName,
-                    StudentCode = student.StudentCode,
-                    CreateAt = DateTime.UtcNow
-                });
-            }
-        }
-        else // PerSession
-        {
-            // Generate per-occurrence periods from assignment date
-            var occurrences = await _unitOfWork.AttendanceRepo
-                .GetOccurrencesBySessionAsync(sessionId);
-            decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
-
-            foreach (var occ in occurrences.Where(o => o.OccurrenceDate >= assignedAt.Date))
-            {
-                if (paidDates.Contains(occ.OccurrenceDate.Date))
-                    continue; // already paid this occurrence elsewhere — don't double-bill
-                periods.Add(new PaymentPeriod
-                {
-                    TeacherId = teacherId,
-                    SessionId = sessionId,
-                    TeacherStudentId = teacherStudentId,
-                    PeriodType = PeriodType.PerSession,
-                    PeriodStart = occ.OccurrenceDate,
-                    PeriodEnd = occ.OccurrenceDate,
-                    AmountDue = baseAmount,
-                    PaymentStatus = PaymentStatus.Unpaid,
-                    PeriodSequence = sequence++,
-                    SessionName = sessionName,
-                    StudentName = student.StudentName,
-                    StudentCode = student.StudentCode,
-                    CreateAt = DateTime.UtcNow
-                });
-            }
-        }
+        // Generate initial payment periods. Extracted into BuildSessionPeriodsAsync so the
+        // session-move path (OnStudentMovedBetweenSessionsAsync) reuses the SAME proration / custom
+        // amount / sequencing logic with an extended skip-set. Sequenced after any existing periods.
+        int sequence = await _unitOfWork.PaymentsRepo
+            .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, sessionId) + 1;
+        var periods = await BuildSessionPeriodsAsync(
+            teacherId, teacherStudentId, session, sessionName, assignedAt, counter, student,
+            sequence, paidMonths, paidDates);
 
         if (periods.Count > 0)
         {
@@ -2729,6 +2631,463 @@ public class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync();
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    // ══════════════════════════════════════════════
+    // SESSION MOVE (A → B) — BILLING CARRY-OVER
+    // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> OnStudentMovedBetweenSessionsAsync(
+        long teacherId, long teacherStudentId,
+        long fromSessionId, string fromSessionName,
+        long toSessionId, string toSessionName,
+        DateTime movedAt)
+    {
+        // A "move" to the SAME session is a no-op. UpdateStudentAsync only calls this on a genuine
+        // session change, but keep it safe for the ops/cleanup caller.
+        if (fromSessionId == toSessionId)
+            return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+
+        var toSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(toSessionId, teacherId);
+        if (toSession is null)
+            return Result<bool>.Failure(
+                _localizer, PaymentConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
+
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(teacherStudentId, teacherId);
+        if (student is null)
+            return Result<bool>.Failure(
+                _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+
+        var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
+        if (counter is null)
+        {
+            counter = new StudentPaymentCounter
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = teacherStudentId,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
+        }
+
+        // The source session's periods for this student, ordered. Also lets us fall back to a snapshot
+        // name when the source session was hard-deleted (fromSessionName empty).
+        var fromPeriods = (await _unitOfWork.PaymentsRepo
+                .GetPaymentPeriodsByStudentAndSessionAsync(teacherId, teacherStudentId, fromSessionId))
+            .OrderBy(p => p.PeriodSequence)
+            .ToList();
+        string effectiveFromName = !string.IsNullOrWhiteSpace(fromSessionName)
+            ? fromSessionName
+            : (fromPeriods.FirstOrDefault()?.SessionName ?? string.Empty);
+
+        // PerSession is NOT carried over here (per-occurrence semantics differ from monthly arrears).
+        // Fall back to the EXISTING behavior — void the source's unpaid current+future, regenerate the
+        // destination — so nothing is guessed. Monthly is handled with the full arrears-move logic below.
+        bool anyPerSessionSource = fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
+        if (toSession.PaymentType != PaymentType.Monthly || anyPerSessionSource)
+        {
+            bool ownsTxFallback = !_unitOfWork.HasActiveTransaction;
+            if (ownsTxFallback) await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                var unassigned = await OnStudentUnassignedFromSessionAsync(teacherId, teacherStudentId);
+                if (!unassigned.IsSuccess)
+                {
+                    if (ownsTxFallback) await _unitOfWork.RollbackAsync();
+                    return unassigned;
+                }
+                var assigned = await OnStudentAssignedToSessionAsync(
+                    teacherId, teacherStudentId, toSessionId, toSessionName, movedAt);
+                if (!assigned.IsSuccess)
+                {
+                    if (ownsTxFallback) await _unitOfWork.RollbackAsync();
+                    return assigned;
+                }
+                if (ownsTxFallback) await _unitOfWork.CommitAsync();
+                return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+            }
+            catch
+            {
+                if (ownsTxFallback) await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            // Teacher-local current-month end (mirrors §7.4 month scoping used across the module).
+            var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+            var currentMonthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+
+            int destSequence = await _unitOfWork.PaymentsRepo
+                .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, toSessionId) + 1;
+
+            // Classify the source periods (paid stay, unpaid-due move, future cancel, partials split).
+            // Live move: no dest-overlap guard — the destination is (re)generated afterwards and the
+            // generation skip-set below prevents any double-bill.
+            var plan = BuildCarryOverPlan(fromPeriods, currentMonthEnd, destExistingMonths: null);
+
+            // Capture the transfer snapshot BEFORE apply mutates the partials' AmountDue.
+            decimal outstandingCarried = plan.OutstandingCarried;
+            var statusAtTransfer = plan.StatusAtTransfer;
+
+            destSequence = await ApplyCarryOverPlanAsync(
+                plan, teacherId, teacherStudentId, student,
+                fromSessionId, effectiveFromName, toSessionId, toSessionName, destSequence);
+
+            // Generate the destination's OWN schedule (movedAt → end), skipping every month already
+            // covered so nothing is double-billed: paid months (any session) ∪ months just moved/carried
+            // in ∪ the destination's OWN pre-existing period months (e.g. a prior stint in this session).
+            var studentPeriodsPreMove = await _unitOfWork.PaymentsRepo
+                .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+            var paidPeriods = studentPeriodsPreMove
+                .Where(p => p.AmountPaid > 0m
+                    || p.PaymentStatus == PaymentStatus.Paid
+                    || p.PaymentStatus == PaymentStatus.Overpaid)
+                .ToList();
+            var skipMonths = paidPeriods
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+                .ToHashSet();
+            skipMonths.UnionWith(plan.MovedMonths);
+            skipMonths.UnionWith(studentPeriodsPreMove
+                .Where(p => p.SessionId == toSessionId)
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
+            var skipDates = paidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
+
+            var generated = await BuildSessionPeriodsAsync(
+                teacherId, teacherStudentId, toSession, toSessionName, movedAt, counter, student,
+                destSequence, skipMonths, skipDates);
+            if (generated.Count > 0)
+                await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(generated);
+
+            // Audit: one SessionTransferEvent documenting the move (REQ-PAY-089 — never deleted).
+            await _unitOfWork.PaymentsRepo.AddSessionTransferEventAsync(new SessionTransferEvent
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = teacherStudentId,
+                SourceSessionId = fromSessionId,
+                SourceSessionName = effectiveFromName,
+                DestinationSessionId = toSessionId,
+                DestinationSessionName = toSessionName,
+                PaymentStatusAtTransfer = statusAtTransfer,
+                OutstandingBalance = outstandingCarried,
+                CreditBalance = 0m,
+                SourcePaymentType = PaymentType.Monthly.ToString(),
+                DestinationPaymentType = toSession.PaymentType.ToString(),
+                StudentName = student.StudentName,
+                StudentCode = student.StudentCode,
+                TransferredAt = DateTime.UtcNow,
+                TransferredByUserId = null, // automatic move (roster reassignment) — no explicit actor
+                CreateAt = DateTime.UtcNow
+            });
+
+            // Flush the moves/deletes/adds, THEN recompute the counter from the resulting records so it
+            // can never drift (recompute-from-records pattern used elsewhere in the module).
+            await _unitOfWork.SaveChangesAsync();
+            await RecomputeStudentPaymentCounterAsync(teacherId, teacherStudentId, counter);
+            await _unitOfWork.SaveChangesAsync();
+
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+            return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Immutable classification of what happens to a source session's PaymentPeriods when a student is
+    /// moved OUT of it (A → B). Pure data (no DB writes) so the live move and the cleanup dry-run share
+    /// ONE source of truth for the money logic. Monthly periods only.
+    /// </summary>
+    private sealed class CarryOverPlan
+    {
+        /// <summary>Fully-unpaid periods due on/before the current month → MOVE whole to destination.</summary>
+        public List<PaymentPeriod> UnpaidDueToMove { get; } = new();
+        /// <summary>Fully-unpaid periods after the current month → CANCEL (student left the source).</summary>
+        public List<PaymentPeriod> FutureToCancel { get; } = new();
+        /// <summary>Partially-paid periods → settle the paid part in source, carry the REMAINDER to dest.</summary>
+        public List<PaymentPeriod> PartialsToSplit { get; } = new();
+        /// <summary>Periods LEFT in place because the destination already bills that month (cleanup guard).</summary>
+        public List<PaymentPeriod> OverlapSkipped { get; } = new();
+        /// <summary>First-of-month keys carried into the destination (moved + partial-remainder).</summary>
+        public HashSet<DateTime> MovedMonths { get; } = new();
+
+        public decimal MovedAmount => UnpaidDueToMove.Sum(p => p.AmountDue - p.AmountPaid);
+        public decimal SettledRemainderAmount => PartialsToSplit.Sum(p => p.AmountDue - p.AmountPaid);
+        public decimal SettledInSourceAmount => PartialsToSplit.Sum(p => p.AmountPaid);
+        public decimal CancelledAmount => FutureToCancel.Sum(p => p.AmountDue - p.AmountPaid);
+        public decimal OutstandingCarried => MovedAmount + SettledRemainderAmount;
+        public PaymentStatus StatusAtTransfer =>
+            PartialsToSplit.Count > 0 ? PaymentStatus.PartiallyPaid
+            : UnpaidDueToMove.Count > 0 ? PaymentStatus.Unpaid
+            : PaymentStatus.Paid;
+    }
+
+    /// <summary>
+    /// Classifies a source session's periods for a move (pure; see <see cref="CarryOverPlan"/>).
+    /// <paramref name="destExistingMonths"/> is the cleanup-only overlap guard: a source period whose
+    /// month the destination ALREADY bills is left untouched (OverlapSkipped) so an old arrear can never
+    /// double-bill a month. Pass null in the live path (the destination is (re)generated afterwards and
+    /// its generation skip-set prevents overlap).
+    /// </summary>
+    private static CarryOverPlan BuildCarryOverPlan(
+        IEnumerable<PaymentPeriod> fromPeriods, DateTime currentMonthEnd,
+        IReadOnlySet<DateTime>? destExistingMonths)
+    {
+        var plan = new CarryOverPlan();
+        foreach (var p in fromPeriods.OrderBy(p => p.PeriodSequence))
+        {
+            decimal remaining = p.AmountDue - p.AmountPaid;
+            if (remaining <= 0m)
+                continue; // fully paid / overpaid → stays in the source as history (untouched)
+
+            var monthKey = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+            if (destExistingMonths is not null && destExistingMonths.Contains(monthKey))
+            {
+                // Destination already bills this month — do NOT move/settle (would double-bill). Flag it.
+                plan.OverlapSkipped.Add(p);
+                continue;
+            }
+
+            if (p.AmountPaid > 0m)
+            {
+                // PARTIAL: paid part becomes source history; remainder is re-billed in the destination.
+                plan.PartialsToSplit.Add(p);
+                plan.MovedMonths.Add(monthKey);
+            }
+            else if (p.PeriodStart <= currentMonthEnd)
+            {
+                // UNPAID + DUE (past arrears or the current month) → move the whole obligation.
+                plan.UnpaidDueToMove.Add(p);
+                plan.MovedMonths.Add(monthKey);
+            }
+            else
+            {
+                // UNPAID + FUTURE → cancelled (the student left the source session).
+                plan.FutureToCancel.Add(p);
+            }
+        }
+        return plan;
+    }
+
+    /// <summary>
+    /// Applies a <see cref="CarryOverPlan"/> to the database (no save; caller owns the commit): moves
+    /// unpaid-due periods to the destination, settles partials in the source + creates the tagged
+    /// remainder in the destination, and deletes cancelled future periods. Returns the next free
+    /// destination PeriodSequence. Every carried row is tagged MovedFrom* + IsCarriedForward.
+    /// </summary>
+    private async Task<int> ApplyCarryOverPlanAsync(
+        CarryOverPlan plan, long teacherId, long teacherStudentId, TeacherStudent student,
+        long fromSessionId, string fromSessionName, long toSessionId, string toSessionName,
+        int startDestSequence)
+    {
+        int destSequence = startDestSequence;
+
+        foreach (var p in plan.UnpaidDueToMove)
+        {
+            p.SessionId = toSessionId;
+            p.SessionName = toSessionName;
+            p.MovedFromSessionId = fromSessionId;
+            p.MovedFromSessionName = fromSessionName;
+            p.OriginSessionName ??= fromSessionName; // keep the legacy display field populated too
+            p.IsCarriedForward = true;
+            p.PeriodSequence = destSequence++;
+            // AmountDue / AmountPaid / PeriodStart / PeriodEnd / IsProRated preserved.
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+        }
+
+        var remainders = new List<PaymentPeriod>();
+        foreach (var p in plan.PartialsToSplit)
+        {
+            decimal remaining = p.AmountDue - p.AmountPaid;
+
+            // Source: settle to exactly what was paid → becomes fully-paid history.
+            p.AmountDue = p.AmountPaid;
+            p.PaymentStatus = PaymentStatus.Paid;
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+
+            // Destination: the remaining balance as a new tagged, carried-forward bill (same month).
+            remainders.Add(new PaymentPeriod
+            {
+                TeacherId = teacherId,
+                SessionId = toSessionId,
+                TeacherStudentId = teacherStudentId,
+                PeriodType = PeriodType.Monthly,
+                PeriodStart = p.PeriodStart,
+                PeriodEnd = p.PeriodEnd,
+                AmountDue = remaining,
+                AmountPaid = 0m,
+                PaymentStatus = PaymentStatus.Unpaid,
+                IsProRated = false,
+                ProRatedFraction = 1.0m,
+                PeriodSequence = destSequence++,
+                IsCarriedForward = true,
+                MovedFromSessionId = fromSessionId,
+                MovedFromSessionName = fromSessionName,
+                OriginSessionName = fromSessionName,
+                SessionName = toSessionName,
+                StudentName = student.StudentName,
+                StudentCode = student.StudentCode,
+                CreateAt = DateTime.UtcNow
+            });
+        }
+        if (remainders.Count > 0)
+            await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(remainders);
+
+        if (plan.FutureToCancel.Count > 0)
+        {
+            var periodRepo = _unitOfWork.GetRepository<PaymentPeriod, long>();
+            await periodRepo.DeleteRangeAsync(plan.FutureToCancel);
+        }
+
+        return destSequence;
+    }
+
+    /// <summary>
+    /// Recomputes a student's <see cref="StudentPaymentCounter"/> period-derived aggregates
+    /// (TotalOutstanding / TotalUnpaidPeriods / TotalPaidPeriods / ConsecutiveUnpaid) from the CURRENT
+    /// PaymentPeriods, so a move/reconcile can never leave the counter drifted. Cash-derived fields
+    /// (TotalAmountPaid, LastPaymentDate) are NOT touched — a move shifts obligations, not cash. Requires
+    /// the prior period changes to be flushed (SaveChangesAsync) so the read sees them. Marks the counter
+    /// modified; the caller owns the commit.
+    /// </summary>
+    private async Task RecomputeStudentPaymentCounterAsync(
+        long teacherId, long teacherStudentId, StudentPaymentCounter counter)
+    {
+        var all = await _unitOfWork.PaymentsRepo
+            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+        counter.TotalOutstanding = all.Sum(p => Math.Max(0m, p.AmountDue - p.AmountPaid));
+        counter.TotalUnpaidPeriods = all.Count(p => p.AmountPaid < p.AmountDue);
+        counter.TotalPaidPeriods = all.Count(p => p.AmountPaid >= p.AmountDue);
+        counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+            .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
+        await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+    }
+
+    /// <summary>
+    /// Pure generation of a session's payment periods for a student from <paramref name="assignedAt"/>
+    /// to the session end — Monthly: one row per month (first month pro-rated per the teacher's tiers);
+    /// PerSession: one row per occurrence — at the student's effective price (custom amount else session
+    /// default). SKIPS any month (<paramref name="skipMonths"/>) or occurrence date
+    /// (<paramref name="skipDates"/>) already covered so nothing is double-billed. Adds NOTHING to the
+    /// context and touches NO counter (returns the list; the caller persists). Shared by the fresh-assign
+    /// hook and the session-move path so proration / custom-amount / sequencing never diverge.
+    /// </summary>
+    private async Task<List<PaymentPeriod>> BuildSessionPeriodsAsync(
+        long teacherId, long teacherStudentId, Session session, string sessionName,
+        DateTime assignedAt, StudentPaymentCounter counter, TeacherStudent student,
+        int startSequence, IReadOnlySet<DateTime> skipMonths, IReadOnlySet<DateTime> skipDates)
+    {
+        var periods = new List<PaymentPeriod>();
+        int sequence = startSequence;
+
+        if (session.PaymentType == PaymentType.Monthly)
+        {
+            // Generate monthly periods from assignment month to session end
+            var startMonth = new DateTime(assignedAt.Year, assignedAt.Month, 1);
+            var endMonth = new DateTime(session.EndDate.Year, session.EndDate.Month, 1);
+
+            // Check pro-rating for first month
+            bool applyProRate = false;
+            decimal proRateFraction = 1.0m;
+            var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+
+            if (config?.IsProratedPaymentEnabled == true)
+            {
+                var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
+
+                int joinDay = assignedAt.Day;
+                var matchingTier = tiers
+                    .OrderBy(t => t.TierNumber)
+                    .FirstOrDefault(t => joinDay >= t.ThresholdDayStart && joinDay <= t.ThresholdDayEnd);
+
+                // GAP FIX (see OnStudentAssignedToSessionAsync history): clamp a join day that falls
+                // outside every configured tier to the nearest tier instead of silently billing full
+                // price — past every tier's end uses the max-ThresholdDayEnd tier, before every tier's
+                // start uses the min-ThresholdDayStart tier. Exact matches are unchanged.
+                if (matchingTier is null && tiers.Any())
+                {
+                    if (joinDay > tiers.Max(t => t.ThresholdDayEnd))
+                        matchingTier = tiers.OrderByDescending(t => t.ThresholdDayEnd).First();
+                    else if (joinDay < tiers.Min(t => t.ThresholdDayStart))
+                        matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
+                }
+
+                if (matchingTier is not null && matchingTier.FractionRate < 1.0m)
+                {
+                    applyProRate = true;
+                    proRateFraction = matchingTier.FractionRate;
+                }
+            }
+
+            decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
+
+            for (var month = startMonth; month <= endMonth; month = month.AddMonths(1))
+            {
+                if (skipMonths.Contains(month))
+                    continue; // already paid / moved / existing — don't double-bill
+                bool isFirstPeriod = month == startMonth && applyProRate;
+                decimal periodAmount = isFirstPeriod
+                    ? Math.Round(baseAmount * proRateFraction, 2)
+                    : baseAmount;
+
+                periods.Add(new PaymentPeriod
+                {
+                    TeacherId = teacherId,
+                    SessionId = session.Id,
+                    TeacherStudentId = teacherStudentId,
+                    PeriodType = PeriodType.Monthly,
+                    PeriodStart = month,
+                    PeriodEnd = month.AddMonths(1).AddDays(-1),
+                    AmountDue = periodAmount,
+                    PaymentStatus = PaymentStatus.Unpaid,
+                    IsProRated = isFirstPeriod,
+                    ProRatedFraction = isFirstPeriod ? proRateFraction : 1.0m,
+                    PeriodSequence = sequence++,
+                    SessionName = sessionName,
+                    StudentName = student.StudentName,
+                    StudentCode = student.StudentCode,
+                    CreateAt = DateTime.UtcNow
+                });
+            }
+        }
+        else // PerSession
+        {
+            // Generate per-occurrence periods from assignment date
+            var occurrences = await _unitOfWork.AttendanceRepo
+                .GetOccurrencesBySessionAsync(session.Id);
+            decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
+
+            foreach (var occ in occurrences.Where(o => o.OccurrenceDate >= assignedAt.Date))
+            {
+                if (skipDates.Contains(occ.OccurrenceDate.Date))
+                    continue; // already paid / existing — don't double-bill
+                periods.Add(new PaymentPeriod
+                {
+                    TeacherId = teacherId,
+                    SessionId = session.Id,
+                    TeacherStudentId = teacherStudentId,
+                    PeriodType = PeriodType.PerSession,
+                    PeriodStart = occ.OccurrenceDate,
+                    PeriodEnd = occ.OccurrenceDate,
+                    AmountDue = baseAmount,
+                    PaymentStatus = PaymentStatus.Unpaid,
+                    PeriodSequence = sequence++,
+                    SessionName = sessionName,
+                    StudentName = student.StudentName,
+                    StudentCode = student.StudentCode,
+                    CreateAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        return periods;
     }
 
     /// <inheritdoc />

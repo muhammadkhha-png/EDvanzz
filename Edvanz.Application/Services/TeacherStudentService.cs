@@ -473,17 +473,32 @@ public class TeacherStudentService : ITeacherStudentService
             {
                 if (newSession is not null)
                 {
-                    // Moving from another session: close the OLD session's unpaid current/future
-                    // periods first so the student isn't billed by both. Paid periods and past
-                    // arrears stay as history under the old session; an unpaid current month is
-                    // re-billed under the new session, and an already-paid month "reflects" (the
-                    // new schedule skips already-paid months).
-                    if (previousSessionId is not null)
-                        await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
+                    // Attendance side is unchanged: create/reactivate the new session's assignment
+                    // (OnStudentAssignedToSessionAsync deactivates any prior active assignment).
                     await _attendanceService.OnStudentAssignedToSessionAsync(
                         teacherId, student.Id, newSession.Id, newSession.SessionName);
-                    await _paymentService.OnStudentAssignedToSessionAsync(
-                        teacherId, student.Id, newSession.Id, newSession.SessionName, DateTime.UtcNow);
+
+                    if (previousSessionId is not null)
+                    {
+                        // GENUINE MOVE (A → B): carry the billing over in one shot (§7.4) — paid months
+                        // stay in A as history, unpaid arrears + the current month MOVE to B (tagged
+                        // MovedFrom*), a partial month is split (paid part stays, remainder billed in B),
+                        // unpaid FUTURE months in A are cancelled, and B generates its own future months
+                        // without re-billing any moved/already-paid month. Replaces the old
+                        // unassign(A)+assign(B) pair, which STRANDED past arrears in A.
+                        var prevSession = await _unitOfWork.SessionsRepo
+                            .GetByIdAndTeacherAsync(previousSessionId.Value, teacherId);
+                        await _paymentService.OnStudentMovedBetweenSessionsAsync(
+                            teacherId, student.Id,
+                            previousSessionId.Value, prevSession?.SessionName ?? string.Empty,
+                            newSession.Id, newSession.SessionName, DateTime.UtcNow);
+                    }
+                    else
+                    {
+                        // FRESH ASSIGN (no previous session): generate the new session's periods.
+                        await _paymentService.OnStudentAssignedToSessionAsync(
+                            teacherId, student.Id, newSession.Id, newSession.SessionName, DateTime.UtcNow);
+                    }
                 }
                 else
                 {
