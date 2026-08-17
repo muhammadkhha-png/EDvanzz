@@ -925,15 +925,15 @@ public class PaymentService : IPaymentService
             counter.CustomPaymentAmount = dto.CustomAmount;
             await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
 
-            // Propagate to the student's CURRENT month AND all FUTURE still-owed periods so a price
-            // change is reflected immediately across every screen — not only on upcoming generations.
-            // The repo predicate only selects Unpaid/PartiallyPaid periods, so fully-paid/overpaid
-            // months are never rewritten (user-confirmed scope: current month + future).
-            var localDate = _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
-            var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
-
+            // Propagate a per-student price change to EVERY still-owed period — past arrears, the
+            // current month, and all future months — so the new amount is reflected immediately across
+            // every screen (user-confirmed scope 2026-08-17: ALL unpaid periods, not just current +
+            // future). The repo predicate only selects Unpaid/PartiallyPaid periods, so fully-paid/
+            // overpaid months are never rewritten — what the student already settled at the old price
+            // stands. DateTime.MinValue = no lower month bound (this differs from the SESSION-amount
+            // change, OnSessionAmountChangedAsync, which stays future-only by design).
             var periods = await _unitOfWork.PaymentsRepo
-                .GetRepriceableStudentPeriodsAsync(dto.TeacherId, dto.TeacherStudentId, currentMonthStart);
+                .GetRepriceableStudentPeriodsAsync(dto.TeacherId, dto.TeacherStudentId, DateTime.MinValue);
 
             if (periods.Count > 0)
             {

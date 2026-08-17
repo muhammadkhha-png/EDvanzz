@@ -618,67 +618,85 @@
         public async Task<IReadOnlyList<(long SessionId, decimal CashCollected, int PaidStudents)>>
             GetSessionMonthCollectionAsync(long teacherId, DateTime startInclusive, DateTime endExclusive)
         {
-            // Per session, month-scoped BY PERIOD (not by transaction date): how much of THIS session's
-            // THIS-month bill has been collected, and how many students paid THEIR this-month bill. The
-            // window filters on PaymentPeriod.PeriodStart, so a payment toward a PREVIOUS month reflects
-            // under that PREVIOUS month's card (view July → July's payers), NOT the current month's —
-            // which reconciles this card with the roster's paid/unpaid split (a student who pays their
-            // July bill in August still owes August here). This deliberately DIFFERS from the main
-            // dashboard / assistant "collected this month" figures, which stay transaction-date/cash
-            // based via GetCashCollectedInRangeAsync / GetDashboardPerCollectorAsync (unchanged). §7.4.
+            // "Collected by session" = per session, how many currently-assigned students have SETTLED
+            // their obligation THROUGH the viewed month, and how much of that month's bill they paid.
             //
-            // AmountPaid >= 0 always (refunds/reversals reduce it back down), so filtering AmountPaid > 0
-            // in the outer Where leaves the SUM identical (zero-paid periods add nothing) while making the
-            // distinct paid-student count exact — a non-payer's period is simply excluded.
-            // Currently-assigned, ACTIVE students as (StudentId, current SessionId) pairs. Building this as
-            // an explicit _context.TeacherStudents.Where(...).Select(...) subquery — the SAME shape the roster
-            // (GetStudentPaymentStatusCountsAsync) uses — reliably applies TeacherStudent's !IsDeleted global
-            // filter. (A correlated _context.TeacherStudents.Any(...) over the DbSet did NOT: on prod a
-            // soft-deleted departed student's ORPHANED fully-paid period still leaked into the card — 300/1
-            // while the roster read 0 — because the filter didn't propagate into that Any() subquery.) The
-            // INNER JOIN below keeps a period ONLY when its (student, session) matches a currently-active
-            // member of THAT session, so the card's membership is identical to the roster's and "collected by
-            // session" can never diverge from the roster's paid/unpaid split again.
+            // ONE SOURCE OF TRUTH with the roster / status breakdown: a student is "collected" here iff
+            // the roster (GetStudentPaymentStatusCountsAsync) counts them "paid" — i.e. currently assigned
+            // to a session (active; the !IsDeleted global filter applies) AND CAUGHT UP: no outstanding
+            // (non-Paid) period whose PeriodStart is before the month rolls over. This is the SAME
+            // "earliest outstanding through the month" rule the roster uses, so the per-session paid counts
+            // always SUM to statusBreakdown.paid and this card can NEVER again diverge from the roster's
+            // paid/unpaid split. Judged only through the month (PeriodStart < endExclusive) so pre-generated
+            // future months are never counted as owed (§7.4).
             //
-            // NOT-DEPARTED gate: "collected = paid this month, in the session, active, NOT departed" (the
-            // teacher's rule). A departure is recorded in the SEPARATE StudentDepartures table — it does NOT
-            // unassign (SessionId stays) or soft-delete the roster row, so the membership join above still
-            // matches a student who has LEFT. Their attendance-based leaving refund can leave a RESIDUAL paid
-            // amount on the period, which would otherwise surface here as phantom "collected" (the prod case:
-            // a whole session's students paid early in the month then departed, yet the card still read 300/1).
-            // Exclude any student who departed THIS session on/before the end of the viewed month — a
-            // departure DATED AFTER the month is NOT excluded (they were an active payer that month, so a past
-            // month's card is preserved: e.g. July still reads its full count when the departures happened in
-            // August). StudentDepartures carries no global query filter, so a correlated Any() over it is
-            // reliable here (unlike the TeacherStudent case above, this does not depend on filter propagation).
-            var assignedMembers = _context.TeacherStudents
-                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
-                .Select(ts => new { ts.Id, SessionId = ts.SessionId!.Value });
+            // Why not the old rule (count any student with a month period whose AmountPaid > 0): it
+            // over-counted. A student with a still-owed EARLIER month, or a DUPLICATE unpaid ladder for the
+            // same session, reads "unpaid" on the roster yet had one this-month period paid > 0 — so the
+            // card showed them "collected" while the roster showed 0 (the prod case: session-84 read 1/300
+            // while the roster/paid-list read 0, from student 1594's duplicate Paid+Unpaid August periods).
+            // It also double-counted an orphaned Paid period left behind by a departed student.
+            //
+            // "Not departed" is covered for free: a departure UNASSIGNS the student (TeacherStudent
+            // .SessionId = null), so a departed student is simply absent from the assigned set below — no
+            // separate StudentDepartures gate is needed (and the old one could not match anyway: a purge
+            // NULLs StudentDeparture.TeacherStudentId/SessionId, so its correlated Any() never fired).
 
-            var rows = await (
-                from p in _context.PaymentPeriods
-                where p.TeacherId == teacherId && p.SessionId.HasValue
-                    && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
-                    && p.AmountPaid > 0m
+            // Currently-assigned, ACTIVE students as (student, session) pairs (the roster population).
+            var assigned = await _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+                .Select(ts => new { StudentId = ts.Id, SessionId = ts.SessionId!.Value })
+                .ToListAsync();
+            if (assigned.Count == 0)
+                return new List<(long, decimal, int)>();
+
+            // Students with ANY outstanding (non-Paid) period through the viewed month — the roster's
+            // "not caught up" set (mirrors GetStudentPaymentStatusCountsAsync exactly).
+            var outstanding = (await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
                     && p.TeacherStudentId.HasValue
-                    && !_context.StudentDepartures.Any(dpt =>
-                           dpt.TeacherId == teacherId
-                        && dpt.TeacherStudentId == p.TeacherStudentId
-                        && dpt.SessionId == p.SessionId
-                        && dpt.DepartedAt < endExclusive)
-                join a in assignedMembers
-                    on new { Sid = p.TeacherStudentId!.Value, Ses = p.SessionId!.Value }
-                    equals new { Sid = a.Id, Ses = a.SessionId }
-                group p by p.SessionId!.Value into g
-                select new
-                {
-                    SessionId = g.Key,
-                    CashCollected = g.Sum(x => x.AmountPaid),
-                    PaidStudents = g.Select(x => x.TeacherStudentId).Distinct().Count()
-                })
+                    && p.PaymentStatus != PaymentStatus.Paid
+                    && p.PeriodStart < endExclusive)
+                .Select(p => p.TeacherStudentId!.Value)
+                .Distinct()
+                .ToListAsync())
+                .ToHashSet();
+
+            // Paid members = assigned AND caught up.
+            var paidMembers = assigned.Where(a => !outstanding.Contains(a.StudentId)).ToList();
+            if (paidMembers.Count == 0)
+                return new List<(long, decimal, int)>();
+
+            var paidStudentIds = paidMembers.Select(a => a.StudentId).ToHashSet();
+            var paidPairs = paidMembers.Select(a => (a.StudentId, a.SessionId)).ToHashSet();
+
+            // This-month cash for those paid members: sum of AmountPaid over the month's periods, per
+            // (student, session). Restricted to the paid set so the cash and the count come from the SAME
+            // students (never "0 students / N collected"). A caught-up student's month period is fully
+            // settled, so this equals what they actually paid toward the viewed month.
+            var monthCash = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId.HasValue
+                    && p.SessionId.HasValue
+                    && p.PeriodStart >= startInclusive && p.PeriodStart < endExclusive
+                    && paidStudentIds.Contains(p.TeacherStudentId!.Value))
+                .GroupBy(p => new { StudentId = p.TeacherStudentId!.Value, SessionId = p.SessionId!.Value })
+                .Select(g => new { g.Key.StudentId, g.Key.SessionId, Cash = g.Sum(x => x.AmountPaid) })
                 .ToListAsync();
 
-            return rows.Select(r => (r.SessionId, r.CashCollected, r.PaidStudents)).ToList();
+            var cashBySession = monthCash
+                // Attribute cash to the student's ASSIGNED session only, so it lines up with the count.
+                .Where(mc => paidPairs.Contains((mc.StudentId, mc.SessionId)))
+                .GroupBy(mc => mc.SessionId)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Cash));
+
+            return paidMembers
+                .GroupBy(a => a.SessionId)
+                .Select(g => (
+                    g.Key,
+                    cashBySession.TryGetValue(g.Key, out var c) ? c : 0m,
+                    g.Select(a => a.StudentId).Distinct().Count()))
+                .ToList();
         }
 
         /// <inheritdoc />
