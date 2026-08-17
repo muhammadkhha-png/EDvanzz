@@ -61,6 +61,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<long?> GetLatestCollectorUserIdForStudentSessionAsync(long teacherId, long teacherStudentId, long sessionId);
 
     /// <summary>
+    /// CollectedAt (UTC) of the most recent non-deleted payment the student made for the given session.
+    /// Pairs with <see cref="GetLatestCollectorUserIdForStudentSessionAsync"/> so a departure refund can
+    /// be tested against the collector's last cash hand-over (reset-aware wallet reversal). Null when
+    /// there is no such payment.
+    /// </summary>
+    Task<DateTime?> GetLatestCollectionInstantForStudentSessionAsync(long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>
     /// Gets transactions by a student on a specific local date.
     /// REQ-PAY-020: Same-day duplicate detection.
     /// </summary>
@@ -509,6 +517,16 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
 
     /// <summary>Reset/withdrawal ledger entries for a center-assistant's wallet (keyed by CenterAssistantId).</summary>
     Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCenterAssistantAsync(long teacherId, long centerAssistantId);
+
+    /// <summary>
+    /// Instant (UTC) of the collector's MOST RECENT cash hand-over — the max <c>ResetAt</c> across every
+    /// <c>WalletResetLog</c> for the given wallet (both full resets and partial withdrawals write one,
+    /// keyed by <c>AssistantWalletId</c>). Null when the wallet has never been reset/withdrawn. Drives
+    /// the reset-aware wallet reversal: cash collected on/before this instant was already handed to the
+    /// tutor, so reversing it must NOT drive <c>CurrentBalance</c> negative.
+    /// (Distinct from the AssistantId-keyed overload — this one works for center-assistant wallets too.)
+    /// </summary>
+    Task<DateTime?> GetLastWalletResetAtByWalletIdAsync(long teacherId, long assistantWalletId);
 
     /// <summary>
     /// Cash withdrawals/hand-overs taken from a collector's OWN wallet within [start, endExclusive),

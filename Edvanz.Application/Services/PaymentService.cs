@@ -649,8 +649,11 @@ public class PaymentService : IPaymentService
                     }
                 }
 
-                // Keep the collecting assistant's wallet in sync with the amount change.
-                await AdjustAssistantWalletAsync(dto.TeacherId, transaction.CollectedByUserId, amountDiff);
+                // Keep the collecting assistant's wallet in sync with the amount change. Reset-aware:
+                // an edit-DOWN of cash already handed over (collected before the last reset) must not
+                // drive the wallet negative — pass the reversed transaction's collection instant.
+                await AdjustAssistantWalletAsync(
+                    dto.TeacherId, transaction.CollectedByUserId, amountDiff, transaction.CollectedAt);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -730,7 +733,10 @@ public class PaymentService : IPaymentService
             }
 
             // Reverse the collecting assistant's wallet — the refunded cash is no longer held by them.
-            await AdjustAssistantWalletAsync(teacherId, transaction.CollectedByUserId, -transaction.AmountPaid);
+            // Reset-aware: deleting a payment collected before the last hand-over (already given to the
+            // tutor) must NOT drive the wallet negative (the salma −2700 bug) — pass its collection instant.
+            await AdjustAssistantWalletAsync(
+                teacherId, transaction.CollectedByUserId, -transaction.AmountPaid, transaction.CollectedAt);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -1946,6 +1952,12 @@ public class PaymentService : IPaymentService
                 var collectorUserId = await _unitOfWork.PaymentsRepo
                     .GetLatestCollectorUserIdForStudentSessionAsync(
                         dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+                // Collection instant of that same latest payment — for the reset-aware wallet reversal:
+                // if the refunded cash was collected before the collector's last hand-over it was already
+                // given to the tutor, so it must not drive the wallet negative.
+                var latestCollectionAt = await _unitOfWork.PaymentsRepo
+                    .GetLatestCollectionInstantForStudentSessionAsync(
+                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
 
                 // Attribute the refund so it can be surfaced as a negative against this collector
                 // (an assistant OR the tutor) in the anchored month — across the collections ledger
@@ -1953,7 +1965,8 @@ public class PaymentService : IPaymentService
                 departure.CollectedByUserId = collectorUserId;
                 departure.RefundPeriodStart = summary.PeriodStart;
 
-                await AdjustAssistantWalletAsync(dto.TeacherId, collectorUserId, -finalAmount);
+                await AdjustAssistantWalletAsync(
+                    dto.TeacherId, collectorUserId, -finalAmount, latestCollectionAt);
 
                 // Reverse the refunded cash on the ANCHORED period as well. Without this the money
                 // left the wallet but the month still read Paid with its full AmountPaid, so the
@@ -3724,10 +3737,20 @@ public class PaymentService : IPaymentService
     /// Adjusts the collecting assistant's wallet by <paramref name="delta"/> (negative to reverse).
     /// Used when a collected payment is edited or refunded/deleted so the wallet's held-cash balance
     /// stays correct. No-op when the collector is not an assistant (e.g. the teacher) or delta is 0.
-    /// CurrentBalance is signed and may go negative when a refund/reversal exceeds the held cash
-    /// (money the assistant owes back). Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
+    ///
+    /// RESET-AWARE (salma −2700 bug): a REVERSAL (<paramref name="delta"/> &lt; 0) of cash the collector
+    /// already handed to the tutor — i.e. the reversed transaction was collected ON/BEFORE the wallet's
+    /// most recent hand-over (<c>WalletResetLog.ResetAt</c>) — must NOT move <c>CurrentBalance</c>: that
+    /// cash is no longer in the assistant's holding (it left via the reset), so subtracting it drives the
+    /// wallet falsely negative. Such pre-reset reversals STILL move <c>TotalCollected</c> (lifetime) and
+    /// the caller still updates the student counter + writes the audit row — only the held-cash balance
+    /// is left alone. A POST-reset reversal decrements <c>CurrentBalance</c> normally, and a positive
+    /// delta (an edit-up = new cash now held) always moves it. When
+    /// <paramref name="reversedCollectionAt"/> is null the comparison is skipped (legacy behaviour).
+    /// Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
     /// </summary>
-    private async Task AdjustAssistantWalletAsync(long teacherId, long? collectedByUserId, decimal delta)
+    private async Task AdjustAssistantWalletAsync(
+        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCollectionAt = null)
     {
         if (collectedByUserId is null || delta == 0m) return;
 
@@ -3735,16 +3758,27 @@ public class PaymentService : IPaymentService
             .GetAssistantWalletByUserIdAsync(teacherId, collectedByUserId.Value);
         if (wallet is null) return; // collector is not an assistant — no wallet to adjust
 
+        // Decide ONCE whether this reversal touches held cash. Only a negative delta (a reversal) whose
+        // reversed collection predates the wallet's last hand-over is "already handed over".
+        bool affectsCurrentBalance = true;
+        if (delta < 0m && reversedCollectionAt.HasValue)
+        {
+            var lastResetAt = await _unitOfWork.PaymentsRepo
+                .GetLastWalletResetAtByWalletIdAsync(teacherId, wallet.Id);
+            if (lastResetAt.HasValue && reversedCollectionAt.Value <= lastResetAt.Value)
+                affectsCurrentBalance = false; // pre-reset cash — the tutor holds it now, not the wallet
+        }
+
         for (int retry = 0; retry < PaymentConstants.MaxConcurrencyRetries; retry++)
         {
             try
             {
-                // CurrentBalance is signed: a departure refund / reversal that exceeds the
-                // cash the assistant still holds (e.g. after a handover reset) drives it
-                // negative — that is money the assistant owes back and must stay visible.
-                // TotalCollected (lifetime) is likewise not clamped so a reversal never
-                // silently loses money.
-                wallet.CurrentBalance += delta;
+                // CurrentBalance is signed: a POST-reset refund/reversal that exceeds the cash the
+                // assistant still holds drives it negative — money the assistant owes back, kept visible.
+                // A PRE-reset reversal leaves CurrentBalance untouched (see method summary).
+                // TotalCollected (lifetime) always moves so a reversal never silently loses money.
+                if (affectsCurrentBalance)
+                    wallet.CurrentBalance += delta;
                 wallet.TotalCollected += delta;
                 await _unitOfWork.PaymentsRepo.UpdateAssistantWalletAsync(wallet);
                 return;

@@ -1621,6 +1621,17 @@
         }
 
         /// <inheritdoc />
+        public async Task<DateTime?> GetLastWalletResetAtByWalletIdAsync(long teacherId, long assistantWalletId)
+        {
+            // Keyed by AssistantWalletId so it works for both a normal-assistant and a center-assistant
+            // wallet (both write it). Max ResetAt = the most recent hand-over (full reset OR partial
+            // withdrawal).
+            return await _context.WalletResetLogs
+                .Where(l => l.TeacherId == teacherId && l.AssistantWalletId == assistantWalletId)
+                .MaxAsync(l => (DateTime?)l.ResetAt);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCollectorInRangeAsync(
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
         {
@@ -2296,6 +2307,22 @@
                          && !t.IsDeleted)
                 .OrderByDescending(t => t.Id)
                 .Select(t => t.CollectedByUserId)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<DateTime?> GetLatestCollectionInstantForStudentSessionAsync(
+            long teacherId, long teacherStudentId, long sessionId)
+        {
+            // Same ordering as GetLatestCollectorUserIdForStudentSessionAsync (newest by Id) so the
+            // instant and the collector describe the SAME transaction.
+            return await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                         && t.TeacherStudentId == teacherStudentId
+                         && t.SessionId == sessionId
+                         && !t.IsDeleted)
+                .OrderByDescending(t => t.Id)
+                .Select(t => (DateTime?)t.CollectedAt)
                 .FirstOrDefaultAsync();
         }
 
