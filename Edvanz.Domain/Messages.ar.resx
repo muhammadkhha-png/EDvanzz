@@ -2454,4 +2454,28 @@
   <data name="CenterSettingsUpdated" xml:space="preserve">
     <value>تم تحديث إعدادات السنتر.</value>
   </data>
+  <data name="BackfillInvalidMonthFormat" xml:space="preserve">
+    <value>لازم الشهر يكون بصيغة YYYY-MM.</value>
+  </data>
+  <data name="BackfillStudentHasNoPeriods" xml:space="preserve">
+    <value>الطالب ده مفيهوش أي فترات دفع.</value>
+  </data>
+  <data name="BackfillTargetMonthExists" xml:space="preserve">
+    <value>فيه فترة دفع موجودة بالفعل للشهر المطلوب.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotFound" xml:space="preserve">
+    <value>مفيش فترة دفع للشهر المدفوع مقدمًا.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotMonthly" xml:space="preserve">
+    <value>الشهر المدفوع مقدمًا مش فترة شهرية.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotPaid" xml:space="preserve">
+    <value>الشهر المدفوع مقدمًا مش مدفوع بالكامل.</value>
+  </data>
+  <data name="BackfillSuccess" xml:space="preserve">
+    <value>تم ترحيل الشهر المدفوع بنجاح.</value>
+  </data>
+  <data name="RecomputeWalletSuccess" xml:space="preserve">
+    <value>تم إعادة حساب رصيد المحفظة بنجاح.</value>
+  </data>
 </root>

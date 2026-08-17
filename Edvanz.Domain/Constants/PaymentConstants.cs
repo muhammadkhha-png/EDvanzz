@@ -215,6 +215,18 @@ public static class PaymentConstants
         // Assistants
         public const string AssistantNotFound = "AssistantNotFound";
         public const string PaymentBatchEditSuccess = "PaymentBatchEditSuccess";   // NEW — batch-edit envelope (D2)
+
+        // Admin one-off: backfill a paid month by moving an advance payment
+        public const string BackfillInvalidMonthFormat = "BackfillInvalidMonthFormat";     // 422 — target/from not "YYYY-MM"
+        public const string BackfillStudentHasNoPeriods = "BackfillStudentHasNoPeriods";   // 404 — no periods for the student
+        public const string BackfillTargetMonthExists = "BackfillTargetMonthExists";       // 422 — a period already exists at target month
+        public const string BackfillAdvanceMonthNotFound = "BackfillAdvanceMonthNotFound"; // 422 — no period at the advance month
+        public const string BackfillAdvanceMonthNotMonthly = "BackfillAdvanceMonthNotMonthly"; // 422 — advance period isn't Monthly
+        public const string BackfillAdvanceMonthNotPaid = "BackfillAdvanceMonthNotPaid";   // 422 — advance month isn't fully cash-paid
+        public const string BackfillSuccess = "BackfillSuccess";                           // 200 — applied / previewed
+
+        // Admin one-off: reset-aware recompute of an assistant wallet's CurrentBalance
+        public const string RecomputeWalletSuccess = "RecomputeWalletSuccess";             // 200 — applied / previewed
     }
     // ─────────────────────────────────────────────────────────────────────────────
     // INSERT THE FOLLOWING BLOCK AT THE TOP OF PaymentConstants, BEFORE

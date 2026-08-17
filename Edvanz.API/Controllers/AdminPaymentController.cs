@@ -66,4 +66,37 @@ public class AdminPaymentController : ApiBaseController
 
         return ToResponse(await _paymentService.ReconcileMovedStudentsAsync(dryRun));
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: BACKFILL A PAID MONTH BY MOVING AN ADVANCE PAYMENT
+    //
+    // Corrects a student who paid ahead but whose earlier month has no billing period: moves a
+    // fully-paid ADVANCE month's cash back onto a NEW target month (target becomes Paid, the advance
+    // month reverts to Unpaid). Total cash paid is invariant. Monthly billing only.
+    //
+    // SAMPLE (preview — writes nothing):
+    //   POST /api/admin/payments/backfill-paid-month?teacherStudentId=1803&targetMonth=2026-07&fromAdvanceMonth=2026-09
+    //   POST /api/admin/payments/backfill-paid-month?teacherStudentId=1803&targetMonth=2026-07&fromAdvanceMonth=2026-09&dryRun=true
+    //
+    // SAMPLE (apply):
+    //   POST /api/admin/payments/backfill-paid-month?teacherStudentId=1803&targetMonth=2026-07&fromAdvanceMonth=2026-09&dryRun=false
+    //
+    // AUTH: SuperAdmin ONLY (roleOnly gate).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("backfill-paid-month")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(BackfillPaidMonthReport), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> BackfillPaidMonth(
+        [FromQuery] long teacherStudentId,
+        [FromQuery] string targetMonth,
+        [FromQuery] string fromAdvanceMonth,
+        [FromQuery] bool dryRun = true)
+    {
+        if (_currentUser.UserId is null)
+            return Unauthorized();
+
+        return ToResponse(await _paymentService.BackfillPaidMonthAsync(
+            teacherStudentId, targetMonth, fromAdvanceMonth, dryRun));
+    }
 }

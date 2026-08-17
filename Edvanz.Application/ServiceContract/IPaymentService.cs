@@ -368,6 +368,24 @@ public interface IPaymentService
     Task<Result<MovedStudentsReconcileReport>> ReconcileMovedStudentsAsync(bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). Backfills a PAID month for a student by moving the cash of a
+    /// fully-paid ADVANCE month back onto an earlier, currently-non-existent month — used to correct a
+    /// student who paid ahead but whose earlier month has no billing period. Inside one transaction:
+    /// (1) creates the <paramref name="targetMonth"/> period (Monthly, same session/denormalized fields
+    /// as the advance period, AmountDue = the student's monthly rate, AmountPaid = the advance month's
+    /// AmountPaid, status Paid, sequence sorting before the earliest existing period); (2) moves the
+    /// advance period's <c>PaymentTransactionAllocation</c>s to the new period; (3) un-settles the
+    /// advance month (AmountPaid 0 / Unpaid); (4) repoints any transaction whose denormalized
+    /// PaymentPeriodId was the advance period to the new one; (5) recomputes the student's counter. Total
+    /// cash paid is invariant. Guards: NO period may exist at <paramref name="targetMonth"/>, and the
+    /// <paramref name="fromAdvanceMonth"/> period must EXIST, be Monthly and be fully cash-paid.
+    /// <paramref name="dryRun"/>=true (default) writes NOTHING and returns exactly what WOULD change.
+    /// Months are "YYYY-MM".
+    /// </summary>
+    Task<Result<BackfillPaidMonthReport>> BackfillPaidMonthAsync(
+        long teacherStudentId, string targetMonth, string fromAdvanceMonth, bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

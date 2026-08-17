@@ -773,6 +773,37 @@
             await Task.CompletedTask;
         }
 
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetTrackedPaymentPeriodsByStudentAsync(long teacherStudentId)
+        {
+            // TRACKED (no AsNoTracking) — the admin backfill mutates AmountPaid/PaymentStatus + inserts a
+            // new period. TeacherStudentId is globally unique so no teacher filter is needed.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherStudentId == teacherStudentId)
+                .OrderBy(p => p.PeriodSequence)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentTransactionAllocation>> GetAllocationsByPeriodAsync(long paymentPeriodId)
+        {
+            // TRACKED — the admin backfill repoints these to another period.
+            return await _context.PaymentTransactionAllocations
+                .Where(a => a.PaymentPeriodId == paymentPeriodId)
+                .OrderBy(a => a.Id)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<int> RepointTransactionsToPeriodAsync(long fromPeriodId, long toPeriodId)
+        {
+            // Bulk repoint of the denormalized display FK. Non-deleted only (active settlement); a
+            // soft-deleted transaction's stale period pointer is harmless and left as history.
+            return await _context.PaymentTransactions
+                .Where(t => t.PaymentPeriodId == fromPeriodId && !t.IsDeleted)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.PaymentPeriodId, toPeriodId));
+        }
+
         // ----------------------------------------------
         // PAYMENT TRANSACTION ALLOCATION LEDGER (PAY-1)
         // ----------------------------------------------

@@ -9,6 +9,7 @@ using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 using System.Net;
 
 namespace Edvanz.Application.Services;
@@ -3394,6 +3395,187 @@ public class PaymentService : IPaymentService
         report.StudentsSkipped = report.Skipped.Count;
         return Result<MovedStudentsReconcileReport>.Success(
             report, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<BackfillPaidMonthReport>> BackfillPaidMonthAsync(
+        long teacherStudentId, string targetMonth, string fromAdvanceMonth, bool dryRun)
+    {
+        // ── Parse the two "YYYY-MM" months (first-of-month anchors). ──
+        if (!TryParseYearMonthToStart(targetMonth, out var targetStart)
+            || !TryParseYearMonthToStart(fromAdvanceMonth, out var fromStart))
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillInvalidMonthFormat,
+                HttpStatusCode.UnprocessableEntity);
+        var targetEnd = targetStart.AddMonths(1).AddDays(-1);
+
+        // ── Load the whole (tracked) period timeline for this student. TeacherStudentId is global. ──
+        var periods = await _unitOfWork.PaymentsRepo
+            .GetTrackedPaymentPeriodsByStudentAsync(teacherStudentId);
+        if (periods.Count == 0)
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillStudentHasNoPeriods,
+                HttpStatusCode.NotFound);
+
+        long teacherId = periods[0].TeacherId;
+
+        // ── Guard: NO period may already exist at the target month. ──
+        bool targetExists = periods.Any(p =>
+            p.PeriodStart.Year == targetStart.Year && p.PeriodStart.Month == targetStart.Month);
+        if (targetExists)
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillTargetMonthExists,
+                HttpStatusCode.UnprocessableEntity);
+
+        // ── Guard: the advance month period must EXIST, be Monthly, and be fully cash-paid. ──
+        var fromPeriod = periods.FirstOrDefault(p =>
+            p.PeriodStart.Year == fromStart.Year && p.PeriodStart.Month == fromStart.Month);
+        if (fromPeriod is null)
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillAdvanceMonthNotFound,
+                HttpStatusCode.UnprocessableEntity);
+        if (fromPeriod.PeriodType != PeriodType.Monthly)
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillAdvanceMonthNotMonthly,
+                HttpStatusCode.UnprocessableEntity);
+        // Fully paid BY CASH: status Paid AND cash actually covers it (a forgiven-only "Paid" month has
+        // no cash to move, so it is rejected rather than silently moving 0).
+        if (fromPeriod.PaymentStatus != PaymentStatus.Paid
+            || fromPeriod.AmountPaid < fromPeriod.AmountDue)
+            return Result<BackfillPaidMonthReport>.Failure(
+                _localizer, PaymentConstants.Messages.BackfillAdvanceMonthNotPaid,
+                HttpStatusCode.UnprocessableEntity);
+
+        // ── Compute what the move produces (identical for preview + apply). ──
+        decimal monthlyRate = await _unitOfWork.PaymentsRepo
+            .GetStudentMonthlyRateAsync(teacherId, teacherStudentId);
+        decimal movedAmountPaid = fromPeriod.AmountPaid;
+        int minSequence = periods.Min(p => p.PeriodSequence);
+        int targetSequence = minSequence - 1; // sorts before the earliest existing period
+        decimal totalPaidBefore = periods.Sum(p => p.AmountPaid);
+
+        var allocations = await _unitOfWork.PaymentsRepo
+            .GetAllocationsByPeriodAsync(fromPeriod.Id);
+
+        var report = new BackfillPaidMonthReport
+        {
+            DryRun = dryRun,
+            TeacherId = teacherId,
+            TeacherStudentId = teacherStudentId,
+            StudentName = fromPeriod.StudentName,
+            StudentCode = fromPeriod.StudentCode,
+            SessionId = fromPeriod.SessionId,
+            SessionName = fromPeriod.SessionName,
+            TargetMonth = $"{targetStart.Year:D4}-{targetStart.Month:D2}",
+            TargetMonthLabel = targetStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            TargetAmountDue = monthlyRate,
+            TargetAmountPaid = movedAmountPaid,
+            TargetPeriodSequence = targetSequence,
+            FromAdvanceMonth = $"{fromStart.Year:D4}-{fromStart.Month:D2}",
+            FromAdvanceMonthLabel = fromStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+            FromAdvancePeriodId = fromPeriod.Id,
+            FromAdvancePreviousAmountPaid = fromPeriod.AmountPaid,
+            AllocationsMoved = allocations.Count,
+            AllocationsMovedAmount = allocations.Sum(a => a.AmountApplied),
+            // Set below: preview counts the non-deleted transactions currently pointing at the advance
+            // period; apply reports the actual repoint count (same predicate).
+            TransactionsRepointed = 0,
+            TotalPaidBefore = totalPaidBefore,
+            TotalPaidAfter = totalPaidBefore, // invariant — cash only moves months, never changes
+        };
+
+        if (dryRun)
+        {
+            // Count (read-only) how many transactions WOULD be repointed, for the preview.
+            var wouldRepoint = await _unitOfWork.PaymentsRepo
+                .GetTransactionsByPeriodAsync(fromPeriod.Id);
+            report.TransactionsRepointed = wouldRepoint.Count;
+            return Result<BackfillPaidMonthReport>.Success(
+                report, _localizer, PaymentConstants.Messages.BackfillSuccess);
+        }
+
+        // ── APPLY (one transaction). ──
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            // (1) Create the target month period (Paid), sequenced before the earliest existing period.
+            var targetPeriod = new PaymentPeriod
+            {
+                TeacherId = teacherId,
+                SessionId = fromPeriod.SessionId,
+                TeacherStudentId = teacherStudentId,
+                StudentSessionAssignmentId = fromPeriod.StudentSessionAssignmentId,
+                PeriodType = PeriodType.Monthly,
+                PeriodStart = targetStart,
+                PeriodEnd = targetEnd,
+                AmountDue = monthlyRate,
+                AmountPaid = movedAmountPaid,
+                PaymentStatus = PaymentStatus.Paid,
+                IsProRated = false,
+                ProRatedFraction = 1.0m,
+                PeriodSequence = targetSequence,
+                SessionName = fromPeriod.SessionName,
+                StudentName = fromPeriod.StudentName,
+                StudentCode = fromPeriod.StudentCode,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.PaymentsRepo.AddPaymentPeriodAsync(targetPeriod);
+            await _unitOfWork.SaveChangesAsync(); // materialize targetPeriod.Id for the FK repointing
+
+            // (2) Move the advance period's settlement allocations onto the new target period.
+            foreach (var alloc in allocations)
+                alloc.PaymentPeriodId = targetPeriod.Id;
+
+            // (4) Repoint the denormalized transaction → period FK for any tx pointing at the advance period.
+            report.TransactionsRepointed = await _unitOfWork.PaymentsRepo
+                .RepointTransactionsToPeriodAsync(fromPeriod.Id, targetPeriod.Id);
+
+            // (3) Un-settle the advance month.
+            fromPeriod.AmountPaid = 0m;
+            fromPeriod.PaymentStatus = RecomputePeriodStatus(fromPeriod);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(fromPeriod);
+
+            await _unitOfWork.SaveChangesAsync();
+
+            // (5) Recompute the student's counter from the new period picture.
+            var counter = await _unitOfWork.PaymentsRepo
+                .GetPaymentCounterAsync(teacherId, teacherStudentId);
+            if (counter is not null)
+            {
+                await RecomputeStudentPaymentCounterAsync(teacherId, teacherStudentId, counter);
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+
+            report.TargetPeriodId = targetPeriod.Id;
+            // Re-affirm the invariant from persisted state.
+            var after = await _unitOfWork.PaymentsRepo
+                .GetTrackedPaymentPeriodsByStudentAsync(teacherStudentId);
+            report.TotalPaidAfter = after.Sum(p => p.AmountPaid);
+
+            return Result<BackfillPaidMonthReport>.Success(
+                report, _localizer, PaymentConstants.Messages.BackfillSuccess);
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>Parses a "YYYY-MM" string to the first day of that month (UTC-agnostic date). </summary>
+    private static bool TryParseYearMonthToStart(string? yearMonth, out DateTime monthStart)
+    {
+        monthStart = default;
+        if (string.IsNullOrWhiteSpace(yearMonth)) return false;
+        if (!DateTime.TryParseExact(
+                yearMonth.Trim(), "yyyy-MM", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var parsed))
+            return false;
+        monthStart = new DateTime(parsed.Year, parsed.Month, 1);
+        return true;
     }
 
     /// <inheritdoc />

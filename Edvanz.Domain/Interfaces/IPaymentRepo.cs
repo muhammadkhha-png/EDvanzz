@@ -336,6 +336,27 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task UpdatePaymentPeriodAsync(PaymentPeriod period);
 
+    /// <summary>
+    /// ADMIN one-off support: every <see cref="PaymentPeriod"/> for a student, TRACKED (the caller
+    /// mutates AmountPaid/PaymentStatus and adds a new period) and NOT teacher-scoped —
+    /// <c>TeacherStudentId</c> is globally unique, so this reads a single student's whole timeline for a
+    /// cross-tenant SuperAdmin op. Ordered by PeriodSequence.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetTrackedPaymentPeriodsByStudentAsync(long teacherStudentId);
+
+    /// <summary>
+    /// ADMIN one-off support: the settlement-ledger rows that point at ONE period, TRACKED so the caller
+    /// can repoint them to another period (move an advance payment). Ordered by id.
+    /// </summary>
+    Task<List<PaymentTransactionAllocation>> GetAllocationsByPeriodAsync(long paymentPeriodId);
+
+    /// <summary>
+    /// ADMIN one-off support: repoints the denormalized <c>PaymentTransaction.PaymentPeriodId</c> of every
+    /// NON-deleted transaction currently pointing at <paramref name="fromPeriodId"/> to
+    /// <paramref name="toPeriodId"/> (bulk ExecuteUpdate). Returns the number of rows changed.
+    /// </summary>
+    Task<int> RepointTransactionsToPeriodAsync(long fromPeriodId, long toPeriodId);
+
     // ══════════════════════════════════════════════
     // PAYMENT TRANSACTION ALLOCATION LEDGER (PAY-1)
     // ══════════════════════════════════════════════

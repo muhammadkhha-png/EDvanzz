@@ -2466,4 +2466,28 @@
   <data name="CenterSettingsUpdated" xml:space="preserve">
     <value>Center settings updated.</value>
   </data>
+  <data name="BackfillInvalidMonthFormat" xml:space="preserve">
+    <value>Month must be in YYYY-MM format.</value>
+  </data>
+  <data name="BackfillStudentHasNoPeriods" xml:space="preserve">
+    <value>This student has no payment periods.</value>
+  </data>
+  <data name="BackfillTargetMonthExists" xml:space="preserve">
+    <value>A payment period already exists for the target month.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotFound" xml:space="preserve">
+    <value>No payment period exists for the advance month.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotMonthly" xml:space="preserve">
+    <value>The advance month is not a monthly period.</value>
+  </data>
+  <data name="BackfillAdvanceMonthNotPaid" xml:space="preserve">
+    <value>The advance month is not fully paid.</value>
+  </data>
+  <data name="BackfillSuccess" xml:space="preserve">
+    <value>Paid month backfilled successfully.</value>
+  </data>
+  <data name="RecomputeWalletSuccess" xml:space="preserve">
+    <value>Wallet balance recomputed successfully.</value>
+  </data>
 </root>
