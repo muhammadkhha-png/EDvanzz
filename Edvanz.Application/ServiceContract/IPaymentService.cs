@@ -388,13 +388,14 @@ public interface IPaymentService
     /// <summary>
     /// ADMIN one-off (SuperAdmin). Recomputes an assistant wallet's <c>CurrentBalance</c> using the same
     /// reset-aware rule as the wallet-reversal fix, to repair a balance corrupted by pre-reset reversals
-    /// (e.g. salma −2700 → 0). Anchors at the last instant the collector's real held cash (collections,
-    /// including later-deleted ones, minus hand-overs) returned to zero, then held cash = collections
-    /// taken after it − partial (departure) reversals of those collections − partial withdrawals after
-    /// it. Cash collected before a hand-over — and its later refunds — is excluded. Reports old vs new
-    /// balance and the components. <paramref name="dryRun"/>=true (default) writes NOTHING; false sets
-    /// <c>CurrentBalance</c> only (TotalCollected/lifetime untouched). <paramref name="assistantId"/> is
-    /// the Assistant.Id.
+    /// (e.g. salma −2700 → 0). Anchors at the last FULL cash hand-over — the latest reset whose
+    /// RECONSTRUCTED balance (collections collected by then, incl. later-deleted, minus refunds taken by
+    /// then, minus cash handed over by then) is exactly zero; a partial withdrawal leaves it &gt; 0 and is
+    /// skipped. Held cash = collections taken after the anchor − partial (departure) reversals of those
+    /// collections − partial withdrawals after it. Cash collected before the hand-over — and its later
+    /// refunds — is excluded. Reports old vs new balance and the components. <paramref name="dryRun"/>=true
+    /// (default) writes NOTHING; false sets <c>CurrentBalance</c> only (TotalCollected/lifetime untouched).
+    /// <paramref name="assistantId"/> is the Assistant.Id.
     /// </summary>
     Task<Result<RecomputeAssistantWalletReport>> RecomputeAssistantWalletAsync(long assistantId, bool dryRun);
 

@@ -3595,13 +3595,18 @@ public class PaymentService : IPaymentService
         // stays consistent with it):
         //  • collections — IgnoreQueryFilters so soft-deleted (fully-refunded) rows are included with
         //    their preserved AmountPaid; needed so the anchor sees cash that WAS held at hand-over time.
-        //  • reversals — includeDeleted:false → only Reversed (partial departure) refunds, whose
-        //    collection is still non-deleted; each carries the underlying collection's CollectedAt. A
-        //    fully-deleted collection needs no separate refund line — it is simply excluded from held cash.
+        //  • allRefunds — every refund (Deleted + Reversed), each carrying its underlying collection's
+        //    CollectedAt AND its own RefundedAt; used to reconstruct the balance AT each reset (a refund
+        //    already taken by then reduces the balance the reset handed over).
+        //  • reversedRefunds — includeDeleted:false → only Reversed (partial departure) refunds, whose
+        //    collection is still non-deleted; used for the post-anchor held-cash calc (a fully-deleted
+        //    collection is excluded from held cash, so its Deleted refund must NOT be subtracted again).
         //  • hand-overs — full resets AND partial withdrawals (both are WalletResetLog rows).
         var txns = await _unitOfWork.PaymentsRepo
             .GetCollectorTransactionsInRangeAsync(teacherId, userId, DateTime.MinValue, now);
-        var reversals = await _unitOfWork.PaymentsRepo
+        var allRefunds = await _unitOfWork.PaymentsRepo
+            .GetCollectorRefundsInRangeAsync(teacherId, userId, DateTime.MinValue, now, includeDeleted: true);
+        var reversedRefunds = await _unitOfWork.PaymentsRepo
             .GetCollectorRefundsInRangeAsync(teacherId, userId, DateTime.MinValue, now, includeDeleted: false);
         var resets = wallet.AssistantId.HasValue
             ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsAsync(teacherId, wallet.AssistantId.Value)
@@ -3609,35 +3614,36 @@ public class PaymentService : IPaymentService
                 ? await _unitOfWork.PaymentsRepo.GetWalletResetLogsForCenterAssistantAsync(teacherId, wallet.CenterAssistantId.Value)
                 : (IReadOnlyList<WalletResetLog>)Array.Empty<WalletResetLog>());
 
-        // ── Anchor: the last instant the collector's REAL held cash returned to zero (a full hand-over).
-        // Replay only genuine held-cash movements — collections in (+, incl. later-deleted), hand-overs
-        // out (−). Refunds are deliberately EXCLUDED here: a refund of already-handed-over cash must not
-        // create a phantom negative that mis-anchors the window (that phantom is exactly the salma bug).
-        var anchorEvents = new List<(DateTime At, decimal Amount)>(txns.Count + resets.Count);
-        anchorEvents.AddRange(txns.Select(t => (t.CollectedAt, t.AmountPaid)));
-        anchorEvents.AddRange(resets.Select(r => (r.ResetAt, -r.AmountReset)));
-        // Chronological; on a same-instant tie, money-IN before money-OUT (matches the wallet screen) so
-        // a collect-then-handover at one timestamp nets correctly.
-        anchorEvents.Sort((a, b) =>
-        {
-            int byTime = a.At.CompareTo(b.At);
-            return byTime != 0 ? byTime : b.Amount.CompareTo(a.Amount);
-        });
-        decimal running = 0m;
+        // ── Anchor: the last FULL cash hand-over — a reset that left the collector holding NOTHING.
+        // A gross collections-vs-handovers replay is fragile: pre-reset refunds shift the sums so the
+        // running balance may never cross exactly 0 at the true hand-over (salma). Instead, evaluate the
+        // RECONSTRUCTED balance right after EACH reset and take the LATEST one that is exactly 0:
+        //     balanceAfter(R) = Σ collections collected by R (incl. later-deleted — they were held then)
+        //                     − Σ refunds taken by R (Deleted + Reversed — cash already given back)
+        //                     − Σ cash handed over by R (every reset/withdrawal up to and incl. R).
+        // A full "take everything" reset (ResetWalletAsync, or a WithdrawFromWalletAsync that empties the
+        // wallet) makes this 0; a PARTIAL withdrawal leaves it > 0 and is skipped. There is no full/partial
+        // flag on WalletResetLog, so this reconstruction is how a full reset is identified. For salma the
+        // phantom DELETE refunds happened AFTER her last full reset, so they don't affect balanceAfter at
+        // that reset → it correctly anchors there; the deletes are the corruption this repairs.
         DateTime? anchor = null;
-        foreach (var e in anchorEvents)
+        foreach (var r in resets.OrderBy(x => x.ResetAt))
         {
-            running += e.Amount;
-            if (running == 0m) anchor = e.At;
+            decimal collectedBy = txns.Where(t => t.CollectedAt <= r.ResetAt).Sum(t => t.AmountPaid);
+            decimal refundedBy = allRefunds.Where(f => f.RefundedAt <= r.ResetAt).Sum(f => f.RefundAmount);
+            decimal handedOverBy = resets.Where(x => x.ResetAt <= r.ResetAt).Sum(x => x.AmountReset);
+            if (collectedBy - refundedBy - handedOverBy == 0m)
+                anchor = r.ResetAt; // a full hand-over; keep the latest one
         }
         DateTime anchorAt = anchor ?? DateTime.MinValue;
 
-        // ── Held cash after the anchor = still-held collections − their partial reversals − later
-        // partial withdrawals. Fully-deleted collections are excluded (IsDeleted); their delete refunds
-        // are not in `reversals` (includeDeleted:false), so no double count.
+        // ── Held cash after the anchor = still-held collections − their partial (departure) reversals −
+        // partial withdrawals recorded after the anchor. Fully-deleted collections are excluded (IsDeleted);
+        // their Deleted refunds are not in reversedRefunds (includeDeleted:false), so no double count. When
+        // no full reset was ever taken (anchor == MinValue) this is the plain net held cash all-time.
         var postCollections = txns.Where(t => !t.IsDeleted && t.CollectedAt > anchorAt).ToList();
         decimal postCollectionsSum = postCollections.Sum(t => t.AmountPaid);
-        decimal postReversalsSum = reversals.Where(r => r.CollectedAt > anchorAt).Sum(r => r.RefundAmount);
+        decimal postReversalsSum = reversedRefunds.Where(r => r.CollectedAt > anchorAt).Sum(r => r.RefundAmount);
         decimal postWithdrawalsSum = resets.Where(r => r.ResetAt > anchorAt).Sum(r => r.AmountReset);
         decimal newBalance = postCollectionsSum - postReversalsSum - postWithdrawalsSum;
 
