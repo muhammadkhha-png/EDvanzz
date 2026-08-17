@@ -1841,6 +1841,30 @@
   <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
     <value>The wallet was updated at the same time by another request. Please try again.</value>
   </data>
+  <data name="EditNoteRequired" xml:space="preserve">
+    <value>A note is required when editing to a partial or custom amount.</value>
+  </data>
+  <data name="CollectNoteRequired" xml:space="preserve">
+    <value>A note is required when collecting a partial or custom amount.</value>
+  </data>
+  <data name="ForgiveAmountInvalid" xml:space="preserve">
+    <value>The amount to forgive must be greater than zero.</value>
+  </data>
+  <data name="ForgiveAmountExceedsOutstanding" xml:space="preserve">
+    <value>The amount to forgive cannot exceed the student's outstanding balance.</value>
+  </data>
+  <data name="ForgiveSuccess" xml:space="preserve">
+    <value>The balance was forgiven successfully.</value>
+  </data>
+  <data name="ForgivenessNotFound" xml:space="preserve">
+    <value>Forgiveness record not found.</value>
+  </data>
+  <data name="ForgivenessAlreadyReversed" xml:space="preserve">
+    <value>This forgiveness has already been reversed.</value>
+  </data>
+  <data name="ForgiveReversedSuccess" xml:space="preserve">
+    <value>The forgiveness was reversed and the balance restored.</value>
+  </data>
   <data name="VideoUpdated" xml:space="preserve">
     <value>Video updated successfully</value>
   </data>

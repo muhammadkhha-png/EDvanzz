@@ -175,6 +175,28 @@ public class PaymentHistoryDto
     public List<PaymentPeriodDto> Periods { get; set; } = new();
     public List<SessionTransferEventDto> Transfers { get; set; } = new();
     public List<StudentDepartureDto> Departures { get; set; } = new();
+
+    /// <summary>
+    /// Balance forgiveness events on this student's timeline (any status), newest first — so the app
+    /// can render a "Forgiven" line alongside collections/transfers/departures. Each entry carries a
+    /// constant <c>type = "Forgiven"</c>.
+    /// </summary>
+    public List<ForgivenessHistoryEntryDto> Forgivenesses { get; set; } = new();
+}
+
+/// <summary>One "Forgiven" entry on the student payment history timeline.</summary>
+public class ForgivenessHistoryEntryDto
+{
+    public long Id { get; set; }
+    /// <summary>Constant discriminator for the client — always "Forgiven".</summary>
+    public string Type { get; set; } = "Forgiven";
+    public decimal Amount { get; set; }
+    public string? Note { get; set; }
+    /// <summary>Display name of the tutor who forgave.</summary>
+    public string? ByName { get; set; }
+    public DateTime Date { get; set; }
+    /// <summary>active | reversed</summary>
+    public string Status { get; set; } = "active";
 }
 
 /// <summary>

@@ -496,6 +496,66 @@ public class SubmitCollectionResultDto
     public string? Reason { get; set; }
 }
 
+// ── Money: forgive balance (TEACHER-ONLY; assistants 403) ──────────────────
+
+/// <summary>
+/// Request to FORGIVE (waive) part of a student's outstanding balance. Forgiving is NOT cash: no
+/// wallet change, no transaction, no collector attribution — it only reduces what the student owes,
+/// applied oldest-unpaid-month first (cascade). <c>amount</c> must be &gt; 0 and ≤ the student's
+/// outstanding through the current teacher-local month.
+/// </summary>
+public class ForgiveBalanceRequest
+{
+    public long TeacherStudentId { get; set; }
+    public decimal Amount { get; set; }
+    /// <summary>Optional free-text reason recorded on the audit row.</summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>Optional body for reversing a forgiveness (restores the waived balance).</summary>
+public class ReverseForgivenessRequest
+{
+    /// <summary>Optional note recorded on the reversal audit.</summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>Audit view of a single forgiveness (ids as strings, per the api/v1 contract).</summary>
+public class ForgivenessDto
+{
+    public string Id { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string? Note { get; set; }
+    /// <summary>Display name of the tutor who forgave.</summary>
+    public string? ByName { get; set; }
+    /// <summary>User id of the tutor who forgave.</summary>
+    public string? ByUserId { get; set; }
+    public DateTime Date { get; set; }
+    /// <summary>active | reversed</summary>
+    public string Status { get; set; } = "active";
+}
+
+/// <summary>The student's payment summary AFTER a forgive/reverse — the row the frontend re-renders.</summary>
+public class ForgiveStudentSummaryDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? StudentCode { get; set; }
+    public string? SessionName { get; set; }
+    /// <summary>Arrears through the current teacher-local month AFTER the forgive/reverse.</summary>
+    public decimal Outstanding { get; set; }
+    /// <summary>Number of unpaid months through the current month AFTER the forgive/reverse.</summary>
+    public int MonthsOwed { get; set; }
+    /// <summary>paid | unpaid — whether any outstanding remains through the current month.</summary>
+    public string Status { get; set; } = "paid";
+}
+
+/// <summary>Response of forgive / reverse — the created (or reversed) forgiveness + updated summary row.</summary>
+public class ForgiveBalanceResponse
+{
+    public ForgivenessDto Forgiveness { get; set; } = new();
+    public ForgiveStudentSummaryDto Student { get; set; } = new();
+}
+
 // ── Money: assistant wallet withdraw (AssistantWallet screen) ──────────────
 
 public class WalletWithdrawRequest

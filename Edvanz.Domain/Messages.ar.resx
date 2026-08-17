@@ -1859,6 +1859,30 @@
   <data name="PaymentWalletConcurrencyConflict" xml:space="preserve">
     <value>المحفظة اتعدّلت في نفس الوقت من طلب تاني. حاول تاني.</value>
   </data>
+  <data name="EditNoteRequired" xml:space="preserve">
+    <value>لازم تكتب ملاحظة لما تعدّل لمبلغ جزئي أو مخصص.</value>
+  </data>
+  <data name="CollectNoteRequired" xml:space="preserve">
+    <value>لازم تكتب ملاحظة لما تحصّل مبلغ جزئي أو مخصص.</value>
+  </data>
+  <data name="ForgiveAmountInvalid" xml:space="preserve">
+    <value>المبلغ اللي هيتسامح فيه لازم يكون أكبر من صفر.</value>
+  </data>
+  <data name="ForgiveAmountExceedsOutstanding" xml:space="preserve">
+    <value>المبلغ اللي هتتسامح فيه مينفعش يكون أكبر من المتأخر على الطالب.</value>
+  </data>
+  <data name="ForgiveSuccess" xml:space="preserve">
+    <value>تم التسامح في المبلغ بنجاح.</value>
+  </data>
+  <data name="ForgivenessNotFound" xml:space="preserve">
+    <value>سجل التسامح مش موجود.</value>
+  </data>
+  <data name="ForgivenessAlreadyReversed" xml:space="preserve">
+    <value>التسامح ده اترجّع قبل كده.</value>
+  </data>
+  <data name="ForgiveReversedSuccess" xml:space="preserve">
+    <value>تم التراجع عن التسامح ورجّع المبلغ على الطالب.</value>
+  </data>
   <data name="OnlineExam.StudentStatusBlocked" xml:space="preserve">
     <value>تم حظر الطالب</value>
   </data>

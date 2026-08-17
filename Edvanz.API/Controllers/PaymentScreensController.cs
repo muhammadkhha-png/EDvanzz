@@ -376,4 +376,58 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
             teacherId.Value, assistantId, request?.Amount, GetActingUserId(), idempotencyKey);
         return ToResponse(result);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: Forgive balance  (MONEY, TUTOR-ONLY — assistants/center-assistants 403)
+    // POST /api/v1/payments/forgive   body { teacherStudentId, amount, note? }
+    // Waives part of a student's outstanding balance. NOT cash: no wallet/transaction/collector
+    // effect. Applied oldest-unpaid-month first (cascade). Reversible + audited.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("/api/v1/payments/forgive")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.ForgiveBalanceResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ForgiveBalance([FromBody] ForgiveBalanceRequest request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        // Tutor / center OWNER only — an assistant caller (teacher- or center-assistant) is blocked.
+        // Forgiving reduces revenue owed; it must never be delegated (BR-PAY-002 class of action).
+        if (AssistantScopeUserId() is not null) return Forbid();
+
+        var result = await _screenService.ForgiveBalanceAsync(
+            teacherId.Value, GetActingUserId(),
+            request?.TeacherStudentId ?? 0, request?.Amount ?? 0m, request?.Note);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: Reverse a forgiveness  (MONEY, TUTOR-ONLY)
+    // POST /api/v1/payments/forgive/{forgivenessId}/reverse   body { note? }
+    // Restores the exact per-period balance the forgiveness waived; audits the reversal.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("/api/v1/payments/forgive/{forgivenessId:long}/reverse")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.ForgiveBalanceResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReverseForgiveness(
+        long forgivenessId,
+        [FromBody] ReverseForgivenessRequest? request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        if (AssistantScopeUserId() is not null) return Forbid();
+
+        var result = await _screenService.ReverseForgivenessAsync(
+            teacherId.Value, GetActingUserId(), forgivenessId, request?.Note);
+        return ToResponse(result);
+    }
 }

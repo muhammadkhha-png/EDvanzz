@@ -390,7 +390,7 @@
             if (sessionId.HasValue)
                 query = query.Where(p => p.SessionId == sessionId.Value);
 
-            return await query.SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
+            return await query.SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
         }
 
         /// <inheritdoc />
@@ -883,7 +883,7 @@
             .Select(g => new
             {
                 TeacherStudentId = g.Key,
-                TotalOutstanding = g.Sum(p => p.AmountDue - p.AmountPaid),
+                TotalOutstanding = g.Sum(p => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)),
                 UnpaidPeriodCount = g.Count()
             });
 
@@ -940,7 +940,7 @@
                     PeriodType = p.PeriodType,
                     PeriodStart = p.PeriodStart,
                     PeriodEnd = p.PeriodEnd,
-                    AmountRemaining = p.AmountDue - p.AmountPaid
+                    AmountRemaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)
                 }
             })
                 .AsNoTracking()
@@ -1170,7 +1170,7 @@
                     && targetIds.Contains(p.TeacherStudentId!.Value)
                     && p.PeriodStart <= monthEnd
                     && p.PaymentStatus != PaymentStatus.Paid)
-                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
+                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
 
             // Full-set expected revenue: each in-scope student's MONTHLY RATE — their custom override
             // (StudentPaymentCounter.CustomPaymentAmount) or the session default — summed over EVERY
@@ -1216,7 +1216,7 @@
                     UnpaidAmount = _context.PaymentPeriods
                         .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
                             && p.PeriodStart <= monthEnd && p.PaymentStatus != PaymentStatus.Paid)
-                        .Sum(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m,
+                        .Sum(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m,
                     UnpaidMonths = _context.PaymentPeriods
                         .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
                             && p.PeriodStart <= monthEnd && p.PaymentStatus != PaymentStatus.Paid)
@@ -1398,7 +1398,7 @@
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
                     && p.PaymentStatus != PaymentStatus.Paid
                     && p.PeriodStart <= throughMonthEnd)
-                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid)) ?? 0m;
+                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
 
             return new CollectLookupRow
             {
@@ -1441,7 +1441,7 @@
                         PeriodType = p.PeriodType,
                         PeriodStart = p.PeriodStart,
                         PeriodEnd = p.PeriodEnd,
-                        AmountRemaining = p.AmountDue - p.AmountPaid
+                        AmountRemaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)
                     }
                 })
                 .AsNoTracking()
@@ -1634,6 +1634,63 @@
                 .OrderBy(l => l.EditedAt)
                 .AsNoTracking()
                 .ToListAsync();
+        }
+
+        // ----------------------------------------------
+        // FORGIVENESS QUERIES (waive outstanding balance — reversible)
+        // ----------------------------------------------
+
+        /// <inheritdoc />
+        public async Task AddPaymentForgivenessAsync(PaymentForgiveness forgiveness)
+        {
+            await _context.PaymentForgivenesses.AddAsync(forgiveness);
+        }
+
+        /// <inheritdoc />
+        public async Task AddPaymentForgivenessAllocationsRangeAsync(
+            IEnumerable<PaymentForgivenessAllocation> allocations)
+        {
+            await _context.PaymentForgivenessAllocations.AddRangeAsync(allocations);
+        }
+
+        /// <inheritdoc />
+        public async Task<PaymentForgiveness?> GetForgivenessByIdAndTeacherAsync(
+            long teacherId, long forgivenessId)
+        {
+            // TRACKED + eager allocations + each allocation's PaymentPeriod (also tracked) so the
+            // reversal can restore the exact per-period ForgivenAmount in place.
+            return await _context.PaymentForgivenesses
+                .Include(f => f.Allocations)
+                    .ThenInclude(a => a.PaymentPeriod)
+                .Where(f => f.Id == forgivenessId && f.TeacherId == teacherId)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentForgiveness>> GetForgivenessesByStudentAsync(
+            long teacherId, long teacherStudentId)
+        {
+            return await _context.PaymentForgivenesses
+                .Where(f => f.TeacherId == teacherId && f.TeacherStudentId == teacherStudentId)
+                .OrderByDescending(f => f.ForgivenAt)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<decimal> GetStudentMonthlyRateAsync(long teacherId, long teacherStudentId)
+        {
+            // Custom per-student override wins (BR-PAY-003); else the current session's amount; else 0.
+            var custom = await _context.StudentPaymentCounters
+                .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == teacherStudentId)
+                .Select(c => c.CustomPaymentAmount)
+                .FirstOrDefaultAsync();
+            if (custom.HasValue) return custom.Value;
+
+            return await _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.Id == teacherStudentId && ts.Session != null)
+                .Select(ts => ts.Session!.SessionAmount)
+                .FirstOrDefaultAsync();
         }
 
         // ----------------------------------------------

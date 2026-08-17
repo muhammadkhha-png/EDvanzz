@@ -514,6 +514,33 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<IReadOnlyList<PaymentEditLog>> GetPaymentEditLogsAsync(long paymentTransactionId);
 
     // ══════════════════════════════════════════════
+    // FORGIVENESS QUERIES (waive outstanding balance — reversible)
+    // ══════════════════════════════════════════════
+
+    /// <summary>Adds a forgiveness header row (per-period allocations are added separately).</summary>
+    Task AddPaymentForgivenessAsync(PaymentForgiveness forgiveness);
+
+    /// <summary>Adds per-period waiver slices for a forgiveness (nav-linked so EF fixes the FK on save).</summary>
+    Task AddPaymentForgivenessAllocationsRangeAsync(IEnumerable<PaymentForgivenessAllocation> allocations);
+
+    /// <summary>
+    /// Gets one forgiveness by id (tenant-scoped), TRACKED, with its allocations and each allocation's
+    /// <c>PaymentPeriod</c> eagerly loaded (also tracked), so a reversal can restore the exact per-period
+    /// <c>ForgivenAmount</c>. Null when not found / not this teacher's.
+    /// </summary>
+    Task<PaymentForgiveness?> GetForgivenessByIdAndTeacherAsync(long teacherId, long forgivenessId);
+
+    /// <summary>All forgivenesses for a student (any status), newest first — the history surface.</summary>
+    Task<IReadOnlyList<PaymentForgiveness>> GetForgivenessesByStudentAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>
+    /// The student's per-month rate: their <c>CustomPaymentAmount</c> override, else the current
+    /// session's <c>SessionAmount</c>, else 0. Backs whole-month-multiple note validation
+    /// (collect/edit) and the collect-lookup <c>monthlyAmount</c>.
+    /// </summary>
+    Task<decimal> GetStudentMonthlyRateAsync(long teacherId, long teacherStudentId);
+
+    // ══════════════════════════════════════════════
     // DEPARTURE QUERIES
     // ══════════════════════════════════════════════
 

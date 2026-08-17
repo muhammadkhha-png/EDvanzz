@@ -307,7 +307,8 @@ public class PaymentService : IPaymentService
             foreach (var p in payablePeriods)
             {
                 if (amountLeft <= 0m) break;
-                decimal remaining = p.AmountDue - p.AmountPaid;
+                // Forgiven amount is already settled (not owed), so it never needs cash.
+                decimal remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
                 if (remaining <= 0m) continue;
 
                 // Monthly caps each month at its remaining and rolls the rest to the next month.
@@ -320,7 +321,8 @@ public class PaymentService : IPaymentService
                 firstTouched ??= p;
                 appliedSlices.Add((p, apply));
 
-                p.PaymentStatus = p.AmountPaid >= p.AmountDue
+                // A month is settled when paid + forgiven covers it (forgiveness reduces what's owed).
+                p.PaymentStatus = p.AmountPaid + (p.ForgivenAmount ?? 0m) >= p.AmountDue
                     ? PaymentStatus.Paid
                     : PaymentStatus.PartiallyPaid;
                 if (p.PaymentStatus == PaymentStatus.Paid) periodsNewlyPaid++;
@@ -779,6 +781,15 @@ public class PaymentService : IPaymentService
         var departures = await _unitOfWork.PaymentsRepo
             .GetStudentDeparturesAsync(teacherId, teacherStudentId);
 
+        // Forgiveness timeline (any status), newest first — surfaced as "Forgiven" entries. Resolve the
+        // forgiving tutor's display name in ONE batch query (no N+1).
+        var forgivenesses = await _unitOfWork.PaymentsRepo
+            .GetForgivenessesByStudentAsync(teacherId, teacherStudentId);
+        var forgiverIds = forgivenesses.Select(f => f.ForgivenByUserId).Distinct().ToList();
+        var forgiverNames = forgiverIds.Count > 0
+            ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(forgiverIds)
+            : new Dictionary<long, string>();
+
         var historyDto = new PaymentHistoryDto
         {
             TeacherStudentId = teacherStudentId,
@@ -811,6 +822,16 @@ public class PaymentService : IPaymentService
                 IsTutorOverride = d.IsTutorOverride,
                 DepartureOutcome = d.DepartureOutcome,
                 DepartedAt = d.DepartedAt
+            }).ToList(),
+            Forgivenesses = forgivenesses.Select(f => new ForgivenessHistoryEntryDto
+            {
+                Id = f.Id,
+                Type = "Forgiven",
+                Amount = f.Amount,
+                Note = f.Note,
+                ByName = forgiverNames.TryGetValue(f.ForgivenByUserId, out var fn) ? fn : null,
+                Date = f.ForgivenAt,
+                Status = f.Status == ForgivenessStatus.Reversed ? "reversed" : "active"
             }).ToList()
         };
 
@@ -3518,7 +3539,8 @@ public class PaymentService : IPaymentService
         foreach (var p in payablePeriods)
         {
             if (amountLeft <= 0m) break;
-            decimal remaining = p.AmountDue - p.AmountPaid;
+            // Forgiven amount is already settled — cash tops up only the still-owed remainder.
+            decimal remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
             if (remaining <= 0m) continue;
 
             decimal apply = isMonthly ? Math.Min(amountLeft, remaining) : amountLeft;
@@ -3582,12 +3604,16 @@ public class PaymentService : IPaymentService
     /// Derives a period's status from its paid-vs-due amounts: fully covered → Paid, some cash →
     /// PartiallyPaid, none → Unpaid.
     /// </summary>
-    private static PaymentStatus RecomputePeriodStatus(PaymentPeriod period) =>
-        period.AmountPaid >= period.AmountDue
+    private static PaymentStatus RecomputePeriodStatus(PaymentPeriod period)
+    {
+        // Forgiven amount counts toward settlement (it reduces what's owed), just like paid cash.
+        decimal settled = period.AmountPaid + (period.ForgivenAmount ?? 0m);
+        return settled >= period.AmountDue
             ? PaymentStatus.Paid
-            : period.AmountPaid > 0m
+            : settled > 0m
                 ? PaymentStatus.PartiallyPaid
                 : PaymentStatus.Unpaid;
+    }
 
     private async Task UpdatePaymentCounterAfterCollectionAsync(
         long teacherId, long teacherStudentId, decimal amount,

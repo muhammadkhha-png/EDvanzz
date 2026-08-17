@@ -68,6 +68,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<AssistantWallet> AssistantWallets { get; set; }
     public DbSet<WalletResetLog> WalletResetLogs { get; set; }
     public DbSet<PaymentEditLog> PaymentEditLogs { get; set; }
+    public DbSet<PaymentForgiveness> PaymentForgivenesses { get; set; }
+    public DbSet<PaymentForgivenessAllocation> PaymentForgivenessAllocations { get; set; }
     public DbSet<StudentDeparture> StudentDepartures { get; set; }
     public DbSet<SessionTransferEvent> SessionTransferEvents { get; set; }
 
@@ -1990,6 +1992,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Financial precision
             entity.Property(p => p.AmountDue).HasColumnType("decimal(10,2)");
             entity.Property(p => p.AmountPaid).HasColumnType("decimal(10,2)");
+            entity.Property(p => p.ForgivenAmount).HasColumnType("decimal(10,2)");
             entity.Property(p => p.ProRatedFraction).HasColumnType("decimal(5,4)");
 
             // Date-only columns
@@ -2207,6 +2210,69 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithMany(t => t.EditLogs)
                 .HasForeignKey(l => l.PaymentTransactionId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region PaymentForgiveness (Forgive-balance: waive outstanding, reversible audit)
+        modelBuilder.Entity<PaymentForgiveness>(entity =>
+        {
+            entity.ToTable("PaymentForgivenesses");
+
+            entity.Property(f => f.Amount).HasColumnType("decimal(10,2)");
+            entity.Property(f => f.ForgivenAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(f => f.ReversedAt).HasColumnType("datetime2(0)");
+            entity.Property(f => f.Note).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+            entity.Property(f => f.ReversalNote).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+            entity.Property(f => f.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(f => f.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(f => f.SessionName).HasMaxLength(PaymentConstants.NameMaxLength);
+
+            // Student timeline: all forgivenesses for a student (history surface + reverse lookup).
+            entity.HasIndex(f => new { f.TeacherId, f.TeacherStudentId })
+                .HasDatabaseName("IX_PF_TeacherId_StudentId");
+
+            // Teacher FK: NoAction — all payment data deleted with the teacher account.
+            entity.HasOne(f => f.Teacher)
+                .WithMany()
+                .HasForeignKey(f => f.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // TeacherStudent FK: SET NULL — the audit row survives student purge (snapshots persist).
+            entity.HasOne(f => f.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(f => f.TeacherStudentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+        #endregion
+
+        #region PaymentForgivenessAllocation (per-period waiver ledger, precise reversal)
+        modelBuilder.Entity<PaymentForgivenessAllocation>(entity =>
+        {
+            entity.ToTable("PaymentForgivenessAllocations");
+
+            entity.Property(a => a.AmountForgiven).HasColumnType("decimal(10,2)");
+
+            // Reverse a forgiveness: load all its allocations.
+            entity.HasIndex(a => a.PaymentForgivenessId)
+                .HasDatabaseName("IX_PFA_PaymentForgivenessId");
+
+            entity.HasIndex(a => a.PaymentPeriodId)
+                .HasDatabaseName("IX_PFA_PaymentPeriodId");
+
+            // Forgiveness FK: CASCADE — a forgiveness owns its allocation rows.
+            entity.HasOne(a => a.PaymentForgiveness)
+                .WithMany(f => f.Allocations)
+                .HasForeignKey(a => a.PaymentForgivenessId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Period FK: CASCADE — when a period is hard-deleted on student purge, its waiver slices
+            // (of a now-gone obligation) go with it. PaymentForgiveness and PaymentPeriod are both
+            // NoAction from Teacher, so these two cascade parents form no multiple-cascade-path
+            // conflict (mirrors PaymentTransactionAllocation's period FK).
+            entity.HasOne(a => a.PaymentPeriod)
+                .WithMany()
+                .HasForeignKey(a => a.PaymentPeriodId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
         #endregion
 

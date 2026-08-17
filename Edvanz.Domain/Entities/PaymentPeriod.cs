@@ -107,8 +107,20 @@ public class PaymentPeriod : BaseEntity
     public decimal AmountPaid { get; set; } = 0;
 
     /// <summary>
-    /// Current payment status derived from AmountDue vs AmountPaid.
-    /// Maintained by the service layer for O(1) status lookup.
+    /// The amount of this period the teacher has FORGIVEN (waived) — NOT cash. Forgiving reduces what
+    /// the student owes without any wallet/transaction/collector effect. The live outstanding for a
+    /// period is therefore <c>AmountDue − AmountPaid − ForgivenAmount</c>, and a period is settled when
+    /// <c>AmountPaid + ForgivenAmount &gt;= AmountDue</c>. Nullable (treated as 0) — additive column,
+    /// backfilled to 0 for every pre-existing row. Written only by the forgive/reverse flow; every
+    /// arrears/outstanding query subtracts it (see IPaymentRepo outstanding helpers).
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal? ForgivenAmount { get; set; }
+
+    /// <summary>
+    /// Current payment status derived from AmountDue vs AmountPaid (+ ForgivenAmount).
+    /// Maintained by the service layer for O(1) status lookup. A fully forgiven/paid period is
+    /// <c>Paid</c> so it drops out of every <c>PaymentStatus != Paid</c> arrears query.
     /// </summary>
     public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Unpaid;
 

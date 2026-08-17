@@ -8,6 +8,7 @@ using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
+using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
@@ -1195,6 +1196,309 @@ public class PaymentScreenService : IPaymentScreenService
         await _idempotency.StoreResultAsync("withdraw", teacherId, idempotencyKey,
             JsonSerializer.Serialize(response, IdempotencyJson));
         return Result<WalletWithdrawResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ForgiveBalanceResponse>> ForgiveBalanceAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal amount, string? note)
+    {
+        // 1. Validate amount (> 0) and student.
+        if (amount <= 0m)
+            return Result<ForgiveBalanceResponse>.Failure(
+                _localizer, PaymentConstants.Messages.ForgiveAmountInvalid, HttpStatusCode.UnprocessableEntity);
+
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(teacherStudentId, teacherId);
+        if (student is null)
+            return Result<ForgiveBalanceResponse>.Failure(
+                _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+
+        // 2. Outstanding is judged THROUGH the current teacher-local month (§7.4) — never future
+        //    pre-generated months. Forgive at most that.
+        var monthEnd = CurrentMonthEnd(teacherId);
+        decimal outstanding = await _unitOfWork.PaymentsRepo
+            .GetOverdueTotalThroughAsync(teacherId, teacherStudentId, null, monthEnd);
+        if (amount > outstanding)
+            return Result<ForgiveBalanceResponse>.Failure(
+                _localizer, PaymentConstants.Messages.ForgiveAmountExceedsOutstanding, HttpStatusCode.UnprocessableEntity);
+
+        string? sessionName = await ResolveStudentSessionNameAsync(teacherId, student.SessionId);
+
+        // 3. Oldest-unpaid-first cascade through the current month (tracked periods).
+        var periods = await _unitOfWork.PaymentsRepo
+            .GetUnpaidPeriodsThroughAsync(teacherId, teacherStudentId, null, monthEnd);
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var now = DateTime.UtcNow;
+            var forgiveness = new PaymentForgiveness
+            {
+                TeacherId = teacherId,
+                TeacherStudentId = teacherStudentId,
+                SessionId = student.SessionId,
+                Amount = amount,
+                Note = Truncate(note, PaymentConstants.EditReasonMaxLength),
+                Status = ForgivenessStatus.Active,
+                ForgivenByUserId = actingUserId,
+                ForgivenAt = now,
+                StudentName = student.StudentName,
+                StudentCode = student.StudentCode,
+                SessionName = sessionName,
+                CreateAt = now
+            };
+            await _unitOfWork.PaymentsRepo.AddPaymentForgivenessAsync(forgiveness);
+
+            decimal left = amount;
+            int periodsNewlySettled = 0;
+            var allocations = new List<PaymentForgivenessAllocation>();
+            foreach (var p in periods)
+            {
+                if (left <= 0m) break;
+                decimal remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
+                if (remaining <= 0m) continue;
+
+                decimal apply = Math.Min(left, remaining);
+                p.ForgivenAmount = (p.ForgivenAmount ?? 0m) + apply;
+                left -= apply;
+
+                bool nowSettled = p.AmountPaid + (p.ForgivenAmount ?? 0m) >= p.AmountDue;
+                if (nowSettled && p.PaymentStatus != PaymentStatus.Paid) periodsNewlySettled++;
+                p.PaymentStatus = nowSettled
+                    ? PaymentStatus.Paid
+                    : (p.AmountPaid > 0m ? PaymentStatus.PartiallyPaid : PaymentStatus.Unpaid);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+
+                allocations.Add(new PaymentForgivenessAllocation
+                {
+                    PaymentForgiveness = forgiveness,
+                    PaymentPeriodId = p.Id,
+                    TeacherId = teacherId,
+                    AmountForgiven = apply,
+                    CreateAt = now
+                });
+            }
+
+            // Defensive: `amount` was validated <= outstanding, so `left` should be 0; record only
+            // what actually landed on periods.
+            decimal appliedTotal = amount - left;
+            forgiveness.Amount = appliedTotal;
+
+            if (allocations.Count > 0)
+                await _unitOfWork.PaymentsRepo.AddPaymentForgivenessAllocationsRangeAsync(allocations);
+
+            // Counter stays in sync: outstanding drops by the waived cash-equivalent; settled months
+            // leave the unpaid tail (NOT counted as PAID — no cash was collected). Recompute streak.
+            await AdjustCounterForForgivenessAsync(
+                teacherId, teacherStudentId, -appliedTotal, -periodsNewlySettled);
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+
+            var summary = await BuildForgiveStudentSummaryAsync(
+                teacherId, teacherStudentId, student.StudentName, student.StudentCode, sessionName, monthEnd);
+            var byName = await ResolveUserNameAsync(actingUserId);
+
+            var response = new ForgiveBalanceResponse
+            {
+                Forgiveness = new ForgivenessDto
+                {
+                    Id = forgiveness.Id.ToString(CultureInfo.InvariantCulture),
+                    Amount = appliedTotal,
+                    Note = forgiveness.Note,
+                    ByName = byName,
+                    ByUserId = actingUserId.ToString(CultureInfo.InvariantCulture),
+                    Date = forgiveness.ForgivenAt,
+                    Status = "active"
+                },
+                Student = summary
+            };
+            return Result<ForgiveBalanceResponse>.Success(
+                response, _localizer, PaymentConstants.Messages.ForgiveSuccess);
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ForgiveBalanceResponse>> ReverseForgivenessAsync(
+        long teacherId, long actingUserId, long forgivenessId, string? note)
+    {
+        var forgiveness = await _unitOfWork.PaymentsRepo
+            .GetForgivenessByIdAndTeacherAsync(teacherId, forgivenessId);
+        if (forgiveness is null)
+            return Result<ForgiveBalanceResponse>.Failure(
+                _localizer, PaymentConstants.Messages.ForgivenessNotFound, HttpStatusCode.NotFound);
+        if (forgiveness.Status == ForgivenessStatus.Reversed)
+            return Result<ForgiveBalanceResponse>.Failure(
+                _localizer, PaymentConstants.Messages.ForgivenessAlreadyReversed, HttpStatusCode.Conflict);
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            var now = DateTime.UtcNow;
+            decimal restored = 0m;
+            int periodsReopened = 0;
+
+            foreach (var alloc in forgiveness.Allocations)
+            {
+                var p = alloc.PaymentPeriod;
+                if (p is null) continue; // period purged with the student — nothing to restore
+
+                decimal current = p.ForgivenAmount ?? 0m;
+                decimal take = Math.Min(current, alloc.AmountForgiven);
+                if (take <= 0m) continue;
+
+                bool wasSettled = p.AmountPaid + current >= p.AmountDue;
+                p.ForgivenAmount = current - take;
+                restored += take;
+
+                bool nowSettled = p.AmountPaid + (p.ForgivenAmount ?? 0m) >= p.AmountDue;
+                if (wasSettled && !nowSettled) periodsReopened++;
+                p.PaymentStatus = nowSettled
+                    ? PaymentStatus.Paid
+                    : (p.AmountPaid > 0m ? PaymentStatus.PartiallyPaid : PaymentStatus.Unpaid);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+            }
+
+            forgiveness.Status = ForgivenessStatus.Reversed;
+            forgiveness.ReversedByUserId = actingUserId;
+            forgiveness.ReversedAt = now;
+            forgiveness.ReversalNote = Truncate(note, PaymentConstants.EditReasonMaxLength);
+
+            if (forgiveness.TeacherStudentId.HasValue)
+                await AdjustCounterForForgivenessAsync(
+                    teacherId, forgiveness.TeacherStudentId.Value, restored, periodsReopened);
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+
+            var monthEnd = CurrentMonthEnd(teacherId);
+            ForgiveStudentSummaryDto summary;
+            if (forgiveness.TeacherStudentId.HasValue)
+            {
+                var student = await _unitOfWork.Students
+                    .GetActiveByIdAndTeacherAsync(forgiveness.TeacherStudentId.Value, teacherId);
+                var sessionName = student is not null
+                    ? await ResolveStudentSessionNameAsync(teacherId, student.SessionId)
+                    : forgiveness.SessionName;
+                summary = await BuildForgiveStudentSummaryAsync(
+                    teacherId, forgiveness.TeacherStudentId.Value,
+                    student?.StudentName ?? forgiveness.StudentName,
+                    student?.StudentCode ?? forgiveness.StudentCode,
+                    sessionName, monthEnd);
+            }
+            else
+            {
+                // Student was purged — no live outstanding to report.
+                summary = new ForgiveStudentSummaryDto
+                {
+                    Id = string.Empty,
+                    Name = forgiveness.StudentName,
+                    StudentCode = forgiveness.StudentCode,
+                    SessionName = forgiveness.SessionName,
+                    Outstanding = 0m,
+                    MonthsOwed = 0,
+                    Status = "paid"
+                };
+            }
+
+            var byName = await ResolveUserNameAsync(actingUserId);
+            var response = new ForgiveBalanceResponse
+            {
+                Forgiveness = new ForgivenessDto
+                {
+                    Id = forgiveness.Id.ToString(CultureInfo.InvariantCulture),
+                    Amount = forgiveness.Amount,
+                    Note = forgiveness.Note,
+                    ByName = byName,
+                    ByUserId = forgiveness.ForgivenByUserId.ToString(CultureInfo.InvariantCulture),
+                    Date = forgiveness.ForgivenAt,
+                    Status = "reversed"
+                },
+                Student = summary
+            };
+            return Result<ForgiveBalanceResponse>.Success(
+                response, _localizer, PaymentConstants.Messages.ForgiveReversedSuccess);
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the all-time <see cref="StudentPaymentCounter"/> consistent after a forgive/reverse.
+    /// <paramref name="outstandingDelta"/> is added to <c>TotalOutstanding</c> (negative on forgive,
+    /// positive on reverse); <paramref name="unpaidPeriodsDelta"/> adjusts <c>TotalUnpaidPeriods</c>
+    /// (negative when months are settled by a waiver, positive when a reversal re-opens them). A waived
+    /// month is NOT counted as PAID (no cash), so <c>TotalPaidPeriods</c> is untouched. The consecutive
+    /// streak is recomputed from live period state.
+    /// </summary>
+    private async Task AdjustCounterForForgivenessAsync(
+        long teacherId, long teacherStudentId, decimal outstandingDelta, int unpaidPeriodsDelta)
+    {
+        var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
+        if (counter is null) return;
+
+        counter.TotalOutstanding += outstandingDelta;
+        if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
+
+        counter.TotalUnpaidPeriods = Math.Max(0, counter.TotalUnpaidPeriods + unpaidPeriodsDelta);
+        counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+            .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
+
+        await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+    }
+
+    /// <summary>Builds the student payment summary row returned by forgive/reverse — arrears + unpaid
+    /// month count through the current teacher-local month (post-change).</summary>
+    private async Task<ForgiveStudentSummaryDto> BuildForgiveStudentSummaryAsync(
+        long teacherId, long teacherStudentId, string? name, string? code, string? sessionName, DateTime monthEnd)
+    {
+        decimal outstanding = await _unitOfWork.PaymentsRepo
+            .GetOverdueTotalThroughAsync(teacherId, teacherStudentId, null, monthEnd);
+        var unpaid = await _unitOfWork.PaymentsRepo
+            .GetUnpaidPeriodsThroughAsync(teacherId, teacherStudentId, null, monthEnd);
+
+        return new ForgiveStudentSummaryDto
+        {
+            Id = teacherStudentId.ToString(CultureInfo.InvariantCulture),
+            Name = name,
+            StudentCode = code,
+            SessionName = sessionName,
+            Outstanding = outstanding,
+            MonthsOwed = unpaid.Count,
+            Status = outstanding > 0m ? "unpaid" : "paid"
+        };
+    }
+
+    /// <summary>Resolves the display name of the student's current session (null when unassigned/unknown).</summary>
+    private async Task<string?> ResolveStudentSessionNameAsync(long teacherId, long? sessionId)
+    {
+        if (sessionId is null) return null;
+        var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId.Value, teacherId);
+        return session?.SessionName;
+    }
+
+    /// <summary>Resolves one user id → full display name (null when unknown).</summary>
+    private async Task<string?> ResolveUserNameAsync(long userId)
+    {
+        var names = await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(new List<long> { userId });
+        return names.TryGetValue(userId, out var name) ? name : null;
+    }
+
+    /// <summary>Trims a note to the column limit (null/blank → null).</summary>
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        value = value.Trim();
+        return value.Length <= maxLength ? value : value.Substring(0, maxLength);
     }
 
     /// <summary>Formats a session start time as e.g. "5:00 PM".</summary>

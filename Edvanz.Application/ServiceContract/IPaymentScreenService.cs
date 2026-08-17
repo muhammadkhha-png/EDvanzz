@@ -147,4 +147,25 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<WalletWithdrawResponse>> WithdrawAsync(
         long teacherId, long assistantId, decimal? amount, long actingUserId, string? idempotencyKey);
+
+    /// <summary>
+    /// FORGIVE (waive) part of a student's outstanding balance (MONEY, TEACHER-ONLY — assistants are
+    /// blocked at the API gate). Forgiving is NOT cash: no wallet change, no transaction, no collector
+    /// attribution — it only reduces what the student owes, applied oldest-unpaid-month first (cascade,
+    /// same month-scoping as §7.4) by incrementing each period's <c>ForgivenAmount</c>. Records a
+    /// reversible <c>PaymentForgiveness</c> audit row. 404 unknown student; 422 when
+    /// <paramref name="amount"/> ≤ 0 (<c>ForgiveAmountInvalid</c>) or exceeds the outstanding through
+    /// the current teacher-local month (<c>ForgiveAmountExceedsOutstanding</c>). Returns the created
+    /// forgiveness + the updated student payment summary row.
+    /// </summary>
+    Task<Result<ForgiveBalanceResponse>> ForgiveBalanceAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal amount, string? note);
+
+    /// <summary>
+    /// REVERSE a forgiveness (TEACHER-ONLY): restores the exact per-period balance it waived and audits
+    /// the reversal (who/when/note). 404 <c>ForgivenessNotFound</c>; 409 <c>ForgivenessAlreadyReversed</c>.
+    /// Returns the reversed forgiveness + the updated student payment summary row.
+    /// </summary>
+    Task<Result<ForgiveBalanceResponse>> ReverseForgivenessAsync(
+        long teacherId, long actingUserId, long forgivenessId, string? note);
 }

@@ -119,6 +119,16 @@ public static class PaymentConstants
 
         // Amount validation (edit)
         public const string PaymentAmountNegative = "PaymentAmountNegative";           // PAY-3 — reject negative edit
+        public const string EditNoteRequired = "EditNoteRequired";                     // Feature B — note required on partial/custom edit
+        public const string CollectNoteRequired = "CollectNoteRequired";               // Feature C — note required on partial/custom collect
+
+        // Forgive balance (waive outstanding — teacher-only, reversible)
+        public const string ForgiveAmountInvalid = "ForgiveAmountInvalid";                       // amount <= 0
+        public const string ForgiveAmountExceedsOutstanding = "ForgiveAmountExceedsOutstanding"; // amount > outstanding through current month
+        public const string ForgiveSuccess = "ForgiveSuccess";
+        public const string ForgivenessNotFound = "ForgivenessNotFound";
+        public const string ForgivenessAlreadyReversed = "ForgivenessAlreadyReversed";
+        public const string ForgiveReversedSuccess = "ForgiveReversedSuccess";
 
         // Offline Sync — payment domain (PAY-7; SyncCompleted/SyncConflictsDetected are attendance-worded)
         public const string PaymentSyncCompleted = "PaymentSyncCompleted";
