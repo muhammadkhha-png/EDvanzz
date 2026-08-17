@@ -356,6 +356,18 @@ public interface IPaymentService
     Task<Result<bool>> OnStudentPermanentlyDeletedAsync(long teacherStudentId);
 
     /// <summary>
+    /// ONE-TIME OPS CLEANUP (SuperAdmin). Finds every currently-assigned student whose UNPAID/PARTIAL
+    /// billing was STRANDED under a session other than their current one (by the pre-carry-over reassign)
+    /// and applies the same carry-over as a live move — stranded unpaid-due → current session, stranded
+    /// future cancelled, partials settled (paid part kept, remainder re-billed), paid kept — recomputing
+    /// each student's counter. Does NOT regenerate the current session's schedule (it already exists; an
+    /// overlap guard prevents double-billing a month the current session already bills). Monthly only —
+    /// PerSession students are reported and skipped. <paramref name="dryRun"/>=true writes NOTHING and
+    /// returns exactly what WOULD change; false applies it (each student in its own transaction).
+    /// </summary>
+    Task<Result<MovedStudentsReconcileReport>> ReconcileMovedStudentsAsync(bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

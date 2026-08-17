@@ -3091,6 +3091,234 @@ public class PaymentService : IPaymentService
     }
 
     /// <inheritdoc />
+    public async Task<Result<MovedStudentsReconcileReport>> ReconcileMovedStudentsAsync(bool dryRun)
+    {
+        // One-time cleanup for arrears that the OLD reassign flow stranded in a student's previous
+        // session (it deleted future unpaid periods but LEFT past unpaid periods under the old session).
+        // For every currently-assigned student that still owes under a DIFFERENT session, apply the SAME
+        // carry-over as a live move — move stranded unpaid-due → current session, cancel stranded future,
+        // settle partials (paid part stays as history, remainder re-billed), keep paid — WITHOUT
+        // regenerating the current session's schedule (it already exists; the overlap guard prevents any
+        // double-bill). dryRun=true writes NOTHING and only reports what WOULD change.
+        var report = new MovedStudentsReconcileReport { DryRun = dryRun };
+
+        var candidates = await _unitOfWork.PaymentsRepo.GetStudentsWithStrandedUnpaidPeriodsAsync();
+
+        foreach (var candidate in candidates)
+        {
+            var toSession = await _unitOfWork.SessionsRepo
+                .GetByIdAndTeacherAsync(candidate.CurrentSessionId, candidate.TeacherId);
+            if (toSession is null)
+            {
+                report.Skipped.Add(new MovedStudentReconcileSkip
+                {
+                    TeacherId = candidate.TeacherId,
+                    TeacherStudentId = candidate.TeacherStudentId,
+                    StudentName = candidate.StudentName,
+                    Reason = "CurrentSessionNotFound"
+                });
+                continue;
+            }
+
+            var allPeriods = (await _unitOfWork.PaymentsRepo
+                .GetAllPaymentPeriodsByStudentAsync(candidate.TeacherId, candidate.TeacherStudentId))
+                .ToList();
+
+            // Distinct OLD sessions the student still owes under (excludes the current session).
+            var strandedSessionIds = allPeriods
+                .Where(p => p.SessionId.HasValue
+                    && p.SessionId.Value != candidate.CurrentSessionId
+                    && (p.AmountDue - p.AmountPaid) > 0m)
+                .Select(p => p.SessionId!.Value)
+                .Distinct()
+                .ToList();
+            if (strandedSessionIds.Count == 0)
+                continue; // race: paid/cleaned between the candidate scan and now
+
+            // PerSession is out of scope for the automated monthly carry-over → report + skip.
+            bool anyStrandedPerSession = allPeriods.Any(p =>
+                p.SessionId.HasValue
+                && strandedSessionIds.Contains(p.SessionId.Value)
+                && p.PeriodType != PeriodType.Monthly);
+            if (toSession.PaymentType != PaymentType.Monthly || anyStrandedPerSession)
+            {
+                report.Skipped.Add(new MovedStudentReconcileSkip
+                {
+                    TeacherId = candidate.TeacherId,
+                    TeacherStudentId = candidate.TeacherStudentId,
+                    StudentName = candidate.StudentName,
+                    Reason = "PerSessionNotHandled"
+                });
+                continue;
+            }
+
+            // Overlap guard: months the CURRENT session already bills — a stranded arrear for such a
+            // month is left in place (never double-bill), surfaced as OverlapSkipped.
+            var destExistingMonths = allPeriods
+                .Where(p => p.SessionId == candidate.CurrentSessionId)
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+                .ToHashSet();
+
+            var today = _timeZoneService.GetTeacherLocalDate(candidate.TeacherId);
+            var currentMonthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+
+            var item = new MovedStudentReconcileItem
+            {
+                TeacherId = candidate.TeacherId,
+                TeacherStudentId = candidate.TeacherStudentId,
+                StudentName = candidate.StudentName,
+                StudentCode = candidate.StudentCode,
+                CurrentSessionId = candidate.CurrentSessionId,
+                CurrentSessionName = toSession.SessionName
+            };
+
+            bool execute = !dryRun;
+            if (execute) await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                StudentPaymentCounter? counter = null;
+                TeacherStudent? student = null;
+                int destSequence = 0;
+                if (execute)
+                {
+                    student = await _unitOfWork.Students
+                        .GetActiveByIdAndTeacherAsync(candidate.TeacherStudentId, candidate.TeacherId);
+                    if (student is null)
+                    {
+                        // Purged/deactivated between scan and now — nothing safe to write.
+                        await _unitOfWork.RollbackAsync();
+                        report.Skipped.Add(new MovedStudentReconcileSkip
+                        {
+                            TeacherId = candidate.TeacherId,
+                            TeacherStudentId = candidate.TeacherStudentId,
+                            StudentName = candidate.StudentName,
+                            Reason = "StudentNotFound"
+                        });
+                        continue;
+                    }
+
+                    counter = await _unitOfWork.PaymentsRepo
+                        .GetPaymentCounterAsync(candidate.TeacherId, candidate.TeacherStudentId);
+                    if (counter is null)
+                    {
+                        counter = new StudentPaymentCounter
+                        {
+                            TeacherId = candidate.TeacherId,
+                            TeacherStudentId = candidate.TeacherStudentId,
+                            CreateAt = DateTime.UtcNow
+                        };
+                        await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
+                    }
+
+                    destSequence = await _unitOfWork.PaymentsRepo.GetMaxPeriodSequenceAsync(
+                        candidate.TeacherId, candidate.TeacherStudentId, candidate.CurrentSessionId) + 1;
+                }
+
+                foreach (var fromSessionId in strandedSessionIds)
+                {
+                    // Include-free periods for classify + apply (matches the live move path).
+                    var fromPeriods = await _unitOfWork.PaymentsRepo
+                        .GetPaymentPeriodsByStudentAndSessionAsync(
+                            candidate.TeacherId, candidate.TeacherStudentId, fromSessionId);
+
+                    var fromSession = await _unitOfWork.SessionsRepo
+                        .GetByIdAndTeacherAsync(fromSessionId, candidate.TeacherId);
+                    string fromName = fromSession?.SessionName
+                        ?? fromPeriods.FirstOrDefault()?.SessionName ?? string.Empty;
+
+                    var plan = BuildCarryOverPlan(fromPeriods, currentMonthEnd, destExistingMonths);
+
+                    var detail = new MovedStudentReconcileDetail
+                    {
+                        FromSessionId = fromSessionId,
+                        FromSessionName = fromName,
+                        MovedMonths = plan.UnpaidDueToMove.Select(FormatPeriodLabel).ToList(),
+                        CancelledMonths = plan.FutureToCancel.Select(FormatPeriodLabel).ToList(),
+                        SettledMonths = plan.PartialsToSplit.Select(FormatPeriodLabel).ToList(),
+                        OverlapSkippedMonths = plan.OverlapSkipped.Select(FormatPeriodLabel).ToList(),
+                        MovedAmount = plan.MovedAmount,
+                        CancelledAmount = plan.CancelledAmount,
+                        SettledAmount = plan.SettledInSourceAmount,
+                        RemainderBilledAmount = plan.SettledRemainderAmount
+                    };
+                    item.Details.Add(detail);
+
+                    item.PeriodsMoved += plan.UnpaidDueToMove.Count;
+                    item.PeriodsCancelled += plan.FutureToCancel.Count;
+                    item.PartialsSettled += plan.PartialsToSplit.Count;
+                    item.OverlapSkipped += plan.OverlapSkipped.Count;
+                    item.MovedAmount += plan.MovedAmount;
+                    item.CancelledAmount += plan.CancelledAmount;
+                    item.SettledAmount += plan.SettledInSourceAmount;
+                    item.RemainderBilledAmount += plan.SettledRemainderAmount;
+
+                    if (execute)
+                    {
+                        // Capture the transfer snapshot BEFORE apply mutates the partials' AmountDue.
+                        decimal outstandingCarried = plan.OutstandingCarried;
+                        var statusAtTransfer = plan.StatusAtTransfer;
+
+                        destSequence = await ApplyCarryOverPlanAsync(
+                            plan, candidate.TeacherId, candidate.TeacherStudentId, student!,
+                            fromSessionId, fromName, candidate.CurrentSessionId, toSession.SessionName,
+                            destSequence);
+
+                        // Only write an audit row when something actually moved/settled.
+                        if (plan.UnpaidDueToMove.Count > 0 || plan.PartialsToSplit.Count > 0
+                            || plan.FutureToCancel.Count > 0)
+                        {
+                            await _unitOfWork.PaymentsRepo.AddSessionTransferEventAsync(new SessionTransferEvent
+                            {
+                                TeacherId = candidate.TeacherId,
+                                TeacherStudentId = candidate.TeacherStudentId,
+                                SourceSessionId = fromSessionId,
+                                SourceSessionName = fromName,
+                                DestinationSessionId = candidate.CurrentSessionId,
+                                DestinationSessionName = toSession.SessionName,
+                                PaymentStatusAtTransfer = statusAtTransfer,
+                                OutstandingBalance = outstandingCarried,
+                                CreditBalance = 0m,
+                                SourcePaymentType = PaymentType.Monthly.ToString(),
+                                DestinationPaymentType = toSession.PaymentType.ToString(),
+                                StudentName = student!.StudentName,
+                                StudentCode = student.StudentCode,
+                                TransferredAt = DateTime.UtcNow,
+                                TransferredByUserId = null, // ops reconcile — no explicit actor
+                                CreateAt = DateTime.UtcNow
+                            });
+                        }
+                    }
+                }
+
+                if (execute)
+                {
+                    await _unitOfWork.SaveChangesAsync();
+                    await RecomputeStudentPaymentCounterAsync(
+                        candidate.TeacherId, candidate.TeacherStudentId, counter!);
+                    await _unitOfWork.SaveChangesAsync();
+                    await _unitOfWork.CommitAsync();
+                }
+            }
+            catch
+            {
+                if (execute) await _unitOfWork.RollbackAsync();
+                throw;
+            }
+
+            report.Students.Add(item);
+            report.StudentsAffected++;
+            report.TotalMovedAmount += item.MovedAmount;
+            report.TotalCancelledAmount += item.CancelledAmount;
+            report.TotalSettledAmount += item.SettledAmount;
+            report.TotalRemainderBilledAmount += item.RemainderBilledAmount;
+        }
+
+        report.StudentsSkipped = report.Skipped.Count;
+        return Result<MovedStudentsReconcileReport>.Success(
+            report, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<bool>> OnSessionDeletingAsync(long teacherId, long sessionId)
     {
         await _unitOfWork.PaymentsRepo.NullifySessionIdOnPaymentRecordsAsync(sessionId);

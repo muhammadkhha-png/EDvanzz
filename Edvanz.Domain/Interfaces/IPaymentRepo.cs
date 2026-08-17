@@ -741,6 +741,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<int> RecalculateConsecutiveUnpaidAsync(long teacherId, long teacherStudentId);
 
+    /// <summary>
+    /// One-time cleanup support: every CURRENTLY-assigned student (across all teachers) that still
+    /// carries an UNPAID/PARTIAL PaymentPeriod under a session OTHER than their current one — arrears
+    /// stranded in an old session by the pre-carry-over reassign. Soft-deleted students are excluded by
+    /// the global query filter; students with no current session are excluded by the SessionId != null
+    /// predicate. See <see cref="StrandedStudentRow"/>.
+    /// </summary>
+    Task<IReadOnlyList<StrandedStudentRow>> GetStudentsWithStrandedUnpaidPeriodsAsync();
+
     /// <summary>Counts the (non-deleted) payment events owned by a teacher (free-tier quota).</summary>
     Task<int> CountEventsByTeacherAsync(long teacherId);
     Task<DateTime?> GetLastWalletResetAtAsync(long teacherId, long assistantId);

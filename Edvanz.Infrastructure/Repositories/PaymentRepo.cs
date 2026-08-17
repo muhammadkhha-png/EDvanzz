@@ -2306,4 +2306,30 @@
 
             return consecutive;
         }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<StrandedStudentRow>> GetStudentsWithStrandedUnpaidPeriodsAsync()
+        {
+            // Currently-assigned students (SessionId != null; soft-deleted excluded by the global filter)
+            // that have at least one still-owed period (AmountDue > AmountPaid) under a DIFFERENT session.
+            var rows = await _context.TeacherStudents
+                .Where(ts => ts.SessionId != null
+                    && _context.PaymentPeriods.Any(p =>
+                        p.TeacherStudentId == ts.Id
+                        && p.SessionId != null
+                        && p.SessionId != ts.SessionId
+                        && p.AmountDue > p.AmountPaid))
+                .Select(ts => new StrandedStudentRow
+                {
+                    TeacherId = ts.TeacherId,
+                    TeacherStudentId = ts.Id,
+                    CurrentSessionId = ts.SessionId!.Value,
+                    StudentName = ts.StudentName,
+                    StudentCode = ts.StudentCode
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return rows;
+        }
     }

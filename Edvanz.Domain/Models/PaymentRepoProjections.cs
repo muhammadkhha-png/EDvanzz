@@ -47,6 +47,21 @@ public sealed class CollectStudentRow
 }
 
 /// <summary>
+/// Projection row for the one-time "reconcile moved students" cleanup: a student who is CURRENTLY
+/// assigned to a session yet still carries an UNPAID/PARTIAL PaymentPeriod under a DIFFERENT session
+/// — i.e. arrears stranded in an old session by the pre-carry-over reassign flow. One row per such
+/// student. Soft-deleted students are excluded by the TeacherStudent global query filter.
+/// </summary>
+public sealed class StrandedStudentRow
+{
+    public long TeacherId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public long CurrentSessionId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+}
+
+/// <summary>
 /// Projection row for the PaymentTracking "students by status" list (api/v1 screens).
 /// One row per student in the requested status group, with that month's paid/due amounts
 /// and the student's outstanding balance/unpaid-month count from their counter.
