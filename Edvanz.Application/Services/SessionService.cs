@@ -880,13 +880,19 @@ public class SessionService : ISessionService
             // REQ-SES-019: Override previous session assignment
             foreach (var student in students)
             {
+                // Capture the CURRENT session BEFORE repointing. A confirm-reassign is a genuine
+                // move (A → B), so the billing must be CARRIED OVER (unpaid arrears + current month
+                // move to B re-priced to B's amount, paid months stay in A as history, a partial is
+                // split, unpaid future in A is cancelled) — the SAME OnStudentMovedBetweenSessionsAsync
+                // path the student-edit move uses. The old unassign(A)+assign(B) pair STRANDED past
+                // arrears in A and re-prorated B's first month as if it were a brand-new enrollment
+                // (proration is only for genuinely new students — §7.4). Attendance is unchanged.
+                long? previousSessionId = student.SessionId;
+
                 // ── ATTENDANCE INTEGRATION: Close old assignment period ──
                 // REQ-ATT-020: Preserve complete attendance history under previous session.
                 // Sets UnassignedAt on the current active StudentSessionAssignment.
                 await _attendanceService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
-
-                // ── PAYMENT INTEGRATION: Preserve payment history for previous session ──
-                await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
 
                 // Update the student's current session pointer
                 student.SessionId = sessionId;
@@ -899,10 +905,22 @@ public class SessionService : ISessionService
                 await _attendanceService.OnStudentAssignedToSessionAsync(
                     teacherId, student.Id, sessionId, session.SessionName);
 
-                // ── PAYMENT INTEGRATION: Generate payment periods for new session ──
-                // REQ-PAY-085/086: Payment history preserved, new periods generated.
-                await _paymentService.OnStudentAssignedToSessionAsync(
-                    teacherId, student.Id, sessionId, session.SessionName, DateTime.UtcNow);
+                // ── PAYMENT INTEGRATION: carry the billing over (A → B) or, for a student who had no
+                // prior session, generate the new session's periods. REQ-PAY-085/086.
+                if (previousSessionId is not null && previousSessionId.Value != sessionId)
+                {
+                    var prevSession = await _unitOfWork.SessionsRepo
+                        .GetByIdAndTeacherAsync(previousSessionId.Value, teacherId);
+                    await _paymentService.OnStudentMovedBetweenSessionsAsync(
+                        teacherId, student.Id,
+                        previousSessionId.Value, prevSession?.SessionName ?? string.Empty,
+                        sessionId, session.SessionName, DateTime.UtcNow);
+                }
+                else
+                {
+                    await _paymentService.OnStudentAssignedToSessionAsync(
+                        teacherId, student.Id, sessionId, session.SessionName, DateTime.UtcNow);
+                }
             }
 
             await _unitOfWork.SaveChangesAsync();
