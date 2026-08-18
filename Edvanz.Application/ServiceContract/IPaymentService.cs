@@ -313,6 +313,14 @@ public interface IPaymentService
     Task ReconcileProrationForExistingStudentsAsync(long teacherId);
 
     /// <summary>
+    /// Re-anchors a NEW student's first-month proration to their FIRST-Present-attendance date. Call it
+    /// (best-effort) when a Present is recorded for the student in the session; it no-ops for transfers,
+    /// already-paid first months, disabled proration, or a first class outside the assignment month.
+    /// Idempotent (always uses the earliest present date). Owns its transaction when none is active.
+    /// </summary>
+    Task ReapplyFirstAttendanceProrationAsync(long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>
     /// Called by SessionService after a session's date window changed. Billing periods are only
     /// generated ONCE — when a student is assigned — and only as far as the session's end date AT
     /// THAT MOMENT. Extending the end date afterwards therefore left the already-assigned students

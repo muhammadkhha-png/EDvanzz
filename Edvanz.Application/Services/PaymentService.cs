@@ -1043,9 +1043,9 @@ public class PaymentService : IPaymentService
         // CALLER's transaction (TeacherService.SaveConfigurationAsync owns Begin/Commit; §5.2): it only
         // mutates + SaveChanges, never opens/commits its own boundary (mirrors OnSessionAmountChangedAsync).
         //
-        // SCOPE (user-chosen): only each assigned student's first month, and only while STILL OWED — a
-        // month the student already fully paid is never rewritten, so no credit/debit is ever created.
-        var periods = await _unitOfWork.PaymentsRepo.GetFirstMonthlyPeriodsForAssignedStudentsAsync(teacherId);
+        // SCOPE: only the proration ANCHOR month (a new enrollment's first month — never a transfer),
+        // and only while STILL OWED — a fully-paid month is never rewritten (no credit/debit created).
+        var periods = await _unitOfWork.PaymentsRepo.GetUnpaidAnchorMonthPeriodsAsync(teacherId);
         if (periods.Count == 0) return;
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
@@ -1055,16 +1055,15 @@ public class PaymentService : IPaymentService
             : System.Array.Empty<TeacherProratedTier>();
 
         // Batch-load everything the loop needs so a whole-roster reconcile stays a handful of queries,
-        // not O(students): the join DAY (selects the tier) and the affected counters (tracked — they
-        // carry CustomPaymentAmount AND receive the delta writes).
+        // not O(students): the anchor DAY sources and the affected counters (tracked — they carry
+        // CustomPaymentAmount AND receive the delta writes).
         var studentIds = periods.Select(p => p.TeacherStudentId!.Value).Distinct().ToList();
         var counters = (await _unitOfWork.PaymentsRepo
                 .GetPaymentCountersByStudentIdsAsync(teacherId, studentIds))
             .ToDictionary(c => c.TeacherStudentId);
 
-        // Join day per (student, session) = the EARLIEST assignment to that session (the original
-        // enrollment that generated the first month). Generated periods don't store their assignment id,
-        // so we resolve by (student, session) rather than the period's null StudentSessionAssignmentId.
+        // Assignment day per (student, session) = earliest assignment to that session (the original
+        // enrollment). Generated periods don't store their assignment id, so resolve by (student, session).
         var joinDates = new Dictionary<(long StudentId, long SessionId), DateTime>();
         foreach (var r in await _unitOfWork.PaymentsRepo
             .GetAssignmentDatesForStudentsAsync(teacherId, studentIds))
@@ -1072,6 +1071,15 @@ public class PaymentService : IPaymentService
             var key = (r.TeacherStudentId, r.SessionId);
             if (!joinDates.TryGetValue(key, out var existing) || r.AssignedAt < existing)
                 joinDates[key] = r.AssignedAt;
+        }
+
+        // First-Present date per (student, session) — the PREFERRED anchor (agreed design). Falls back
+        // to the assignment day when the student hasn't attended yet, or first attended a later month.
+        var firstPresent = new Dictionary<(long StudentId, long SessionId), DateTime>();
+        foreach (var r in await _unitOfWork.PaymentsRepo
+            .GetFirstAttendanceDatesForStudentsAsync(teacherId, studentIds))
+        {
+            firstPresent[(r.TeacherStudentId, r.SessionId)] = r.FirstPresentDate;
         }
 
         var sessionAmountCache = new Dictionary<long, decimal>();
@@ -1100,12 +1108,22 @@ public class PaymentService : IPaymentService
             else fullBase = p.AmountDue;
 
             // Enabled + a fraction < 1 → prorate; disabled, or a day in a full-price/unknown tier → full.
+            // Anchor day = the student's FIRST-Present day when they attended IN the anchor month
+            // (agreed design), else the assignment day (not yet attended, or first attended a later month
+            // per "prorate the assignment month only").
             decimal fraction = 1.0m;
-            if (enabled
-                && p.SessionId is long sid
-                && joinDates.TryGetValue((studentId, sid), out var assignedAt))
+            if (enabled && p.SessionId is long sid)
             {
-                fraction = MatchProrationFraction(tiers, assignedAt.Day);
+                var anchorMonth = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+                int? anchorDay = null;
+                if (firstPresent.TryGetValue((studentId, sid), out var present)
+                    && new DateTime(present.Year, present.Month, 1) == anchorMonth)
+                    anchorDay = present.Day;
+                else if (joinDates.TryGetValue((studentId, sid), out var assignedAt))
+                    anchorDay = assignedAt.Day;
+
+                if (anchorDay is int day)
+                    fraction = MatchProrationFraction(tiers, day);
             }
 
             bool prorate = enabled && fraction < 1.0m;
@@ -1160,6 +1178,80 @@ public class PaymentService : IPaymentService
                 matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
         }
         return matchingTier?.FractionRate ?? 1.0m;
+    }
+
+    /// <inheritdoc />
+    public async Task ReapplyFirstAttendanceProrationAsync(
+        long teacherId, long teacherStudentId, long sessionId)
+    {
+        // Re-anchor a NEW student's first-month proration to their FIRST-Present-attendance date
+        // (agreed design). Called (best-effort) when a Present is recorded. Idempotent — it always uses
+        // the EARLIEST present date, so repeated calls converge; a no-op change returns early.
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config?.IsProratedPaymentEnabled != true) return;
+
+        // Only a NEW enrollment's first month carries the anchor flag (transfers never do) — so this
+        // silently no-ops for a transferred student.
+        var anchor = await _unitOfWork.PaymentsRepo
+            .GetProrationAnchorPeriodAsync(teacherId, teacherStudentId, sessionId);
+        if (anchor is null || anchor.PaymentStatus == PaymentStatus.Paid) return; // gone or already settled
+
+        var firstAttendance = await _unitOfWork.PaymentsRepo
+            .GetFirstAttendanceDateAsync(teacherId, teacherStudentId, sessionId);
+        if (firstAttendance is null) return;
+
+        // "Prorate the assignment month only" (agreed): only re-anchor when the first attendance falls
+        // in the anchor (assignment) month; a later-month first class leaves the assignment-day proration.
+        var anchorMonth = new DateTime(anchor.PeriodStart.Year, anchor.PeriodStart.Month, 1);
+        if (new DateTime(firstAttendance.Value.Year, firstAttendance.Value.Month, 1) != anchorMonth) return;
+
+        var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
+        decimal fraction = MatchProrationFraction(tiers, firstAttendance.Value.Day);
+
+        var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
+        decimal fullBase;
+        if (counter?.CustomPaymentAmount is decimal custom) fullBase = custom;
+        else
+        {
+            var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+            fullBase = session?.SessionAmount ?? anchor.AmountDue;
+        }
+
+        bool prorate = fraction < 1.0m;
+        decimal targetDue = prorate ? Math.Round(fullBase * fraction, 2) : fullBase;
+        if (anchor.AmountDue == targetDue && anchor.IsProRated == prorate) return; // idempotent no-op
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            anchor.IsProRated = prorate;
+            anchor.ProRatedFraction = prorate ? fraction : 1.0m;
+            var d = RepricePeriodInPlace(anchor, fullBase);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(anchor);
+
+            if (counter != null)
+            {
+                counter.TotalOutstanding += d.OutstandingDelta;
+                counter.TotalPaidPeriods += d.PaidPeriodsDelta;
+                counter.TotalUnpaidPeriods += d.UnpaidPeriodsDelta;
+                await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                await _unitOfWork.SaveChangesAsync();
+                if (d.UnpaidPeriodsDelta != 0 || d.PaidPeriodsDelta != 0)
+                {
+                    counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+                        .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                }
+            }
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -2784,9 +2876,13 @@ public class PaymentService : IPaymentService
         // amount / sequencing logic with an extended skip-set. Sequenced after any existing periods.
         int sequence = await _unitOfWork.PaymentsRepo
             .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, sessionId) + 1;
+        // "New enrollment" (proration-eligible) = the student has NO prior period in ANY session — a
+        // genuinely first-time join. A student who already has periods (from another session, or a
+        // previous enrollment) is a transfer/return and is NEVER prorated (agreed design).
+        bool isNewEnrollment = allStudentPeriods.Count == 0;
         var periods = await BuildSessionPeriodsAsync(
             teacherId, teacherStudentId, session, sessionName, assignedAt, counter, student,
-            sequence, skipMonths, skipDates);
+            sequence, skipMonths, skipDates, isNewEnrollment);
 
         if (periods.Count > 0)
         {
@@ -2968,9 +3064,10 @@ public class PaymentService : IPaymentService
                 .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
             var skipDates = paidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
 
+            // isNewEnrollment: false — a MOVE/transfer is never prorated (agreed design).
             var generated = await BuildSessionPeriodsAsync(
                 teacherId, teacherStudentId, toSession, toSessionName, movedAt, counter, student,
-                destSequence, skipMonths, skipDates);
+                destSequence, skipMonths, skipDates, isNewEnrollment: false);
             if (generated.Count > 0)
                 await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(generated);
 
@@ -3210,7 +3307,8 @@ public class PaymentService : IPaymentService
     private async Task<List<PaymentPeriod>> BuildSessionPeriodsAsync(
         long teacherId, long teacherStudentId, Session session, string sessionName,
         DateTime assignedAt, StudentPaymentCounter counter, TeacherStudent student,
-        int startSequence, IReadOnlySet<DateTime> skipMonths, IReadOnlySet<DateTime> skipDates)
+        int startSequence, IReadOnlySet<DateTime> skipMonths, IReadOnlySet<DateTime> skipDates,
+        bool isNewEnrollment)
     {
         var periods = new List<PaymentPeriod>();
         int sequence = startSequence;
@@ -3221,36 +3319,20 @@ public class PaymentService : IPaymentService
             var startMonth = new DateTime(assignedAt.Year, assignedAt.Month, 1);
             var endMonth = new DateTime(session.EndDate.Year, session.EndDate.Month, 1);
 
-            // Check pro-rating for first month
+            // Pro-rating applies ONLY to a genuinely NEW enrollment's first month — never to a
+            // transfer/move (isNewEnrollment=false). The provisional fraction here is anchored to the
+            // ASSIGNMENT day; it is re-anchored to the student's FIRST-Present-attendance day when they
+            // first attend (ReapplyFirstAttendanceProrationAsync), per the agreed design.
             bool applyProRate = false;
             decimal proRateFraction = 1.0m;
-            var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-
-            if (config?.IsProratedPaymentEnabled == true)
+            if (isNewEnrollment)
             {
-                var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
-
-                int joinDay = assignedAt.Day;
-                var matchingTier = tiers
-                    .OrderBy(t => t.TierNumber)
-                    .FirstOrDefault(t => joinDay >= t.ThresholdDayStart && joinDay <= t.ThresholdDayEnd);
-
-                // GAP FIX (see OnStudentAssignedToSessionAsync history): clamp a join day that falls
-                // outside every configured tier to the nearest tier instead of silently billing full
-                // price — past every tier's end uses the max-ThresholdDayEnd tier, before every tier's
-                // start uses the min-ThresholdDayStart tier. Exact matches are unchanged.
-                if (matchingTier is null && tiers.Any())
+                var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+                if (config?.IsProratedPaymentEnabled == true)
                 {
-                    if (joinDay > tiers.Max(t => t.ThresholdDayEnd))
-                        matchingTier = tiers.OrderByDescending(t => t.ThresholdDayEnd).First();
-                    else if (joinDay < tiers.Min(t => t.ThresholdDayStart))
-                        matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
-                }
-
-                if (matchingTier is not null && matchingTier.FractionRate < 1.0m)
-                {
-                    applyProRate = true;
-                    proRateFraction = matchingTier.FractionRate;
+                    var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
+                    proRateFraction = MatchProrationFraction(tiers, assignedAt.Day);
+                    applyProRate = proRateFraction < 1.0m;
                 }
             }
 
@@ -3260,8 +3342,11 @@ public class PaymentService : IPaymentService
             {
                 if (skipMonths.Contains(month))
                     continue; // already paid / moved / existing — don't double-bill
-                bool isFirstPeriod = month == startMonth && applyProRate;
-                decimal periodAmount = isFirstPeriod
+                // The anchor month = a new enrollment's first billed month (the ONLY month proration
+                // ever touches, and the only one the first-attendance re-price may adjust).
+                bool isAnchorMonth = isNewEnrollment && month == startMonth;
+                bool prorate = isAnchorMonth && applyProRate;
+                decimal periodAmount = prorate
                     ? Math.Round(baseAmount * proRateFraction, 2)
                     : baseAmount;
 
@@ -3275,8 +3360,9 @@ public class PaymentService : IPaymentService
                     PeriodEnd = month.AddMonths(1).AddDays(-1),
                     AmountDue = periodAmount,
                     PaymentStatus = PaymentStatus.Unpaid,
-                    IsProRated = isFirstPeriod,
-                    ProRatedFraction = isFirstPeriod ? proRateFraction : 1.0m,
+                    IsProRated = prorate,
+                    ProRatedFraction = prorate ? proRateFraction : 1.0m,
+                    IsProrationAnchorMonth = isAnchorMonth,
                     PeriodSequence = sequence++,
                     SessionName = sessionName,
                     StudentName = student.StudentName,

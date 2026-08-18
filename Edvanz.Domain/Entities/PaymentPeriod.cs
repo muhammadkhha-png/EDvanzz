@@ -142,6 +142,16 @@ public class PaymentPeriod : BaseEntity
     [Column(TypeName = "decimal(5,4)")]
     public decimal ProRatedFraction { get; set; } = 1.0m;
 
+    /// <summary>
+    /// True for the ONE month that is eligible for attendance-anchored proration — the first month
+    /// of a genuinely NEW enrollment (never a transfer/move, never a carried-forward or per-session
+    /// period). Set at generation; consumed by the first-attendance re-proration and the settings
+    /// reconcile so they know which single period to re-price (and NEVER a transferred student's).
+    /// Independent of <see cref="IsProRated"/> (a day-1–10 new joiner is anchor-eligible yet not
+    /// prorated until they attend mid-month). Additive column, default false.
+    /// </summary>
+    public bool IsProrationAnchorMonth { get; set; } = false;
+
     // ══════════════════════════════════════════════
     // ORDERING
     // ══════════════════════════════════════════════

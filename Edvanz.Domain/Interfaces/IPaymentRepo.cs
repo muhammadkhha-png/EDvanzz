@@ -716,6 +716,23 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<List<StudentPaymentCounter>> GetPaymentCountersByStudentIdsAsync(
         long teacherId, IReadOnlyCollection<long> teacherStudentIds);
 
+    /// <summary>TRACKED. The single proration-anchor month (a new enrollment's first month) for this
+    /// student+session, or null for a transfer / once cleared. Re-priced on first attendance.</summary>
+    Task<PaymentPeriod?> GetProrationAnchorPeriodAsync(long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>TRACKED. Every still-owed proration-anchor month for the teacher (a new enrollment's
+    /// first month) — the population the settings reconcile re-prices; transfers are excluded by design.</summary>
+    Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId);
+
+    /// <summary>Earliest Present/CrossSessionPresent date per (student, session) for the given students —
+    /// the reconcile's attendance anchor. One query for the whole set.</summary>
+    Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>
+        GetFirstAttendanceDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds);
+
+    /// <summary>Earliest date the student physically attended this session (Present or the linked
+    /// CrossSessionPresent) — the anchor for attendance-based proration. Null if never attended.</summary>
+    Task<DateTime?> GetFirstAttendanceDateAsync(long teacherId, long teacherStudentId, long sessionId);
+
     /// <summary>
     /// Gets per-session breakdown of expected/collected/remaining.
     /// REQ-PAY-043: Filterable by session for drill-down.

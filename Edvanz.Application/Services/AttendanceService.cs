@@ -58,6 +58,7 @@ public class AttendanceService : IAttendanceService
     private readonly ITimeZoneService _timeZoneService;
     private readonly ILogger<AttendanceService> _logger;
     private readonly IExamAttendanceSyncService _examAttendanceSync; // ← Exams: during-session sync
+    private readonly IPaymentService _paymentService;               // ← first-attendance proration
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
@@ -67,7 +68,8 @@ public class AttendanceService : IAttendanceService
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
         ILogger<AttendanceService> logger,
-        IExamAttendanceSyncService examAttendanceSync)
+        IExamAttendanceSyncService examAttendanceSync,
+        IPaymentService paymentService)                            // ← first-attendance proration
     {
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
@@ -77,6 +79,28 @@ public class AttendanceService : IAttendanceService
         _timeZoneService = timeZoneService;
         _logger = logger;
         _examAttendanceSync = examAttendanceSync;
+        _paymentService = paymentService;                          // ← first-attendance proration
+    }
+
+    /// <summary>
+    /// Best-effort re-anchor of the student's first-month proration to their first-Present date (agreed
+    /// design). Runs AFTER the attendance transaction commits, in its own transaction, and never throws
+    /// into the mark path — a proration tweak must not fail attendance. No-ops for transfers / paid /
+    /// disabled proration.
+    /// </summary>
+    private async Task TryReapplyFirstAttendanceProrationAsync(
+        long teacherId, long teacherStudentId, long sessionId)
+    {
+        try
+        {
+            await _paymentService.ReapplyFirstAttendanceProrationAsync(teacherId, teacherStudentId, sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "First-attendance proration re-price failed for student {StudentId} session {SessionId} (non-fatal).",
+                teacherStudentId, sessionId);
+        }
     }
 
 
@@ -760,9 +784,16 @@ public class AttendanceService : IAttendanceService
                         consecutiveAbsencesForNotifier);
                 else if (attendanceStatus is AttendanceStatus.Present
                                           or AttendanceStatus.CrossSessionPresent)
+                {
                     await _attendanceNotifier.OnStudentAttendedAsync(
                         dto.TeacherId, dto.TeacherStudentId,
                         dto.SessionId, session.SessionName, date);
+
+                    // First-attendance proration: re-anchor a new student's first month to their first
+                    // Present date (agreed design). Best-effort — never fails the mark.
+                    await TryReapplyFirstAttendanceProrationAsync(
+                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
+                }
 
                 // Exams: reconcile any during-session exam on the occurrence the record LANDED on
                 // (mt.RecordOccurrenceId — the student's home occurrence for a cross-session mark, ==
@@ -1223,6 +1254,15 @@ public class AttendanceService : IAttendanceService
                              .Concat(reconciledOccurrenceIds).Distinct())
                     await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                         dto.TeacherId, affectedOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
+
+                // First-attendance proration: re-anchor each newly-present student's first month
+                // (best-effort, per distinct student). No-ops for transfers / paid / disabled.
+                foreach (var sid in allRecords
+                             .Where(r => (r.Status == AttendanceStatus.Present
+                                          || r.Status == AttendanceStatus.CrossSessionPresent)
+                                 && r.TeacherStudentId.HasValue)
+                             .Select(r => r.TeacherStudentId!.Value).Distinct())
+                    await TryReapplyFirstAttendanceProrationAsync(dto.TeacherId, sid, dto.SessionId);
             }
 
             var resultDto = new BulkMarkAttendanceResultDto

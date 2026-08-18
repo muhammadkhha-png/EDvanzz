@@ -441,6 +441,65 @@
         }
 
         /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId)
+        {
+            // TRACKED. Every still-owed proration-anchor month (a new enrollment's first month) for the
+            // teacher; transfers never carry the flag, so they're inherently excluded from the reconcile.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && p.IsProrationAnchorMonth
+                    && (p.PaymentStatus == PaymentStatus.Unpaid
+                        || p.PaymentStatus == PaymentStatus.PartiallyPaid))
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>
+            GetFirstAttendanceDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds)
+        {
+            if (teacherStudentIds.Count == 0)
+                return new List<(long, long, DateTime)>();
+            var rows = await _context.AttendanceRecords
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId != null && a.SessionId != null
+                    && teacherStudentIds.Contains(a.TeacherStudentId.Value)
+                    && (a.Status == AttendanceStatus.Present
+                        || a.Status == AttendanceStatus.CrossSessionPresent))
+                .GroupBy(a => new { StudentId = a.TeacherStudentId!.Value, SessionId = a.SessionId!.Value })
+                .Select(g => new { g.Key.StudentId, g.Key.SessionId, First = g.Min(x => x.OccurrenceDate) })
+                .ToListAsync();
+            return rows.Select(r => (r.StudentId, r.SessionId, r.First)).ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<PaymentPeriod?> GetProrationAnchorPeriodAsync(
+            long teacherId, long teacherStudentId, long sessionId)
+        {
+            // TRACKED — the caller re-prices it. The single anchor month (a new enrollment's first
+            // month) for this student+session; null for a transfer (no anchor) or once cleared.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId
+                    && p.SessionId == sessionId && p.PeriodType == PeriodType.Monthly
+                    && p.IsProrationAnchorMonth)
+                .OrderBy(p => p.PeriodSequence)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<DateTime?> GetFirstAttendanceDateAsync(
+            long teacherId, long teacherStudentId, long sessionId)
+        {
+            // Earliest date the student physically attended this session (Present or the linked-session
+            // CrossSessionPresent) — the anchor for attendance-based proration.
+            var attended = _context.AttendanceRecords
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId
+                    && a.SessionId == sessionId
+                    && (a.Status == AttendanceStatus.Present
+                        || a.Status == AttendanceStatus.CrossSessionPresent));
+            if (!await attended.AnyAsync()) return null;
+            return await attended.MinAsync(a => (DateTime?)a.OccurrenceDate);
+        }
+
+        /// <inheritdoc />
         public async Task<List<StudentPaymentCounter>> GetPaymentCountersByStudentIdsAsync(
             long teacherId, IReadOnlyCollection<long> teacherStudentIds)
         {
