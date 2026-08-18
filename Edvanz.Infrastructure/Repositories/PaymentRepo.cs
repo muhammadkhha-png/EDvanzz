@@ -422,14 +422,22 @@
         }
 
         /// <inheritdoc />
-        public async Task<Dictionary<long, DateTime>> GetAssignmentDatesByIdsAsync(
-            long teacherId, IReadOnlyCollection<long> assignmentIds)
+        public async Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
+            GetAssignmentDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds)
         {
-            if (assignmentIds.Count == 0) return new Dictionary<long, DateTime>();
-            return await _context.StudentSessionAssignments
-                .Where(a => a.TeacherId == teacherId && assignmentIds.Contains(a.Id))
-                .Select(a => new { a.Id, a.AssignedAt })
-                .ToDictionaryAsync(a => a.Id, a => a.AssignedAt);
+            if (teacherStudentIds.Count == 0)
+                return new List<(long, long, DateTime)>();
+            // Generated PaymentPeriods do NOT store their StudentSessionAssignmentId, so the proration
+            // reconcile recovers each student's join DAY from the assignment for (student, session)
+            // directly. All assignments for these students are returned; the service picks the earliest
+            // per (student, session) = the original enrollment that generated the first month.
+            var rows = await _context.StudentSessionAssignments
+                .Where(a => a.TeacherId == teacherId
+                    && a.TeacherStudentId != null && a.SessionId != null
+                    && teacherStudentIds.Contains(a.TeacherStudentId.Value))
+                .Select(a => new { StudentId = a.TeacherStudentId!.Value, SessionId = a.SessionId!.Value, a.AssignedAt })
+                .ToListAsync();
+            return rows.Select(r => (r.StudentId, r.SessionId, r.AssignedAt)).ToList();
         }
 
         /// <inheritdoc />

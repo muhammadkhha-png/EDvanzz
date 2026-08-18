@@ -703,10 +703,12 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<List<PaymentPeriod>> GetFirstMonthlyPeriodsForAssignedStudentsAsync(long teacherId);
 
-    /// <summary>Assignment-date (AssignedAt) lookup by assignment id — supplies the join DAY that
-    /// selects a proration tier when re-prorating existing students.</summary>
-    Task<Dictionary<long, DateTime>> GetAssignmentDatesByIdsAsync(
-        long teacherId, IReadOnlyCollection<long> assignmentIds);
+    /// <summary>All (student, session, AssignedAt) assignment rows for the given students — supplies the
+    /// join DAY that selects a proration tier when re-prorating existing students. Keyed by student+session
+    /// because generated PaymentPeriods don't carry their assignment id; the service picks the earliest per
+    /// (student, session) as the original enrollment.</summary>
+    Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
+        GetAssignmentDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds);
 
     /// <summary>Batch-loads the (tracked) payment counters for a set of students — the proration
     /// reconcile reads each CustomPaymentAmount (the full base rate) and writes its deltas in place,

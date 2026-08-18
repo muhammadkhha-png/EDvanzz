@@ -1055,18 +1055,24 @@ public class PaymentService : IPaymentService
             : System.Array.Empty<TeacherProratedTier>();
 
         // Batch-load everything the loop needs so a whole-roster reconcile stays a handful of queries,
-        // not O(students): the join DAY (selects the tier) per first period's assignment, and the
-        // affected counters (tracked — they carry CustomPaymentAmount AND receive the delta writes).
-        var assignmentIds = periods
-            .Where(p => p.StudentSessionAssignmentId.HasValue)
-            .Select(p => p.StudentSessionAssignmentId!.Value).Distinct().ToList();
-        var assignmentDates = await _unitOfWork.PaymentsRepo
-            .GetAssignmentDatesByIdsAsync(teacherId, assignmentIds);
-
+        // not O(students): the join DAY (selects the tier) and the affected counters (tracked — they
+        // carry CustomPaymentAmount AND receive the delta writes).
         var studentIds = periods.Select(p => p.TeacherStudentId!.Value).Distinct().ToList();
         var counters = (await _unitOfWork.PaymentsRepo
                 .GetPaymentCountersByStudentIdsAsync(teacherId, studentIds))
             .ToDictionary(c => c.TeacherStudentId);
+
+        // Join day per (student, session) = the EARLIEST assignment to that session (the original
+        // enrollment that generated the first month). Generated periods don't store their assignment id,
+        // so we resolve by (student, session) rather than the period's null StudentSessionAssignmentId.
+        var joinDates = new Dictionary<(long StudentId, long SessionId), DateTime>();
+        foreach (var r in await _unitOfWork.PaymentsRepo
+            .GetAssignmentDatesForStudentsAsync(teacherId, studentIds))
+        {
+            var key = (r.TeacherStudentId, r.SessionId);
+            if (!joinDates.TryGetValue(key, out var existing) || r.AssignedAt < existing)
+                joinDates[key] = r.AssignedAt;
+        }
 
         var sessionAmountCache = new Dictionary<long, decimal>();
         // Students whose first-month PAID status actually flipped — only these need the (per-student)
@@ -1096,8 +1102,8 @@ public class PaymentService : IPaymentService
             // Enabled + a fraction < 1 → prorate; disabled, or a day in a full-price/unknown tier → full.
             decimal fraction = 1.0m;
             if (enabled
-                && p.StudentSessionAssignmentId is long aid
-                && assignmentDates.TryGetValue(aid, out var assignedAt))
+                && p.SessionId is long sid
+                && joinDates.TryGetValue((studentId, sid), out var assignedAt))
             {
                 fraction = MatchProrationFraction(tiers, assignedAt.Day);
             }
