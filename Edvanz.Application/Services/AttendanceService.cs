@@ -1257,12 +1257,18 @@ public class AttendanceService : IAttendanceService
 
                 // First-attendance proration: re-anchor each newly-present student's first month
                 // (best-effort, per distinct student). No-ops for transfers / paid / disabled.
-                foreach (var sid in allRecords
-                             .Where(r => (r.Status == AttendanceStatus.Present
-                                          || r.Status == AttendanceStatus.CrossSessionPresent)
-                                 && r.TeacherStudentId.HasValue)
-                             .Select(r => r.TeacherStudentId!.Value).Distinct())
-                    await TryReapplyFirstAttendanceProrationAsync(dto.TeacherId, sid, dto.SessionId);
+                // Check the teacher's proration setting ONCE up front — when it's off (the common
+                // case) skip the whole per-student loop instead of re-loading the config inside each
+                // call (avoids N identical config reads on a big bulk mark). Behaviour is unchanged:
+                // ReapplyFirstAttendanceProrationAsync also no-ops when proration is disabled.
+                var proConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
+                if (proConfig?.IsProratedPaymentEnabled == true)
+                    foreach (var sid in allRecords
+                                 .Where(r => (r.Status == AttendanceStatus.Present
+                                              || r.Status == AttendanceStatus.CrossSessionPresent)
+                                     && r.TeacherStudentId.HasValue)
+                                 .Select(r => r.TeacherStudentId!.Value).Distinct())
+                        await TryReapplyFirstAttendanceProrationAsync(dto.TeacherId, sid, dto.SessionId);
             }
 
             var resultDto = new BulkMarkAttendanceResultDto
