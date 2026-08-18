@@ -1736,6 +1736,13 @@ public class AttendanceService : IAttendanceService
                 await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                     dto.TeacherId, record.SessionOccurrenceId.Value, dto.EditedByUserId ?? dto.TeacherId);
 
+            // First-attendance proration: an edit TO Present can establish/adjust the first-Present date.
+            if (ownsTransaction
+                && newStatus is AttendanceStatus.Present or AttendanceStatus.CrossSessionPresent
+                && record.TeacherStudentId.HasValue && record.SessionId.HasValue)
+                await TryReapplyFirstAttendanceProrationAsync(
+                    dto.TeacherId, record.TeacherStudentId.Value, record.SessionId.Value);
+
             var resultDto = MapToRecordDto(record,
                 record.StudentName ?? "Unknown",
                 record.StudentCode ?? "");
@@ -1876,6 +1883,12 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                     dto.TeacherId, mt.RecordOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
+
+            // First-attendance proration: an added Present (e.g. backfilling the first class) anchors it.
+            if (ownsTransaction
+                && addStatus is AttendanceStatus.Present or AttendanceStatus.CrossSessionPresent)
+                await TryReapplyFirstAttendanceProrationAsync(
+                    dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
 
             var resultDto = MapToRecordDto(record, student.StudentName, student.StudentCode);
             return Result<AttendanceRecordDto>.Success(
