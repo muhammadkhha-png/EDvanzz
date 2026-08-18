@@ -67,3 +67,44 @@ public sealed class DuplicatePeriodsStudentItem
     /// alone (manual review needed).</summary>
     public List<string> ConflictMonths { get; set; } = new();
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// ONE-TIME CLEANUP: RECONCILE ORPHANED (SESSION-LESS) PAYMENT PERIODS
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Output of PaymentService.ReconcileOrphanedPeriodsAsync. Applies the session-delete money lifecycle
+// to LEGACY orphans left by the OLD delete (which just nulled SessionId, leaving unpaid periods —
+// monthly OR per-session — to linger as inflated obligations, e.g. student 134A's Aug×4 @35).
+// Per student: future-unpaid orphans are VOIDED and unpaid arrears-through-current-month are collapsed
+// into ONE pending monthly carry-forward debt per month (which re-prices to the next session on
+// reassignment). Paid orphans are kept as history. dryRun=true previews and writes nothing.
+
+/// <summary>Top-level report for the reconcile-orphaned-periods cleanup.</summary>
+public sealed class OrphanedPeriodsReconcileReport
+{
+    public bool DryRun { get; set; }
+    public long? TeacherId { get; set; }
+    /// <summary>Students with at least one orphaned unpaid period.</summary>
+    public int StudentsAffected { get; set; }
+    /// <summary>Future-unpaid orphan periods voided (or that WOULD be).</summary>
+    public int PeriodsVoided { get; set; }
+    /// <summary>Arrears orphan periods consolidated (collapsed into pending months).</summary>
+    public int ArrearsConsolidated { get; set; }
+    /// <summary>Pending monthly carry-forward debts created.</summary>
+    public int PendingMonthsCreated { get; set; }
+    public List<OrphanedPeriodsStudentItem> Students { get; set; } = new();
+}
+
+/// <summary>Per-student orphaned-period cleanup breakdown.</summary>
+public sealed class OrphanedPeriodsStudentItem
+{
+    public long TeacherId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+    public int PeriodsVoided { get; set; }
+    public int ArrearsConsolidated { get; set; }
+    public int PendingMonthsCreated { get; set; }
+    /// <summary>Owed total across the pending carry-forward months created (old amount, pre-reprice).</summary>
+    public decimal PendingOwed { get; set; }
+}

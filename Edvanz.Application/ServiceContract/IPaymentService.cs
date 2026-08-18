@@ -431,6 +431,18 @@ public interface IPaymentService
     Task<Result<DuplicatePeriodsReconcileReport>> ReconcileDuplicatePeriodsAsync(long? teacherId, bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). Applies the session-delete money lifecycle to LEGACY orphaned periods
+    /// left by the OLD session-delete (which only nulled <c>SessionId</c>, leaving unpaid periods — monthly
+    /// OR per-session — to linger as inflated obligations, e.g. student 134A's four Aug @35 per-session
+    /// rows). Per student with orphaned unpaid periods: VOIDs the future-unpaid orphans, collapses the
+    /// unpaid arrears through the current month into ONE pending monthly carry-forward debt per month
+    /// (which re-prices to the next session on reassignment), and KEEPS paid orphans as history — then
+    /// resyncs the counter. <paramref name="teacherId"/> null = every teacher.
+    /// <paramref name="dryRun"/>=true writes NOTHING and reports exactly what WOULD change.
+    /// </summary>
+    Task<Result<OrphanedPeriodsReconcileReport>> ReconcileOrphanedPeriodsAsync(long? teacherId, bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

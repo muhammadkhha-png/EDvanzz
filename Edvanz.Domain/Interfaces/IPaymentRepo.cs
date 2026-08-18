@@ -729,6 +729,18 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated)>>
         GetAnchorPeriodInfoByStudentIdsAsync(long teacherId, IReadOnlyCollection<long> studentIds);
 
+    /// <summary>Distinct student ids that have any payment period in the given session — the population
+    /// the session-delete lifecycle iterates to preserve history / carry arrears.</summary>
+    Task<List<long>> GetStudentIdsWithPeriodsInSessionAsync(long teacherId, long sessionId);
+
+    /// <summary>(teacher, student) owners of LEGACY orphaned unpaid periods (SessionId null, NOT
+    /// carried-forward, still owed) left by the old session-delete — the population the orphan-cleanup
+    /// tool reconciles. Optionally scoped to one teacher.</summary>
+    Task<List<(long TeacherId, long TeacherStudentId)>> GetOrphanedUnpaidPeriodOwnersAsync(long? teacherId);
+
+    /// <summary>A student's session-less, not-yet-carried periods (the orphan-cleanup input).</summary>
+    Task<IReadOnlyList<PaymentPeriod>> GetOrphanedPeriodsByStudentAsync(long teacherId, long teacherStudentId);
+
     /// <summary>Earliest Present/CrossSessionPresent date per (student, session) for the given students —
     /// the reconcile's attendance anchor. One query for the whole set.</summary>
     Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>

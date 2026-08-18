@@ -2871,6 +2871,44 @@ public class PaymentService : IPaymentService
             .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
         skipDates.UnionWith(sessionExistingPeriods.Select(p => p.PeriodStart.Date));
 
+        // DB2a — PENDING CARRY-FORWARD DEBT (from a deleted session): SessionId==null + IsCarriedForward
+        // rows the student still owes, which must follow them into THIS session RE-PRICED to this session's
+        // amount (agreed design). A month at/after the assignment month is (re)generated below at the new
+        // rate → drop the pending duplicate; a PAST-arrears month is re-priced + attached here as a carried
+        // period (generation starts at the assignment month, so it never touches it).
+        var pendingDebt = allStudentPeriods
+            .Where(p => p.SessionId == null && p.IsCarriedForward
+                && p.PaymentStatus != PaymentStatus.Paid
+                && (p.AmountDue - p.AmountPaid) > 0m)
+            .ToList();
+        bool hadPendingDebt = pendingDebt.Count > 0;
+        if (hadPendingDebt)
+        {
+            decimal newBase = counter.CustomPaymentAmount ?? session.SessionAmount;
+            var startMonth = new DateTime(assignedAt.Year, assignedAt.Month, 1);
+            var pendingToDelete = new List<PaymentPeriod>();
+            foreach (var p in pendingDebt)
+            {
+                var m = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+                if (m >= startMonth)
+                {
+                    pendingToDelete.Add(p); // generation bills this month at the new rate
+                }
+                else
+                {
+                    p.SessionId = sessionId;
+                    p.SessionName = sessionName;
+                    p.AmountDue = newBase; // re-priced to the new session's amount
+                    p.IsProRated = false;
+                    p.ProRatedFraction = 1.0m;
+                    p.IsCarriedForward = true;
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+                }
+            }
+            if (pendingToDelete.Count > 0)
+                await _unitOfWork.GetRepository<PaymentPeriod, long>().DeleteRangeAsync(pendingToDelete);
+        }
+
         // Generate initial payment periods. Extracted into BuildSessionPeriodsAsync so the
         // session-move path (OnStudentMovedBetweenSessionsAsync) reuses the SAME proration / custom
         // amount / sequencing logic with an extended skip-set. Sequenced after any existing periods.
@@ -2885,10 +2923,17 @@ public class PaymentService : IPaymentService
             sequence, skipMonths, skipDates, isNewEnrollment);
 
         if (periods.Count > 0)
-        {
             await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(periods);
 
-            // Update counter aggregates
+        if (hadPendingDebt)
+        {
+            // Pending debt was folded in (re-priced/dropped) alongside the generated ladder — flush, then
+            // fully resync the counter from the resulting period set to avoid drift from the mixed writes.
+            await _unitOfWork.SaveChangesAsync();
+            await RecomputeStudentPaymentCounterAsync(teacherId, teacherStudentId, counter);
+        }
+        else if (periods.Count > 0)
+        {
             counter.TotalOutstanding += periods.Sum(p => p.AmountDue);
             counter.TotalUnpaidPeriods += periods.Count;
             await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
@@ -2988,9 +3033,7 @@ public class PaymentService : IPaymentService
             ? fromSessionName
             : (fromPeriods.FirstOrDefault()?.SessionName ?? string.Empty);
 
-        // PerSession is NOT carried over here (per-occurrence semantics differ from monthly arrears).
-        // Fall back to the EXISTING behavior — void the source's unpaid current+future, regenerate the
-        // destination — so nothing is guessed. Monthly is handled with the full arrears-move logic below.
+        // Per-session source (or a per-session destination) can't use the monthly arrears-move plan below.
         bool anyPerSessionSource = fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
         if (toSession.PaymentType != PaymentType.Monthly || anyPerSessionSource)
         {
@@ -2998,12 +3041,29 @@ public class PaymentService : IPaymentService
             if (ownsTxFallback) await _unitOfWork.BeginTransactionAsync();
             try
             {
-                var unassigned = await OnStudentUnassignedFromSessionAsync(teacherId, teacherStudentId);
-                if (!unassigned.IsSuccess)
+                if (toSession.PaymentType == PaymentType.Monthly)
                 {
-                    if (ownsTxFallback) await _unitOfWork.RollbackAsync();
-                    return unassigned;
+                    // Per-session (or mixed) source → MONTHLY destination: collapse the source's unpaid
+                    // months to pending carry-forward debt, then the assign fold-in (DB2a) re-materializes
+                    // each as ONE unpaid month in the destination at its MONTHLY rate (agreed: "by-session
+                    // unpaid ⇒ 1 unpaid month in the new monthly session"). Paid history stays put.
+                    var todayLocal = _timeZoneService.GetTeacherLocalDate(teacherId);
+                    var monthEnd = new DateTime(todayLocal.Year, todayLocal.Month, 1).AddMonths(1).AddDays(-1);
+                    await ConvertStudentSessionArrearsToPendingAsync(
+                        teacherId, teacherStudentId, fromSessionId, monthEnd);
+                    await _unitOfWork.SaveChangesAsync();
                 }
+                else
+                {
+                    // Destination is per-session → keep the existing behaviour (void unpaid current+future).
+                    var unassigned = await OnStudentUnassignedFromSessionAsync(teacherId, teacherStudentId);
+                    if (!unassigned.IsSuccess)
+                    {
+                        if (ownsTxFallback) await _unitOfWork.RollbackAsync();
+                        return unassigned;
+                    }
+                }
+
                 var assigned = await OnStudentAssignedToSessionAsync(
                     teacherId, teacherStudentId, toSessionId, toSessionName, movedAt);
                 if (!assigned.IsSuccess)
@@ -3041,9 +3101,12 @@ public class PaymentService : IPaymentService
             decimal outstandingCarried = plan.OutstandingCarried;
             var statusAtTransfer = plan.StatusAtTransfer;
 
+            // Destination rate = the student's custom override else the destination session's amount;
+            // carried unpaid months are re-priced to it.
+            decimal destBaseAmount = counter.CustomPaymentAmount ?? toSession.SessionAmount;
             destSequence = await ApplyCarryOverPlanAsync(
                 plan, teacherId, teacherStudentId, student,
-                fromSessionId, effectiveFromName, toSessionId, toSessionName, destSequence);
+                fromSessionId, effectiveFromName, toSessionId, toSessionName, destSequence, destBaseAmount);
 
             // Generate the destination's OWN schedule (movedAt → end), skipping every month already
             // covered so nothing is double-billed: paid months (any session) ∪ months just moved/carried
@@ -3205,7 +3268,7 @@ public class PaymentService : IPaymentService
     private async Task<int> ApplyCarryOverPlanAsync(
         CarryOverPlan plan, long teacherId, long teacherStudentId, TeacherStudent student,
         long fromSessionId, string fromSessionName, long toSessionId, string toSessionName,
-        int startDestSequence)
+        int startDestSequence, decimal destBaseAmount)
     {
         int destSequence = startDestSequence;
 
@@ -3218,7 +3281,13 @@ public class PaymentService : IPaymentService
             p.OriginSessionName ??= fromSessionName; // keep the legacy display field populated too
             p.IsCarriedForward = true;
             p.PeriodSequence = destSequence++;
-            // AmountDue / AmountPaid / PeriodStart / PeriodEnd / IsProRated preserved.
+            // RE-PRICE the fully-unpaid carried month to the DESTINATION session's amount (agreed design:
+            // "unpaid July/August should be unpaid at the NEW session amount"). Proration is dropped — a
+            // transfer is never prorated. AmountPaid is 0 here (BuildCarryOverPlan gates UnpaidDueToMove on
+            // no cash), so the month becomes fully unpaid at the new rate.
+            p.AmountDue = destBaseAmount;
+            p.IsProRated = false;
+            p.ProRatedFraction = 1.0m;
             await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
         }
 
@@ -3576,10 +3645,11 @@ public class PaymentService : IPaymentService
                         decimal outstandingCarried = plan.OutstandingCarried;
                         var statusAtTransfer = plan.StatusAtTransfer;
 
+                        // Re-price the carried arrears to the CURRENT session's amount (agreed carry rule).
                         destSequence = await ApplyCarryOverPlanAsync(
                             plan, candidate.TeacherId, candidate.TeacherStudentId, student!,
                             fromSessionId, fromName, candidate.CurrentSessionId, toSession.SessionName,
-                            destSequence);
+                            destSequence, toSession.SessionAmount);
 
                         // Only write an audit row when something actually moved/settled.
                         if (plan.UnpaidDueToMove.Count > 0 || plan.PartialsToSplit.Count > 0
@@ -4061,9 +4131,197 @@ public class PaymentService : IPaymentService
     /// <inheritdoc />
     public async Task<Result<bool>> OnSessionDeletingAsync(long teacherId, long sessionId)
     {
+        // SESSION-DELETE PAYMENT LIFECYCLE (agreed design). Runs on the caller's (SessionService) tx.
+        // Per student in the session:
+        //  • PAID / partially-paid / past-with-cash periods → KEPT as history (SessionId nulled below).
+        //  • FUTURE unpaid periods (no cash) → VOIDED (no obligation to a deleted session's future classes).
+        //  • UNPAID arrears through the current month (no cash) → collapsed to ONE PENDING carry-forward
+        //    debt PER MONTH (SessionId null, IsCarriedForward) that follows the student into their next
+        //    session (re-priced to the new session's amount) on reassignment (OnStudentAssignedToSession).
+        // This replaces the old behaviour (nullify SessionId, leaving unpaid periods to orphan-linger).
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var currentMonthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+
+        var studentIds = await _unitOfWork.PaymentsRepo
+            .GetStudentIdsWithPeriodsInSessionAsync(teacherId, sessionId);
+
+        foreach (var studentId in studentIds)
+            await ConvertStudentSessionArrearsToPendingAsync(teacherId, studentId, sessionId, currentMonthEnd);
+
+        // Flush the void/pending changes BEFORE the counter recompute reads the new period set, and
+        // before nullifying SessionId on the SURVIVING history rows (bulk ExecuteUpdate — independent).
+        await _unitOfWork.SaveChangesAsync();
+
+        // Nullify SessionId on the surviving PAID/history periods + transactions + departures so the
+        // session can be hard-deleted (NoAction FK) while the money history stays self-describing.
         await _unitOfWork.PaymentsRepo.NullifySessionIdOnPaymentRecordsAsync(sessionId);
+
+        // Resync every affected student's counter from their now-current period set (voided future +
+        // consolidated arrears), so TotalOutstanding/Unpaid never drift.
+        foreach (var studentId in studentIds)
+        {
+            var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, studentId);
+            if (counter is not null)
+                await RecomputeStudentPaymentCounterAsync(teacherId, studentId, counter);
+        }
+
         await _unitOfWork.SaveChangesAsync();
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<OrphanedPeriodsReconcileReport>> ReconcileOrphanedPeriodsAsync(
+        long? teacherId, bool dryRun)
+    {
+        // ONE-TIME CLEANUP: apply the session-delete money lifecycle to LEGACY orphans left by the OLD
+        // delete (SessionId nulled, unpaid periods left to linger inflating obligations — e.g. 134A's
+        // per-session Aug rows). Per student: VOID future-unpaid orphans, collapse unpaid arrears-through-
+        // current-month into ONE pending monthly carry-forward debt per month (re-prices to the next
+        // session on reassignment), keep paid orphans as history. dryRun previews without writing.
+        var report = new OrphanedPeriodsReconcileReport { DryRun = dryRun, TeacherId = teacherId };
+
+        var owners = await _unitOfWork.PaymentsRepo.GetOrphanedUnpaidPeriodOwnersAsync(teacherId);
+
+        foreach (var (ownerTeacherId, studentId) in owners)
+        {
+            var today = _timeZoneService.GetTeacherLocalDate(ownerTeacherId);
+            var currentMonthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+
+            var orphans = await _unitOfWork.PaymentsRepo
+                .GetOrphanedPeriodsByStudentAsync(ownerTeacherId, studentId);
+
+            // Preview the same partition the core helper applies, so dry-run and apply agree exactly.
+            var futureUnpaid = orphans.Where(p => p.PeriodStart > currentMonthEnd
+                && p.AmountPaid <= 0m && p.PaymentStatus != PaymentStatus.Paid).ToList();
+            var arrears = orphans.Where(p => p.PeriodStart <= currentMonthEnd && p.AmountPaid <= 0m
+                && (p.AmountDue - (p.ForgivenAmount ?? 0m)) > 0m
+                && p.PaymentStatus != PaymentStatus.Paid).ToList();
+            if (futureUnpaid.Count == 0 && arrears.Count == 0)
+                continue; // nothing actionable (only paid history orphans)
+
+            var pendingGroups = arrears
+                .GroupBy(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)).ToList();
+            decimal pendingOwed = arrears.Sum(p => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m));
+
+            var item = new OrphanedPeriodsStudentItem
+            {
+                TeacherId = ownerTeacherId,
+                TeacherStudentId = studentId,
+                StudentName = orphans.FirstOrDefault()?.StudentName,
+                StudentCode = orphans.FirstOrDefault()?.StudentCode,
+                PeriodsVoided = futureUnpaid.Count,
+                ArrearsConsolidated = arrears.Count,
+                PendingMonthsCreated = pendingGroups.Count,
+                PendingOwed = pendingOwed
+            };
+            report.Students.Add(item);
+            report.StudentsAffected++;
+            report.PeriodsVoided += item.PeriodsVoided;
+            report.ArrearsConsolidated += item.ArrearsConsolidated;
+            report.PendingMonthsCreated += item.PendingMonthsCreated;
+
+            if (dryRun) continue;
+
+            // APPLY per student on its own transaction so one student's failure never aborts the batch.
+            bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+            if (ownsTransaction)
+                await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                await VoidFutureAndConsolidateArrearsAsync(ownerTeacherId, studentId, orphans, currentMonthEnd);
+                await _unitOfWork.SaveChangesAsync();
+
+                var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(ownerTeacherId, studentId);
+                if (counter is not null)
+                    await RecomputeStudentPaymentCounterAsync(ownerTeacherId, studentId, counter);
+                await _unitOfWork.SaveChangesAsync();
+
+                if (ownsTransaction)
+                    await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                if (ownsTransaction)
+                    await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
+        return Result<OrphanedPeriodsReconcileReport>.Success(
+            report, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// For ONE student in a session being torn down (deleted, or a per-session→monthly move source):
+    /// VOID the future-unpaid periods (no cash) and collapse the UNPAID arrears through the current month
+    /// into ONE PENDING carry-forward debt PER MONTH (SessionId null, IsCarriedForward, Monthly) — even
+    /// from PER-SESSION occurrences, so "N unpaid classes in a month" becomes ONE unpaid month that
+    /// re-prices to the next session's monthly rate on reassignment. Paid/partial history is untouched.
+    /// Mutates + no SaveChanges (the caller owns the flush/commit).
+    /// </summary>
+    private async Task ConvertStudentSessionArrearsToPendingAsync(
+        long teacherId, long teacherStudentId, long sessionId, DateTime currentMonthEnd)
+    {
+        var sp = await _unitOfWork.PaymentsRepo
+            .GetPaymentPeriodsByStudentAndSessionAsync(teacherId, teacherStudentId, sessionId);
+        await VoidFutureAndConsolidateArrearsAsync(teacherId, teacherStudentId, sp, currentMonthEnd);
+    }
+
+    /// <summary>
+    /// Core of the session-teardown / orphan-cleanup money rule for ONE student given a set of that
+    /// student's periods: VOID the future-unpaid (no cash), and collapse the UNPAID arrears through the
+    /// current month into ONE pending monthly carry-forward debt per month (SessionId null,
+    /// IsCarriedForward). Returns (voided count, pending months count, arrears deleted count) for reports.
+    /// Mutates + no SaveChanges (caller owns the flush). Paid/partial history is untouched.
+    /// </summary>
+    private async Task<(int Voided, int PendingMonths, int ArrearsConsolidated)>
+        VoidFutureAndConsolidateArrearsAsync(
+            long teacherId, long teacherStudentId,
+            IReadOnlyList<PaymentPeriod> periods, DateTime currentMonthEnd)
+    {
+        var futureUnpaid = periods.Where(p => p.PeriodStart > currentMonthEnd
+            && p.AmountPaid <= 0m && p.PaymentStatus != PaymentStatus.Paid).ToList();
+
+        var arrears = periods.Where(p => p.PeriodStart <= currentMonthEnd && p.AmountPaid <= 0m
+            && (p.AmountDue - (p.ForgivenAmount ?? 0m)) > 0m
+            && p.PaymentStatus != PaymentStatus.Paid).ToList();
+
+        var pending = arrears
+            .GroupBy(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+            .Select(g =>
+            {
+                string fromName = g.First().SessionName;
+                return new PaymentPeriod
+                {
+                    TeacherId = teacherId,
+                    SessionId = null,
+                    TeacherStudentId = teacherStudentId,
+                    PeriodType = PeriodType.Monthly,
+                    PeriodStart = g.Key,
+                    PeriodEnd = g.Key.AddMonths(1).AddDays(-1),
+                    AmountDue = g.Sum(p => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)),
+                    AmountPaid = 0m,
+                    PaymentStatus = PaymentStatus.Unpaid,
+                    IsProRated = false,
+                    ProRatedFraction = 1.0m,
+                    IsCarriedForward = true,
+                    MovedFromSessionName = fromName,
+                    OriginSessionName = fromName,
+                    SessionName = fromName,
+                    StudentName = g.First().StudentName,
+                    StudentCode = g.First().StudentCode,
+                    CreateAt = DateTime.UtcNow
+                };
+            })
+            .ToList();
+
+        var toDelete = futureUnpaid.Concat(arrears).ToList();
+        if (toDelete.Count > 0)
+            await _unitOfWork.GetRepository<PaymentPeriod, long>().DeleteRangeAsync(toDelete);
+        if (pending.Count > 0)
+            await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(pending);
+
+        return (futureUnpaid.Count, pending.Count, arrears.Count);
     }
 
     /// <inheritdoc />

@@ -365,9 +365,12 @@ public class SessionService : ISessionService
             // and deletes the SessionOccurrence rows (which are now unreferenced).
             await _attendanceService.OnSessionDeletingAsync(teacherId, sessionId);
 
-            // ── PAYMENT INTEGRATION: Preserve payment records before hard delete ──
-            // Nullifies SessionId on PaymentTransactions, PaymentPeriods, StudentDepartures.
-            // Denormalized SessionName preserved on all records.
+            // ── PAYMENT INTEGRATION: apply the session-delete money lifecycle before hard delete ──
+            // Per student: keep PAID/past periods as history, VOID future-unpaid, and collapse unpaid
+            // arrears-through-current-month into ONE pending carry-forward debt per month (SessionId null,
+            // IsCarriedForward) that follows the student into their next session (re-priced) on reassign.
+            // SessionId is then nulled on the surviving PAID/history rows + transactions + departures, and
+            // each affected counter is resynced. Denormalized SessionName preserved on all records.
             await _paymentService.OnSessionDeletingAsync(teacherId, sessionId);
 
             // ── VIDEO / ONLINE-EXAM SCOPE CLEANUP: remove targeting rules before hard delete ──

@@ -604,6 +604,51 @@
         }
 
         /// <inheritdoc />
+        public async Task<List<long>> GetStudentIdsWithPeriodsInSessionAsync(long teacherId, long sessionId)
+        {
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.SessionId == sessionId
+                    && p.TeacherStudentId != null)
+                .Select(p => p.TeacherStudentId!.Value)
+                .Distinct()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<(long TeacherId, long TeacherStudentId)>>
+            GetOrphanedUnpaidPeriodOwnersAsync(long? teacherId)
+        {
+            // Legacy orphans: SessionId nulled by the OLD session-delete (never converted to a carried
+            // pending debt), still UNPAID with no cash. The new lifecycle marks pending rows
+            // IsCarriedForward, so !IsCarriedForward isolates exactly the leftovers to reconcile.
+            var q = _context.PaymentPeriods
+                .Where(p => p.SessionId == null && !p.IsCarriedForward && p.TeacherStudentId != null
+                    && p.AmountPaid <= 0m && p.PaymentStatus != PaymentStatus.Paid
+                    && (p.AmountDue - (p.ForgivenAmount ?? 0m)) > 0m);
+            if (teacherId.HasValue)
+                q = q.Where(p => p.TeacherId == teacherId.Value);
+            var rows = await q
+                .Select(p => new { p.TeacherId, StudentId = p.TeacherStudentId!.Value })
+                .Distinct()
+                .ToListAsync();
+            return rows.Select(r => (r.TeacherId, r.StudentId)).ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentPeriod>> GetOrphanedPeriodsByStudentAsync(
+            long teacherId, long teacherStudentId)
+        {
+            // All session-less, not-yet-carried periods for the student (paid orphans included — the
+            // caller's void/consolidate rule ignores paid rows, keeping them as history).
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId
+                    && p.SessionId == null && !p.IsCarriedForward)
+                .OrderBy(p => p.PeriodSequence)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<PaymentPeriod>> GetAllPaymentPeriodsByStudentAsync(
             long teacherId, long teacherStudentId)
         {
