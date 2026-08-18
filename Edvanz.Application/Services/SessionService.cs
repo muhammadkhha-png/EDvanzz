@@ -44,9 +44,11 @@ namespace Edvanz.Application.Services;
 /// PAYMENT MODULE INTEGRATION (Module 4):
 /// Session lifecycle events are forwarded to IPaymentService:
 /// - AssignStudents → OnStudentAssignedToSessionAsync (generate payment periods + init counter)
-/// - ConfirmReassign → OnStudentUnassigned + OnStudentAssigned (preserve history, generate new periods)
+/// - ConfirmReassign → OnStudentMovedBetweenSessionsAsync (carry billing A→B re-priced; paid months
+///   stay as history) — or a plain assign when the student had no prior session
 /// - UnassignStudent → OnStudentUnassignedFromSessionAsync (preserve payment history)
-/// - DeleteSession → OnSessionDeletingAsync (nullify SessionId on payment records before hard delete)
+/// - DeleteSession → OnSessionDeletingAsync (keep paid history, void future-unpaid, carry unpaid
+///   arrears as pending debt, then nullify SessionId on surviving records before hard delete)
 /// </summary>
 public class SessionService : ISessionService
 {
