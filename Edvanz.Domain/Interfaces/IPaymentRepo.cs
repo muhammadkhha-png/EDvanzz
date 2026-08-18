@@ -696,6 +696,30 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         GetMonthRemainingAndCollectedSplitAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
 
     /// <summary>
+    /// Assigned-gated obligation aggregates for the tracking summary card's two perspectives
+    /// (This month vs Total-through-this-month). Everything here is <b>period-based</b> — attributed
+    /// to the month each installment BELONGS to, never the calendar date the cash arrived — and scoped
+    /// to students currently assigned to a session (<c>SessionId != null</c>, the same population as
+    /// <see cref="CountAssignedStudentsAsync"/> / <see cref="GetStudentPaymentStatusCountsAsync"/>), so
+    /// the figures reconcile with the paid/prorated/unpaid headcounts. Orphaned periods
+    /// (<c>TeacherStudentId == null</c>, purged students) are excluded. Amounts already respect
+    /// proration and per-student custom price (both live in <c>AmountDue</c>). Two windows:
+    /// <list type="bullet">
+    /// <item><b>This month</b> — periods overlapping <c>[monthStart, monthEnd]</c>:
+    ///   <c>ExpectedThisMonth</c> = Σ <c>AmountDue</c>; <c>CollectedThisMonth</c> = Σ <c>AmountPaid</c>;
+    ///   <c>RemainingThisMonth</c> = Σ(<c>AmountDue − AmountPaid − ForgivenAmount</c>) over not-Paid periods.</item>
+    /// <item><b>Through this month</b> — periods with <c>PeriodStart ≤ monthEnd</c> (current + every earlier
+    ///   month): <c>CollectedTotal</c> = Σ <c>AmountPaid</c>; <c>OutstandingTotal</c> =
+    ///   Σ(<c>AmountDue − AmountPaid − ForgivenAmount</c>) over not-Paid periods — all money still owed
+    ///   up to and including this month (arrears + current).</item>
+    /// </list>
+    /// Both remaining figures are clamped at 0. Four indexed SUM round-trips, no row materialization.
+    /// </summary>
+    Task<(decimal ExpectedThisMonth, decimal CollectedThisMonth, decimal RemainingThisMonth,
+          decimal CollectedTotal, decimal OutstandingTotal)>
+        GetAssignedObligationAggregatesAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
+
+    /// <summary>
     /// TRACKED. Per currently-assigned student, their earliest monthly period (min PeriodSequence — the
     /// enrollment's first month, the only period proration ever applies to) when it is still owed
     /// (Unpaid/PartiallyPaid). Drives the retroactive proration re-price on a settings toggle; fully-paid

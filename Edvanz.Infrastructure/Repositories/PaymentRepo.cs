@@ -473,6 +473,7 @@
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
                     && p.IsProrationAnchorMonth
+                    && !p.IsCarriedForward && p.MovedFromSessionId == null // a moved/carried period is never an anchor
                     && (p.PaymentStatus == PaymentStatus.Unpaid
                         || p.PaymentStatus == PaymentStatus.PartiallyPaid))
                 .ToListAsync();
@@ -504,7 +505,8 @@
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId
                     && p.SessionId == sessionId && p.PeriodType == PeriodType.Monthly
-                    && p.IsProrationAnchorMonth)
+                    && p.IsProrationAnchorMonth
+                    && !p.IsCarriedForward && p.MovedFromSessionId == null) // a moved/carried period is never an anchor
                 .OrderBy(p => p.PeriodSequence)
                 .FirstOrDefaultAsync();
         }
@@ -2348,6 +2350,63 @@
                 allocCurrent + legacyCurrent,
                 allocPrev + legacyPrev,
                 allocAdvance + legacyAdvance);
+        }
+
+        /// <inheritdoc />
+        public async Task<(decimal ExpectedThisMonth, decimal CollectedThisMonth, decimal RemainingThisMonth, decimal CollectedTotal, decimal OutstandingTotal)>
+            GetAssignedObligationAggregatesAsync(long teacherId, DateTime monthStart, DateTime monthEnd)
+        {
+            var monthStartD = monthStart.Date;
+            var monthEndD = monthEnd.Date;
+
+            // Currently-assigned active students (SessionId != null) — the same population as the
+            // status headcounts, so this card's figures reconcile with paid/prorated/unpaid.
+            var assignedStudentIds = _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+                .Select(ts => ts.Id);
+
+            // Base set: this teacher's non-orphaned periods owned by an assigned student.
+            var basePeriods = _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId
+                    && p.TeacherStudentId != null
+                    && assignedStudentIds.Contains(p.TeacherStudentId!.Value));
+
+            // ── This month: periods overlapping [monthStart, monthEnd] (the current installment). ──
+            var thisMonth = basePeriods.Where(p => p.PeriodEnd >= monthStartD && p.PeriodStart <= monthEndD);
+
+            var thisMonthAgg = await thisMonth
+                .GroupBy(_ => 1)
+                .Select(g => new
+                {
+                    Expected = g.Sum(p => p.AmountDue),
+                    Collected = g.Sum(p => p.AmountPaid)
+                })
+                .FirstOrDefaultAsync();
+
+            // Remaining as an explicit filtered SUM (WHERE not-Paid + SUM) rather than a CASE inside the
+            // grouped projection — the provider translates it unambiguously (mirrors
+            // GetMonthRemainingAndCollectedSplitAsync / GetOverdueTotalThroughAsync).
+            decimal remainingThisMonth = await thisMonth
+                .Where(p => p.PaymentStatus != PaymentStatus.Paid)
+                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
+            if (remainingThisMonth < 0m) remainingThisMonth = 0m;
+
+            // ── Through this month: current + every earlier month (PeriodStart ≤ month end). ──
+            var throughMonth = basePeriods.Where(p => p.PeriodStart <= monthEndD);
+
+            decimal collectedTotal = await throughMonth.SumAsync(p => (decimal?)p.AmountPaid) ?? 0m;
+
+            decimal outstandingTotal = await throughMonth
+                .Where(p => p.PaymentStatus != PaymentStatus.Paid)
+                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
+            if (outstandingTotal < 0m) outstandingTotal = 0m;
+
+            return (
+                thisMonthAgg?.Expected ?? 0m,
+                thisMonthAgg?.Collected ?? 0m,
+                remainingThisMonth,
+                collectedTotal,
+                outstandingTotal);
         }
 
         /// <inheritdoc />

@@ -525,6 +525,32 @@ public class TrackingSummaryDto
     public int SessionsCollected { get; set; }
     public int SessionsTotal { get; set; }
     public decimal ProgressPercent { get; set; }
+
+    // ── Two perspectives on the same money: "This month" vs "Total (through this month)" ──────────
+    // All four figures below are PERIOD-BASED (attributed to the month each installment BELONGS to,
+    // never the cash date) and scoped to currently-assigned active students, so within each
+    // perspective Expected = Collected + Remaining (+ forgiven). These sit alongside the existing
+    // fields: ExpectedRevenue / RemainingAmount are the "this month" Expected / Remaining;
+    // CollectedAmount stays the date-based physical "cash collected this calendar month" headline.
+
+    /// <summary>THIS MONTH — money that settled THIS month's installments (Σ AmountPaid on periods
+    /// overlapping the month). Installment-based, so a payment taken this month for a PAST month is
+    /// NOT counted here (it lands on that past month). Distinct from <see cref="CollectedAmount"/>
+    /// (date-based physical cash).</summary>
+    public decimal CollectedThisMonth { get; set; }
+
+    /// <summary>TOTAL through this month — everything still owed across the current month plus every
+    /// earlier month for assigned students (all unpaid periods with PeriodStart ≤ month end =
+    /// arrears + current). By the agreed definition this equals <see cref="RemainingTotalOutstanding"/>.</summary>
+    public decimal ExpectedTotalOutstanding { get; set; }
+
+    /// <summary>TOTAL through this month — collected toward all installments up to and including this
+    /// month (Σ AmountPaid on periods with PeriodStart ≤ month end).</summary>
+    public decimal CollectedTotal { get; set; }
+
+    /// <summary>TOTAL through this month — outstanding across current + all earlier months. Equals
+    /// <see cref="ExpectedTotalOutstanding"/> by the agreed definition (both = all unpaid through the month).</summary>
+    public decimal RemainingTotalOutstanding { get; set; }
 }
 
 public class TrackingStatusBreakdownDto

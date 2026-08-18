@@ -2902,6 +2902,7 @@ public class PaymentService : IPaymentService
                     p.IsProRated = false;
                     p.ProRatedFraction = 1.0m;
                     p.IsCarriedForward = true;
+                    p.IsProrationAnchorMonth = false; // a carried/re-priced period is never a proration anchor
                     await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
                 }
             }
@@ -3288,6 +3289,7 @@ public class PaymentService : IPaymentService
             p.AmountDue = destBaseAmount;
             p.IsProRated = false;
             p.ProRatedFraction = 1.0m;
+            p.IsProrationAnchorMonth = false; // a moved period is never a proration anchor in its new session
             await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
         }
 
