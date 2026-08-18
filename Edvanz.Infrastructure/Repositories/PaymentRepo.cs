@@ -441,6 +441,31 @@
         }
 
         /// <inheritdoc />
+        public async Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated)>>
+            GetAnchorPeriodInfoByStudentIdsAsync(long teacherId, IReadOnlyCollection<long> studentIds)
+        {
+            if (studentIds.Count == 0)
+                return new List<(long, long?, DateTime, decimal, decimal, bool)>();
+            // The proration-anchor month per student (one each) — its amount, fraction and month drive
+            // the "prorated {amount} · {fraction}" + join-date transparency on the payment screens.
+            var rows = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && studentIds.Contains(p.TeacherStudentId.Value)
+                    && p.IsProrationAnchorMonth)
+                .Select(p => new
+                {
+                    StudentId = p.TeacherStudentId!.Value,
+                    p.SessionId, p.PeriodStart, p.AmountDue, p.ProRatedFraction, p.IsProRated
+                })
+                .ToListAsync();
+            return rows
+                .GroupBy(r => r.StudentId)
+                .Select(g => g.OrderBy(x => x.PeriodStart).First())
+                .Select(r => (r.StudentId, r.SessionId, r.PeriodStart, r.AmountDue, r.ProRatedFraction, r.IsProRated))
+                .ToList();
+        }
+
+        /// <inheritdoc />
         public async Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId)
         {
             // TRACKED. Every still-owed proration-anchor month (a new enrollment's first month) for the
@@ -1744,7 +1769,9 @@
                 {
                     PeriodId = p.Id,
                     PeriodStart = p.PeriodStart,
-                    Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)
+                    Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                    IsProRated = p.IsProRated,
+                    ProRatedFraction = p.ProRatedFraction
                 })
                 .ToListAsync();
 

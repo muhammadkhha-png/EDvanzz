@@ -181,6 +181,10 @@ public sealed class CollectLookupUnpaidMonth
     public DateTime PeriodStart { get; set; }
     /// <summary>Remaining amount owed for this month (what a single-month collection would settle).</summary>
     public decimal Remaining { get; set; }
+    /// <summary>True when this month is the prorated anchor month — justifies a reduced amount.</summary>
+    public bool IsProRated { get; set; }
+    /// <summary>The proration fraction (e.g. 0.6685) when prorated; 1.0 otherwise.</summary>
+    public decimal ProRatedFraction { get; set; }
 }
 
 /// <summary>

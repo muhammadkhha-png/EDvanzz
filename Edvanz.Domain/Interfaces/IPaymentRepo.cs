@@ -724,6 +724,11 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// first month) — the population the settings reconcile re-prices; transfers are excluded by design.</summary>
     Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId);
 
+    /// <summary>The proration-anchor month info (month, amount, fraction, prorated?) per student — feeds
+    /// the "prorated {amount} · {fraction}" + join-date transparency on the payment screens.</summary>
+    Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated)>>
+        GetAnchorPeriodInfoByStudentIdsAsync(long teacherId, IReadOnlyCollection<long> studentIds);
+
     /// <summary>Earliest Present/CrossSessionPresent date per (student, session) for the given students —
     /// the reconcile's attendance anchor. One query for the whole set.</summary>
     Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>

@@ -713,6 +713,31 @@ public class PaymentScreenService : IPaymentScreenService
             ? (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet()
             : new HashSet<long>();
 
+        // Proration transparency: batch the anchor-period info (prorated amount + fraction) and the
+        // anchor date (first-Present in the anchor month, else assignment date) so a prorated row can
+        // justify its reduced amount without an N+1. Only students with a PRORATED anchor are enriched.
+        var anchorInfo = (await _unitOfWork.PaymentsRepo
+                .GetAnchorPeriodInfoByStudentIdsAsync(
+                    teacherId, rows.Select(r => r.TeacherStudentId).Distinct().ToList()))
+            .Where(a => a.IsProRated)
+            .ToDictionary(a => a.StudentId);
+        var anchorAssignDates = new Dictionary<(long, long), DateTime>();
+        var anchorFirstPresent = new Dictionary<(long, long), DateTime>();
+        if (anchorInfo.Count > 0)
+        {
+            var anchorStudentIds = anchorInfo.Keys.ToList();
+            foreach (var a in await _unitOfWork.PaymentsRepo
+                .GetAssignmentDatesForStudentsAsync(teacherId, anchorStudentIds))
+            {
+                var key = (a.TeacherStudentId, a.SessionId);
+                if (!anchorAssignDates.TryGetValue(key, out var ex) || a.AssignedAt < ex)
+                    anchorAssignDates[key] = a.AssignedAt;
+            }
+            foreach (var a in await _unitOfWork.PaymentsRepo
+                .GetFirstAttendanceDatesForStudentsAsync(teacherId, anchorStudentIds))
+                anchorFirstPresent[(a.TeacherStudentId, a.SessionId)] = a.FirstPresentDate;
+        }
+
         var students = new List<StudentByStatusDto>(rows.Count);
         foreach (var r in rows)
         {
@@ -722,6 +747,24 @@ public class PaymentScreenService : IPaymentScreenService
             {
                 collectedByName = collectorNames.TryGetValue(cby, out var cn) ? cn : null;
                 collectedByRole = assistantUserIds.Contains(cby) ? "Assistant" : "Teacher";
+            }
+
+            bool isProrated = false;
+            decimal? proratedFraction = null, proratedAmount = null;
+            DateTime? joinedAt = null;
+            if (anchorInfo.TryGetValue(r.TeacherStudentId, out var anc) && anc.SessionId is long asid)
+            {
+                isProrated = true;
+                proratedFraction = anc.ProRatedFraction;
+                proratedAmount = anc.AmountDue;
+                var anchorMonth = new DateTime(anc.PeriodStart.Year, anc.PeriodStart.Month, 1);
+                if (anchorFirstPresent.TryGetValue((r.TeacherStudentId, asid), out var fp)
+                    && new DateTime(fp.Year, fp.Month, 1) == anchorMonth)
+                    joinedAt = fp; // first-Present in the anchor month = the true anchor
+                else if (anchorAssignDates.TryGetValue((r.TeacherStudentId, asid), out var ad))
+                    joinedAt = ad; // not yet attended / attended later → assignment day
+                else
+                    joinedAt = anc.PeriodStart;
             }
 
             students.Add(new StudentByStatusDto
@@ -742,7 +785,11 @@ public class PaymentScreenService : IPaymentScreenService
                 SessionName = r.SessionName,
                 PaidOn = r.PaidOn,
                 CollectedByName = collectedByName,
-                CollectedByRole = collectedByRole
+                CollectedByRole = collectedByRole,
+                IsProrated = isProrated,
+                ProRatedFraction = proratedFraction,
+                ProratedAmount = proratedAmount,
+                JoinedAt = joinedAt
             });
         }
 
@@ -877,7 +924,9 @@ public class PaymentScreenService : IPaymentScreenService
                     PeriodId = m.PeriodId.ToString(CultureInfo.InvariantCulture),
                     Month = m.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
                     MonthLabel = m.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
-                    Amount = m.Remaining
+                    Amount = m.Remaining,
+                    IsProrated = m.IsProRated,
+                    ProRatedFraction = m.IsProRated ? m.ProRatedFraction : (decimal?)null
                 })
                 .ToList()
         };

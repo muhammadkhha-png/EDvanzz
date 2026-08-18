@@ -364,6 +364,24 @@ public class StudentByStatusDto
 
     /// <summary>Role of the collector: <c>Teacher</c> | <c>Assistant</c>. Null when no collector.</summary>
     public string? CollectedByRole { get; set; }
+
+    // ── Proration transparency (shown only when IsProrated) ──
+
+    /// <summary>True when the student's first (anchor) month is prorated — justifies the reduced amount.</summary>
+    public bool IsProrated { get; set; }
+
+    /// <summary>The proration fraction of the anchor month (e.g. 0.6685 = ⅔). Null when not prorated.</summary>
+    public decimal? ProRatedFraction { get; set; }
+
+    /// <summary>The anchor month's prorated amount owed (e.g. 200.55). Null when not prorated.</summary>
+    public decimal? ProratedAmount { get; set; }
+
+    /// <summary>
+    /// The date the proration is anchored to — the student's FIRST-Present class date (or, before they've
+    /// attended, the assignment date). Justifies the prorated value on screen ("first attended {date}").
+    /// Null when not prorated.
+    /// </summary>
+    public DateTime? JoinedAt { get; set; }
 }
 
 // ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────
@@ -447,6 +465,10 @@ public class CollectLookupMonthDto
     public string MonthLabel { get; set; } = string.Empty;
     /// <summary>Remaining amount owed for this month (what paying this one month settles).</summary>
     public decimal Amount { get; set; }
+    /// <summary>True when this is the prorated anchor month — the collect UI can show "prorated ⅔".</summary>
+    public bool IsProrated { get; set; }
+    /// <summary>The proration fraction (e.g. 0.6685) when prorated; null otherwise.</summary>
+    public decimal? ProRatedFraction { get; set; }
 }
 
 public class CollectLookupStudentDto
