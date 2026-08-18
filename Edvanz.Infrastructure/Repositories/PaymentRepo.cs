@@ -662,7 +662,12 @@
                 .Include(p => p.Session)
                 .OrderBy(p => p.SessionName)
                 .ThenBy(p => p.PeriodSequence)
-                .AsNoTracking()
+                // Identity resolution (NOT plain AsNoTracking): sibling periods share ONE Session (and
+                // transaction) instance instead of a fresh detached copy per row. Without it, when a
+                // caller passes these entities to DeleteRangeAsync, EF's RemoveRange graph-attach tries to
+                // track two Session instances with the same key and throws "cannot be tracked … already
+                // being tracked" (broke confirm-reassign for any student with ≥2 periods in one session).
+                .AsNoTrackingWithIdentityResolution()
                 .ToListAsync();
         }
 
