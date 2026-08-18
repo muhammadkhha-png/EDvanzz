@@ -41,9 +41,18 @@ public sealed class CollectStudentRow
     public string StudentName { get; set; } = null!;
     public string StudentCode { get; set; } = null!;
     public bool IsAssigned { get; set; }
+    /// <summary>The student's per-month rate (custom override else session amount).</summary>
     public decimal Amount { get; set; }
     public bool IsUnpaid { get; set; }
     public int UnpaidMonths { get; set; }
+
+    /// <summary>
+    /// Total arrears through the current month (Σ remaining over unpaid periods) — what a full "mark
+    /// paid" would collect. Distinct from <see cref="Amount"/> (a single month): a 2-months-behind
+    /// student has <c>Amount = 300</c> but <c>TotalOwed = 600</c>, so the collect UI can default to the
+    /// full owed with a month counter instead of silently under-showing one month.
+    /// </summary>
+    public decimal TotalOwed { get; set; }
 }
 
 /// <summary>
@@ -89,8 +98,20 @@ public sealed class StudentByStatusRow
     /// <summary>
     /// Collection date of the student's latest paying transaction for the month
     /// (<c>PaymentTransaction.CollectedAt</c>). Null when nothing was paid.
+    /// Derived from the allocation ledger (any transaction that settled an in-month period),
+    /// with a legacy fallback to the single denormalized transaction→period FK — so a month
+    /// cleared as a NON-oldest slice of a multi-month cascade still surfaces its paid-on date
+    /// instead of null (fixes the "paid student, blank paid-on" bug).
     /// </summary>
     public DateTime? PaidOn { get; set; }
+
+    /// <summary>
+    /// User id of the collector of the student's latest in-month settling transaction (the same
+    /// transaction that drives <see cref="PaidOn"/>). Null when nothing was collected this month
+    /// (or the month was settled purely by forgiveness). Resolved to a display name + role
+    /// (you / assistant name) by the service so the paid card can show "collected by X".
+    /// </summary>
+    public long? CollectedByUserId { get; set; }
 
     /// <summary>
     /// The student's own computed status (<c>paid | prorated | unpaid</c>) by the
@@ -142,6 +163,24 @@ public sealed class CollectLookupRow
 
     /// <summary>Count of unpaid months making up <see cref="AmountDue"/> (arrears through the month).</summary>
     public int MonthsOwed { get; set; }
+
+    /// <summary>
+    /// The unpaid months making up <see cref="AmountDue"/>, OLDEST-FIRST (the order the collect cascade
+    /// settles them). Lets the collect UI show a per-month counter and label exactly which month(s) a
+    /// payment covers — accurate even when a month is prorated or partially paid.
+    /// </summary>
+    public List<CollectLookupUnpaidMonth> UnpaidMonths { get; set; } = new();
+}
+
+/// <summary>One unpaid month in a collect lookup: the period, the month it falls in, and the
+/// remaining amount owed for it (AmountDue − AmountPaid − ForgivenAmount).</summary>
+public sealed class CollectLookupUnpaidMonth
+{
+    public long PeriodId { get; set; }
+    /// <summary>First day of the month this period bills (drives the month label + ordering).</summary>
+    public DateTime PeriodStart { get; set; }
+    /// <summary>Remaining amount owed for this month (what a single-month collection would settle).</summary>
+    public decimal Remaining { get; set; }
 }
 
 /// <summary>

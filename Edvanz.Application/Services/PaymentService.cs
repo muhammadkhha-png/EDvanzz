@@ -1036,6 +1036,127 @@ public class PaymentService : IPaymentService
     }
 
     /// <inheritdoc />
+    public async Task ReconcileProrationForExistingStudentsAsync(long teacherId)
+    {
+        // Retroactive proration (req 3): when a teacher enables/disables proration (or edits its tiers),
+        // reconcile EXISTING students' first month to the new config — not just new students. Runs on the
+        // CALLER's transaction (TeacherService.SaveConfigurationAsync owns Begin/Commit; §5.2): it only
+        // mutates + SaveChanges, never opens/commits its own boundary (mirrors OnSessionAmountChangedAsync).
+        //
+        // SCOPE (user-chosen): only each assigned student's first month, and only while STILL OWED — a
+        // month the student already fully paid is never rewritten, so no credit/debit is ever created.
+        var periods = await _unitOfWork.PaymentsRepo.GetFirstMonthlyPeriodsForAssignedStudentsAsync(teacherId);
+        if (periods.Count == 0) return;
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        bool enabled = config?.IsProratedPaymentEnabled == true;
+        IReadOnlyList<TeacherProratedTier> tiers = enabled && config != null
+            ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id)
+            : System.Array.Empty<TeacherProratedTier>();
+
+        // Batch-load everything the loop needs so a whole-roster reconcile stays a handful of queries,
+        // not O(students): the join DAY (selects the tier) per first period's assignment, and the
+        // affected counters (tracked — they carry CustomPaymentAmount AND receive the delta writes).
+        var assignmentIds = periods
+            .Where(p => p.StudentSessionAssignmentId.HasValue)
+            .Select(p => p.StudentSessionAssignmentId!.Value).Distinct().ToList();
+        var assignmentDates = await _unitOfWork.PaymentsRepo
+            .GetAssignmentDatesByIdsAsync(teacherId, assignmentIds);
+
+        var studentIds = periods.Select(p => p.TeacherStudentId!.Value).Distinct().ToList();
+        var counters = (await _unitOfWork.PaymentsRepo
+                .GetPaymentCountersByStudentIdsAsync(teacherId, studentIds))
+            .ToDictionary(c => c.TeacherStudentId);
+
+        var sessionAmountCache = new Dictionary<long, decimal>();
+        // Students whose first-month PAID status actually flipped — only these need the (per-student)
+        // consecutive-unpaid recompute; a plain amount change leaves the consecutive count untouched.
+        var flippedStudents = new HashSet<long>();
+
+        foreach (var p in periods)
+        {
+            long studentId = p.TeacherStudentId!.Value;
+            counters.TryGetValue(studentId, out var counter);
+
+            decimal fullBase;
+            if (counter?.CustomPaymentAmount is decimal custom)
+                fullBase = custom;
+            else if (p.SessionId.HasValue)
+            {
+                if (!sessionAmountCache.TryGetValue(p.SessionId.Value, out fullBase))
+                {
+                    var session = await _unitOfWork.SessionsRepo
+                        .GetByIdAndTeacherAsync(p.SessionId.Value, teacherId);
+                    fullBase = session?.SessionAmount ?? p.AmountDue; // no session → leave effectively unchanged
+                    sessionAmountCache[p.SessionId.Value] = fullBase;
+                }
+            }
+            else fullBase = p.AmountDue;
+
+            // Enabled + a fraction < 1 → prorate; disabled, or a day in a full-price/unknown tier → full.
+            decimal fraction = 1.0m;
+            if (enabled
+                && p.StudentSessionAssignmentId is long aid
+                && assignmentDates.TryGetValue(aid, out var assignedAt))
+            {
+                fraction = MatchProrationFraction(tiers, assignedAt.Day);
+            }
+
+            bool prorate = enabled && fraction < 1.0m;
+            // Set the desired proration state, then reuse the tested reprice helper: it computes
+            // AmountDue = fullBase × (IsProRated ? fraction : 1), recomputes status, and returns the
+            // counter deltas — keeping the counter math identical to the price-change path.
+            p.IsProRated = prorate;
+            p.ProRatedFraction = prorate ? fraction : 1.0m;
+            var d = RepricePeriodInPlace(p, fullBase);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+
+            if (counter != null)
+            {
+                counter.TotalOutstanding += d.OutstandingDelta;
+                counter.TotalPaidPeriods += d.PaidPeriodsDelta;
+                counter.TotalUnpaidPeriods += d.UnpaidPeriodsDelta;
+                await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                if (d.UnpaidPeriodsDelta != 0 || d.PaidPeriodsDelta != 0)
+                    flippedStudents.Add(studentId); // status flip → consecutive count may have changed
+            }
+        }
+
+        // Flush period + counter rewrites, THEN recompute consecutive-unpaid only for the students whose
+        // first-month status actually flipped (the recompute reads the now-flushed periods).
+        await _unitOfWork.SaveChangesAsync();
+        foreach (var studentId in flippedStudents)
+        {
+            if (!counters.TryGetValue(studentId, out var counter)) continue;
+            counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+                .RecalculateConsecutiveUnpaidAsync(teacherId, studentId);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+        }
+        if (flippedStudents.Count > 0)
+            await _unitOfWork.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Matches a join day to a proration fraction using the configured tiers, with the SAME out-of-range
+    /// clamp as period generation (a day past every tier → the last tier; before every tier → the first).
+    /// Returns 1.0 (full price) when no tier matches or none are configured.
+    /// </summary>
+    private static decimal MatchProrationFraction(IReadOnlyList<TeacherProratedTier> tiers, int joinDay)
+    {
+        if (tiers.Count == 0) return 1.0m;
+        var matchingTier = tiers.OrderBy(t => t.TierNumber)
+            .FirstOrDefault(t => joinDay >= t.ThresholdDayStart && joinDay <= t.ThresholdDayEnd);
+        if (matchingTier is null)
+        {
+            if (joinDay > tiers.Max(t => t.ThresholdDayEnd))
+                matchingTier = tiers.OrderByDescending(t => t.ThresholdDayEnd).First();
+            else if (joinDay < tiers.Min(t => t.ThresholdDayStart))
+                matchingTier = tiers.OrderBy(t => t.ThresholdDayStart).First();
+        }
+        return matchingTier?.FractionRate ?? 1.0m;
+    }
+
+    /// <inheritdoc />
     public async Task<Result<bool>> BackfillSessionPeriodsThroughEndDateAsync(
         long teacherId, long sessionId)
     {

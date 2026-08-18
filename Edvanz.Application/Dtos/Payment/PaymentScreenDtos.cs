@@ -95,6 +95,33 @@ public class CollectionRow
     /// Null for a normal collection.
     /// </summary>
     public string? RefundedForMonthLabel { get; set; }
+
+    /// <summary>
+    /// For a collection: exactly which month(s) this cash settled, oldest-first, from the allocation
+    /// ledger (e.g. a 600 payment → [{August, 300}, {July, 300}]). Empty for refund/withdrawal lines
+    /// and for legacy collections with no allocation ledger. Lets the ledger name the installment(s)
+    /// instead of showing a bare amount.
+    /// </summary>
+    public List<CollectionMonthSlice> AppliedMonths { get; set; } = new();
+
+    /// <summary>True when this collection's amount was later edited (an <c>AmountChanged</c> edit log).
+    /// Pair with <see cref="OriginalAmount"/> to render "edited from X to Y".</summary>
+    public bool IsEdited { get; set; }
+
+    /// <summary>The amount originally collected, before the first amount-edit. Null when never edited;
+    /// the current (edited) value is <see cref="Amount"/>.</summary>
+    public decimal? OriginalAmount { get; set; }
+}
+
+/// <summary>One month a collection settled: the month key/label and how much of the cash landed on it.</summary>
+public class CollectionMonthSlice
+{
+    /// <summary>The month, as "YYYY-MM".</summary>
+    public string Month { get; set; } = string.Empty;
+    /// <summary>Human label, e.g. "August 2026".</summary>
+    public string MonthLabel { get; set; } = string.Empty;
+    /// <summary>Amount of this cash event applied to this month.</summary>
+    public decimal Amount { get; set; }
 }
 
 // ── Screen: Collections summary (date-filtered) ────────────────────────────
@@ -218,6 +245,20 @@ public class AssistantWalletCollectionItemDto
     /// the held balance since the last full hand-over.
     /// </summary>
     public string Kind { get; set; } = "collection";
+
+    /// <summary>
+    /// For a "collection": which month(s) this cash settled, oldest-first (from the allocation ledger),
+    /// so the assistant sees the installment paid ("August + July"), not a vague amount. Empty for
+    /// refund/withdrawal lines and legacy collections without an allocation ledger.
+    /// </summary>
+    public List<CollectionMonthSlice> AppliedMonths { get; set; } = new();
+
+    /// <summary>True when this collection's amount was later edited. Pair with
+    /// <see cref="OriginalAmount"/> to render "edited from X to Y".</summary>
+    public bool IsEdited { get; set; }
+
+    /// <summary>The amount originally collected, before the first amount-edit. Null when never edited.</summary>
+    public decimal? OriginalAmount { get; set; }
 }
 
 // ── Screen: CollectPayment (student list) ──────────────────────────────────
@@ -247,12 +288,21 @@ public class CollectStudentDto
     /// <summary>Student code shown on the card (e.g. "#223"); also matched by search.</summary>
     public string? StudentCode { get; set; }
     public string? AvatarUrl { get; set; }
+    /// <summary>The student's per-month rate (a single month).</summary>
     public decimal Amount { get; set; }
     /// <summary>assigned | unassigned</summary>
     public string Assignment { get; set; } = "unassigned";
     /// <summary>paid | unpaid</summary>
     public string Status { get; set; } = "paid";
     public int UnpaidMonths { get; set; }
+
+    /// <summary>
+    /// Total arrears through the current month (what a full collection settles). For a 2-months-behind
+    /// student <c>Amount = 300</c> but <c>TotalOwed = 600</c> — the collect UI defaults to this with a
+    /// month counter (oldest-first), instead of silently showing a single month.
+    /// </summary>
+    public decimal TotalOwed { get; set; }
+
     /// <summary>True when the required amount is 0 (free/scholarship) → "Not paying" label.</summary>
     public bool IsExempt { get; set; }
 }
@@ -304,6 +354,16 @@ public class StudentByStatusDto
 
     /// <summary>Date of the latest paying transaction this month; null when unpaid.</summary>
     public DateTime? PaidOn { get; set; }
+
+    /// <summary>
+    /// Display name of who collected the money for this month (the tutor or the assistant), from the
+    /// same transaction that drives <see cref="PaidOn"/>. Null when unpaid or settled by forgiveness.
+    /// Lets the paid card show "collected by X".
+    /// </summary>
+    public string? CollectedByName { get; set; }
+
+    /// <summary>Role of the collector: <c>Teacher</c> | <c>Assistant</c>. Null when no collector.</summary>
+    public string? CollectedByRole { get; set; }
 }
 
 // ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────
@@ -365,6 +425,28 @@ public class CollectLookupResponse
 
     /// <summary>Total arrears through the current teacher-local month — equal to <see cref="AmountDue"/>.</summary>
     public decimal TotalOwed { get; set; }
+
+    /// <summary>
+    /// The unpaid months making up <see cref="TotalOwed"/>, OLDEST-FIRST (the order money is applied).
+    /// The collect UI defaults to the full owed amount and uses this to (a) power a 1..N month counter
+    /// and (b) label exactly which month(s) a payment covers — the teacher/assistant sees "August +
+    /// July", not a vague total. Because settlement is oldest-first, selecting N months always pays the
+    /// first N entries (the student must clear older months before newer ones).
+    /// </summary>
+    public List<CollectLookupMonthDto> UnpaidMonthsBreakdown { get; set; } = new();
+}
+
+/// <summary>One unpaid month in a collect lookup breakdown.</summary>
+public class CollectLookupMonthDto
+{
+    /// <summary>The payment-period id (string per the api/v1 contract).</summary>
+    public string PeriodId { get; set; } = string.Empty;
+    /// <summary>The month this installment bills, as "YYYY-MM".</summary>
+    public string Month { get; set; } = string.Empty;
+    /// <summary>Human label, e.g. "August 2026".</summary>
+    public string MonthLabel { get; set; } = string.Empty;
+    /// <summary>Remaining amount owed for this month (what paying this one month settles).</summary>
+    public decimal Amount { get; set; }
 }
 
 public class CollectLookupStudentDto
@@ -394,8 +476,30 @@ public class TrackingSummaryDto
     public decimal ExpectedRevenue { get; set; }
     public int TotalStudents { get; set; }
     public int TotalSessions { get; set; }
+
+    /// <summary>Total cash physically collected this calendar month, net of departure refunds
+    /// (unchanged headline — can exceed <see cref="ExpectedRevenue"/> when students pay arrears/ahead).</summary>
     public decimal CollectedAmount { get; set; }
+
+    /// <summary>
+    /// Outstanding on THIS month's obligations only (forgiven-aware). No longer <c>expected − collected</c>:
+    /// arrears and advance cash do not shrink it, so it reads as "still owed for this month". REQ (req 5).
+    /// </summary>
     public decimal RemainingAmount { get; set; }
+
+    /// <summary>Of <see cref="CollectedAmount"/>, the portion that settled THIS month's installments
+    /// (net of any departure refund anchored to this month).</summary>
+    public decimal CollectedForCurrentMonth { get; set; }
+
+    /// <summary>Of <see cref="CollectedAmount"/>, the portion that settled PREVIOUS months' arrears
+    /// (net of any departure refund anchored to a previous month).</summary>
+    public decimal CollectedForPreviousMonths { get; set; }
+
+    /// <summary>Of <see cref="CollectedAmount"/>, the portion paid in ADVANCE for future months
+    /// (net of any departure refund anchored to a future month). Often 0; the client may fold it into
+    /// the current-month figure or show it as "paid ahead".</summary>
+    public decimal CollectedInAdvance { get; set; }
+
     public int SessionsCollected { get; set; }
     public int SessionsTotal { get; set; }
     public decimal ProgressPercent { get; set; }

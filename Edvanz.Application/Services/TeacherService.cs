@@ -35,19 +35,22 @@ public class TeacherService : ITeacherService
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
     private readonly IUserAuthInvalidationService _authInvalidation;
+    private readonly IPaymentService _paymentService;
 
     public TeacherService(
         IUnitOfWork unitOfWork,
         ITeacherCodeGenerator codeGenerator,
         ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer,
-        IUserAuthInvalidationService authInvalidation)   // NEW
+        IUserAuthInvalidationService authInvalidation,   // NEW
+        IPaymentService paymentService)                  // NEW — retroactive proration re-price
     {
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _subscriptionGate = subscriptionGate;
         _localizer = localizer;
         _authInvalidation = authInvalidation;             // NEW
+        _paymentService = paymentService;                 // NEW
     }
     /// <inheritdoc />
     public async Task<Result<string>> ToggleTeacherStatusAsync(ToggleAccountStatus req)
@@ -412,6 +415,10 @@ public class TeacherService : ITeacherService
         if (config is null)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
 
+        // Capture the proration state BEFORE it is overwritten below, so we can detect a genuine change
+        // (enable/disable/tier edit) and retroactively re-price existing students' first month (req 3).
+        bool wasProrationEnabled = config.IsProratedPaymentEnabled;
+
         if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count == 0)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTiersRequired", HttpStatusCode.BadRequest);
 
@@ -505,6 +512,21 @@ public class TeacherService : ITeacherService
 
             // Replace prorated tiers: delete existing, add new
             var existingTiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
+
+            // Signature of the proration config BEFORE vs AFTER this save. A change (enable/disable, or
+            // any tier boundary/fraction edit) triggers the retroactive first-month re-price below.
+            static string ProrationSignature(bool enabled, IEnumerable<(int Start, int End, decimal Frac)> tiers) =>
+                enabled
+                    ? "ON:" + string.Join(";", tiers.OrderBy(t => t.Start).ThenBy(t => t.End)
+                        .Select(t => $"{t.Start}-{t.End}@{t.Frac}"))
+                    : "OFF";
+            string oldProrationSignature = ProrationSignature(
+                wasProrationEnabled,
+                existingTiers.Select(t => (t.ThresholdDayStart, t.ThresholdDayEnd, t.FractionRate)));
+            string newProrationSignature = ProrationSignature(
+                dto.IsProratedPaymentEnabled,
+                dto.ProratedTiers.Select(t => (t.ThresholdDayStart, t.ThresholdDayEnd, t.FractionRate)));
+
             if (existingTiers.Any())
                 await _unitOfWork.Users.DeleteProratedTiersAsync(existingTiers);
 
@@ -530,6 +552,14 @@ public class TeacherService : ITeacherService
             }
 
             await _unitOfWork.SaveChangesAsync();
+
+            // req 3: proration now applies to EXISTING students, not just new ones. When the proration
+            // config actually changed (enabled/disabled, or a tier edited), retroactively re-price every
+            // assigned student's first month — prorate on enable, restore full price on disable — leaving
+            // already-paid months untouched. Runs INSIDE this transaction (the service joins our boundary
+            // and only SaveChanges), so a failure rolls the whole config save back.
+            if (oldProrationSignature != newProrationSignature)
+                await _paymentService.ReconcileProrationForExistingStudentsAsync(teacherId);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();

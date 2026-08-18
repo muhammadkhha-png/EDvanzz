@@ -303,6 +303,16 @@ public interface IPaymentService
     Task<Result<bool>> OnSessionAmountChangedAsync(long teacherId, long sessionId, decimal newAmount);
 
     /// <summary>
+    /// Retroactively reconciles EXISTING students' first month to the teacher's CURRENT proration config
+    /// (req 3): prorates first months when proration is enabled, restores full price when disabled, and
+    /// re-applies changed tiers. Only still-owed first months are touched — already-paid months are left
+    /// untouched (no credit/debit). Runs on the caller's transaction (no own commit); call it from
+    /// <c>TeacherService.SaveConfigurationAsync</c> after the config + tiers are saved, when the proration
+    /// config actually changed.
+    /// </summary>
+    Task ReconcileProrationForExistingStudentsAsync(long teacherId);
+
+    /// <summary>
     /// Called by SessionService after a session's date window changed. Billing periods are only
     /// generated ONCE — when a student is assigned — and only as far as the session's end date AT
     /// THAT MOMENT. Extending the end date afterwards therefore left the already-assigned students

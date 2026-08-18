@@ -224,8 +224,12 @@
                 // Live session name for the collections ledger; the transaction's own SessionName is
                 // a collection-time snapshot that goes stale when the session is renamed.
                 .Include(t => t.Session)
-                // Per-period settlement slices → how many months this one cash event cleared.
-                .Include(t => t.Allocations)
+                // Per-period settlement slices + their period → which month(s) this cash cleared.
+                .Include(t => t.Allocations).ThenInclude(a => a.PaymentPeriod)
+                // Amount-edit trail → surface "edited from X to Y" on the collection row.
+                .Include(t => t.EditLogs)
+                // Two collection includes (Allocations + EditLogs) → split to avoid a cartesian blow-up.
+                .AsSplitQuery()
                 .AsNoTracking()
                 .ToListAsync();
 
@@ -371,6 +375,72 @@
                     && (p.PaymentStatus == PaymentStatus.Unpaid
                         || p.PaymentStatus == PaymentStatus.PartiallyPaid))
                 .OrderBy(p => p.PeriodSequence)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetFirstMonthlyPeriodsForAssignedStudentsAsync(long teacherId)
+        {
+            // TRACKED — the caller re-prorates AmountDue/IsProRated/ProRatedFraction/PaymentStatus.
+            // Returns, per CURRENTLY-assigned student, their earliest monthly period (the enrollment's
+            // first month = min PeriodSequence, the ONLY period proration ever touches) — but ONLY when
+            // it is still owed (Unpaid/PartiallyPaid). Fully-paid first months are excluded so a
+            // proration toggle never rewrites money the student already settled (user-chosen scope).
+            var assignedIds = _context.TeacherStudents
+                .Where(ts => ts.TeacherId == teacherId && ts.SessionId != null)
+                .Select(ts => ts.Id);
+
+            // Min monthly PeriodSequence per assigned student (a plain GROUP BY + MIN), MATERIALIZED so
+            // the candidate fetch stays a simple IN-filter — avoids a correlated .Any() over a grouped
+            // subquery the provider might not translate.
+            var minSeqPairs = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && assignedIds.Contains(p.TeacherStudentId!.Value)
+                    && p.PeriodType == PeriodType.Monthly)
+                .GroupBy(p => p.TeacherStudentId!.Value)
+                .Select(g => new { StudentId = g.Key, MinSeq = g.Min(x => x.PeriodSequence) })
+                .ToListAsync();
+            if (minSeqPairs.Count == 0) return new List<PaymentPeriod>();
+
+            var minSeqByStudent = minSeqPairs.ToDictionary(x => x.StudentId, x => x.MinSeq);
+            var studentIds = minSeqByStudent.Keys.ToList();
+
+            // Still-owed monthly periods for those students (TRACKED), then keep only each student's
+            // min-sequence (first) period in memory.
+            var candidates = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && studentIds.Contains(p.TeacherStudentId!.Value)
+                    && p.PeriodType == PeriodType.Monthly
+                    && (p.PaymentStatus == PaymentStatus.Unpaid
+                        || p.PaymentStatus == PaymentStatus.PartiallyPaid))
+                .ToListAsync();
+
+            return candidates
+                .Where(p => minSeqByStudent.TryGetValue(p.TeacherStudentId!.Value, out var min)
+                    && p.PeriodSequence == min)
+                .ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, DateTime>> GetAssignmentDatesByIdsAsync(
+            long teacherId, IReadOnlyCollection<long> assignmentIds)
+        {
+            if (assignmentIds.Count == 0) return new Dictionary<long, DateTime>();
+            return await _context.StudentSessionAssignments
+                .Where(a => a.TeacherId == teacherId && assignmentIds.Contains(a.Id))
+                .Select(a => new { a.Id, a.AssignedAt })
+                .ToDictionaryAsync(a => a.Id, a => a.AssignedAt);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<StudentPaymentCounter>> GetPaymentCountersByStudentIdsAsync(
+            long teacherId, IReadOnlyCollection<long> teacherStudentIds)
+        {
+            if (teacherStudentIds.Count == 0) return new List<StudentPaymentCounter>();
+            // TRACKED — the proration reconcile reads CustomPaymentAmount and writes the counter deltas
+            // in place, so all affected counters are fetched once (no per-student round-trips).
+            return await _context.StudentPaymentCounters
+                .Where(c => c.TeacherId == teacherId && teacherStudentIds.Contains(c.TeacherStudentId))
                 .ToListAsync();
         }
 
@@ -562,6 +632,13 @@
                 // transaction's own SessionName is a collection-time snapshot, so collections taken
                 // either side of a rename would otherwise list the SAME session under two names.
                 .Include(t => t.Session)
+                // Per-period slices + their period (which month(s) each collection settled) and the
+                // amount-edit trail (so the wallet ledger can name the installment + show edits).
+                .Include(t => t.Allocations).ThenInclude(a => a.PaymentPeriod)
+                .Include(t => t.EditLogs)
+                // This range is unbounded (whole collector history), so split the two collection
+                // includes to avoid an Allocations×EditLogs cartesian row explosion.
+                .AsSplitQuery()
                 .AsNoTracking()
                 .ToListAsync();
         }
@@ -1184,7 +1261,14 @@
                         .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
                             && p.PeriodStart <= unpaidThroughMonthEnd
                             && p.PaymentStatus != PaymentStatus.Paid)
-                        .Count()
+                        .Count(),
+                    // Full arrears through the current month (what "mark paid" actually collects), so the
+                    // collect list can show the true owed (e.g. 600) with a counter, not a single month.
+                    TotalOwed = _context.PaymentPeriods
+                        .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == ts.Id
+                            && p.PeriodStart <= unpaidThroughMonthEnd
+                            && p.PaymentStatus != PaymentStatus.Paid)
+                        .Sum(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -1197,7 +1281,8 @@
                 IsAssigned = r.IsAssigned,
                 Amount = r.CustomAmount ?? r.SessionAmount ?? 0m,
                 IsUnpaid = r.UnpaidMonths > 0,
-                UnpaidMonths = r.UnpaidMonths
+                UnpaidMonths = r.UnpaidMonths,
+                TotalOwed = r.TotalOwed
             }).ToList();
 
             return (items, totalCount, countAll, countAssigned, countUnassigned);
@@ -1365,28 +1450,52 @@
                         .Count(),
                         StudentCode = ts.StudentCode,
 
-                    // "Paid on" + "session he paid on": the student's latest paying transaction
-                    // whose PERIOD falls in the requested month. Deterministic tiebreak (Id) so
-                    // the two subqueries below always resolve to the same transaction. The global
-                    // query filter already excludes soft-deleted transactions.
+                    // "Paid on" + "session he paid on" + "collected by": the student's latest paying
+                    // transaction that SETTLED an in-month period. A month can be cleared as a
+                    // non-oldest slice of a multi-month cascade, whose transaction FK points only at
+                    // the OLDEST period — so we match on the allocation ledger (a transaction with an
+                    // allocation to an in-month period) OR, for legacy transactions with no
+                    // allocations, the single denormalized transaction→period FK. Same Where + tiebreak
+                    // (Id) across the three subqueries so they always resolve to the SAME transaction.
+                    // The global query filter already excludes soft-deleted transactions.
                     PaidOn = _context.PaymentTransactions
                         .Where(t => t.TeacherId == teacherId
                             && t.TeacherStudentId == ts.Id
-                            && t.PaymentPeriod != null
-                            && t.PaymentPeriod.PeriodStart >= monthStart
-                            && t.PaymentPeriod.PeriodStart <= monthEnd)
+                            && (t.Allocations.Any(a => a.PaymentPeriod != null
+                                    && a.PaymentPeriod.PeriodStart >= monthStart
+                                    && a.PaymentPeriod.PeriodStart <= monthEnd)
+                                || (t.PaymentPeriod != null
+                                    && t.PaymentPeriod.PeriodStart >= monthStart
+                                    && t.PaymentPeriod.PeriodStart <= monthEnd)))
                         .OrderByDescending(t => t.CollectedAt)
                         .ThenByDescending(t => t.Id)
                         .Select(t => (DateTime?)t.CollectedAt)
+                        .FirstOrDefault(),
+
+                    CollectedByUserId = _context.PaymentTransactions
+                        .Where(t => t.TeacherId == teacherId
+                            && t.TeacherStudentId == ts.Id
+                            && (t.Allocations.Any(a => a.PaymentPeriod != null
+                                    && a.PaymentPeriod.PeriodStart >= monthStart
+                                    && a.PaymentPeriod.PeriodStart <= monthEnd)
+                                || (t.PaymentPeriod != null
+                                    && t.PaymentPeriod.PeriodStart >= monthStart
+                                    && t.PaymentPeriod.PeriodStart <= monthEnd)))
+                        .OrderByDescending(t => t.CollectedAt)
+                        .ThenByDescending(t => t.Id)
+                        .Select(t => t.CollectedByUserId)
                         .FirstOrDefault(),
 
                     SessionName =
                         _context.PaymentTransactions
                             .Where(t => t.TeacherId == teacherId
                                 && t.TeacherStudentId == ts.Id
-                                && t.PaymentPeriod != null
-                                && t.PaymentPeriod.PeriodStart >= monthStart
-                                && t.PaymentPeriod.PeriodStart <= monthEnd)
+                                && (t.Allocations.Any(a => a.PaymentPeriod != null
+                                        && a.PaymentPeriod.PeriodStart >= monthStart
+                                        && a.PaymentPeriod.PeriodStart <= monthEnd)
+                                    || (t.PaymentPeriod != null
+                                        && t.PaymentPeriod.PeriodStart >= monthStart
+                                        && t.PaymentPeriod.PeriodStart <= monthEnd)))
                             .OrderByDescending(t => t.CollectedAt)
                             .ThenByDescending(t => t.Id)
                             .Select(t => t.SessionName)
@@ -1556,6 +1665,22 @@
             decimal overdueTotal = arrears?.Total ?? 0m;
             int monthsOwed = arrears?.Count ?? 0;
 
+            // Itemized unpaid months (oldest-first = the cascade settlement order) so the collect UI can
+            // label exactly which month each payment covers and offer a 1..N month counter. Only months
+            // with a positive remaining are returned (a fully-forgiven month is Paid and excluded).
+            var unpaidMonths = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
+                    && p.PaymentStatus != PaymentStatus.Paid
+                    && p.PeriodStart <= throughMonthEnd)
+                .OrderBy(p => p.PeriodSequence).ThenBy(p => p.PeriodStart)
+                .Select(p => new CollectLookupUnpaidMonth
+                {
+                    PeriodId = p.Id,
+                    PeriodStart = p.PeriodStart,
+                    Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)
+                })
+                .ToListAsync();
+
             return new CollectLookupRow
             {
                 TeacherStudentId = student.Id,
@@ -1566,7 +1691,8 @@
                 IsUnpaid = overdueTotal > 0m,
                 // Per-month rate: custom override else the session amount else 0.
                 MonthlyAmount = student.CustomAmount ?? student.SessionAmount ?? 0m,
-                MonthsOwed = monthsOwed
+                MonthsOwed = monthsOwed,
+                UnpaidMonths = unpaidMonths
             };
         }
 
@@ -2016,6 +2142,68 @@
             decimal expected = aggregates?.Expected ?? 0;
             decimal collected = aggregates?.Collected ?? 0;
             return (expected, collected, expected - collected);
+        }
+
+        /// <inheritdoc />
+        public async Task<(decimal RemainingThisMonth, decimal CollectedForCurrentMonth, decimal CollectedForPreviousMonths, decimal CollectedInAdvance)>
+            GetMonthRemainingAndCollectedSplitAsync(long teacherId, DateTime monthStart, DateTime monthEnd)
+        {
+            var monthStartD = monthStart.Date;
+            var monthEndD = monthEnd.Date;
+            var nextMonthStart = monthStart.AddMonths(1);
+
+            // (a) THIS-MONTH outstanding only (forgiven-aware). Same period-overlap window as the
+            // expected figure (PeriodEnd >= monthStart && PeriodStart <= monthEnd) so remaining is
+            // strictly "what is still owed FOR this month" — never reduced by arrears/advance cash.
+            decimal remaining = await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && p.PeriodEnd >= monthStartD && p.PeriodStart <= monthEndD
+                    && p.PaymentStatus != PaymentStatus.Paid)
+                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
+            if (remaining < 0m) remaining = 0m;
+
+            // (b) Split of the GROSS cash physically collected this calendar month (by transaction date)
+            // across the periods it settled. Primary source is the allocation ledger (a slice per settled
+            // period); legacy transactions with no allocations fall back to their single denormalized
+            // period. Computed as explicit per-bucket SUMs (simple WHERE + SUM) so the SQL translation is
+            // never in doubt (avoids a CASE-in-GROUP-BY the provider might reject at run time).
+            var allocInMonth = _context.PaymentTransactionAllocations
+                .Where(a => a.TeacherId == teacherId
+                    && a.PaymentPeriod != null
+                    && !a.PaymentTransaction.IsDeleted
+                    && a.PaymentTransaction.CollectedAt >= monthStart
+                    && a.PaymentTransaction.CollectedAt < nextMonthStart);
+
+            decimal allocCurrent = await allocInMonth
+                .Where(a => a.PaymentPeriod!.PeriodStart >= monthStartD && a.PaymentPeriod!.PeriodStart <= monthEndD)
+                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
+            decimal allocPrev = await allocInMonth
+                .Where(a => a.PaymentPeriod!.PeriodStart < monthStartD)
+                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
+            decimal allocAdvance = await allocInMonth
+                .Where(a => a.PaymentPeriod!.PeriodStart > monthEndD)
+                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
+
+            var legacyInMonth = _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedAt >= monthStart && t.CollectedAt < nextMonthStart
+                    && t.PaymentPeriod != null
+                    && !t.Allocations.Any());
+
+            decimal legacyCurrent = await legacyInMonth
+                .Where(t => t.PaymentPeriod!.PeriodStart >= monthStartD && t.PaymentPeriod!.PeriodStart <= monthEndD)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+            decimal legacyPrev = await legacyInMonth
+                .Where(t => t.PaymentPeriod!.PeriodStart < monthStartD)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+            decimal legacyAdvance = await legacyInMonth
+                .Where(t => t.PaymentPeriod!.PeriodStart > monthEndD)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+
+            return (remaining,
+                allocCurrent + legacyCurrent,
+                allocPrev + legacyPrev,
+                allocAdvance + legacyAdvance);
         }
 
         /// <inheritdoc />

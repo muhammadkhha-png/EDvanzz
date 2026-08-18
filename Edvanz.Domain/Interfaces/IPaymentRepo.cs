@@ -680,6 +680,41 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         DateTime? startDate, DateTime? endDate);
 
     /// <summary>
+    /// Tracking-card breakdown for a single month (the top summary card). Returns:
+    /// <list type="bullet">
+    /// <item><c>RemainingThisMonth</c> — outstanding on THIS month's obligations only (forgiven-aware:
+    /// Σ(AmountDue − AmountPaid − ForgivenAmount) over not-fully-settled periods overlapping the month).
+    /// Unlike <c>expected − cashCollected</c>, this is NOT shrunk by cash that settled previous months
+    /// (arrears) or future months (advance), so the card shows what is still owed FOR the month.</item>
+    /// <item><c>CollectedForCurrentMonth</c> / <c>CollectedForPreviousMonths</c> / <c>CollectedInAdvance</c>
+    /// — the GROSS cash physically collected this calendar month (by transaction date), split by which
+    /// period each slice settled (via the allocation ledger, with a legacy single-period fallback).
+    /// The three sum to the gross collections; the service nets departure refunds into these buckets.</item>
+    /// </list>
+    /// </summary>
+    Task<(decimal RemainingThisMonth, decimal CollectedForCurrentMonth, decimal CollectedForPreviousMonths, decimal CollectedInAdvance)>
+        GetMonthRemainingAndCollectedSplitAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
+
+    /// <summary>
+    /// TRACKED. Per currently-assigned student, their earliest monthly period (min PeriodSequence — the
+    /// enrollment's first month, the only period proration ever applies to) when it is still owed
+    /// (Unpaid/PartiallyPaid). Drives the retroactive proration re-price on a settings toggle; fully-paid
+    /// first months are excluded so already-settled money is never rewritten.
+    /// </summary>
+    Task<List<PaymentPeriod>> GetFirstMonthlyPeriodsForAssignedStudentsAsync(long teacherId);
+
+    /// <summary>Assignment-date (AssignedAt) lookup by assignment id — supplies the join DAY that
+    /// selects a proration tier when re-prorating existing students.</summary>
+    Task<Dictionary<long, DateTime>> GetAssignmentDatesByIdsAsync(
+        long teacherId, IReadOnlyCollection<long> assignmentIds);
+
+    /// <summary>Batch-loads the (tracked) payment counters for a set of students — the proration
+    /// reconcile reads each CustomPaymentAmount (the full base rate) and writes its deltas in place,
+    /// so all affected counters are fetched in ONE query instead of per-student round-trips.</summary>
+    Task<List<StudentPaymentCounter>> GetPaymentCountersByStudentIdsAsync(
+        long teacherId, IReadOnlyCollection<long> teacherStudentIds);
+
+    /// <summary>
     /// Gets per-session breakdown of expected/collected/remaining.
     /// REQ-PAY-043: Filterable by session for drill-down.
     /// </summary>

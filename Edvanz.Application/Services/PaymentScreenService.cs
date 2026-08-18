@@ -262,6 +262,7 @@ public class PaymentScreenService : IPaymentScreenService
         for (int i = 0; i < items.Count; i++)
         {
             var tx = items[i];
+            var (appliedMonths, isEdited, originalAmount) = BuildCollectionLedgerMeta(tx);
             rows.Add(new CollectionRow
             {
                 Id = tx.Id.ToString(CultureInfo.InvariantCulture),
@@ -274,6 +275,10 @@ public class PaymentScreenService : IPaymentScreenService
                 // Months this one cash event cleared (settlement slices); legacy rows w/o allocations → 1.
                 PeriodsCovered = tx.Allocations != null && tx.Allocations.Count > 0
                     ? tx.Allocations.Count : 1,
+                // Which month(s) this collection settled (oldest-first) + any amount-edit trail.
+                AppliedMonths = appliedMonths,
+                IsEdited = isEdited,
+                OriginalAmount = originalAmount,
                 // Live session name; the transaction's copy is a stale-on-rename snapshot.
                 SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
                 CollectedAt = tx.CollectedAt
@@ -472,18 +477,26 @@ public class PaymentScreenService : IPaymentScreenService
         // ResetAt is UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
         var ledger = new List<AssistantWalletCollectionItemDto>(
             allTxns.Count + allRefunds.Count + allResets.Count);
-        ledger.AddRange(allTxns.Select(tx => new AssistantWalletCollectionItemDto
+        ledger.AddRange(allTxns.Select(tx =>
         {
-            Id = tx.Id.ToString(CultureInfo.InvariantCulture),
-            StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
-            StudentName = tx.StudentName,
-            StudentCode = tx.StudentCode,
-            // Live session name (eager-loaded); the transaction's own copy is a collection-time
-            // snapshot that goes stale on rename, and is only the fallback for a deleted session.
-            SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
-            Amount = tx.AmountPaid,
-            CollectedAt = tx.CollectedAt,
-            Kind = "collection"
+            var (appliedMonths, isEdited, originalAmount) = BuildCollectionLedgerMeta(tx);
+            return new AssistantWalletCollectionItemDto
+            {
+                Id = tx.Id.ToString(CultureInfo.InvariantCulture),
+                StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+                StudentName = tx.StudentName,
+                StudentCode = tx.StudentCode,
+                // Live session name (eager-loaded); the transaction's own copy is a collection-time
+                // snapshot that goes stale on rename, and is only the fallback for a deleted session.
+                SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
+                Amount = tx.AmountPaid,
+                CollectedAt = tx.CollectedAt,
+                Kind = "collection",
+                // Which month(s) this collection settled (oldest-first) + any amount-edit trail.
+                AppliedMonths = appliedMonths,
+                IsEdited = isEdited,
+                OriginalAmount = originalAmount
+            };
         }));
         ledger.AddRange(allRefunds.Select(r => new AssistantWalletCollectionItemDto
         {
@@ -638,6 +651,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Assignment = r.IsAssigned ? "assigned" : "unassigned",
                 Status = r.IsUnpaid ? "unpaid" : "paid",
                 UnpaidMonths = r.UnpaidMonths,
+                TotalOwed = r.TotalOwed,
                 IsExempt = r.Amount == 0m
             });
         }
@@ -684,9 +698,32 @@ public class PaymentScreenService : IPaymentScreenService
             .GetStudentsByPaymentStatusPagedAsync(
                 teacherId, status, monthStart, monthEnd, page, limit, sessionId, search);
 
+        // Resolve collector identity for the paid card: batch-fetch the distinct collector user ids'
+        // display names and classify each as Teacher vs Assistant (same mechanism as GetTrackingAsync),
+        // so a paid row can show "collected by X" without an N+1.
+        var collectorUserIds = rows
+            .Where(r => r.CollectedByUserId.HasValue)
+            .Select(r => r.CollectedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        var collectorNames = collectorUserIds.Count > 0
+            ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
+            : new Dictionary<long, string>();
+        var assistantUserIds = collectorUserIds.Count > 0
+            ? (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet()
+            : new HashSet<long>();
+
         var students = new List<StudentByStatusDto>(rows.Count);
         foreach (var r in rows)
         {
+            string? collectedByName = null;
+            string? collectedByRole = null;
+            if (r.CollectedByUserId is long cby)
+            {
+                collectedByName = collectorNames.TryGetValue(cby, out var cn) ? cn : null;
+                collectedByRole = assistantUserIds.Contains(cby) ? "Assistant" : "Teacher";
+            }
+
             students.Add(new StudentByStatusDto
             {
                 Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
@@ -703,7 +740,9 @@ public class PaymentScreenService : IPaymentScreenService
                 StudentCode = r.StudentCode,
                 IsExempt = r.AmountPerMonth == 0m,
                 SessionName = r.SessionName,
-                PaidOn = r.PaidOn
+                PaidOn = r.PaidOn,
+                CollectedByName = collectedByName,
+                CollectedByRole = collectedByRole
             });
         }
 
@@ -829,7 +868,18 @@ public class PaymentScreenService : IPaymentScreenService
             // Feature C (additive): per-month rate + how many months / how much is owed.
             MonthlyAmount = row.MonthlyAmount,
             MonthsOwed = row.MonthsOwed,
-            TotalOwed = row.AmountDue
+            TotalOwed = row.AmountDue,
+            // req 6: oldest-first per-month breakdown so the collect UI can default to the full owed
+            // amount, offer a 1..N month counter, and label exactly which month(s) are being paid.
+            UnpaidMonthsBreakdown = row.UnpaidMonths
+                .Select(m => new CollectLookupMonthDto
+                {
+                    PeriodId = m.PeriodId.ToString(CultureInfo.InvariantCulture),
+                    Month = m.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                    MonthLabel = m.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+                    Amount = m.Remaining
+                })
+                .ToList()
         };
 
         return Result<CollectLookupResponse>.Success(
@@ -864,7 +914,29 @@ public class PaymentScreenService : IPaymentScreenService
         var monthRefunds = await repo.GetDepartureRefundsByDateRangeAsync(
             teacherId, monthStart, monthStart.AddMonths(1));
         decimal collected = grossCollected - monthRefunds.Sum(r => r.RefundAmount);
-        decimal remaining = expected - collected;
+
+        // req 5: "remaining" is now the outstanding on THIS month's obligations only (forgiven-aware),
+        // NOT expected − collected — so cash that settled previous-month arrears or paid a future month
+        // ahead no longer shrinks the headline "remaining for this month". The same call returns the
+        // GROSS split of this month's cash across the periods it settled (current / previous / advance).
+        var (remaining, grossCurrent, grossPrev, grossAdvance) =
+            await repo.GetMonthRemainingAndCollectedSplitAsync(teacherId, monthStart, monthEnd);
+
+        // Net departure refunds into the matching bucket by the month the refund is anchored to, so the
+        // three collected-split figures sum to the net headline "collected" above.
+        decimal refundCurrent = 0m, refundPrev = 0m, refundAdvance = 0m;
+        foreach (var r in monthRefunds)
+        {
+            if (r.RefundPeriodStart is DateTime rps && rps.Date < monthStart.Date) refundPrev += r.RefundAmount;
+            else if (r.RefundPeriodStart is DateTime rpsA && rpsA.Date > monthEnd.Date) refundAdvance += r.RefundAmount;
+            else refundCurrent += r.RefundAmount; // in-month, or unknown anchor → attribute to this month
+        }
+        // Clamp each net bucket at 0: in a refund-heavy month a bucket's refunds can exceed its
+        // collections, and a negative "collected for …" figure would just confuse the teacher (the
+        // refund is already visible as its own ledger line). Normal months are unaffected.
+        decimal collectedForCurrentMonth = Math.Max(0m, grossCurrent - refundCurrent);
+        decimal collectedForPreviousMonths = Math.Max(0m, grossPrev - refundPrev);
+        decimal collectedInAdvance = Math.Max(0m, grossAdvance - refundAdvance);
         var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);
@@ -982,6 +1054,9 @@ public class PaymentScreenService : IPaymentScreenService
                 TotalSessions = sessionsTotal,
                 CollectedAmount = collected,
                 RemainingAmount = remaining,
+                CollectedForCurrentMonth = collectedForCurrentMonth,
+                CollectedForPreviousMonths = collectedForPreviousMonths,
+                CollectedInAdvance = collectedInAdvance,
                 SessionsCollected = sessionsCollected,
                 SessionsTotal = sessionsTotal,
                 ProgressPercent = progressPercent
@@ -1548,6 +1623,39 @@ public class PaymentScreenService : IPaymentScreenService
         if (!string.IsNullOrEmpty(liveName))
             return liveName;
         return string.IsNullOrEmpty(snapshotName) ? null : snapshotName;
+    }
+
+    /// <summary>
+    /// Builds the ledger enrichment shared by the collections list and the assistant-wallet screen for
+    /// a <see cref="PaymentTransaction"/>: the oldest-first per-month settlement slices (from the
+    /// allocation ledger — requires <c>Allocations.PaymentPeriod</c> eager-loaded) so the row can name
+    /// the installment(s) it settled, and the amount-edit trail (requires <c>EditLogs</c> eager-loaded)
+    /// so an edited collection can render "from X to Y". Returns empties/false when the navigations are
+    /// absent (legacy rows / never-edited transactions).
+    /// </summary>
+    private static (List<CollectionMonthSlice> AppliedMonths, bool IsEdited, decimal? OriginalAmount)
+        BuildCollectionLedgerMeta(PaymentTransaction tx)
+    {
+        var appliedMonths = (tx.Allocations ?? (ICollection<PaymentTransactionAllocation>)System.Array.Empty<PaymentTransactionAllocation>())
+            .Where(a => a.PaymentPeriod != null)
+            .OrderBy(a => a.PaymentPeriod!.PeriodStart)
+            .Select(a => new CollectionMonthSlice
+            {
+                Month = a.PaymentPeriod!.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                MonthLabel = a.PaymentPeriod!.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+                Amount = a.AmountApplied
+            })
+            .ToList();
+
+        // The originally-collected amount = the PreviousAmount of the FIRST amount-edit (the current
+        // AmountPaid already reflects every edit). Only genuine amount changes count — a Reversed/Deleted
+        // (full refund) is surfaced as its own refund line, not an "edit".
+        var firstAmountEdit = (tx.EditLogs ?? (ICollection<PaymentEditLog>)System.Array.Empty<PaymentEditLog>())
+            .Where(l => l.EditAction == PaymentEditAction.AmountChanged)
+            .OrderBy(l => l.EditedAt).ThenBy(l => l.Id)
+            .FirstOrDefault();
+
+        return (appliedMonths, firstAmountEdit != null, firstAmountEdit?.PreviousAmount);
     }
 
     /// <summary>
