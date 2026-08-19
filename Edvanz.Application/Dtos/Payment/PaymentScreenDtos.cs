@@ -305,6 +305,33 @@ public class CollectStudentDto
 
     /// <summary>True when the required amount is 0 (free/scholarship) → "Not paying" label.</summary>
     public bool IsExempt { get; set; }
+
+    /// <summary>The student's FULL per-month rate (same value as <see cref="Amount"/>; named explicitly
+    /// so the collect UI can show "full amount" beside a prorated first-month figure).</summary>
+    public decimal MonthlyAmount { get; set; }
+
+    /// <summary>The session the student belongs to (this session, or the linked session they come from
+    /// on a session-scoped collect). Null when unassigned. Lets the collect list label each row's session.</summary>
+    public string? SessionName { get; set; }
+
+    // ── Proration transparency (populated only when IsProrated) — mirrors StudentByStatusDto ──
+
+    /// <summary>True when the student's first (anchor) month is prorated — justifies the reduced amount.</summary>
+    public bool IsProrated { get; set; }
+
+    /// <summary>The proration fraction of the anchor month (e.g. 0.6685 = ⅔). Null when not prorated.</summary>
+    public decimal? ProRatedFraction { get; set; }
+
+    /// <summary>The anchor month's prorated amount owed (e.g. 200.55). Null when not prorated.</summary>
+    public decimal? ProratedAmount { get; set; }
+
+    /// <summary>The date the proration is anchored to — first-Present class date (or the assignment date
+    /// before they've attended). Null when not prorated.</summary>
+    public DateTime? JoinedAt { get; set; }
+
+    /// <summary>True when <see cref="JoinedAt"/> is a first-attendance date ("first attended {date}");
+    /// false when it is the assignment date ("joined {date}"). Only meaningful when <see cref="IsProrated"/>.</summary>
+    public bool JoinedAtIsFirstAttendance { get; set; }
 }
 
 // ── Screen: PaymentTracking (students by status) ───────────────────────────
@@ -382,6 +409,13 @@ public class StudentByStatusDto
     /// Null when not prorated.
     /// </summary>
     public DateTime? JoinedAt { get; set; }
+
+    /// <summary>
+    /// True when <see cref="JoinedAt"/> is the student's FIRST-ATTENDANCE date (render "first attended
+    /// {date}"); false when it is the ASSIGNMENT date (render "joined {date}") — i.e. the student hasn't
+    /// attended in the anchor month yet. Only meaningful when <see cref="IsProrated"/>.
+    /// </summary>
+    public bool JoinedAtIsFirstAttendance { get; set; }
 }
 
 // ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────

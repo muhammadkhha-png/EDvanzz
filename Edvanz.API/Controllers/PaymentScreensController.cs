@@ -167,7 +167,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: CollectPayment (student list)
-    // GET /api/v1/payments/collect/students?filter=&search=&page=&limit=
+    // GET /api/v1/payments/collect/students?filter=&search=&page=&limit=&sessionId=
+    // sessionId (optional): scope to that session PLUS its linked sessions (mirrors the take-attendance
+    //   roster) so a session-launched collect lists only the relevant students. Omitted = teacher-wide.
     // AUTH: Teacher (module) OR Assistant with Payment.Collect.
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/payments/collect/students")]
@@ -181,13 +183,14 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery] string? filter = "all",
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
-        [FromQuery] int limit = 20)
+        [FromQuery] int limit = 20,
+        [FromQuery] long? sessionId = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectStudentsAsync(
-            teacherId.Value, filter, search, page, limit);
+            teacherId.Value, filter, search, page, limit, sessionId);
         return ToResponse(result);
     }
 

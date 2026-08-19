@@ -625,7 +625,7 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<CollectStudentsResponse>> GetCollectStudentsAsync(
-        long teacherId, string? filter, string? search, int page, int limit)
+        long teacherId, string? filter, string? search, int page, int limit, long? sessionId = null)
     {
         filter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
         if (filter != "all" && filter != "assigned" && filter != "unassigned")
@@ -635,12 +635,33 @@ public class PaymentScreenService : IPaymentScreenService
 
         (page, limit) = NormalizePaging(page, limit);
 
+        // Session-scoped collect: resolve this session + its linked sessions (the SAME population the
+        // take-attendance roster uses) so a session-launched collect shows only the relevant students.
+        // A foreign/unknown sessionId yields an empty scope → no students (the repo still filters by
+        // teacherId, so there is no cross-tenant leak). Null sessionId = teacher-wide, unchanged.
+        IReadOnlyCollection<long>? sessionScopeIds = null;
+        if (sessionId is long sid)
+        {
+            var linked = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sid);
+            var scope = new List<long>(linked.Count + 1) { sid };
+            scope.AddRange(linked.Select(s => s.Id));
+            sessionScopeIds = scope;
+        }
+
         var (rows, total, cAll, cAssigned, cUnassigned) = await _unitOfWork.PaymentsRepo
-            .GetCollectStudentsPagedAsync(teacherId, filter, search, page, limit, CurrentMonthEnd(teacherId));
+            .GetCollectStudentsPagedAsync(
+                teacherId, filter, search, page, limit, CurrentMonthEnd(teacherId), sessionScopeIds);
+
+        // Proration transparency: enrich ONLY the paged rows (no N+1) with the anchor month's prorated
+        // amount/fraction + the anchor date (first-attendance vs assignment), so the collect card can show
+        // the full amount beside a prorated first-month figure with a reason — instead of a bare 0.
+        var proration = await BuildProrationEnrichmentAsync(
+            teacherId, rows.Select(r => r.TeacherStudentId).Distinct().ToList());
 
         var students = new List<CollectStudentDto>(rows.Count);
         foreach (var r in rows)
         {
+            proration.TryGetValue(r.TeacherStudentId, out var pe);
             students.Add(new CollectStudentDto
             {
                 Id = r.TeacherStudentId.ToString(CultureInfo.InvariantCulture),
@@ -648,11 +669,18 @@ public class PaymentScreenService : IPaymentScreenService
                 StudentCode = r.StudentCode,
                 AvatarUrl = null,
                 Amount = r.Amount,
+                MonthlyAmount = r.Amount,
+                SessionName = r.SessionName,
                 Assignment = r.IsAssigned ? "assigned" : "unassigned",
                 Status = r.IsUnpaid ? "unpaid" : "paid",
                 UnpaidMonths = r.UnpaidMonths,
                 TotalOwed = r.TotalOwed,
-                IsExempt = r.Amount == 0m
+                IsExempt = r.Amount == 0m,
+                IsProrated = pe.IsProrated,
+                ProRatedFraction = pe.Fraction,
+                ProratedAmount = pe.ProratedAmount,
+                JoinedAt = pe.JoinedAt,
+                JoinedAtIsFirstAttendance = pe.JoinedAtIsFirstAttendance
             });
         }
 
@@ -668,6 +696,74 @@ public class PaymentScreenService : IPaymentScreenService
 
         return Result<CollectStudentsResponse>.Success(
             response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>Per-student proration transparency computed by <see cref="BuildProrationEnrichmentAsync"/>.</summary>
+    private readonly record struct ProrationEnrichment(
+        bool IsProrated, decimal? Fraction, decimal? ProratedAmount,
+        DateTime? JoinedAt, bool JoinedAtIsFirstAttendance);
+
+    /// <summary>
+    /// Batch-builds proration transparency for a set of students: the anchor month's prorated amount +
+    /// fraction and the anchor DATE, discriminating whether that date is a first-attendance date
+    /// (<c>JoinedAtIsFirstAttendance = true</c> → "first attended {date}") or the assignment date
+    /// (false → "joined {date}"). Only students with a PRORATED anchor appear in the result. This mirrors
+    /// the inline enrichment in <see cref="GetStudentsByStatusAsync"/> (kept intact for live-safety) so the
+    /// collect list and the status list agree on the same figures. One round of batch queries, no N+1.
+    /// </summary>
+    private async Task<Dictionary<long, ProrationEnrichment>> BuildProrationEnrichmentAsync(
+        long teacherId, IReadOnlyList<long> studentIds)
+    {
+        var result = new Dictionary<long, ProrationEnrichment>();
+        if (studentIds.Count == 0) return result;
+
+        var anchorInfo = (await _unitOfWork.PaymentsRepo
+                .GetAnchorPeriodInfoByStudentIdsAsync(teacherId, studentIds))
+            .Where(a => a.IsProRated)
+            .ToDictionary(a => a.StudentId);
+        if (anchorInfo.Count == 0) return result;
+
+        var anchorStudentIds = anchorInfo.Keys.ToList();
+        var anchorAssignDates = new Dictionary<(long, long), DateTime>();
+        var anchorFirstPresent = new Dictionary<(long, long), DateTime>();
+        foreach (var a in await _unitOfWork.PaymentsRepo
+            .GetAssignmentDatesForStudentsAsync(teacherId, anchorStudentIds))
+        {
+            var key = (a.TeacherStudentId, a.SessionId);
+            if (!anchorAssignDates.TryGetValue(key, out var ex) || a.AssignedAt < ex)
+                anchorAssignDates[key] = a.AssignedAt;
+        }
+        foreach (var a in await _unitOfWork.PaymentsRepo
+            .GetFirstAttendanceDatesForStudentsAsync(teacherId, anchorStudentIds))
+            anchorFirstPresent[(a.TeacherStudentId, a.SessionId)] = a.FirstPresentDate;
+
+        foreach (var (studentId, anc) in anchorInfo)
+        {
+            if (anc.SessionId is not long asid) continue;
+            DateTime joinedAt;
+            bool isFirstAttendance;
+            var anchorMonth = new DateTime(anc.PeriodStart.Year, anc.PeriodStart.Month, 1);
+            if (anchorFirstPresent.TryGetValue((studentId, asid), out var fp)
+                && new DateTime(fp.Year, fp.Month, 1) == anchorMonth)
+            {
+                joinedAt = fp;              // first-Present in the anchor month = the true anchor
+                isFirstAttendance = true;
+            }
+            else if (anchorAssignDates.TryGetValue((studentId, asid), out var ad))
+            {
+                joinedAt = ad;              // not yet attended / attended later → assignment day
+                isFirstAttendance = false;
+            }
+            else
+            {
+                joinedAt = anc.PeriodStart;
+                isFirstAttendance = false;
+            }
+
+            result[studentId] = new ProrationEnrichment(
+                true, anc.ProRatedFraction, anc.AmountDue, joinedAt, isFirstAttendance);
+        }
+        return result;
     }
 
     /// <inheritdoc />
@@ -752,6 +848,7 @@ public class PaymentScreenService : IPaymentScreenService
             bool isProrated = false;
             decimal? proratedFraction = null, proratedAmount = null;
             DateTime? joinedAt = null;
+            bool joinedAtIsFirstAttendance = false;
             if (anchorInfo.TryGetValue(r.TeacherStudentId, out var anc) && anc.SessionId is long asid)
             {
                 isProrated = true;
@@ -760,7 +857,10 @@ public class PaymentScreenService : IPaymentScreenService
                 var anchorMonth = new DateTime(anc.PeriodStart.Year, anc.PeriodStart.Month, 1);
                 if (anchorFirstPresent.TryGetValue((r.TeacherStudentId, asid), out var fp)
                     && new DateTime(fp.Year, fp.Month, 1) == anchorMonth)
+                {
                     joinedAt = fp; // first-Present in the anchor month = the true anchor
+                    joinedAtIsFirstAttendance = true;
+                }
                 else if (anchorAssignDates.TryGetValue((r.TeacherStudentId, asid), out var ad))
                     joinedAt = ad; // not yet attended / attended later → assignment day
                 else
@@ -789,7 +889,8 @@ public class PaymentScreenService : IPaymentScreenService
                 IsProrated = isProrated,
                 ProRatedFraction = proratedFraction,
                 ProratedAmount = proratedAmount,
-                JoinedAt = joinedAt
+                JoinedAt = joinedAt,
+                JoinedAtIsFirstAttendance = joinedAtIsFirstAttendance
             });
         }
 

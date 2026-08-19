@@ -1357,10 +1357,17 @@
         public async Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
             GetCollectStudentsPagedAsync(
                 long teacherId, string filter, string? search, int page, int pageSize,
-                DateTime unpaidThroughMonthEnd)
+                DateTime unpaidThroughMonthEnd, IReadOnlyCollection<long>? sessionScopeIds = null)
         {
             // Global !IsDeleted query filter on TeacherStudent applies automatically.
             var baseQuery = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
+
+            // Session-scoped collect (this session + its linked sessions): restrict to students assigned
+            // to one of those sessions BEFORE counts/filter, so per-tab counts reflect the scope. Null =
+            // teacher-wide (unchanged). Mirrors the take-attendance roster population.
+            if (sessionScopeIds is { Count: > 0 })
+                baseQuery = baseQuery.Where(ts =>
+                    ts.SessionId != null && sessionScopeIds.Contains(ts.SessionId.Value));
 
             if (!string.IsNullOrWhiteSpace(search))
             {
@@ -1394,6 +1401,7 @@
                     ts.StudentName,
                     ts.StudentCode,
                     IsAssigned = ts.SessionId != null,
+                    SessionName = ts.Session != null ? ts.Session.SessionName : null,
                     SessionAmount = ts.Session != null ? ts.Session.SessionAmount : (decimal?)null,
                     CustomAmount = _context.StudentPaymentCounters
                         .Where(c => c.TeacherId == teacherId && c.TeacherStudentId == ts.Id)
@@ -1423,6 +1431,7 @@
                 StudentName = r.StudentName,
                 StudentCode = r.StudentCode,
                 IsAssigned = r.IsAssigned,
+                SessionName = r.SessionName,
                 Amount = r.CustomAmount ?? r.SessionAmount ?? 0m,
                 IsUnpaid = r.UnpaidMonths > 0,
                 UnpaidMonths = r.UnpaidMonths,

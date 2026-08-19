@@ -82,9 +82,12 @@ public interface IPaymentScreenService
     /// Screen: CollectPayment. Searchable/filterable (all|assigned|unassigned) paginated
     /// student list with payment status + per-tab counts. Reuses <c>GetCollectStudentsPagedAsync</c>.
     /// Returns 422 for an invalid filter.
+    /// <para><paramref name="sessionId"/> (optional) scopes the list to that session PLUS its linked
+    /// sessions (mirroring the take-attendance roster) so a session-launched collect shows only the
+    /// relevant students. When null the list is teacher-wide (existing behavior, unchanged).</para>
     /// </summary>
     Task<Result<CollectStudentsResponse>> GetCollectStudentsAsync(
-        long teacherId, string? filter, string? search, int page, int limit);
+        long teacherId, string? filter, string? search, int page, int limit, long? sessionId = null);
 
     /// <summary>
     /// Screen: PaymentTracking "View" cards. Paginated students filtered by status

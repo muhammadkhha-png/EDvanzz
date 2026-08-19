@@ -450,11 +450,14 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// (all | assigned | unassigned) + name/code search, paginated, each with
     /// payment status/amount/unpaid-months from their counter. Also returns the
     /// per-tab counts (all/assigned/unassigned) for the current search.
+    /// <para><paramref name="sessionScopeIds"/> (optional) restricts the population to students assigned
+    /// to one of the given sessions — this session plus its linked sessions, mirroring the take-attendance
+    /// roster. When null the query is teacher-wide (existing behavior, unchanged).</para>
     /// </summary>
     Task<(IReadOnlyList<CollectStudentRow> Items, int TotalCount, int CountAll, int CountAssigned, int CountUnassigned)>
         GetCollectStudentsPagedAsync(
             long teacherId, string filter, string? search, int page, int pageSize,
-            DateTime unpaidThroughMonthEnd);
+            DateTime unpaidThroughMonthEnd, IReadOnlyCollection<long>? sessionScopeIds = null);
 
     /// <summary>
     /// PaymentTracking "students by status" list: students whose current status

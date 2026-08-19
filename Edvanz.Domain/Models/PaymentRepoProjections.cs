@@ -41,6 +41,9 @@ public sealed class CollectStudentRow
     public string StudentName { get; set; } = null!;
     public string StudentCode { get; set; } = null!;
     public bool IsAssigned { get; set; }
+    /// <summary>The session the student is currently assigned to (null when unassigned). Surfaced so a
+    /// session-scoped collect (this session + its linked sessions) can label which session each row belongs to.</summary>
+    public string? SessionName { get; set; }
     /// <summary>The student's per-month rate (custom override else session amount).</summary>
     public decimal Amount { get; set; }
     public bool IsUnpaid { get; set; }
