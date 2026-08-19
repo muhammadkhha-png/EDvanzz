@@ -683,22 +683,6 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         DateTime? startDate, DateTime? endDate);
 
     /// <summary>
-    /// Tracking-card breakdown for a single month (the top summary card). Returns:
-    /// <list type="bullet">
-    /// <item><c>RemainingThisMonth</c> — outstanding on THIS month's obligations only (forgiven-aware:
-    /// Σ(AmountDue − AmountPaid − ForgivenAmount) over not-fully-settled periods overlapping the month).
-    /// Unlike <c>expected − cashCollected</c>, this is NOT shrunk by cash that settled previous months
-    /// (arrears) or future months (advance), so the card shows what is still owed FOR the month.</item>
-    /// <item><c>CollectedForCurrentMonth</c> / <c>CollectedForPreviousMonths</c> / <c>CollectedInAdvance</c>
-    /// — the GROSS cash physically collected this calendar month (by transaction date), split by which
-    /// period each slice settled (via the allocation ledger, with a legacy single-period fallback).
-    /// The three sum to the gross collections; the service nets departure refunds into these buckets.</item>
-    /// </list>
-    /// </summary>
-    Task<(decimal RemainingThisMonth, decimal CollectedForCurrentMonth, decimal CollectedForPreviousMonths, decimal CollectedInAdvance)>
-        GetMonthRemainingAndCollectedSplitAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
-
-    /// <summary>
     /// Assigned-gated obligation aggregates for the tracking summary card's two perspectives
     /// (This month vs Total-through-this-month). Everything here is <b>period-based</b> — attributed
     /// to the month each installment BELONGS to, never the calendar date the cash arrived — and scoped
@@ -706,20 +690,26 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <see cref="CountAssignedStudentsAsync"/> / <see cref="GetStudentPaymentStatusCountsAsync"/>), so
     /// the figures reconcile with the paid/prorated/unpaid headcounts. Orphaned periods
     /// (<c>TeacherStudentId == null</c>, purged students) are excluded. Amounts already respect
-    /// proration and per-student custom price (both live in <c>AmountDue</c>). Two windows:
+    /// proration and per-student custom price (both live in <c>AmountDue</c>). Two windows, each of which
+    /// reconciles internally as <c>Expected = Collected + Remaining (+ Forgiven)</c>:
     /// <list type="bullet">
     /// <item><b>This month</b> — periods overlapping <c>[monthStart, monthEnd]</c>:
     ///   <c>ExpectedThisMonth</c> = Σ <c>AmountDue</c>; <c>CollectedThisMonth</c> = Σ <c>AmountPaid</c>;
     ///   <c>RemainingThisMonth</c> = Σ(<c>AmountDue − AmountPaid − ForgivenAmount</c>) over not-Paid periods.</item>
     /// <item><b>Through this month</b> — periods with <c>PeriodStart ≤ monthEnd</c> (current + every earlier
-    ///   month): <c>CollectedTotal</c> = Σ <c>AmountPaid</c>; <c>OutstandingTotal</c> =
-    ///   Σ(<c>AmountDue − AmountPaid − ForgivenAmount</c>) over not-Paid periods — all money still owed
-    ///   up to and including this month (arrears + current).</item>
+    ///   month): <c>ExpectedTotal</c> = Σ <c>AmountDue</c> (the full bills of this month + all earlier months,
+    ///   so it is always ≥ <c>ExpectedThisMonth</c>); <c>CollectedTotal</c> = Σ <c>AmountPaid</c>;
+    ///   <c>OutstandingTotal</c> = Σ(<c>AmountDue − AmountPaid − ForgivenAmount</c>) over not-Paid periods —
+    ///   all money still owed up to and including this month (arrears + current).</item>
+    /// <item><b>Paid ahead</b> — <c>CollectedAdvance</c> = Σ <c>AmountPaid</c> on FUTURE periods
+    ///   (<c>PeriodStart &gt; monthEnd</c>): money students paid early for months after the selected one.
+    ///   Deliberately OUTSIDE the through-this-month totals (so those still reconcile), surfaced on its
+    ///   own "paid ahead" line so advance payments always have somewhere to show.</item>
     /// </list>
-    /// Both remaining figures are clamped at 0. Four indexed SUM round-trips, no row materialization.
+    /// Both remaining figures are clamped at 0. Indexed SUM round-trips, no row materialization.
     /// </summary>
     Task<(decimal ExpectedThisMonth, decimal CollectedThisMonth, decimal RemainingThisMonth,
-          decimal CollectedTotal, decimal OutstandingTotal)>
+          decimal ExpectedTotal, decimal CollectedTotal, decimal OutstandingTotal, decimal CollectedAdvance)>
         GetAssignedObligationAggregatesAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
 
     /// <summary>

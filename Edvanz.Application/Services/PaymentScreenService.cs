@@ -1055,43 +1055,16 @@ public class PaymentScreenService : IPaymentScreenService
         // to the month each installment BELONGS to (never the cash date) and gated to currently-assigned
         // students, so each perspective reconciles and matches the paid/prorated/unpaid headcounts.
         // CollectedAmount (below) stays the date-based physical "cash collected this calendar month".
-        var (expectedThisMonth, collectedThisMonth, remainingThisMonth, collectedTotal, outstandingTotal) =
+        var (expectedThisMonth, collectedThisMonth, remainingThisMonth, expectedTotal, collectedTotal, outstandingTotal, collectedAdvance) =
             await repo.GetAssignedObligationAggregatesAsync(teacherId, monthStart, monthEnd);
-        decimal grossCollected = await repo.GetCashCollectedInRangeAsync(
-            teacherId, null, monthStart, monthStart.AddMonths(1));
-        // Net out departure refunds taken this month (by DepartedAt) so the headline
-        // reconciles with the per-collector cards and the collections ledger, which are
-        // already net of refunds. Without this the headline overstates cash by the full
-        // refund total and contradicts the numbers directly below it.
-        var monthRefunds = await repo.GetDepartureRefundsByDateRangeAsync(
-            teacherId, monthStart, monthStart.AddMonths(1));
-        decimal collected = grossCollected - monthRefunds.Sum(r => r.RefundAmount);
 
-        // req 5: "remaining" is now the outstanding on THIS month's obligations only (forgiven-aware),
-        // NOT expected − collected — so cash that settled previous-month arrears or paid a future month
-        // ahead no longer shrinks the headline "remaining for this month". The same call returns the
-        // GROSS split of this month's cash across the periods it settled (current / previous / advance).
-        // remainingThisMonth (above, assigned-gated) is the headline "still owed for this month".
-        // This call is kept ONLY for the cash-split buckets below (how this calendar month's physical
-        // cash divided across current / previous / advance periods); its own remaining is discarded.
-        var (_, grossCurrent, grossPrev, grossAdvance) =
-            await repo.GetMonthRemainingAndCollectedSplitAsync(teacherId, monthStart, monthEnd);
+        // The single "collected" split under the progress bar, all PERIOD-BASED so it reconciles with
+        // the table (no separate date-based cash headline). CollectedTotal = this month's installments
+        // + every earlier month's; the "older months" slice is simply the remainder. CollectedAdvance
+        // (money paid toward future months) is reported separately — it is NOT part of CollectedTotal.
+        decimal collectedPreviousMonths = collectedTotal - collectedThisMonth;
+        if (collectedPreviousMonths < 0m) collectedPreviousMonths = 0m;
 
-        // Net departure refunds into the matching bucket by the month the refund is anchored to, so the
-        // three collected-split figures sum to the net headline "collected" above.
-        decimal refundCurrent = 0m, refundPrev = 0m, refundAdvance = 0m;
-        foreach (var r in monthRefunds)
-        {
-            if (r.RefundPeriodStart is DateTime rps && rps.Date < monthStart.Date) refundPrev += r.RefundAmount;
-            else if (r.RefundPeriodStart is DateTime rpsA && rpsA.Date > monthEnd.Date) refundAdvance += r.RefundAmount;
-            else refundCurrent += r.RefundAmount; // in-month, or unknown anchor → attribute to this month
-        }
-        // Clamp each net bucket at 0: in a refund-heavy month a bucket's refunds can exceed its
-        // collections, and a negative "collected for …" figure would just confuse the teacher (the
-        // refund is already visible as its own ledger line). Normal months are unaffected.
-        decimal collectedForCurrentMonth = Math.Max(0m, grossCurrent - refundCurrent);
-        decimal collectedForPreviousMonths = Math.Max(0m, grossPrev - refundPrev);
-        decimal collectedInAdvance = Math.Max(0m, grossAdvance - refundAdvance);
         var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(teacherId);
@@ -1196,7 +1169,12 @@ public class PaymentScreenService : IPaymentScreenService
 
         int sessionsTotal = sessions.Count;
         int sessionsCollected = sessions.Count(s => s.CollectedAmount > 0m);
-        decimal progressPercent = expectedThisMonth > 0 ? Math.Round(collected / expectedThisMonth * 100m, 2) : 0m;
+        // Progress is now STUDENT-based (caught-up assigned students ÷ all assigned students) so the bar
+        // fill matches the "X of Y students paid" label beside it. paidCount / totalStudents both come
+        // from the same assigned-student population (§7.4), so they reconcile.
+        decimal progressPercent = totalStudents > 0
+            ? Math.Round((decimal)paidCount / totalStudents * 100m, 2)
+            : 0m;
 
         var response = new TrackingResponse
         {
@@ -1204,22 +1182,22 @@ public class PaymentScreenService : IPaymentScreenService
             MonthLabel = monthStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
             Summary = new TrackingSummaryDto
             {
-                ExpectedRevenue = expectedThisMonth,
                 TotalStudents = totalStudents,
                 TotalSessions = sessionsTotal,
-                CollectedAmount = collected,
-                RemainingAmount = remainingThisMonth,
-                CollectedForCurrentMonth = collectedForCurrentMonth,
-                CollectedForPreviousMonths = collectedForPreviousMonths,
-                CollectedInAdvance = collectedInAdvance,
                 SessionsCollected = sessionsCollected,
                 SessionsTotal = sessionsTotal,
                 ProgressPercent = progressPercent,
-                // Two-perspective split (period-based, assigned-gated).
+                // This month (periods overlapping the month): Expected = Collected + Remaining.
+                ExpectedRevenue = expectedThisMonth,
                 CollectedThisMonth = collectedThisMonth,
-                ExpectedTotalOutstanding = outstandingTotal,
+                RemainingAmount = remainingThisMonth,
+                // Total through this month (this month + every earlier month): Expected = Collected + Remaining.
+                ExpectedTotal = expectedTotal,
                 CollectedTotal = collectedTotal,
-                RemainingTotalOutstanding = outstandingTotal
+                CollectedPreviousMonths = collectedPreviousMonths,
+                RemainingTotal = outstandingTotal,
+                // Paid ahead (future months) — reported separately, not part of the totals above.
+                CollectedInAdvance = collectedAdvance
             },
             StatusBreakdown = new TrackingStatusBreakdownDto
             {

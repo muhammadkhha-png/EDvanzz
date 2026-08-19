@@ -2300,69 +2300,7 @@
         }
 
         /// <inheritdoc />
-        public async Task<(decimal RemainingThisMonth, decimal CollectedForCurrentMonth, decimal CollectedForPreviousMonths, decimal CollectedInAdvance)>
-            GetMonthRemainingAndCollectedSplitAsync(long teacherId, DateTime monthStart, DateTime monthEnd)
-        {
-            var monthStartD = monthStart.Date;
-            var monthEndD = monthEnd.Date;
-            var nextMonthStart = monthStart.AddMonths(1);
-
-            // (a) THIS-MONTH outstanding only (forgiven-aware). Same period-overlap window as the
-            // expected figure (PeriodEnd >= monthStart && PeriodStart <= monthEnd) so remaining is
-            // strictly "what is still owed FOR this month" — never reduced by arrears/advance cash.
-            decimal remaining = await _context.PaymentPeriods
-                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
-                    && p.PeriodEnd >= monthStartD && p.PeriodStart <= monthEndD
-                    && p.PaymentStatus != PaymentStatus.Paid)
-                .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
-            if (remaining < 0m) remaining = 0m;
-
-            // (b) Split of the GROSS cash physically collected this calendar month (by transaction date)
-            // across the periods it settled. Primary source is the allocation ledger (a slice per settled
-            // period); legacy transactions with no allocations fall back to their single denormalized
-            // period. Computed as explicit per-bucket SUMs (simple WHERE + SUM) so the SQL translation is
-            // never in doubt (avoids a CASE-in-GROUP-BY the provider might reject at run time).
-            var allocInMonth = _context.PaymentTransactionAllocations
-                .Where(a => a.TeacherId == teacherId
-                    && a.PaymentPeriod != null
-                    && !a.PaymentTransaction.IsDeleted
-                    && a.PaymentTransaction.CollectedAt >= monthStart
-                    && a.PaymentTransaction.CollectedAt < nextMonthStart);
-
-            decimal allocCurrent = await allocInMonth
-                .Where(a => a.PaymentPeriod!.PeriodStart >= monthStartD && a.PaymentPeriod!.PeriodStart <= monthEndD)
-                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
-            decimal allocPrev = await allocInMonth
-                .Where(a => a.PaymentPeriod!.PeriodStart < monthStartD)
-                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
-            decimal allocAdvance = await allocInMonth
-                .Where(a => a.PaymentPeriod!.PeriodStart > monthEndD)
-                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
-
-            var legacyInMonth = _context.PaymentTransactions
-                .Where(t => t.TeacherId == teacherId
-                    && t.CollectedAt >= monthStart && t.CollectedAt < nextMonthStart
-                    && t.PaymentPeriod != null
-                    && !t.Allocations.Any());
-
-            decimal legacyCurrent = await legacyInMonth
-                .Where(t => t.PaymentPeriod!.PeriodStart >= monthStartD && t.PaymentPeriod!.PeriodStart <= monthEndD)
-                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
-            decimal legacyPrev = await legacyInMonth
-                .Where(t => t.PaymentPeriod!.PeriodStart < monthStartD)
-                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
-            decimal legacyAdvance = await legacyInMonth
-                .Where(t => t.PaymentPeriod!.PeriodStart > monthEndD)
-                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
-
-            return (remaining,
-                allocCurrent + legacyCurrent,
-                allocPrev + legacyPrev,
-                allocAdvance + legacyAdvance);
-        }
-
-        /// <inheritdoc />
-        public async Task<(decimal ExpectedThisMonth, decimal CollectedThisMonth, decimal RemainingThisMonth, decimal CollectedTotal, decimal OutstandingTotal)>
+        public async Task<(decimal ExpectedThisMonth, decimal CollectedThisMonth, decimal RemainingThisMonth, decimal ExpectedTotal, decimal CollectedTotal, decimal OutstandingTotal, decimal CollectedAdvance)>
             GetAssignedObligationAggregatesAsync(long teacherId, DateTime monthStart, DateTime monthEnd)
         {
             var monthStartD = monthStart.Date;
@@ -2394,7 +2332,7 @@
 
             // Remaining as an explicit filtered SUM (WHERE not-Paid + SUM) rather than a CASE inside the
             // grouped projection — the provider translates it unambiguously (mirrors
-            // GetMonthRemainingAndCollectedSplitAsync / GetOverdueTotalThroughAsync).
+            // GetOverdueTotalThroughAsync).
             decimal remainingThisMonth = await thisMonth
                 .Where(p => p.PaymentStatus != PaymentStatus.Paid)
                 .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
@@ -2403,6 +2341,11 @@
             // ── Through this month: current + every earlier month (PeriodStart ≤ month end). ──
             var throughMonth = basePeriods.Where(p => p.PeriodStart <= monthEndD);
 
+            // ExpectedTotal is the full bill of this month + every earlier month (gross AmountDue),
+            // so it is always ≥ ExpectedThisMonth and the Total column reads bigger than This month.
+            // Reconciles as ExpectedTotal = CollectedTotal + OutstandingTotal (+ forgiven).
+            decimal expectedTotal = await throughMonth.SumAsync(p => (decimal?)p.AmountDue) ?? 0m;
+
             decimal collectedTotal = await throughMonth.SumAsync(p => (decimal?)p.AmountPaid) ?? 0m;
 
             decimal outstandingTotal = await throughMonth
@@ -2410,12 +2353,21 @@
                 .SumAsync(p => (decimal?)(p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m))) ?? 0m;
             if (outstandingTotal < 0m) outstandingTotal = 0m;
 
+            // ── Paid ahead: money already paid toward FUTURE months (PeriodStart > month end). ──
+            // Kept OUTSIDE the through-this-month totals so those reconcile; shown on its own line so
+            // advance payments always have a home.
+            decimal collectedAdvance = await basePeriods
+                .Where(p => p.PeriodStart > monthEndD)
+                .SumAsync(p => (decimal?)p.AmountPaid) ?? 0m;
+
             return (
                 thisMonthAgg?.Expected ?? 0m,
                 thisMonthAgg?.Collected ?? 0m,
                 remainingThisMonth,
+                expectedTotal,
                 collectedTotal,
-                outstandingTotal);
+                outstandingTotal,
+                collectedAdvance);
         }
 
         /// <inheritdoc />
