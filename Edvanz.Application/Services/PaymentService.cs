@@ -1090,6 +1090,15 @@ public class PaymentService : IPaymentService
         foreach (var p in periods)
         {
             long studentId = p.TeacherStudentId!.Value;
+
+            // Proration is HISTORY once any money has been collected against the anchor month.
+            // A PartiallyPaid anchor (some cash already taken as prorated) must NOT be re-priced when
+            // the teacher later disables/edits proration — otherwise the collections/wallet ledger and
+            // the anchor-based "prorated" displays lose the fact that the collection was prorated. Only
+            // never-collected anchors (AmountPaid == 0) are reconciled to the new config; fully-paid
+            // anchors are already excluded by GetUnpaidAnchorMonthPeriodsAsync.
+            if (p.AmountPaid > 0m) continue;
+
             counters.TryGetValue(studentId, out var counter);
 
             decimal fullBase;
