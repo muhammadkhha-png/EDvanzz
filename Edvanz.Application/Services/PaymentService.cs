@@ -364,8 +364,13 @@ public class PaymentService : IPaymentService
                 StudentCode = student.StudentCode,
                 SessionName = session.SessionName,
                 CollectedAt = now,
+                // LocalCollectedAt is the teacher-LOCAL wall-clock of collection (stored as-is,
+                // displayed raw by the client). Use the teacher-local NOW — the old
+                // localDate.Add(now.TimeOfDay) grafted the UTC time-of-day onto the local date,
+                // storing a value ~2–3h behind the real collection time (Egypt offset).
                 LocalCollectedAt = dto.IsOfflineRecord && dto.OfflineCollectedAt.HasValue
-                    ? dto.OfflineCollectedAt.Value : localDate.Add(now.TimeOfDay),
+                    ? dto.OfflineCollectedAt.Value
+                    : _timeZoneService.GetTeacherLocalNow(dto.TeacherId),
                 IsPartial = isPartial,
                 IsProRated = isProRated,
                 ProRatedTierLabel = proRatedLabel,
@@ -2686,11 +2691,16 @@ public class PaymentService : IPaymentService
 
         foreach (var p in periods)
         {
-            decimal outstanding = p.AmountDue - p.AmountPaid;
+            // Outstanding = due − paid − forgiven. Subtracting ForgivenAmount is what the
+            // TEACHER's per-student status uses (GetStudentsByPaymentStatusPagedAsync), so a
+            // balance the teacher forgave no longer shows as owed on the student's own screen
+            // — the two views now reconcile exactly (F3). Never let forgiveness make a period
+            // read as "overpaid": clamp at 0 for the settled/Paid bucket comparison below.
+            decimal outstanding = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
 
             if (outstanding <= 0m)
             {
-                // Fully settled (or overpaid) — Paid section, regardless of month.
+                // Fully settled (paid off OR forgiven) — Paid section, regardless of month.
                 paidRows.Add(BuildTrackingRow(p, outstanding, LatestPaidOn(p), monthsOverdue: null));
             }
             else if (p.PeriodStart <= monthEnd)

@@ -303,6 +303,15 @@
   <data name="LinkRemovedByTeacherNotifBody" xml:space="preserve">
     <value>Teacher {0} removed you from their linked students</value>
   </data>
+  <data name="TeacherDeleteSuccess" xml:space="preserve">
+    <value>Teacher deleted from your list</value>
+  </data>
+  <data name="LinkDeletedByStudentNotifTitle" xml:space="preserve">
+    <value>A student left</value>
+  </data>
+  <data name="LinkDeletedByStudentNotifBody" xml:space="preserve">
+    <value>{0} deleted their link and is no longer connected to your account</value>
+  </data>
   <data name="LinkBound" xml:space="preserve">
     <value>Student linked to your account</value>
   </data>

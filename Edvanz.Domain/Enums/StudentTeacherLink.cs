@@ -118,6 +118,22 @@ public class StudentTeacherLink : BaseEntity
     /// </summary>
     public DateTime? UnlinkedAt { get; set; }
 
+    // ─── Student-initiated dismissal (the "Delete" action, distinct from "Unlink") ───
+
+    /// <summary>
+    /// True when the STUDENT chose "Delete" (not merely "Unlink") for this teacher:
+    /// the link is ended AND the card is permanently removed from the student's home
+    /// list. "Unlink" leaves the row visible (status Unlinked, re-requestable) with
+    /// this flag false; "Delete" sets it true so <c>GetMyTeachersAsync</c> hides the
+    /// teacher entirely. A later re-request creates a NEW (non-dismissed) row, so the
+    /// teacher reappears naturally. Never touches the teacher's roster/attendance/
+    /// payment data — it only affects what the STUDENT sees on their own home.
+    /// </summary>
+    public bool StudentDismissed { get; set; }
+
+    /// <summary>UTC timestamp the student dismissed (deleted) the card. Null otherwise.</summary>
+    public DateTime? StudentDismissedAt { get; set; }
+
     // ─── Device lock (per teacher; governed by TeacherConfiguration.IsDeviceLockEnabled) ───
 
     /// <summary>

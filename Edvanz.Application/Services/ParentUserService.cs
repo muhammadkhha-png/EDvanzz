@@ -31,16 +31,27 @@ public class ParentUserService : IParentUserService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly ITimeZoneService _timeZoneService;
 
     public ParentUserService(
         IUnitOfWork unitOfWork,
         ISubscriptionGateService subscriptionGate,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        ITimeZoneService timeZoneService)
     {
         _unitOfWork = unitOfWork;
         _subscriptionGate = subscriptionGate;
         _localizer = localizer;
+        _timeZoneService = timeZoneService;
     }
+
+    /// <summary>
+    /// "Today" in the app's local zone (Africa/Cairo) for the future-DOB guard — using
+    /// DateOnly.FromDateTime(DateTime.UtcNow) rejected a valid same-day DOB (or accepted a
+    /// next-day one) during the ~2–3h Egypt offset window around midnight.
+    /// </summary>
+    private DateOnly LocalToday() =>
+        DateOnly.FromDateTime(_timeZoneService.ConvertUtcToLocal(DateTime.UtcNow));
 
     /// <inheritdoc />
     public async Task<Result<ParentUserProfileDto>> InitializeParentUserAsync(CreateParentUserDto dto)
@@ -197,7 +208,7 @@ public class ParentUserService : IParentUserService
         if (dto.DateOfBirth is null)
             return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
 
-        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+        if (dto.DateOfBirth.Value > LocalToday())
             return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
 
         if (dto.Gender is null)
@@ -277,7 +288,7 @@ public class ParentUserService : IParentUserService
         if (dto.DateOfBirth is null)
             return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthRequired", HttpStatusCode.BadRequest);
 
-        if (dto.DateOfBirth.Value > DateOnly.FromDateTime(DateTime.UtcNow))
+        if (dto.DateOfBirth.Value > LocalToday())
             return Result<ParentChildDto>.Failure(_localizer, "ChildDateOfBirthInFuture", HttpStatusCode.BadRequest);
 
         if (dto.Gender is null)

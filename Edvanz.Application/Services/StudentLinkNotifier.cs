@@ -84,6 +84,22 @@ public class StudentLinkNotifier : IStudentLinkNotifier
     }
 
     /// <inheritdoc />
+    public async Task NotifyLinkDeletedByStudentAsync(long teacherId, string studentName)
+    {
+        var teacher = await _unitOfWork.Users.GetTeacherByIdAsync(teacherId);
+        if (teacher is null) return;
+
+        var (title, body) = RenderInCulture(teacher.LanguagePreference,
+            "LinkDeletedByStudentNotifTitle", "LinkDeletedByStudentNotifBody", studentName);
+
+        await PersistAndPushAsync(teacher.UserId, title, body, new PushPayload
+        {
+            Category = NotificationCategory.notifiction,
+            Screen = TeacherDeepLink
+        });
+    }
+
+    /// <inheritdoc />
     public async Task NotifyLinkBindingChangedAsync(long studentUserId, long teacherId, bool linked)
     {
         var (studentUser, teacherName) = await ResolveStudentAndTeacherNameAsync(studentUserId, teacherId);

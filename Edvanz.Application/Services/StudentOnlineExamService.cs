@@ -17,15 +17,17 @@ public class StudentOnlineExamService : IStudentOnlineExamService
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IOnlineExamGradingService _grading;
     private readonly IFileAccessService _fileAccess;
+    private readonly ITimeZoneService _timeZoneService;
 
     public StudentOnlineExamService(
         IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IOnlineExamGradingService grading,
-        IFileAccessService fileAccess)
+        IFileAccessService fileAccess, ITimeZoneService timeZoneService)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _grading = grading;
         _fileAccess = fileAccess;
+        _timeZoneService = timeZoneService;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -75,13 +77,18 @@ public class StudentOnlineExamService : IStudentOnlineExamService
             // so the app renders a status/score instead of null. Not persisted.
             bool missed = report is null && exam.EndDateTime < now;
 
+            // exam.StartDateTime is a UTC instant. The student list shows the exam's local
+            // wall-clock date/time, so convert UTC → Cairo BEFORE truncating to DateOnly/TimeOnly.
+            // Truncating the raw UTC instant showed times ~2-3h early (the UTC+2/+3 offset bug).
+            var localStart = _timeZoneService.ConvertUtcToLocal(exam.StartDateTime, "Africa/Cairo");
+
             var row = new OnlineExamStudentListItemDto
             {
                 ExamId = exam.Id,
                 ExamName = exam.Title,
                 Subject = subjectName,
-                ExamDate = DateOnly.FromDateTime(exam.StartDateTime),
-                ExamTime = TimeOnly.FromDateTime(exam.StartDateTime),
+                ExamDate = DateOnly.FromDateTime(localStart),
+                ExamTime = TimeOnly.FromDateTime(localStart),
                 Duration = exam.EndDateTime - exam.StartDateTime,
                 QuestionsCount = exam.Questions.Count,
                 ExamDegree = exam.Questions.Sum(q => q.Degree),

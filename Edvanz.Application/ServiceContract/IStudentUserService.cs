@@ -77,6 +77,20 @@ public interface IStudentUserService
     Task<Result<bool>> UnlinkTeacherAsync(long studentUserId, long teacherId, long actingUserId);
 
     /// <summary>
+    /// "Deletes" a Teacher from the Student's side — a stronger action than Unlink.
+    /// Ends any live link (Active → Unlinked, Pending → CancelledByStudent) AND marks
+    /// the card dismissed so it disappears from the student's home entirely (Unlink,
+    /// by contrast, keeps the card visible as "Unlinked" and re-requestable). Also
+    /// notifies the teacher that a linked student left (awareness only — nothing on the
+    /// teacher's roster/attendance/payment data changes). Idempotent, and works on the
+    /// latest row of ANY status so a dead card can be cleared too.
+    /// </summary>
+    /// <param name="studentUserId">The StudentUser's Id (resolved from JWT by the controller).</param>
+    /// <param name="teacherId">The Teacher's Id to delete.</param>
+    /// <param name="actingUserId">User.Id of the caller — persisted to RemovedByUserId for audit.</param>
+    Task<Result<bool>> DeleteTeacherAsync(long studentUserId, long teacherId, long actingUserId);
+
+    /// <summary>
     /// Retrieves the student's teachers INCLUDING request states — one entry per
     /// teacher (the latest link row), so the student can see Pending requests and
     /// whether a request was accepted (Active) or rejected (Rejected).

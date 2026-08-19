@@ -619,6 +619,16 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<StudentTeacherLink?> GetLatestStudentTeacherLinkAsync(long studentUserId, long teacherId)
+        {
+            // Tracked (no AsNoTracking) — the caller mutates + saves it (the Delete action).
+            return await _context.Set<StudentTeacherLink>()
+                .Where(l => l.StudentUserId == studentUserId && l.TeacherId == teacherId)
+                .OrderByDescending(l => l.Id)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<StudentTeacherLink>> GetAllStudentTeacherLinksAsync(long studentUserId)
         {
             return await _context.Set<StudentTeacherLink>()

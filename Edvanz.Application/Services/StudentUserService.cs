@@ -305,6 +305,70 @@ public class StudentUserService : IStudentUserService
 
     /// <inheritdoc />
     /// <summary>
+    /// "Delete" a teacher from the student's side — the harder cousin of Unlink.
+    /// It ends any live link (Active → Unlinked, Pending → CancelledByStudent) AND
+    /// dismisses the card so it disappears from the student's home entirely, and it
+    /// tells the teacher a linked student left (awareness only). Unlike Unlink, the
+    /// card is NOT kept as a re-requestable "Unlinked" entry. Operates on the LATEST
+    /// row of any status, so a dead card (Rejected/RemovedByTeacher/Unlinked) can be
+    /// cleared too. Never touches the teacher's roster / attendance / payment data.
+    /// </summary>
+    public async Task<Result<bool>> DeleteTeacherAsync(long studentUserId, long teacherId, long actingUserId)
+    {
+        var link = await _unitOfWork.Users.GetLatestStudentTeacherLinkAsync(studentUserId, teacherId);
+        if (link is null)
+            return Result<bool>.Failure(_localizer, "LinkNotFound", HttpStatusCode.NotFound);
+
+        // Idempotent: a double-tap (already deleted) is a success, not a 404/500.
+        if (link.StudentDismissed)
+            return Result<bool>.Success(true, _localizer, "TeacherDeleteSuccess", HttpStatusCode.OK);
+
+        // Only a real, still-Active connection warrants telling the teacher "the student left"
+        // (and only then does the student drop off the teacher's ACTIVE linked list). A dead
+        // card being cleared is silent.
+        bool wasConnected = link.LinkStatus == LinkStatus.Active;
+        var now = DateTime.UtcNow;
+
+        // End a live row first so we never leave a live row that would block a future
+        // re-request (the filtered unique index only allows one live row per pair).
+        if (link.LinkStatus == LinkStatus.Active)
+        {
+            link.LinkStatus = LinkStatus.Unlinked;
+            link.UnlinkedAt = now;
+            link.RemovedByUserId = actingUserId;
+        }
+        else if (link.LinkStatus == LinkStatus.Pending)
+        {
+            link.LinkStatus = LinkStatus.CancelledByStudent;
+            link.UnlinkedAt = now;
+            link.RemovedByUserId = actingUserId;
+        }
+        // else: already terminal (Rejected / Unlinked / CancelledByStudent) — just hide it.
+
+        link.StudentDismissed = true;
+        link.StudentDismissedAt = now;
+
+        await _unitOfWork.Users.UpdateStudentTeacherLinkAsync(link);
+        await _unitOfWork.SaveChangesAsync();
+
+        // Post-commit, best-effort: a notification failure must not fail the delete.
+        if (wasConnected)
+        {
+            try
+            {
+                var studentName = string.IsNullOrWhiteSpace(link.RequestedStudentName)
+                    ? string.Empty
+                    : link.RequestedStudentName!.Trim();
+                await _linkNotifier.NotifyLinkDeletedByStudentAsync(teacherId, studentName);
+            }
+            catch { /* awareness ping only — never fail the operation */ }
+        }
+
+        return Result<bool>.Success(true, _localizer, "TeacherDeleteSuccess", HttpStatusCode.OK);
+    }
+
+    /// <inheritdoc />
+    /// <summary>
     /// FIX DB-1: batch loading — 1 query for links + 4 queries for all teacher data.
     /// Request/approval flow: returns the LATEST link row per teacher across every
     /// status, so the student sees Pending requests and accepted/rejected outcomes
@@ -323,6 +387,10 @@ public class StudentUserService : IStudentUserService
         var latestPerTeacher = allLinks
             .GroupBy(l => l.TeacherId)
             .Select(g => g.First()) // rows are ordered by Id DESC in the repo
+            // "Delete" (dismiss) hides the teacher from the student's home entirely: drop
+            // any teacher whose NEWEST row was student-dismissed. A later re-request adds a
+            // fresh (non-dismissed) row that becomes newest, so the teacher reappears.
+            .Where(l => !l.StudentDismissed)
             .ToList();
 
         if (!latestPerTeacher.Any())

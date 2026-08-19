@@ -401,6 +401,14 @@ namespace Edvanz.Domain.Interfaces
         Task<StudentTeacherLink?> GetLiveStudentTeacherLinkAsync(long studentUserId, long teacherId);
 
         /// <summary>
+        /// Returns the single NEWEST link row between a student and teacher across ANY
+        /// status (live or terminal), or null. Tracked, so callers may mutate + save.
+        /// Used by the student-side "Delete" (dismiss) action, which must be able to hide
+        /// a terminal card (Rejected/Unlinked/RemovedByTeacher) the live-row lookup misses.
+        /// </summary>
+        Task<StudentTeacherLink?> GetLatestStudentTeacherLinkAsync(long studentUserId, long teacherId);
+
+        /// <summary>
         /// Returns ALL link rows for a student across every status, newest first.
         /// The service reduces this to the latest row per teacher so the dashboard
         /// can show Pending/Active/Rejected states (request-awareness, no-tracking).

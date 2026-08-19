@@ -165,9 +165,11 @@ public class StudentUserController : ApiBaseController
     }
 
     /// <summary>
-    /// Removes a teacher from the student's side: cancels a Pending request or
-    /// unlinks an Active link (soft transition, preserved for audit). The student
-    /// can send a new request to the same teacher afterwards.
+    /// UNLINK a teacher from the student's side: cancels a Pending request or unlinks
+    /// an Active link (soft transition, preserved for audit). The teacher CARD STAYS on
+    /// the student's home showing "Unlinked", and the student can re-send a request to
+    /// the same teacher afterwards. For the stronger "delete card entirely" action, see
+    /// <see cref="DeleteMyTeacher"/>.
     /// </summary>
     /// <response code="200">Cancelled or unlinked.</response>
     /// <response code="404">No pending request or active link with this teacher.</response>
@@ -185,6 +187,33 @@ public class StudentUserController : ApiBaseController
         long actingUserId = _currentUser.UserId!.Value;
 
         var result = await _studentUserService.UnlinkTeacherAsync(studentUserId.Value, teacherId, actingUserId);
+        return ToResponse(result);
+    }
+
+    /// <summary>
+    /// DELETE a teacher from the student's side — the stronger action. It ends any live
+    /// link (Active → Unlinked, Pending → Cancelled) AND removes the card from the
+    /// student's home entirely (it will not reappear unless the student sends a new
+    /// request), and it notifies the teacher that a linked student left. It NEVER touches
+    /// the teacher's roster / attendance / payment data. Idempotent, and works even on a
+    /// dead card (Rejected / RemovedByTeacher / already-Unlinked) so the student can clear it.
+    /// </summary>
+    /// <response code="200">Deleted (card dismissed).</response>
+    /// <response code="404">No link history with this teacher.</response>
+    [HttpDelete("me/teachers/{teacherId:long}/delete")]
+    [ModulePermission(roles: new[] { "Student" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteMyTeacher([FromRoute] long teacherId)
+    {
+        var studentUserId = await ResolveStudentUserIdAsync();
+        if (studentUserId is null) return StudentNotResolved();
+
+        // Non-null: ResolveStudentUserIdAsync already required a JWT user id
+        long actingUserId = _currentUser.UserId!.Value;
+
+        var result = await _studentUserService.DeleteTeacherAsync(studentUserId.Value, teacherId, actingUserId);
         return ToResponse(result);
     }
 

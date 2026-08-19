@@ -36,6 +36,16 @@ public interface IStudentLinkNotifier
     Task NotifyRemovedByTeacherAsync(long studentUserId, long teacherId);
 
     /// <summary>
+    /// Tells the TEACHER that a linked student deleted the link from their side
+    /// (the student-initiated "Delete" action). Recipient is the teacher; the text
+    /// carries the student's name so the teacher knows who left. Nothing on the
+    /// teacher's roster/attendance/payment data changes — this is awareness only.
+    /// </summary>
+    /// <param name="teacherId">Teacher (recipient) id.</param>
+    /// <param name="studentName">The student's display name for the notification text.</param>
+    Task NotifyLinkDeletedByStudentAsync(long teacherId, string studentName);
+
+    /// <summary>
     /// Tells the student their profile was linked to (or unlinked from) a student
     /// record — i.e. they gained or lost access to this teacher's content, with no
     /// change to the accepted connection itself.
