@@ -2397,6 +2397,54 @@
   <data name="CenterTeacherNotFound" xml:space="preserve">
     <value>المدرس مش موجود تحت السنتر ده.</value>
   </data>
+  <data name="PasswordTooShort" xml:space="preserve">
+    <value>الباسورد لازم يكون 8 حروف على الأقل.</value>
+  </data>
+  <data name="CenterTeacherUsernameInvalid" xml:space="preserve">
+    <value>اسم الدخول لازم يكون 4 حروف على الأقل.</value>
+  </data>
+  <data name="CenterTeacherUsernameTaken" xml:space="preserve">
+    <value>اسم الدخول ده متستخدم قبل كده. اختار اسم تاني.</value>
+  </data>
+  <data name="CenterTeacherLoginEnabled" xml:space="preserve">
+    <value>تم تفعيل الدخول. المدرس يقدر يسجّل دخول باسم الدخول والباسورد اللي ظبطتهم.</value>
+  </data>
+  <data name="CenterTeacherLoginNotEnabled" xml:space="preserve">
+    <value>المدرس ده لسه الدخول مش مفعّل عنده. فعّل الدخول الأول.</value>
+  </data>
+  <data name="CenterTeacherPasswordReset" xml:space="preserve">
+    <value>تم إعادة تعيين الباسورد، واتقفلت الجلسات المفتوحة للمدرس.</value>
+  </data>
+  <data name="CenterTeacherLoginDisabled" xml:space="preserve">
+    <value>تم إيقاف الدخول. المدرس مش هيقدر يسجّل دخول تاني.</value>
+  </data>
+  <data name="SubscriptionManagedByCenter" xml:space="preserve">
+    <value>اشتراكك بيتدار من خلال السنتر بتاعك. لو عايز خطة خاصة بيك، اطلب حساب مستقل.</value>
+  </data>
+  <data name="IndependenceNotUnderCenter" xml:space="preserve">
+    <value>بس المدرس اللي تابع لسنتر يقدر يطلب حساب مستقل.</value>
+  </data>
+  <data name="IndependenceRequestAlreadyPending" xml:space="preserve">
+    <value>عندك طلب استقلال قيد المراجعة بالفعل.</value>
+  </data>
+  <data name="IndependenceRequestNotFound" xml:space="preserve">
+    <value>طلب الاستقلال مش موجود.</value>
+  </data>
+  <data name="IndependenceRequestNotPending" xml:space="preserve">
+    <value>طلب الاستقلال ده اتحلّ خلاص.</value>
+  </data>
+  <data name="IndependenceRequestSubmitted" xml:space="preserve">
+    <value>اتبعت طلبك إنك تبقى مدرس مستقل. إدفانز هتراجعه.</value>
+  </data>
+  <data name="IndependenceRequestCancelled" xml:space="preserve">
+    <value>اتلغى طلب الاستقلال.</value>
+  </data>
+  <data name="IndependenceRequestApproved" xml:space="preserve">
+    <value>تمت الموافقة. المدرس بقى حساب مستقل دلوقتي.</value>
+  </data>
+  <data name="IndependenceRequestRejected" xml:space="preserve">
+    <value>اترفض طلب الاستقلال.</value>
+  </data>
   <data name="CenterTeacherUpdated" xml:space="preserve">
     <value>تم تعديل بيانات المدرس بنجاح.</value>
   </data>

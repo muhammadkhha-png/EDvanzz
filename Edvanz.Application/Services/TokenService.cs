@@ -224,6 +224,19 @@ namespace Edvanz.Application.Services
                 userDto.models = modules;
                 userDto.permissions = permissions;
 
+                // A center-owned teacher carries their owning center's identity so the app can show
+                // the "request an independent account" entry (and any other center-managed hints).
+                // A standalone teacher leaves these null.
+                if (teacher.CenterId != null)
+                {
+                    var center = await _unitOfWork.Centers.GetCenterByIdAsync(teacher.CenterId.Value);
+                    if (center != null)
+                    {
+                        userDto.centerId = center.Id;
+                        userDto.centerName = center.Name;
+                    }
+                }
+
                 jwt = GenerateJwtToken(user, permissions, modules);
             }
             else if (user.UserType == Domain.Enums.UserType.Assistant)

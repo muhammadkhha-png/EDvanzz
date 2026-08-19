@@ -96,6 +96,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<CenterSubscriptionRequest> CenterSubscriptionRequests { get; set; }
     public DbSet<CenterAssistant> CenterAssistants { get; set; }
     public DbSet<CenterSubscriptionPricingSetting> CenterSubscriptionPricingSettings { get; set; }
+    public DbSet<TeacherIndependenceRequest> TeacherIndependenceRequests { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
 
@@ -724,6 +725,44 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
 
             entity.HasIndex(r => new { r.Status, r.RequestedAt })
                 .HasDatabaseName("IX_CenterSubscriptionRequests_Status_RequestedAt");
+        });
+        #endregion
+
+        #region TeacherIndependenceRequest
+        modelBuilder.Entity<TeacherIndependenceRequest>(entity =>
+        {
+            entity.ToTable("TeacherIndependenceRequests");
+
+            entity.Property(r => r.Note)
+                .HasMaxLength(500);
+
+            entity.Property(r => r.RejectionReason)
+                .HasMaxLength(500);
+
+            entity.HasOne(r => r.Teacher)
+                .WithMany()
+                .HasForeignKey(r => r.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(r => r.Center)
+                .WithMany()
+                .HasForeignKey(r => r.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(r => r.ResolvedByUser)
+                .WithMany()
+                .HasForeignKey(r => r.ResolvedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // One LIVE Pending request per teacher (keep [Status] literal in sync with
+            // SubscriptionRequestStatus.Pending = 1).
+            entity.HasIndex(r => r.TeacherId)
+                .IsUnique()
+                .HasFilter("[Status] = 1")
+                .HasDatabaseName("UX_TeacherIndependenceRequests_Teacher_Pending");
+
+            entity.HasIndex(r => new { r.Status, r.RequestedAt })
+                .HasDatabaseName("IX_TeacherIndependenceRequests_Status_RequestedAt");
         });
         #endregion
 

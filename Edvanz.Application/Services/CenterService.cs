@@ -28,6 +28,7 @@ public class CenterService : ICenterService
     private readonly IPasswordService _passwordService;
     private readonly ITeacherService _teacherService;
     private readonly IservicesContract.ISubscriptionCacheService _subscriptionCache;
+    private readonly IservicesContract.IUserAuthInvalidationService _authInvalidation;
     private readonly ITimeZoneService _timeZone;
 
     public CenterService(
@@ -36,6 +37,7 @@ public class CenterService : ICenterService
         IPasswordService passwordService,
         ITeacherService teacherService,
         IservicesContract.ISubscriptionCacheService subscriptionCache,
+        IservicesContract.IUserAuthInvalidationService authInvalidation,
         ITimeZoneService timeZone)
     {
         _unitOfWork = unitOfWork;
@@ -43,6 +45,7 @@ public class CenterService : ICenterService
         _passwordService = passwordService;
         _teacherService = teacherService;
         _subscriptionCache = subscriptionCache;
+        _authInvalidation = authInvalidation;
         _timeZone = timeZone;
     }
 
@@ -290,11 +293,18 @@ public class CenterService : ICenterService
         if (teacher == null)
             return Result<string>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
 
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+
         await _unitOfWork.BeginTransactionAsync();
         try
         {
             teacher.AccountStatus = AccountStatus.Inactive;
             teacher.DeactivatedAt = DateTime.UtcNow;
+            // Suspending the teacher also blocks their login (if enabled) — a deactivated teacher
+            // must not be able to sign in. Reactivation does NOT auto-re-enable login; the center
+            // re-enables it explicitly (fail-closed).
+            if (user != null && user.IsActive == true)
+                await DisableLoginInTransactionAsync(user);
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
             return Result<string>.Success("ok", _localizer, "CenterTeacherDeactivated");
@@ -330,6 +340,142 @@ public class CenterService : ICenterService
             await _unitOfWork.RollbackAsync();
             return Result<string>.Failure(_localizer, "ServerError");
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<CenterTeacherListItemDto>> EnableTeacherLoginAsync(long centerId, long teacherId, EnableCenterTeacherLoginDto dto)
+    {
+        var username = dto.Username?.Trim() ?? string.Empty;
+        if (username.Length < 4)
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherUsernameInvalid");
+        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 8)
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "PasswordTooShort");
+
+        if (!await _unitOfWork.Centers.IsTeacherInCenterAsync(centerId, teacherId))
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var center = await _unitOfWork.Centers.GetCenterByIdAsync(centerId);
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher == null || center == null)
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        if (user == null)
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "ServerError");
+
+        // Username must be globally unique (login identity). Allow re-pointing the SAME teacher's
+        // username; reject a value already taken by another account.
+        var existing = await _unitOfWork.Users.GetByUserName(username);
+        if (existing != null && existing.Id != user.Id)
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherUsernameTaken", HttpStatusCode.Conflict);
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            user.Username = username;
+            user.PasswordHashed = _passwordService.HashPassword(dto.Password);
+            user.IsActive = true;
+            user.SecurityStamp = Guid.NewGuid().ToString();
+            // Snapshot invalidation joins this transaction (BEFORE SaveChanges) — the IsActive flip
+            // must be visible to SecurityStampValidationMiddleware on the teacher's first request (§5.1).
+            await _authInvalidation.InvalidateUserAsync(user.Id);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+
+            var counts = await _unitOfWork.Centers.GetStudentCountsByCenterTeachersAsync(centerId);
+            return Result<CenterTeacherListItemDto>.Success(
+                ToTeacherItem(teacher, center.DefaultRevenueSharePercent, center.StudentCodeGenerationMode,
+                    counts.TryGetValue(teacher.Id, out var c) ? c : 0, user.FullName),
+                _localizer, "CenterTeacherLoginEnabled");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            return Result<CenterTeacherListItemDto>.Failure(_localizer, "ServerError");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<string>> ResetTeacherPasswordAsync(long centerId, long teacherId, ResetCenterTeacherPasswordDto dto)
+    {
+        if (!string.Equals(dto.NewPassword, dto.ConfirmPassword, StringComparison.Ordinal))
+            return Result<string>.Failure(_localizer, "PasswordConfirmationMismatch");
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 8)
+            return Result<string>.Failure(_localizer, "PasswordTooShort");
+
+        if (!await _unitOfWork.Centers.IsTeacherInCenterAsync(centerId, teacherId))
+            return Result<string>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher == null)
+            return Result<string>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        if (user == null)
+            return Result<string>.Failure(_localizer, "ServerError");
+        if (user.IsActive != true)
+            return Result<string>.Failure(_localizer, "CenterTeacherLoginNotEnabled", HttpStatusCode.Conflict);
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            user.PasswordHashed = _passwordService.HashPassword(dto.NewPassword);
+            user.SecurityStamp = Guid.NewGuid().ToString();
+            // A center-driven reset always revokes the teacher's live sessions (mirrors the admin
+            // force-reset), so a shared/old device is signed out.
+            var tokens = _unitOfWork.RefreshTokenRepo.GetByUserId(user.Id);
+            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(tokens);
+            await _authInvalidation.InvalidateUserAsync(user.Id);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+            return Result<string>.Success("ok", _localizer, "CenterTeacherPasswordReset");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            return Result<string>.Failure(_localizer, "ServerError");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<string>> DisableTeacherLoginAsync(long centerId, long teacherId)
+    {
+        if (!await _unitOfWork.Centers.IsTeacherInCenterAsync(centerId, teacherId))
+            return Result<string>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
+        if (teacher == null)
+            return Result<string>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
+
+        var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
+        if (user == null)
+            return Result<string>.Failure(_localizer, "ServerError");
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            await DisableLoginInTransactionAsync(user);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+            return Result<string>.Success("ok", _localizer, "CenterTeacherLoginDisabled");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            return Result<string>.Failure(_localizer, "ServerError");
+        }
+    }
+
+    /// <summary>Blocks login on a User (IsActive=false), bumps the security stamp, revokes live
+    /// sessions, and joins the Redis snapshot invalidation to the caller's transaction. The caller
+    /// owns SaveChanges/Commit (§5.2).</summary>
+    private async Task DisableLoginInTransactionAsync(User user)
+    {
+        user.IsActive = false;
+        user.SecurityStamp = Guid.NewGuid().ToString();
+        var tokens = _unitOfWork.RefreshTokenRepo.GetByUserId(user.Id);
+        await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(tokens);
+        await _authInvalidation.InvalidateUserAsync(user.Id);
     }
 
     /// <inheritdoc />
@@ -387,6 +533,9 @@ public class CenterService : ICenterService
         StudentCodeModeOverride = t.StudentCodeModeOverride,
         EffectiveStudentCodeMode = t.StudentCodeModeOverride ?? centerDefaultCodeMode,
         AccountStatus = t.AccountStatus,
-        StudentCount = studentCount
+        StudentCount = studentCount,
+        // Login gate = identity User.IsActive. The placeholder username is hidden until login is on.
+        LoginEnabled = t.User?.IsActive == true,
+        LoginUsername = t.User?.IsActive == true ? t.User?.Username : null
     };
 }

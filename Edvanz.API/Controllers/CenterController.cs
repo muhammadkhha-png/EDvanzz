@@ -121,6 +121,40 @@ public class CenterController : ApiBaseController
         return ToResponse(await _centerService.ReactivateTeacherAsync(centerId.Value, teacherId));
     }
 
+    // ── Teacher login management (owner-only): the center creates the login + can reset the password ──
+
+    /// <summary>Give a center-owned teacher a working login (username + initial password), so the
+    /// teacher can sign in and operate their own account normally. Everything stays the same tenant,
+    /// so the center's acting-as view and the teacher's own view are in sync.</summary>
+    [HttpPost("teachers/{teacherId:long}/enable-login")]
+    [Authorize(Roles = "Center")]
+    public async Task<IActionResult> EnableTeacherLogin([FromRoute] long teacherId, [FromBody] EnableCenterTeacherLoginDto dto)
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.EnableTeacherLoginAsync(centerId.Value, teacherId, dto));
+    }
+
+    /// <summary>Center-managed password reset for one of its teachers (no old password needed).</summary>
+    [HttpPost("teachers/{teacherId:long}/reset-password")]
+    [Authorize(Roles = "Center")]
+    public async Task<IActionResult> ResetTeacherPassword([FromRoute] long teacherId, [FromBody] ResetCenterTeacherPasswordDto dto)
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.ResetTeacherPasswordAsync(centerId.Value, teacherId, dto));
+    }
+
+    /// <summary>Turn off a teacher's login (blocks sign-in + revokes sessions) without deleting them.</summary>
+    [HttpPost("teachers/{teacherId:long}/disable-login")]
+    [Authorize(Roles = "Center")]
+    public async Task<IActionResult> DisableTeacherLogin([FromRoute] long teacherId)
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.DisableTeacherLoginAsync(centerId.Value, teacherId));
+    }
+
     // ── Subscription (the quota package) — owner-only ──
 
     [HttpGet("subscription")]

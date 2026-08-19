@@ -227,6 +227,13 @@ public class SubscriptionService : ISubscriptionService
             return Result<SubscriptionRequestDto>.Failure(
                 _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
         }
+        // A center-owned teacher is covered by the center's subscription — they cannot self-provision.
+        // (To run their own plan they must first go independent — see the independence-request flow.)
+        if (teacher.CenterId != null)
+        {
+            return Result<SubscriptionRequestDto>.Failure(
+                _localizer, "SubscriptionManagedByCenter", HttpStatusCode.Forbidden);
+        }
 
         var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
         if (setting is null || setting.PricePerStudentEGP <= 0)
@@ -443,6 +450,12 @@ public class SubscriptionService : ISubscriptionService
             return Result<RenewInitiateResponse>.Failure(
                 _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
         }
+        // Center-owned teachers are covered by the center's subscription — no self-renewal.
+        if (teacher.CenterId != null)
+        {
+            return Result<RenewInitiateResponse>.Failure(
+                _localizer, "SubscriptionManagedByCenter", HttpStatusCode.Forbidden);
+        }
 
         decimal? ratePerStudent = await _unitOfWork.SubscriptionPricingRepo.GetPricePerStudentAsync();
         if (ratePerStudent is null || ratePerStudent.Value <= 0m)
@@ -586,6 +599,12 @@ public class SubscriptionService : ISubscriptionService
         {
             return Result<CapacityRequestDto>.Failure(
                 _localizer, SubscriptionConstants.Messages.TeacherNotFound, HttpStatusCode.NotFound);
+        }
+        // Center-owned teachers' capacity is governed by the center's quota package — not self-requested.
+        if (teacher.CenterId != null)
+        {
+            return Result<CapacityRequestDto>.Failure(
+                _localizer, "SubscriptionManagedByCenter", HttpStatusCode.Forbidden);
         }
 
         // Increase-only: decreases stay an admin-side operation.

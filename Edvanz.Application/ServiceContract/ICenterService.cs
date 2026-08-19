@@ -22,6 +22,18 @@ public interface ICenterService
     Task<Result<string>> DeactivateTeacherAsync(long centerId, long teacherId);
     Task<Result<string>> ReactivateTeacherAsync(long centerId, long teacherId);
 
+    /// <summary>Enable (or re-point) a center-owned teacher's login: set the sign-in username + an
+    /// initial password and activate the identity so the teacher can log in normally.</summary>
+    Task<Result<CenterTeacherListItemDto>> EnableTeacherLoginAsync(long centerId, long teacherId, EnableCenterTeacherLoginDto dto);
+
+    /// <summary>Center-managed password reset for one of its teachers (no old-password needed).
+    /// Revokes the teacher's live sessions.</summary>
+    Task<Result<string>> ResetTeacherPasswordAsync(long centerId, long teacherId, ResetCenterTeacherPasswordDto dto);
+
+    /// <summary>Turn off a teacher's login (blocks sign-in + revokes sessions) without deleting the
+    /// teacher or any data. Reversible via <see cref="EnableTeacherLoginAsync"/>.</summary>
+    Task<Result<string>> DisableTeacherLoginAsync(long centerId, long teacherId);
+
     /// <summary>Center-wide exact-match code resolve — returns one candidate per teacher using the
     /// code (0/1/many) so a shared code can be disambiguated at the front desk.</summary>
     Task<Result<List<CenterStudentResolveCandidateDto>>> ResolveStudentByCodeAsync(long centerId, string? code);

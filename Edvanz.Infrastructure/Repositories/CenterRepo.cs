@@ -139,6 +139,33 @@ public class CenterRepo : GenericRepo<Center, long>, ICenterRepo
             .OrderBy(r => r.RequestedAt)
             .ToListAsync();
 
+    // ── Teacher independence requests (center-teacher asks to leave the center) ──
+
+    public Task<TeacherIndependenceRequest?> GetPendingIndependenceRequestByTeacherAsync(long teacherId) =>
+        _context.Set<TeacherIndependenceRequest>()
+            .FirstOrDefaultAsync(r => r.TeacherId == teacherId
+                                   && r.Status == SubscriptionRequestStatus.Pending);
+
+    public Task<TeacherIndependenceRequest?> GetLatestIndependenceRequestByTeacherAsync(long teacherId) =>
+        _context.Set<TeacherIndependenceRequest>()
+            .AsNoTracking()
+            .Where(r => r.TeacherId == teacherId)
+            .OrderByDescending(r => r.RequestedAt)
+            .FirstOrDefaultAsync();
+
+    public Task<TeacherIndependenceRequest?> GetIndependenceRequestByIdAsync(long requestId) =>
+        _context.Set<TeacherIndependenceRequest>()
+            .FirstOrDefaultAsync(r => r.Id == requestId);
+
+    public async Task<IReadOnlyList<TeacherIndependenceRequest>> GetPendingIndependenceRequestsAsync() =>
+        await _context.Set<TeacherIndependenceRequest>()
+            .AsNoTracking()
+            .Include(r => r.Teacher).ThenInclude(t => t.User)
+            .Include(r => r.Center)
+            .Where(r => r.Status == SubscriptionRequestStatus.Pending)
+            .OrderBy(r => r.RequestedAt)
+            .ToListAsync();
+
     public async Task<IReadOnlyList<CenterStudentCodeMatch>> ResolveStudentsByCodeAcrossCenterAsync(long centerId, string code) =>
         await (from ts in _context.Set<TeacherStudent>()
                join t in _context.Set<Teacher>() on ts.TeacherId equals t.Id

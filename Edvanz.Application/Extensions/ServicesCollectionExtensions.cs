@@ -121,6 +121,7 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ICenterSubscriptionService, CenterSubscriptionService>();
         services.AddScoped<ICenterRevenueService, CenterRevenueService>();
         services.AddScoped<ICenterAssistantService, CenterAssistantService>();
+        services.AddScoped<ITeacherIndependenceService, TeacherIndependenceService>();
 
         // Reminder dispatcher + per-teacher worker (§7)
         services.AddScoped<ISubscriptionReminderService, SubscriptionReminderService>();

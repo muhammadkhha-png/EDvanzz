@@ -19,15 +19,18 @@ public class AdminCenterController : ApiBaseController
 {
     private readonly IAdminCenterService _adminCenterService;
     private readonly ICenterService _centerService;
+    private readonly ITeacherIndependenceService _independenceService;
     private readonly ICurrentUserService _currentUser;
 
     public AdminCenterController(
         IAdminCenterService adminCenterService,
         ICenterService centerService,
+        ITeacherIndependenceService independenceService,
         ICurrentUserService currentUser)
     {
         _adminCenterService = adminCenterService;
         _centerService = centerService;
+        _independenceService = independenceService;
         _currentUser = currentUser;
     }
 
@@ -66,5 +69,29 @@ public class AdminCenterController : ApiBaseController
         var adminUserId = _currentUser.UserId;
         if (adminUserId is null) return UserNotResolved();
         return ToResponse(await _adminCenterService.ReactivateCenterAsync(adminUserId.Value, centerId));
+    }
+
+    // ── Teacher independence request queue (a center-teacher asking to leave their center) ──
+
+    /// <summary>The queue of Pending teacher-independence requests, oldest first.</summary>
+    [HttpGet("independence-requests")]
+    public async Task<IActionResult> GetIndependenceRequests()
+        => ToResponse(await _independenceService.GetPendingRequestsAsync());
+
+    /// <summary>Approve = detach the teacher from the center (they become a standalone teacher).</summary>
+    [HttpPost("independence-requests/{requestId:long}/approve")]
+    public async Task<IActionResult> ApproveIndependence([FromRoute] long requestId)
+    {
+        var adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return UserNotResolved();
+        return ToResponse(await _independenceService.ApproveAsync(adminUserId.Value, requestId));
+    }
+
+    [HttpPost("independence-requests/{requestId:long}/reject")]
+    public async Task<IActionResult> RejectIndependence([FromRoute] long requestId, [FromBody] RejectIndependenceRequestDto dto)
+    {
+        var adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return UserNotResolved();
+        return ToResponse(await _independenceService.RejectAsync(adminUserId.Value, requestId, dto));
     }
 }

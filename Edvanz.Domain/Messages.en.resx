@@ -2409,6 +2409,54 @@
   <data name="CenterTeacherNotFound" xml:space="preserve">
     <value>Teacher not found under this center.</value>
   </data>
+  <data name="PasswordTooShort" xml:space="preserve">
+    <value>Password must be at least 8 characters.</value>
+  </data>
+  <data name="CenterTeacherUsernameInvalid" xml:space="preserve">
+    <value>Username must be at least 4 characters.</value>
+  </data>
+  <data name="CenterTeacherUsernameTaken" xml:space="preserve">
+    <value>This username is already taken. Please choose another.</value>
+  </data>
+  <data name="CenterTeacherLoginEnabled" xml:space="preserve">
+    <value>Login enabled. The teacher can now sign in with the username and password you set.</value>
+  </data>
+  <data name="CenterTeacherLoginNotEnabled" xml:space="preserve">
+    <value>This teacher does not have login enabled yet. Enable login first.</value>
+  </data>
+  <data name="CenterTeacherPasswordReset" xml:space="preserve">
+    <value>Password reset. The teacher's active sessions were signed out.</value>
+  </data>
+  <data name="CenterTeacherLoginDisabled" xml:space="preserve">
+    <value>Login disabled. The teacher can no longer sign in.</value>
+  </data>
+  <data name="SubscriptionManagedByCenter" xml:space="preserve">
+    <value>Your subscription is managed by your center. To run your own plan, request an independent account.</value>
+  </data>
+  <data name="IndependenceNotUnderCenter" xml:space="preserve">
+    <value>Only a teacher who belongs to a center can request an independent account.</value>
+  </data>
+  <data name="IndependenceRequestAlreadyPending" xml:space="preserve">
+    <value>You already have a pending independence request.</value>
+  </data>
+  <data name="IndependenceRequestNotFound" xml:space="preserve">
+    <value>Independence request not found.</value>
+  </data>
+  <data name="IndependenceRequestNotPending" xml:space="preserve">
+    <value>This independence request has already been resolved.</value>
+  </data>
+  <data name="IndependenceRequestSubmitted" xml:space="preserve">
+    <value>Your request to become an independent teacher was submitted. Edvanz will review it.</value>
+  </data>
+  <data name="IndependenceRequestCancelled" xml:space="preserve">
+    <value>Independence request cancelled.</value>
+  </data>
+  <data name="IndependenceRequestApproved" xml:space="preserve">
+    <value>Approved. The teacher is now an independent account.</value>
+  </data>
+  <data name="IndependenceRequestRejected" xml:space="preserve">
+    <value>Independence request rejected.</value>
+  </data>
   <data name="CenterTeacherUpdated" xml:space="preserve">
     <value>Teacher updated successfully.</value>
   </data>

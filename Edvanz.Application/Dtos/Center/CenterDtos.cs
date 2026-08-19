@@ -103,6 +103,14 @@ public class CenterTeacherListItemDto
     public GenerationMode EffectiveStudentCodeMode { get; set; }
     public AccountStatus AccountStatus { get; set; }
     public int StudentCount { get; set; }
+
+    /// <summary>Whether this teacher has a working login (identity User.IsActive). Center-owned
+    /// teachers start login-less; the center enables login per teacher.</summary>
+    public bool LoginEnabled { get; set; }
+
+    /// <summary>The login username the teacher signs in with, when login is enabled (null otherwise —
+    /// the system-generated placeholder username is never surfaced).</summary>
+    public string? LoginUsername { get; set; }
 }
 
 /// <summary>Center home / overview snapshot.</summary>
@@ -126,4 +134,32 @@ public class CenterOverviewDto
     public int? StudentCapacityUnderFull { get; set; }
     public int? StudentCapacityUnderManagerial { get; set; }
     public DateTime? SubscriptionEndDate { get; set; }
+}
+
+/// <summary>Center enables (or re-points) a teacher's login: sets the username the teacher signs in
+/// with + an initial password, and activates the identity so the teacher can log in normally.</summary>
+public class EnableCenterTeacherLoginDto
+{
+    /// <summary>Login username the teacher will use — unique across all accounts.</summary>
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.StringLength(50, MinimumLength = 4)]
+    public string Username { get; set; } = null!;
+
+    /// <summary>Initial password (the center hands it to the teacher; the teacher can keep or the
+    /// center can reset it later).</summary>
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 8)]
+    public string Password { get; set; } = null!;
+}
+
+/// <summary>Center resets a teacher's password (no old-password needed — center-managed). Revokes the
+/// teacher's live sessions.</summary>
+public class ResetCenterTeacherPasswordDto
+{
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 8)]
+    public string NewPassword { get; set; } = null!;
+
+    [System.ComponentModel.DataAnnotations.Required]
+    public string ConfirmPassword { get; set; } = null!;
 }

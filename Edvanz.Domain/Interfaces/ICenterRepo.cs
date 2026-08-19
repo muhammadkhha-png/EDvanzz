@@ -106,6 +106,16 @@ public interface ICenterRepo : IGenericRepo<Center, long>
     /// <summary>All Pending center subscription requests, oldest first (admin FIFO queue).</summary>
     Task<IReadOnlyList<CenterSubscriptionRequest>> GetPendingCenterSubscriptionRequestsAsync();
 
+    // ── Teacher independence requests ──
+    /// <summary>The teacher's live Pending independence request, if any (one at a time, filtered index).</summary>
+    Task<TeacherIndependenceRequest?> GetPendingIndependenceRequestByTeacherAsync(long teacherId);
+    /// <summary>The teacher's most recent independence request (any status) — for the "my request" status view.</summary>
+    Task<TeacherIndependenceRequest?> GetLatestIndependenceRequestByTeacherAsync(long teacherId);
+    /// <summary>One independence request by id (tracked — for resolve).</summary>
+    Task<TeacherIndependenceRequest?> GetIndependenceRequestByIdAsync(long requestId);
+    /// <summary>The SuperAdmin queue: all Pending independence requests, oldest first, with Teacher+User+Center loaded.</summary>
+    Task<IReadOnlyList<TeacherIndependenceRequest>> GetPendingIndependenceRequestsAsync();
+
     /// <summary>
     /// Exact-match roster students carrying the given code across ALL the center's teachers (active
     /// rows only). Backs the front-desk center-wide code resolve / disambiguation.
