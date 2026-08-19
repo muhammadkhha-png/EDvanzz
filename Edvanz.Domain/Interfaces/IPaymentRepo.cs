@@ -713,6 +713,30 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         GetAssignedObligationAggregatesAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
 
     /// <summary>
+    /// DATE-BASED cash view of the tracking card's "Collected" section (teacher-requested 2026-08-19).
+    /// The actual cash physically collected DURING the selected calendar month (by <c>CollectedAt</c>,
+    /// NET of refunds — the same money the "collected by you/assistants" section shows), decomposed by
+    /// WHICH installment month each payment settled. This is a pure cash-flow lens and is INTENTIONALLY
+    /// independent of the obligation view (<see cref="GetAssignedObligationAggregatesAsync"/>): a July
+    /// arrear paid in August lands in August's <c>Earlier</c> slice, never on July's card.
+    /// <list type="bullet">
+    /// <item><c>ThisMonth</c> — cash collected this month that settled THIS month's installments.</item>
+    /// <item><c>Earlier</c> — cash collected this month that settled EARLIER months' installments
+    ///   (arrears collected now).</item>
+    /// <item><c>Ahead</c> — cash collected this month that settled FUTURE months' installments (advance).</item>
+    /// </list>
+    /// A payment's month(s) come from the <c>PaymentTransactionAllocation</c> ledger (multi-month cascades
+    /// split across their periods), falling back to the transaction's own <c>PaymentPeriod</c> for legacy
+    /// rows and to the ThisMonth bucket for a payment with no period at all. Departure refunds
+    /// (<c>StudentDeparture.RefundDue</c>, by <c>DepartedAt</c>) are subtracted from the bucket of the month
+    /// they refunded (<c>RefundPeriodStart</c>), so <c>Total = ThisMonth + Earlier + Ahead</c> and equals the
+    /// collectors' cash total to the cent. A bucket can be net-negative in a window that refunded more than
+    /// it collected for that month.
+    /// </summary>
+    Task<(decimal Total, decimal ThisMonth, decimal Earlier, decimal Ahead)>
+        GetCashCollectedBreakdownAsync(long teacherId, DateTime monthStart, DateTime monthEnd);
+
+    /// <summary>
     /// TRACKED. Per currently-assigned student, their earliest monthly period (min PeriodSequence — the
     /// enrollment's first month, the only period proration ever applies to) when it is still owed
     /// (Unpaid/PartiallyPaid). Drives the retroactive proration re-price on a settings toggle; fully-paid

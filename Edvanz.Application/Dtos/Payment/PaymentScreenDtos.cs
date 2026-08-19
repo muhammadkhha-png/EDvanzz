@@ -546,46 +546,52 @@ public class TrackingSummaryDto
     /// Drives both the progress bar fill AND the "X of Y students paid" label, so the two now match.</summary>
     public decimal ProgressPercent { get; set; }
 
-    // ── The card's two perspectives on the same money: "This month" vs "Total (through this month)" ──
-    // Everything below is PERIOD-BASED (attributed to the month each installment BELONGS to, never the
-    // calendar date the cash arrived) and scoped to currently-assigned active students, so within each
-    // perspective Expected = Collected + Remaining (+ forgiven). There is exactly ONE notion of
-    // "collected" here (no separate date-based cash headline) — the whole card reconciles.
+    // ── TWO SEPARATE LENSES (redesigned 2026-08-19, teacher-requested) ──
+    // (1) OBLIGATION — Expected / Remaining: what is owed vs still owed, scoped to currently-assigned
+    //     students, net of forgiven. "This month" = the current bill; "Total" = current bill + arrears
+    //     (fully-collected closed months drop off). Each column reconciles as Expected = Collected(period)
+    //     + Remaining, and Expected moves down when money is forgiven.
+    // (2) CASH — Collected*: the real money physically collected THIS calendar month (by transaction date,
+    //     net of refunds), split by the installment month it settled. This lens is INTENTIONALLY
+    //     independent of the obligation lens — a July arrear paid in August shows in August's "earlier"
+    //     slice and does NOT change July's card. So Collected does NOT tie to Expected − Remaining.
 
-    /// <summary>THIS MONTH — Expected: the full bill for the current month (Σ AmountDue on periods
-    /// overlapping the month) across assigned students.</summary>
+    /// <summary>OBLIGATION · THIS MONTH — Expected: the current month's bill across assigned students, net
+    /// of forgiven (Σ(AmountDue − ForgivenAmount) on this month's periods). Equals
+    /// <see cref="CollectedThisMonth"/>'s period-settled counterpart + <see cref="RemainingAmount"/>.</summary>
     public decimal ExpectedRevenue { get; set; }
 
-    /// <summary>THIS MONTH — Collected: money that settled THIS month's installments (Σ AmountPaid on
-    /// periods overlapping the month). A payment taken this month for a PAST month is NOT counted here
-    /// (it lands on that past month). Equals <see cref="ExpectedRevenue"/> − <see cref="RemainingAmount"/>.</summary>
+    /// <summary>CASH · money physically collected this calendar month that settled THIS month's installments
+    /// (the "collected this month" breakdown line). Because it is date-based, a payment taken this month for
+    /// a past month is NOT here (it is in <see cref="CollectedPreviousMonths"/>); and this month's bill paid
+    /// in an earlier month is NOT here either.</summary>
     public decimal CollectedThisMonth { get; set; }
 
-    /// <summary>THIS MONTH — Remaining: still owed for the current month only (forgiven-aware:
+    /// <summary>OBLIGATION · THIS MONTH — Remaining: still owed for the current month only (forgiven-aware:
     /// Σ(AmountDue − AmountPaid − ForgivenAmount) over not-Paid periods overlapping the month).</summary>
     public decimal RemainingAmount { get; set; }
 
-    /// <summary>TOTAL through this month — Expected: the full bills of the current month PLUS every
-    /// earlier month (Σ AmountDue on periods with PeriodStart ≤ month end). Always ≥
-    /// <see cref="ExpectedRevenue"/>, and equals <see cref="CollectedTotal"/> + <see cref="RemainingTotal"/>.</summary>
+    /// <summary>OBLIGATION · TOTAL — Expected: the current month's net bill PLUS every earlier month's still
+    /// unpaid balance (this month + arrears only — already-collected closed months are excluded). Equals
+    /// <see cref="RemainingTotal"/> + the current month's period-settled amount.</summary>
     public decimal ExpectedTotal { get; set; }
 
-    /// <summary>TOTAL through this month — Collected: everything paid toward all installments up to and
-    /// including this month (Σ AmountPaid on periods with PeriodStart ≤ month end).</summary>
+    /// <summary>CASH · TOTAL — the real money physically collected THIS calendar month (by transaction date,
+    /// net of refunds); ties to <c>CollectedByAssistant.TotalCollected</c> to the cent. Equals
+    /// <see cref="CollectedThisMonth"/> + <see cref="CollectedPreviousMonths"/> + <see cref="CollectedInAdvance"/>.</summary>
     public decimal CollectedTotal { get; set; }
 
-    /// <summary>Of <see cref="CollectedTotal"/>, the portion that settled EARLIER months' installments
-    /// (= <see cref="CollectedTotal"/> − <see cref="CollectedThisMonth"/>). Drives the "paid for older
-    /// months" breakdown line under the progress bar.</summary>
+    /// <summary>CASH · money physically collected this calendar month that settled EARLIER months'
+    /// installments (arrears collected now) — the "collected for earlier months" breakdown line.</summary>
     public decimal CollectedPreviousMonths { get; set; }
 
-    /// <summary>TOTAL through this month — Remaining: still owed across the current month + every earlier
-    /// month (forgiven-aware). Equals <see cref="ExpectedTotal"/> − <see cref="CollectedTotal"/> (− forgiven).</summary>
+    /// <summary>OBLIGATION · TOTAL — Remaining: still owed across the current month + every earlier month
+    /// (forgiven-aware). Equals <see cref="ExpectedTotal"/> − the current month's period-settled amount.</summary>
     public decimal RemainingTotal { get; set; }
 
-    /// <summary>PAID AHEAD — money already paid toward FUTURE months (Σ AmountPaid on periods after this
-    /// month). Reported separately (NOT part of <see cref="CollectedTotal"/>, which stops at this month),
-    /// so advance payments always have a place to show. Often 0.</summary>
+    /// <summary>CASH · money physically collected this calendar month that settled FUTURE months'
+    /// installments (advance, e.g. a September bill paid in August) — the "collected ahead" breakdown line.
+    /// Part of <see cref="CollectedTotal"/> (it is real cash collected this month). Often 0.</summary>
     public decimal CollectedInAdvance { get; set; }
 }
 

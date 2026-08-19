@@ -1055,15 +1055,28 @@ public class PaymentScreenService : IPaymentScreenService
         // to the month each installment BELONGS to (never the cash date) and gated to currently-assigned
         // students, so each perspective reconciles and matches the paid/prorated/unpaid headcounts.
         // CollectedAmount (below) stays the date-based physical "cash collected this calendar month".
-        var (expectedThisMonth, collectedThisMonth, remainingThisMonth, expectedTotal, collectedTotal, outstandingTotal, collectedAdvance) =
+        // ── OBLIGATION view (Expected / Remaining) — "Current + Overdue", net of forgiven ──
+        // (teacher-requested 2026-08-19, mohamedatef). The Total column is what is STILL due or overdue
+        // right now: this month's net bill + every earlier month's unpaid balance. Fully-collected closed
+        // months drop off (their cash is done; it lives on the collections/ledger screen), so Expected never
+        // counts money already collected for a past month. Net-of-forgiven so forgiving lowers Expected in
+        // both columns and each reconciles as Expected = Collected(period) + Remaining. The repo's gross
+        // all-time Expected/Collected totals (tuple slots 4/5) are intentionally discarded here.
+        var (_, collectedThisMonthPeriod, remainingThisMonth, _, _, outstandingTotal, _) =
             await repo.GetAssignedObligationAggregatesAsync(teacherId, monthStart, monthEnd);
 
-        // The single "collected" split under the progress bar, all PERIOD-BASED so it reconciles with
-        // the table (no separate date-based cash headline). CollectedTotal = this month's installments
-        // + every earlier month's; the "older months" slice is simply the remainder. CollectedAdvance
-        // (money paid toward future months) is reported separately — it is NOT part of CollectedTotal.
-        decimal collectedPreviousMonths = collectedTotal - collectedThisMonth;
-        if (collectedPreviousMonths < 0m) collectedPreviousMonths = 0m;
+        decimal expectedThisMonth = collectedThisMonthPeriod + remainingThisMonth;   // Σ(AmountDue − Forgiven) this month
+        decimal earlierRemaining = outstandingTotal - remainingThisMonth;            // unpaid balance of earlier months
+        if (earlierRemaining < 0m) earlierRemaining = 0m;
+        decimal expectedTotal = expectedThisMonth + earlierRemaining;               // this month's bill + arrears only
+
+        // ── CASH view (Collected) — real money physically collected THIS calendar month, decomposed by the
+        // installment month each payment settled (a July arrear paid in August lands in August's "earlier"
+        // slice, never on July's card). A SEPARATE lens from the obligation table above — the two
+        // intentionally do NOT reconcile with each other. collectedTotal ties to the collectors' cash total
+        // (CollectedByAssistant.TotalCollected) to the cent, and = collectedThisMonth + previous + advance.
+        var (collectedTotal, collectedThisMonth, collectedPreviousMonths, collectedAdvance) =
+            await repo.GetCashCollectedBreakdownAsync(teacherId, monthStart, monthEnd);
 
         var (paidCount, proratedCount, unpaidCount) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, monthEnd);
         var perSession = await repo.GetDashboardPerSessionAsync(teacherId, null, null, monthStart, monthEnd);
@@ -1187,16 +1200,16 @@ public class PaymentScreenService : IPaymentScreenService
                 SessionsCollected = sessionsCollected,
                 SessionsTotal = sessionsTotal,
                 ProgressPercent = progressPercent,
-                // This month (periods overlapping the month): Expected = Collected + Remaining.
+                // OBLIGATION view (net of forgiven). This month = current bill; Total = current bill + arrears.
                 ExpectedRevenue = expectedThisMonth,
-                CollectedThisMonth = collectedThisMonth,
                 RemainingAmount = remainingThisMonth,
-                // Total through this month (this month + every earlier month): Expected = Collected + Remaining.
                 ExpectedTotal = expectedTotal,
-                CollectedTotal = collectedTotal,
-                CollectedPreviousMonths = collectedPreviousMonths,
                 RemainingTotal = outstandingTotal,
-                // Paid ahead (future months) — reported separately, not part of the totals above.
+                // CASH view: real cash collected THIS calendar month, split by the installment it settled.
+                // Total = ThisMonth + PreviousMonths + Advance (a separate lens from Expected/Remaining above).
+                CollectedTotal = collectedTotal,
+                CollectedThisMonth = collectedThisMonth,
+                CollectedPreviousMonths = collectedPreviousMonths,
                 CollectedInAdvance = collectedAdvance
             },
             StatusBreakdown = new TrackingStatusBreakdownDto

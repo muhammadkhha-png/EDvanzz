@@ -2371,6 +2371,69 @@
         }
 
         /// <inheritdoc />
+        public async Task<(decimal Total, decimal ThisMonth, decimal Earlier, decimal Ahead)>
+            GetCashCollectedBreakdownAsync(long teacherId, DateTime monthStart, DateTime monthEnd)
+        {
+            // Mirror GetDashboardPerCollectorAsync's window EXACTLY so this breakdown's Total ties to the
+            // collectors' cash total to the cent: cash by CollectedAt in [monthStart, monthEnd + 1 day],
+            // NET of StudentDeparture refunds by DepartedAt in the same window. Buckets are computed with
+            // explicit filtered SUMs (not a GROUP BY over a CASE key) so translation is never in doubt.
+            var windowEnd = monthEnd.Date.AddDays(1);
+
+            // 1) Gross cash physically collected this month (already net of soft-deleted/edited transactions
+            //    via the global !IsDeleted filter) — same figure as GetCashCollectedInRangeAsync.
+            decimal grossCash = await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedAt >= monthStart && t.CollectedAt <= windowEnd)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+
+            // 2) Gross cash that settled EARLIER / AHEAD months, from the PAY-1 allocation ledger (multi-month
+            //    cascades split across their periods) PLUS legacy rows with no ledger (whole AmountPaid on
+            //    their own period). "This month" is the remainder, so any payment with no period at all still
+            //    lands somewhere and the three buckets always sum to grossCash.
+            async Task<decimal> AllocSumAsync(bool earlierSide) => await _context.PaymentTransactionAllocations
+                .Where(a => a.TeacherId == teacherId
+                    && !a.PaymentTransaction.IsDeleted
+                    && a.PaymentTransaction.CollectedAt >= monthStart && a.PaymentTransaction.CollectedAt <= windowEnd
+                    && a.PaymentPeriod != null
+                    && (earlierSide ? a.PaymentPeriod!.PeriodStart < monthStart : a.PaymentPeriod!.PeriodStart > monthEnd))
+                .SumAsync(a => (decimal?)a.AmountApplied) ?? 0m;
+
+            async Task<decimal> LegacySumAsync(bool earlierSide) => await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedAt >= monthStart && t.CollectedAt <= windowEnd
+                    && !t.Allocations.Any() && t.PaymentPeriod != null
+                    && (earlierSide ? t.PaymentPeriod!.PeriodStart < monthStart : t.PaymentPeriod!.PeriodStart > monthEnd))
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+
+            decimal grossEarlier = await AllocSumAsync(true) + await LegacySumAsync(true);
+            decimal grossAhead = await AllocSumAsync(false) + await LegacySumAsync(false);
+            decimal grossThis = grossCash - grossEarlier - grossAhead;   // this month + any no-period remainder
+
+            // 3) Departure refunds (they do NOT soft-delete their transaction) by the month they refunded.
+            var refundBase = _context.StudentDepartures
+                .Where(d => d.TeacherId == teacherId
+                    && d.DepartureOutcome == DepartureOutcome.RefundDue
+                    && d.FinalAmount > 0m
+                    && d.CollectedByUserId.HasValue
+                    && d.DepartedAt >= monthStart && d.DepartedAt <= windowEnd);
+            decimal refundTotal = await refundBase.SumAsync(d => (decimal?)d.FinalAmount) ?? 0m;
+            decimal refundEarlier = await refundBase
+                .Where(d => d.RefundPeriodStart != null && d.RefundPeriodStart < monthStart)
+                .SumAsync(d => (decimal?)d.FinalAmount) ?? 0m;
+            decimal refundAhead = await refundBase
+                .Where(d => d.RefundPeriodStart != null && d.RefundPeriodStart > monthEnd)
+                .SumAsync(d => (decimal?)d.FinalAmount) ?? 0m;
+            decimal refundThis = refundTotal - refundEarlier - refundAhead;   // this-month + null-period refunds
+
+            // Net cash per bucket. total == grossCash − refundTotal == the collectors' cash total.
+            decimal earlier = grossEarlier - refundEarlier;
+            decimal thisMonth = grossThis - refundThis;
+            decimal ahead = grossAhead - refundAhead;
+            return (earlier + thisMonth + ahead, thisMonth, earlier, ahead);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<(long SessionId, string SessionName, long? SessionGroupId, string? SessionGroupName, decimal Expected, decimal Collected, decimal Remaining)>>
             GetDashboardPerSessionAsync(
                 long teacherId,
