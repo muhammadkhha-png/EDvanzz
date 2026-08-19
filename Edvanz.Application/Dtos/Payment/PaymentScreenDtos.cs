@@ -122,6 +122,13 @@ public class CollectionMonthSlice
     public string MonthLabel { get; set; } = string.Empty;
     /// <summary>Amount of this cash event applied to this month.</summary>
     public decimal Amount { get; set; }
+
+    /// <summary>True when the month this slice settled was the prorated anchor month — lets the
+    /// collections/wallet ledger keep showing "prorated" as history, even after the money was collected.</summary>
+    public bool IsProRated { get; set; }
+
+    /// <summary>The proration fraction (e.g. 0.6685) when this settled month was prorated; null otherwise.</summary>
+    public decimal? ProRatedFraction { get; set; }
 }
 
 // ── Screen: Collections summary (date-filtered) ────────────────────────────

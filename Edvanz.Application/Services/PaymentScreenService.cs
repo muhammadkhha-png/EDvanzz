@@ -1803,7 +1803,12 @@ public class PaymentScreenService : IPaymentScreenService
             {
                 Month = a.PaymentPeriod!.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
                 MonthLabel = a.PaymentPeriod!.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
-                Amount = a.AmountApplied
+                Amount = a.AmountApplied,
+                // Proration is history — surface it per settled month so the collections/wallet ledger
+                // shows a prorated month as prorated even after the cash was collected. The PaymentPeriod
+                // navigation is already loaded (its PeriodStart is read above), so no extra query.
+                IsProRated = a.PaymentPeriod!.IsProRated,
+                ProRatedFraction = a.PaymentPeriod!.IsProRated ? a.PaymentPeriod!.ProRatedFraction : (decimal?)null
             })
             .ToList();
 
