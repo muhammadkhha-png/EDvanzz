@@ -365,6 +365,17 @@ public class AbsenceOverviewRequest
     public bool MissingParentPhone { get; set; } = false;
 
     /// <summary>
+    /// Keep only students on an active absence streak &gt;= this value — the "absent students"
+    /// violations view. Default 0 = no filter (the full absence overview). Negatives clamp to 0.
+    /// </summary>
+    public int MinConsecutiveAbsences
+    {
+        get => _minConsecutiveAbsences;
+        set => _minConsecutiveAbsences = value < 0 ? 0 : value;
+    }
+    private int _minConsecutiveAbsences;
+
+    /// <summary>
     /// View absence history for a specific past occurrence date.
     /// REQ-ATT-035: Default is latest occurrence.
     /// </summary>

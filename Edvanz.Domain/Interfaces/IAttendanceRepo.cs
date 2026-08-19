@@ -517,11 +517,14 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long? sessionId = null,
         string? search = null,
         bool? missingStudentPhone = null,
-        bool? missingParentPhone = null);
+        bool? missingParentPhone = null,
+        int minConsecutiveAbsences = 0);
 
     /// <summary>
     /// Returns a paged list of StudentAbsenceCounter with TeacherStudent included.
     /// REQ-ATT-032/067: Sorted by ConsecutiveAbsences DESC.
+    /// <paramref name="minConsecutiveAbsences"/> (default 0 = no filter) keeps only students on an
+    /// active absence streak &gt;= the threshold — the "absent students" violations view.
     /// </summary>
     Task<IReadOnlyList<StudentAbsenceCounter>> GetPagedAbsenceOverviewAsync(
         long teacherId,
@@ -530,7 +533,8 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         long? sessionId = null,
         string? search = null,
         bool? missingStudentPhone = null,
-        bool? missingParentPhone = null);
+        bool? missingParentPhone = null,
+        int minConsecutiveAbsences = 0);
 
     /// <summary>
     /// Executes an attendance report query.

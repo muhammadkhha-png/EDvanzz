@@ -917,7 +917,8 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         long? sessionId = null,
         string? search = null,
         bool? missingStudentPhone = null,
-        bool? missingParentPhone = null)
+        bool? missingParentPhone = null,
+        int minConsecutiveAbsences = 0)
     {
         var query = _context.StudentAbsenceCounters
             .Where(c => c.TeacherId == teacherId)
@@ -930,6 +931,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 .Where(a => a.SessionId == sessionId.Value && a.IsActive && a.TeacherStudentId.HasValue)
                 .Select(a => a.TeacherStudentId!.Value);
             query = query.Where(c => studentIdsInSession.Contains(c.TeacherStudentId));
+        }
+
+        // Absent-violations view: keep only students currently on an absence streak
+        // (>= the threshold). 0 = no filter (the existing absence-overview behavior).
+        if (minConsecutiveAbsences > 0)
+        {
+            query = query.Where(c => c.ConsecutiveAbsences >= minConsecutiveAbsences);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -964,10 +972,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         long? sessionId = null,
         string? search = null,
         bool? missingStudentPhone = null,
-        bool? missingParentPhone = null)
+        bool? missingParentPhone = null,
+        int minConsecutiveAbsences = 0)
     {
         return await BuildAbsenceOverviewQuery(teacherId, sessionId, search,
-            missingStudentPhone, missingParentPhone)
+            missingStudentPhone, missingParentPhone, minConsecutiveAbsences)
             .CountAsync();
     }
 
@@ -979,10 +988,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         long? sessionId = null,
         string? search = null,
         bool? missingStudentPhone = null,
-        bool? missingParentPhone = null)
+        bool? missingParentPhone = null,
+        int minConsecutiveAbsences = 0)
     {
         return await BuildAbsenceOverviewQuery(teacherId, sessionId, search,
-            missingStudentPhone, missingParentPhone)
+            missingStudentPhone, missingParentPhone, minConsecutiveAbsences)
             .OrderByDescending(c => c.ConsecutiveAbsences)
             .ThenBy(c => c.TeacherStudent!.StudentName)
             .Skip((page - 1) * pageSize)

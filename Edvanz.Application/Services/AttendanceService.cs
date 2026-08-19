@@ -2087,7 +2087,8 @@ public class AttendanceService : IAttendanceService
             sessionId: request.SessionId ?? sessionId,
             search: request.Search,
             missingStudentPhone: request.MissingStudentPhone ? true : null,
-            missingParentPhone: request.MissingParentPhone ? true : null);
+            missingParentPhone: request.MissingParentPhone ? true : null,
+            minConsecutiveAbsences: request.MinConsecutiveAbsences);
 
         var pagedCounters = await _unitOfWork.AttendanceRepo.GetPagedAbsenceOverviewAsync(
             teacherId,
@@ -2096,7 +2097,8 @@ public class AttendanceService : IAttendanceService
             sessionId: request.SessionId ?? sessionId,
             search: request.Search,
             missingStudentPhone: request.MissingStudentPhone ? true : null,
-            missingParentPhone: request.MissingParentPhone ? true : null);
+            missingParentPhone: request.MissingParentPhone ? true : null,
+            minConsecutiveAbsences: request.MinConsecutiveAbsences);
 
         // FIX M3: Batch-load recent statuses for all students in one query
         // instead of N+1 individual queries inside the loop.
