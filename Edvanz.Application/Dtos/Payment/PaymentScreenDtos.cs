@@ -317,6 +317,13 @@ public class CollectStudentDto
     /// so the collect UI can show "full amount" beside a prorated first-month figure).</summary>
     public decimal MonthlyAmount { get; set; }
 
+    /// <summary>
+    /// Itemized unpaid months (oldest-first) making up <see cref="TotalOwed"/> — the SAME shape the
+    /// collect lookup returns, so the multi-select bulk collect can seed the QR-scan review queue
+    /// with exact per-month labels (a prorated/partial oldest month billed at its true remaining).
+    /// </summary>
+    public List<CollectLookupMonthDto> UnpaidMonthsBreakdown { get; set; } = new();
+
     /// <summary>The session the student belongs to (this session, or the linked session they come from
     /// on a session-scoped collect). Null when unassigned. Lets the collect list label each row's session.</summary>
     public string? SessionName { get; set; }

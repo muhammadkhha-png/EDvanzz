@@ -694,6 +694,19 @@ public class PaymentScreenService : IPaymentScreenService
                 UnpaidMonths = r.UnpaidMonths,
                 TotalOwed = r.TotalOwed,
                 IsExempt = r.Amount == 0m,
+                // Same wire shape as the collect lookup's breakdown, so the app's bulk
+                // multi-select seeds the QR-scan review queue from these rows directly.
+                UnpaidMonthsBreakdown = r.UnpaidMonthsList
+                    .Select(m => new CollectLookupMonthDto
+                    {
+                        PeriodId = m.PeriodId.ToString(CultureInfo.InvariantCulture),
+                        Month = m.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                        MonthLabel = m.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+                        Amount = m.Remaining,
+                        IsProrated = m.IsProRated,
+                        ProRatedFraction = m.IsProRated ? m.ProRatedFraction : (decimal?)null
+                    })
+                    .ToList(),
                 IsProrated = pe.IsProrated,
                 ProRatedFraction = pe.Fraction,
                 ProratedAmount = pe.ProratedAmount,

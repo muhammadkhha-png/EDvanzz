@@ -1425,6 +1425,33 @@
                 .AsNoTracking()
                 .ToListAsync();
 
+            // One batched fetch of the page's unpaid periods (≤ pageSize students), grouped
+            // per student oldest-first — the same itemization the collect lookup returns, so
+            // the bulk multi-select can seed the SAME review queue as QR scanning.
+            var pageIds = raw.Select(r => r.Id).ToList();
+            var unpaidByStudent = (await _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                        && pageIds.Contains(p.TeacherStudentId!.Value)
+                        && p.PeriodStart <= unpaidThroughMonthEnd
+                        && p.PaymentStatus != PaymentStatus.Paid)
+                    .OrderBy(p => p.PeriodSequence).ThenBy(p => p.PeriodStart)
+                    .Select(p => new
+                    {
+                        StudentId = p.TeacherStudentId!.Value,
+                        Month = new CollectLookupUnpaidMonth
+                        {
+                            PeriodId = p.Id,
+                            PeriodStart = p.PeriodStart,
+                            Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                            IsProRated = p.IsProRated,
+                            ProRatedFraction = p.ProRatedFraction
+                        }
+                    })
+                    .AsNoTracking()
+                    .ToListAsync())
+                .GroupBy(x => x.StudentId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.Month).ToList());
+
             var items = raw.Select(r => new CollectStudentRow
             {
                 TeacherStudentId = r.Id,
@@ -1435,7 +1462,10 @@
                 Amount = r.CustomAmount ?? r.SessionAmount ?? 0m,
                 IsUnpaid = r.UnpaidMonths > 0,
                 UnpaidMonths = r.UnpaidMonths,
-                TotalOwed = r.TotalOwed
+                TotalOwed = r.TotalOwed,
+                UnpaidMonthsList = unpaidByStudent.TryGetValue(r.Id, out var months)
+                    ? months
+                    : new List<CollectLookupUnpaidMonth>()
             }).ToList();
 
             return (items, totalCount, countAll, countAssigned, countUnassigned);

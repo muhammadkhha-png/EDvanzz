@@ -56,6 +56,14 @@ public sealed class CollectStudentRow
     /// full owed with a month counter instead of silently under-showing one month.
     /// </summary>
     public decimal TotalOwed { get; set; }
+
+    /// <summary>
+    /// Itemized unpaid months (oldest-first = the cascade settlement order) making up
+    /// <see cref="TotalOwed"/> — same shape the collect lookup returns, so the multi-select bulk
+    /// collect can seed the SAME review queue as QR scanning (per-month counter labels, a
+    /// prorated/partial oldest month billed at its TRUE remaining).
+    /// </summary>
+    public List<CollectLookupUnpaidMonth> UnpaidMonthsList { get; set; } = new();
 }
 
 /// <summary>
