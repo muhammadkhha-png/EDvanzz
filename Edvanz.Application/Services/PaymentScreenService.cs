@@ -59,6 +59,24 @@ public class PaymentScreenService : IPaymentScreenService
         return monthStart.AddMonths(1).AddDays(-1);
     }
 
+    /// <summary>
+    /// Resolves an optional screen month (<c>YYYY-MM</c>) to its month-end "through" boundary.
+    /// Null/empty → the teacher's current local month (the pre-existing behavior); malformed →
+    /// false (callers 422 with <c>PaymentInvalidMonthFormat</c>). Lets month-scoped screens collect
+    /// exactly what they display — arrears through the month they were opened on (see MarkPaid /
+    /// collect lookup) — instead of always charging through the current month.
+    /// </summary>
+    private bool TryResolveThroughMonthEnd(long teacherId, string? month, out DateTime monthEnd)
+    {
+        if (!TryResolveMonth(teacherId, month, out int year, out int mon))
+        {
+            monthEnd = default;
+            return false;
+        }
+        monthEnd = new DateTime(year, mon, 1).AddMonths(1).AddDays(-1);
+        return true;
+    }
+
     /// <inheritdoc />
     /// <inheritdoc />
     public async Task<Result<List<WalletResetLogDto>>> GetWalletWithdrawalHistoryAsync(
@@ -989,15 +1007,23 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<CollectLookupResponse>> ResolveLookupAsync(
-        long teacherId, string? qr, string? code, string? name)
+        long teacherId, string? qr, string? code, string? name, string? month = null)
     {
         if (string.IsNullOrWhiteSpace(qr) && string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name))
             return Result<CollectLookupResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentLookupCriteriaRequired,
                 HttpStatusCode.UnprocessableEntity);
 
+        // Month-scoped screens pass their opened month so amountDue/monthsOwed/breakdown are the
+        // arrears THROUGH that month — the same figure their card displayed and the same boundary
+        // the month-scoped mark-paid charges. No month → through the current month, as before.
+        if (!TryResolveThroughMonthEnd(teacherId, month, out var throughMonthEnd))
+            return Result<CollectLookupResponse>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
+                HttpStatusCode.UnprocessableEntity);
+
         var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(
-            teacherId, qr, code, name, CurrentMonthEnd(teacherId));
+            teacherId, qr, code, name, throughMonthEnd);
         if (row is null)
             return Result<CollectLookupResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentLookupStudentNotFound, HttpStatusCode.NotFound);
@@ -1232,11 +1258,21 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<MarkPaidResponse>> MarkPaidAsync(
-        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey)
+        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey,
+        string? month = null)
     {
         if (studentIds is null || studentIds.Count == 0)
             return Result<MarkPaidResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentNoStudentsSelected,
+                HttpStatusCode.UnprocessableEntity);
+
+        // Month-scoped screens (a July unpaid card) pass their opened month: the charge is capped
+        // at that month's end so the student pays exactly what the card displayed — arrears
+        // THROUGH the opened month — never later months' pre-generated periods. No month → the
+        // current local month, the pre-existing behavior for every other entry point.
+        if (!TryResolveThroughMonthEnd(teacherId, month, out var throughMonthEnd))
+            return Result<MarkPaidResponse>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
                 HttpStatusCode.UnprocessableEntity);
 
         // Idempotent replay: return the stored result instead of re-collecting.
@@ -1265,11 +1301,11 @@ public class PaymentScreenService : IPaymentScreenService
                 continue;
             }
 
-            // Amount = the student's TOTAL arrears through the current month (all overdue months,
-            // not just the earliest). The collection engine then cascades it across those months,
-            // oldest first, clearing each. Already paid → no-op success.
+            // Amount = the student's TOTAL arrears through the resolved month boundary (all overdue
+            // months up to it, not just the earliest). The collection engine then cascades it across
+            // those months, oldest first, clearing each. Already paid → no-op success.
             decimal amount = await _unitOfWork.PaymentsRepo
-                .GetOverdueTotalThroughAsync(teacherId, studentId, student.SessionId, CurrentMonthEnd(teacherId));
+                .GetOverdueTotalThroughAsync(teacherId, studentId, student.SessionId, throughMonthEnd);
             if (amount <= 0m)
             {
                 results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });

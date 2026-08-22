@@ -661,6 +661,14 @@ public class TrackingSessionDto
 public class MarkPaidRequest
 {
     public List<long> StudentIds { get; set; } = new();
+
+    /// <summary>
+    /// Optional month scope (<c>YYYY-MM</c>) — the month the initiating screen was opened on.
+    /// When supplied, each student is charged their arrears THROUGH THIS month only (what the
+    /// month-scoped card displayed), not through the current month. Omitted → current-month
+    /// behavior, unchanged for older clients.
+    /// </summary>
+    public string? Month { get; set; }
 }
 
 public class MarkPaidResponse

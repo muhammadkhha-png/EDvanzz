@@ -116,9 +116,12 @@ public interface IPaymentScreenService
     /// <summary>
     /// Screen: CollectPaymentSession. Resolves a student by QR/code/name → student + amount owed
     /// + paid state. Reuses <c>ResolveCollectLookupAsync</c>. 422 when no key given; 404 when unmatched.
+    /// <para>Optional <paramref name="month"/> (<c>YYYY-MM</c>): amounts/breakdown are the arrears
+    /// THROUGH that month (what a month-scoped card displayed) instead of through the current
+    /// month. 422 when malformed.</para>
     /// </summary>
     Task<Result<CollectLookupResponse>> ResolveLookupAsync(
-        long teacherId, string? qr, string? code, string? name);
+        long teacherId, string? qr, string? code, string? name, string? month = null);
 
     /// <summary>
     /// Screen: PaymentTracking. Month aggregate (summary revenue, status breakdown, collected
@@ -131,9 +134,13 @@ public interface IPaymentScreenService
     /// Screen: CollectPayment "Mark N as Paid" (MONEY). Marks each student paid by routing through
     /// the existing <c>CollectPaymentAsync</c> (clears their earliest unpaid period). Idempotent via
     /// <paramref name="idempotencyKey"/>. 422 when no students selected.
+    /// <para>Optional <paramref name="month"/> (<c>YYYY-MM</c>): each student is charged their
+    /// arrears THROUGH that month only (what the month-scoped card displayed) instead of through
+    /// the current month. 422 when malformed.</para>
     /// </summary>
     Task<Result<MarkPaidResponse>> MarkPaidAsync(
-        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey);
+        long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey,
+        string? month = null);
 
     /// <summary>
     /// Screen: CollectPaymentSession "Submit N students" (MONEY). Collects each {studentId, amount}

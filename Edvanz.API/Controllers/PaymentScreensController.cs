@@ -255,7 +255,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: CollectPaymentSession (lookup)
-    // GET /api/v1/collect/lookup?qr=&code=&name=
+    // GET /api/v1/collect/lookup?qr=&code=&name=&month=YYYY-MM
+    // month (optional): arrears computed THROUGH that month (month-scoped screens) instead
+    // of through the current month.
     // AUTH: Teacher (module) OR Assistant with Payment.Collect.
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("/api/v1/collect/lookup")]
@@ -268,12 +270,13 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
     public async Task<IActionResult> ResolveLookup(
         [FromQuery] string? qr,
         [FromQuery] string? code,
-        [FromQuery] string? name)
+        [FromQuery] string? name,
+        [FromQuery] string? month)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
-        var result = await _screenService.ResolveLookupAsync(teacherId.Value, qr, code, name);
+        var result = await _screenService.ResolveLookupAsync(teacherId.Value, qr, code, name, month);
         return ToResponse(result);
     }
 
@@ -300,7 +303,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: CollectPayment — bulk mark-paid  (MONEY)
-    // POST /api/v1/payments/collect/mark-paid   body { studentIds: [] }
+    // POST /api/v1/payments/collect/mark-paid   body { studentIds: [], month? }
+    // month (optional YYYY-MM): charge arrears THROUGH that month only (the month the
+    // initiating screen was opened on) instead of through the current month.
     // Header: Idempotency-Key (optional) — replay returns the original result.
     // AUTH: Teacher (module) OR Assistant with Payment.Collect.
     // ══════════════════════════════════════════════════════════════════════════
@@ -320,7 +325,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
         var result = await _screenService.MarkPaidAsync(
             teacherId.Value, GetActingUserId(),
-            request?.StudentIds ?? new List<long>(), idempotencyKey);
+            request?.StudentIds ?? new List<long>(), idempotencyKey, request?.Month);
         return ToResponse(result);
     }
 
