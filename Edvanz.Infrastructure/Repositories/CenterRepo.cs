@@ -83,6 +83,12 @@ public class CenterRepo : GenericRepo<Center, long>, ICenterRepo
          where t.CenterId == centerId
          select ts.Id).CountAsync();
 
+    public Task<int> CountCenterStudentsUnderPlanAsync(long centerId, SubscriptionPlanType planType) =>
+        (from ts in _context.Set<TeacherStudent>()
+         join t in _context.Set<Teacher>() on ts.TeacherId equals t.Id
+         where t.CenterId == centerId && t.CenterPlanType == planType
+         select ts.Id).CountAsync();
+
     public async Task<Dictionary<long, int>> GetStudentCountsByCenterTeachersAsync(long centerId) =>
         await (from ts in _context.Set<TeacherStudent>()
                join t in _context.Set<Teacher>() on ts.TeacherId equals t.Id
@@ -127,6 +133,12 @@ public class CenterRepo : GenericRepo<Center, long>, ICenterRepo
         _context.Set<CenterSubscriptionRequest>()
             .FirstOrDefaultAsync(r => r.CenterId == centerId
                                    && r.Status == SubscriptionRequestStatus.Pending);
+
+    public Task<CenterSubscriptionRequest?> GetLatestRequestByCenterAsync(long centerId) =>
+        _context.Set<CenterSubscriptionRequest>()
+            .Where(r => r.CenterId == centerId)
+            .OrderByDescending(r => r.RequestedAt)
+            .FirstOrDefaultAsync();
 
     public Task<CenterSubscriptionRequest?> GetCenterSubscriptionRequestByIdAsync(long requestId) =>
         _context.Set<CenterSubscriptionRequest>()

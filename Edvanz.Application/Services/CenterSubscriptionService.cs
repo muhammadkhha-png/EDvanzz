@@ -36,6 +36,8 @@ public class CenterSubscriptionService : ICenterSubscriptionService
         var usedFull = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Full);
         var usedManagerial = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Managerial);
         var usedStudents = await _unitOfWork.Centers.CountCenterStudentsTotalAsync(centerId);
+        var usedStudentsFull = await _unitOfWork.Centers.CountCenterStudentsUnderPlanAsync(centerId, SubscriptionPlanType.Full);
+        var usedStudentsManagerial = await _unitOfWork.Centers.CountCenterStudentsUnderPlanAsync(centerId, SubscriptionPlanType.Managerial);
         var pending = await _unitOfWork.Centers.GetPendingRequestByCenterAsync(centerId);
 
         var dto = new CenterSubscriptionDto
@@ -44,6 +46,8 @@ public class CenterSubscriptionService : ICenterSubscriptionService
             UsedFullTeachers = usedFull,
             UsedManagerialTeachers = usedManagerial,
             UsedStudentsTotal = usedStudents,
+            UsedStudentsUnderFull = usedStudentsFull,
+            UsedStudentsUnderManagerial = usedStudentsManagerial,
             HasPendingRequest = pending != null
         };
 
@@ -73,6 +77,25 @@ public class CenterSubscriptionService : ICenterSubscriptionService
                 Note = pending.Note
             };
             dto.PendingRequestAmountEGP = pending.ComputedAmountEGP;
+        }
+
+        var latest = pending ?? await _unitOfWork.Centers.GetLatestRequestByCenterAsync(centerId);
+        if (latest != null)
+        {
+            dto.LatestRequest = new CenterLatestRequestDto
+            {
+                Status = latest.Status.ToString(),
+                FullTeacherSlots = latest.FullTeacherSlots,
+                ManagerialTeacherSlots = latest.ManagerialTeacherSlots,
+                StudentCapacityTotal = latest.StudentCapacityTotal,
+                StudentCapacityUnderFull = latest.StudentCapacityUnderFull,
+                StudentCapacityUnderManagerial = latest.StudentCapacityUnderManagerial,
+                AmountEGP = latest.ComputedAmountEGP,
+                Note = latest.Note,
+                RequestedAt = latest.RequestedAt,
+                ResolvedAt = latest.ResolvedAt,
+                RejectionReason = latest.Status == SubscriptionRequestStatus.Rejected ? latest.RejectionReason : null
+            };
         }
 
         return Result<CenterSubscriptionDto>.Success(dto, _localizer, "Success");

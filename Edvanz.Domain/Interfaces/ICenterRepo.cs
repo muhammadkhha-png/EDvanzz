@@ -73,6 +73,10 @@ public interface ICenterRepo : IGenericRepo<Center, long>
     /// <summary>Count of roster students across ALL the center's teachers — overall student-capacity enforcement.</summary>
     Task<int> CountCenterStudentsTotalAsync(long centerId);
 
+    /// <summary>Students on the roster of the center's teachers of one plan type — powers the
+    /// under-Full / under-Managerial consumption split on the center subscription screen.</summary>
+    Task<int> CountCenterStudentsUnderPlanAsync(long centerId, SubscriptionPlanType planType);
+
     /// <summary>Per-teacher roster student counts for the center's teachers (teacherId → count), for list/overview.</summary>
     Task<Dictionary<long, int>> GetStudentCountsByCenterTeachersAsync(long centerId);
 
@@ -99,6 +103,11 @@ public interface ICenterRepo : IGenericRepo<Center, long>
 
     /// <summary>The center's live Pending subscription request, or null (one at a time by filtered index).</summary>
     Task<CenterSubscriptionRequest?> GetPendingRequestByCenterAsync(long centerId);
+
+    /// <summary>The center's most recent subscription request in ANY status — so an
+    /// approved/rejected/cancelled request stays visible to the center instead of silently
+    /// vanishing from its subscription screen once it leaves Pending.</summary>
+    Task<CenterSubscriptionRequest?> GetLatestRequestByCenterAsync(long centerId);
 
     /// <summary>A center subscription request by id (tracked, for admin approve/reject), or null.</summary>
     Task<CenterSubscriptionRequest?> GetCenterSubscriptionRequestByIdAsync(long requestId);

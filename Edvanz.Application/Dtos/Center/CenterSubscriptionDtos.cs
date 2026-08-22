@@ -42,11 +42,31 @@ public class CenterSubscriptionDto
     public int UsedFullTeachers { get; set; }
     public int UsedManagerialTeachers { get; set; }
     public int UsedStudentsTotal { get; set; }
+    public int UsedStudentsUnderFull { get; set; }
+    public int UsedStudentsUnderManagerial { get; set; }
 
     // A pending request, if any
     public bool HasPendingRequest { get; set; }
     public SubmitCenterSubscriptionRequestDto? PendingRequest { get; set; }
     public decimal? PendingRequestAmountEGP { get; set; }
+
+    /// <summary>The most recent request in ANY status (Pending/Approved/Rejected/Cancelled) —
+    /// keeps the outcome visible to the center after the request leaves the Pending state
+    /// (a rejected request used to vanish silently).</summary>
+    public CenterLatestRequestDto? LatestRequest { get; set; }
+}
+
+/// <summary>Center-facing view of its most recent subscription request, whatever its outcome.</summary>
+public class CenterLatestRequestDto : CenterQuotaPackage
+{
+    /// <summary>Pending / Approved / Rejected / Cancelled (SubscriptionRequestStatus name).</summary>
+    public string Status { get; set; } = null!;
+    public decimal AmountEGP { get; set; }
+    public string? Note { get; set; }
+    public DateTime RequestedAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+    /// <summary>Set only when Status is Rejected.</summary>
+    public string? RejectionReason { get; set; }
 }
 
 // ── Admin-side ────────────────────────────────────────────────────────────────
