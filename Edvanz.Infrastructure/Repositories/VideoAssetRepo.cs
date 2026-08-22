@@ -267,15 +267,8 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
 
         int totalCount = await query.CountAsync();
 
-        // Project directly to TeacherVideoListRow with subquery aggregates in
-        // SQL — single round trip. StudentsInScope is computed by counting
-        // distinct resolved students; we approximate it as the count of
-        // scope rows (cheap), and let the service layer call the resolver
-        // for the exact deduplicated count when the analytics report needs
-        // precision. Per the spec teacher list shows scope-row count, not
-        // resolved-student count.
-        //
-        // TotalOpens sums OpenCount across analytics rows.
+        // TotalOpens sums OpenCount across analytics rows (a "views" metric —
+        // deliberately unscoped so historical rewatches keep counting).
         var rows = await query
             .OrderByDescending(v => v.CreateAt)
             .Skip((page - 1) * pageSize)
@@ -288,15 +281,9 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                SourceUrl = v.SourceUrl,
                SourceType = v.SourceType,
                DurationSeconds = v.DurationSeconds,
-               StudentsInScope = _context.VideoScopes.Count(s => s.VideoAssetId == v.Id),
                TotalOpens = _context.VideoAnalytics
                     .Where(a => a.VideoAssetId == v.Id)
                     .Sum(a => (int?)a.OpenCount) ?? 0,
-               // G-ANL-3: distinct students who opened at least once — NOT
-               // TotalOpens, which counts re-opens. Any VideoAnalytics row
-               // implies the student has opened the video once.
-               SeenStudentCount = _context.VideoAnalytics
-                    .Count(a => a.VideoAssetId == v.Id),
                Status = v.Status,
                PublishDate = v.PublishDate,
                // Cover-photo registry id (resolved to PublicId + gated URL in the service).
@@ -314,12 +301,67 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             .AsNoTracking()
             .ToListAsync();
 
+        // StudentsInScope / SeenStudentCount / UnseenStudentCount use the SAME
+        // resolved-audience definition as the analytics endpoint (distinct
+        // students the video's scopes target; seen = those with an analytics
+        // row), batched for the whole page in two grouped queries. The old
+        // per-row shortcut counted scope ROWS as "students" and ALL analytics
+        // rows (including out-of-scope/removed students) as "seen", so the
+        // list card could show seen=311 / total=4 / unseen=0.
+        var videoIds = rows.Select(r => r.Id).ToList();
+        var audience = await GetAudienceCountsForVideosAsync(teacherId, videoIds);
+
         foreach (var row in rows)
         {
+            if (audience.TryGetValue(row.Id, out var counts))
+            {
+                row.StudentsInScope = counts.InScope;
+                row.SeenStudentCount = counts.Seen;
+            }
             row.UnseenStudentCount = Math.Max(0, row.StudentsInScope - row.SeenStudentCount);
         }
 
         return (rows, totalCount);
+    }
+
+    /// <summary>
+    /// Batched per-video audience counts for a set of the teacher's videos:
+    /// <c>InScope</c> = distinct students the video's scopes resolve to (same
+    /// definition as <see cref="GetResolvedStudentIdsForVideoQuery"/>);
+    /// <c>Seen</c> = the subset of those students holding a
+    /// <see cref="VideoAnalytics"/> row (opened at least once). Two grouped
+    /// queries for the whole page — never a per-row subquery.
+    /// </summary>
+    private async Task<Dictionary<long, (int InScope, int Seen)>> GetAudienceCountsForVideosAsync(
+        long teacherId, IReadOnlyCollection<long> videoIds)
+    {
+        var result = new Dictionary<long, (int InScope, int Seen)>();
+        if (videoIds.Count == 0) return result;
+
+        var pairs = GetResolvedStudentPairsForVideosQuery(teacherId, videoIds);
+
+        var inScope = await pairs
+            .GroupBy(p => p.VideoAssetId)
+            .Select(g => new { VideoAssetId = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        var seen = await pairs
+            .Join(_context.VideoAnalytics,
+                  p => new { p.VideoAssetId, p.TeacherStudentId },
+                  a => new { a.VideoAssetId, a.TeacherStudentId },
+                  (p, a) => p)
+            .GroupBy(p => p.VideoAssetId)
+            .Select(g => new { VideoAssetId = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        var seenById = seen.ToDictionary(x => x.VideoAssetId, x => x.Count);
+        foreach (var entry in inScope)
+        {
+            result[entry.VideoAssetId] =
+                (entry.Count, seenById.TryGetValue(entry.VideoAssetId, out var s) ? s : 0);
+        }
+
+        return result;
     }
 
     /// <inheritdoc />
@@ -874,40 +916,79 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
     /// </summary>
     private IQueryable<long> GetResolvedStudentIdsForVideoQuery(long teacherId, long videoAssetId)
     {
+        // Single-video convenience over the batched pairs query — one source
+        // of truth for the "resolved audience" definition.
+        return GetResolvedStudentPairsForVideosQuery(teacherId, new[] { videoAssetId })
+            .Select(p => p.TeacherStudentId);
+    }
+
+    /// <summary>
+    /// Distinct (VideoAssetId, TeacherStudentId) audience pairs for a SET of
+    /// videos — the batched form of <see cref="GetResolvedStudentIdsForVideoQuery"/>
+    /// used by the teacher list's per-page counts. UNION dedupes pairs, so a
+    /// student reachable through both a session scope and a group scope counts
+    /// once. TeacherStudents' global soft-delete filter applies, so deleted
+    /// students never inflate the audience.
+    /// </summary>
+    private IQueryable<VideoAudiencePair> GetResolvedStudentPairsForVideosQuery(
+        long teacherId, IReadOnlyCollection<long> videoAssetIds)
+    {
         var individualScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId && s.TeacherStudentId.HasValue)
-            .Select(s => s.TeacherStudentId!.Value);
+            .Where(s => videoAssetIds.Contains(s.VideoAssetId) && s.TeacherStudentId.HasValue)
+            .Select(s => new VideoAudiencePair
+            {
+                VideoAssetId = s.VideoAssetId,
+                TeacherStudentId = s.TeacherStudentId!.Value,
+            });
 
         var sessionScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
+            .Where(s => videoAssetIds.Contains(s.VideoAssetId)
                      && s.ScopeType == VideoScopeType.Session
                      && s.SessionId.HasValue)
             .Join(_context.TeacherStudents,
                   s => s.SessionId,
                   ts => ts.SessionId,
-                  (s, ts) => new { ts.Id, ts.TeacherId })
+                  (s, ts) => new { s.VideoAssetId, ts.Id, ts.TeacherId })
             .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
+            .Select(x => new VideoAudiencePair
+            {
+                VideoAssetId = x.VideoAssetId,
+                TeacherStudentId = x.Id,
+            });
 
         var groupScope = _context.VideoScopes
-            .Where(s => s.VideoAssetId == videoAssetId
+            .Where(s => videoAssetIds.Contains(s.VideoAssetId)
                      && s.ScopeType == VideoScopeType.SessionGroup
                      && s.SessionGroupId.HasValue)
             .Join(_context.Sessions,
                   s => s.SessionGroupId,
                   se => se.SessionGroupId,
-                  (s, se) => se.Id)
+                  (s, se) => new { s.VideoAssetId, SessionId = se.Id })
             .Join(_context.TeacherStudents,
-                  sessionId => sessionId,
+                  x => x.SessionId,
                   ts => ts.SessionId,
-                  (sessionId, ts) => new { ts.Id, ts.TeacherId })
+                  (x, ts) => new { x.VideoAssetId, ts.Id, ts.TeacherId })
             .Where(x => x.TeacherId == teacherId)
-            .Select(x => x.Id);
+            .Select(x => new VideoAudiencePair
+            {
+                VideoAssetId = x.VideoAssetId,
+                TeacherStudentId = x.Id,
+            });
 
         return individualScope
             .Union(sessionScope)
-            .Union(groupScope)
-            .Distinct();
+            .Union(groupScope);
+    }
+
+    /// <summary>
+    /// EF-translatable projection shape for
+    /// <see cref="GetResolvedStudentPairsForVideosQuery"/> (UNION requires a
+    /// named type with identical member shape on every branch).
+    /// </summary>
+    private sealed class VideoAudiencePair
+    {
+        public long VideoAssetId { get; set; }
+        public long TeacherStudentId { get; set; }
     }
     /// <inheritdoc />
     public async Task<(IReadOnlyList<VideoAnalyticsReportRow> Items, int TotalCount)>
@@ -1032,14 +1113,22 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // TotalStudentsInScope: video's own scope UNION its unit's scope —
         // same shared helper GetAnalyticsRowsForTeacherAsync uses, so the
         // two can never disagree.
-        // TotalStudentsWatched: count of analytics rows for this video (any
-        // analytics row implies HasOpened=true).
+        // TotalStudentsWatched: resolved students holding an analytics row.
+        // Intersected with the CURRENT audience (not a bare per-video row
+        // count) so Watched + Unseen == InScope and the header always
+        // reconciles with the report rows — students who watched but were
+        // later removed from the video's sessions keep their row history but
+        // no longer count here.
         var resolvedStudentIds = GetResolvedStudentIdsForVideoQuery(teacherId, videoAssetId);
 
         int totalInScope = await resolvedStudentIds.CountAsync();
 
-        int totalWatched = await _context.VideoAnalytics
-            .CountAsync(a => a.VideoAssetId == videoAssetId);
+        int totalWatched = await resolvedStudentIds
+            .Join(_context.VideoAnalytics.Where(a => a.VideoAssetId == videoAssetId),
+                  sid => sid,
+                  a => a.TeacherStudentId,
+                  (sid, a) => sid)
+            .CountAsync();
 
         // G-ANL-1: completedCount — resolved students whose completion meets
         // the threshold. Needs the video's duration; 0 means "unknown", in
