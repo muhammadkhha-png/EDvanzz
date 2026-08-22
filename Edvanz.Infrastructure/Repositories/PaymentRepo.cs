@@ -827,7 +827,9 @@
                     RefundAmount = l.PreviousAmount - l.NewAmount,
                     RefundedAt = l.EditedAt,
                     // Instant the reversed cash was originally collected — for reset-aware callers.
-                    CollectedAt = l.PaymentTransaction!.CollectedAt
+                    CollectedAt = l.PaymentTransaction!.CollectedAt,
+                    // Who performed the refund/edit — may differ from the collector it is charged to.
+                    PerformedByUserId = l.EditedByUserId
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -2596,6 +2598,18 @@
                     CollectedAmount = fin?.Collected ?? 0
                 };
             }).ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, int>> GetLiveCollectionCountsByCollectorUserAsync(long teacherId)
+        {
+            return await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && !t.IsDeleted
+                    && t.CollectedByUserId.HasValue)
+                .GroupBy(t => t.CollectedByUserId!.Value)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count);
         }
 
         /// <inheritdoc />

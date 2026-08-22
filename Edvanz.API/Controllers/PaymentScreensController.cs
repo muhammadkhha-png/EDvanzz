@@ -97,13 +97,16 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery(Name = "from")] DateTime? fromDate,
         [FromQuery(Name = "to")] DateTime? toDate,
         [FromQuery] string? asOfMonth = null,
-        [FromQuery] long? sessionId = null)
+        [FromQuery] long? sessionId = null,
+        // Optional: scope the money/activity/departure figures to one collector (the drill-in
+        // screens' day strip). Omitted → account-wide, byte-identical to the old behaviour.
+        [FromQuery] long? collectedByUserId = null)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectionsSummaryAsync(
-            teacherId.Value, fromDate, toDate, asOfMonth, sessionId);
+            teacherId.Value, fromDate, toDate, asOfMonth, sessionId, collectedByUserId);
         return ToResponse(result);
     }
 

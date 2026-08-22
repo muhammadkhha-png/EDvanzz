@@ -228,6 +228,10 @@ public sealed class CollectorRefundRow
     /// hand-over. Zero-default for callers that ignore it.
     /// </summary>
     public DateTime CollectedAt { get; set; }
+
+    /// <summary>User who performed the refund/edit (PaymentEditLog.EditedByUserId) — lets the ledger
+    /// label a refund charged to a collector but performed by someone else (e.g. the tutor).</summary>
+    public long? PerformedByUserId { get; set; }
 }
 
 /// <summary>

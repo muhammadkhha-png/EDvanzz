@@ -83,6 +83,16 @@ public class CollectionRow
     public bool IsWithdrawal { get; set; }
 
     /// <summary>
+    /// For a money-out line (withdrawal / refund) on a COLLECTOR-scoped ledger: the full name of the
+    /// user who PERFORMED the action, set only when that user is someone OTHER than the collector the
+    /// ledger is scoped to (e.g. the tutor taking a hand-over from an assistant's wallet, or the tutor
+    /// departing a student whose refund is charged to the original collector). Null on collections,
+    /// on the collector's own actions, and on teacher-wide ledgers — so the label reads exactly as
+    /// "someone else did this", which is the case that was being misread.
+    /// </summary>
+    public string? PerformedByName { get; set; }
+
+    /// <summary>
     /// Number of months (settlement slices) this collection cleared — 1 for a normal single-month
     /// payment, &gt;1 when one cash event paid several months at once (e.g. 600 = 2 months). Lets the
     /// client show "N months" so a large amount isn't mistaken for a single month. 0/1 for refund and

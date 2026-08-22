@@ -260,6 +260,15 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long? sessionId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
+    /// LIVE (!IsDeleted) collection counts per collector user id, all-time. The wallet screens used
+    /// to show the denormalized <c>AssistantWallet.TransactionCount</c> counter, which is incremented
+    /// on collect but never decremented when a collection is later deleted — so it drifts above the
+    /// live row count the tracking collectors card shows (the "45 outside / 53 inside" report).
+    /// Display counts should come from HERE so every surface counts the same thing.
+    /// </summary>
+    Task<Dictionary<long, int>> GetLiveCollectionCountsByCollectorUserAsync(long teacherId);
+
+    /// <summary>
     /// All collections a collector took in [startInclusive, endExclusive), unpaged —
     /// merged with refunds into a single chronological month log.
     /// </summary>

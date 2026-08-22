@@ -1547,16 +1547,30 @@ public class PaymentService : IPaymentService
     // WALLET MANAGEMENT
     // ══════════════════════════════════════════════
 
-    /// <summary>Maps an <see cref="AssistantWallet"/> row to its wire DTO (single-sourced mapper).</summary>
-    private static AssistantWalletDto MapWalletDto(AssistantWallet w) => new()
+    /// <summary>Maps an <see cref="AssistantWallet"/> row to its wire DTO (single-sourced mapper).
+    /// <paramref name="liveTransactionCount"/> overrides the wallet's denormalized counter — that
+    /// counter is incremented on collect but never decremented on a later delete, so it drifts above
+    /// the live row count other screens show (the "45 outside / 53 inside" inconsistency).</summary>
+    private static AssistantWalletDto MapWalletDto(AssistantWallet w, int? liveTransactionCount = null) => new()
     {
         AssistantId = w.AssistantId ?? w.CenterAssistantId ?? 0,
         AssistantName = w.Assistant?.User?.FullName ?? w.CenterAssistant?.User?.FullName ?? "Unknown",
         CurrentBalance = w.CurrentBalance,
         TotalCollected = w.TotalCollected,
-        TransactionCount = w.TransactionCount,
+        TransactionCount = liveTransactionCount ?? w.TransactionCount,
         LastCollectionAt = w.LastCollectionAt
     };
+
+    /// <summary>The wallet's collector USER id (assistant or center-assistant identity).</summary>
+    private static long? WalletCollectorUserId(AssistantWallet w) =>
+        w.Assistant?.UserId ?? w.CenterAssistant?.UserId;
+
+    /// <summary>Live (!IsDeleted) collection count for a wallet's collector; falls back to the
+    /// wallet's own counter only when the collector identity can't be resolved.</summary>
+    private static int? ResolveLiveCount(AssistantWallet w, Dictionary<long, int> liveCounts) =>
+        WalletCollectorUserId(w) is long uid
+            ? (liveCounts.TryGetValue(uid, out var n) ? n : 0)
+            : null;
 
     /// <inheritdoc />
     public async Task<Result<AssistantWalletsSummaryDto>> GetAllWalletsAsync(
@@ -1568,9 +1582,12 @@ public class PaymentService : IPaymentService
         if (scopeToAssistantUserId is long ownUserId)
         {
             var own = await _unitOfWork.PaymentsRepo.GetAssistantWalletByUserIdAsync(teacherId, ownUserId);
+            var ownCounts = own is null
+                ? new Dictionary<long, int>()
+                : await _unitOfWork.PaymentsRepo.GetLiveCollectionCountsByCollectorUserAsync(teacherId);
             var ownList = own is null
                 ? new List<AssistantWalletDto>()
-                : new List<AssistantWalletDto> { MapWalletDto(own) };
+                : new List<AssistantWalletDto> { MapWalletDto(own, ResolveLiveCount(own, ownCounts)) };
 
             return Result<AssistantWalletsSummaryDto>.Success(new AssistantWalletsSummaryDto
             {
@@ -1580,8 +1597,9 @@ public class PaymentService : IPaymentService
         }
 
         var wallets = await _unitOfWork.PaymentsRepo.GetAllAssistantWalletsAsync(teacherId);
+        var liveCounts = await _unitOfWork.PaymentsRepo.GetLiveCollectionCountsByCollectorUserAsync(teacherId);
         // Sort by the resolved collector name in memory (repo no longer orders in SQL — see its note).
-        var dtos = wallets.Select(MapWalletDto)
+        var dtos = wallets.Select(w => MapWalletDto(w, ResolveLiveCount(w, liveCounts)))
             .OrderBy(d => d.AssistantName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -1610,8 +1628,10 @@ public class PaymentService : IPaymentService
             return Result<AssistantWalletDto>.Failure(
                 _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
 
+        var detailCounts = await _unitOfWork.PaymentsRepo.GetLiveCollectionCountsByCollectorUserAsync(teacherId);
         return Result<AssistantWalletDto>.Success(
-            MapWalletDto(wallet), _localizer, PaymentConstants.Messages.Success);
+            MapWalletDto(wallet, ResolveLiveCount(wallet, detailCounts)),
+            _localizer, PaymentConstants.Messages.Success);
     }
 
     /// <inheritdoc />

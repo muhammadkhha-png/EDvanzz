@@ -45,8 +45,12 @@ public interface IPaymentScreenService
     /// Composed from existing repo aggregates. Both dates omitted → the teacher's current local month.
     /// 422 on a malformed <paramref name="asOfMonth"/>.
     /// </summary>
+    /// <param name="collectedByUserId">Optional: scope the money/activity/departure figures to ONE
+    /// collector's own ledger (the drill-in screens' day strip). Null → account-wide (unchanged).
+    /// The per-month status buckets are always account-wide.</param>
     Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
-        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null);
+        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null,
+        long? collectedByUserId = null);
 
     /// <summary>
     /// Withdrawal/reset history for one assistant's wallet (newest first) — the record of every

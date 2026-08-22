@@ -177,6 +177,10 @@ public class PaymentScreenService : IPaymentScreenService
             || (code != null && code.Contains(term, StringComparison.OrdinalIgnoreCase));
 
         var refundRows = new List<CollectionRow>();
+        // Money-out rows whose PERFORMER is someone other than the collector this ledger is scoped
+        // to — labeled below so a tutor's hand-over/departure never reads as the collector's own
+        // action (the "my withdrawal shows under Omar" report). Collector-scoped rows only.
+        var moneyOutPerformers = new List<(CollectionRow Row, long PerformerId)>();
         int refundCount;
         if (collectedByUserId is null)
         {
@@ -221,20 +225,26 @@ public class PaymentScreenService : IPaymentScreenService
             refundCount = refunds.Count;
             if (page == 1)
             {
-                refundRows.AddRange(refunds.Select(r => new CollectionRow
+                foreach (var r in refunds)
                 {
-                    Id = $"collector-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
-                    Index = 0,
-                    StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
-                    StudentName = r.StudentName,
-                    StudentCode = r.StudentCode,
-                    Amount = -r.RefundAmount,
-                    Status = "refund",
-                    IsRefund = true,
-                    SessionName = r.SessionName,
-                    RefundedForMonthLabel = null,
-                    CollectedAt = r.RefundedAt
-                }));
+                    var row = new CollectionRow
+                    {
+                        Id = $"collector-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+                        Index = 0,
+                        StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+                        StudentName = r.StudentName,
+                        StudentCode = r.StudentCode,
+                        Amount = -r.RefundAmount,
+                        Status = "refund",
+                        IsRefund = true,
+                        SessionName = r.SessionName,
+                        RefundedForMonthLabel = null,
+                        CollectedAt = r.RefundedAt
+                    };
+                    refundRows.Add(row);
+                    if (r.PerformedByUserId is long performerId && performerId != collectedByUserId.Value)
+                        moneyOutPerformers.Add((row, performerId));
+                }
             }
         }
 
@@ -251,20 +261,38 @@ public class PaymentScreenService : IPaymentScreenService
             withdrawalCount = withdrawals.Count;
             if (page == 1)
             {
-                withdrawalRows.AddRange(withdrawals.Select(w => new CollectionRow
+                foreach (var w in withdrawals)
                 {
-                    Id = $"withdrawal-{w.Id.ToString(CultureInfo.InvariantCulture)}",
-                    Index = 0,
-                    StudentId = null,
-                    StudentName = null,
-                    StudentCode = null,
-                    Amount = -w.AmountReset,
-                    Status = "withdrawal",
-                    IsWithdrawal = true,
-                    SessionName = null,
-                    RefundedForMonthLabel = null,
-                    CollectedAt = w.ResetAt
-                }));
+                    var row = new CollectionRow
+                    {
+                        Id = $"withdrawal-{w.Id.ToString(CultureInfo.InvariantCulture)}",
+                        Index = 0,
+                        StudentId = null,
+                        StudentName = null,
+                        StudentCode = null,
+                        Amount = -w.AmountReset,
+                        Status = "withdrawal",
+                        IsWithdrawal = true,
+                        SessionName = null,
+                        RefundedForMonthLabel = null,
+                        CollectedAt = w.ResetAt
+                    };
+                    withdrawalRows.Add(row);
+                    if (w.ResetByUserId != collectedByUserId.Value)
+                        moneyOutPerformers.Add((row, w.ResetByUserId));
+                }
+            }
+        }
+
+        // One name lookup for every foreign performer collected above (page-1 rows only, tiny set).
+        if (moneyOutPerformers.Count > 0)
+        {
+            var performerNames = await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(
+                moneyOutPerformers.Select(p => p.PerformerId).Distinct().ToList());
+            foreach (var (row, performerId) in moneyOutPerformers)
+            {
+                if (performerNames.TryGetValue(performerId, out var name))
+                    row.PerformedByName = name;
             }
         }
 
@@ -335,7 +363,8 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <inheritdoc />
     public async Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
-        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null)
+        long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null,
+        long? collectedByUserId = null)
     {
         var repo = _unitOfWork.PaymentsRepo;
 
@@ -376,25 +405,68 @@ public class PaymentScreenService : IPaymentScreenService
         var asOfMonthEnd = asOfMonthStart.AddMonths(1).AddDays(-1);
 
         // ── Money / activity — honour the true [startDate, endExclusive) range. ──
-        decimal grossCash = await repo.GetCashCollectedInRangeAsync(teacherId, sessionId, startDate, endExclusive);
-        var refunds = await repo.GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
-        decimal refundsTotal = refunds.Sum(r => r.RefundAmount);
-        // GetCashCollectedInRange is net of soft-deleted (reversed) transactions, but departure
-        // refunds do NOT soft-delete the underlying collection — subtract them so the headline
-        // reconciles with the collections ledger and per-collector cards (mirrors GetTrackingAsync).
-        decimal netCash = grossCash - refundsTotal;
-        var (_, txCount) = await repo.GetTransactionsByDateRangePagedAsync(
-            teacherId, startDate, endInclusiveTick, sessionId, null, page: 1, pageSize: 1);
-        int studentsPaid = await repo.CountDistinctPayingStudentsInRangeAsync(
-            teacherId, sessionId, startDate, endExclusive);
+        decimal netCash, refundsTotal;
+        int txCount, studentsPaid, departedTotal, departedRefundDue, departedAmountOwed;
+        if (collectedByUserId is long collectorUid)
+        {
+            // COLLECTOR-SCOPED strip (the drill-in ledger's header): every figure the day strip
+            // renders is attributed to THIS collector, computed from the SAME sources as the ledger
+            // rows below it (!IsDeleted transactions + includeDeleted:false refund lines +
+            // collector-narrowed departures) so the strip always reconciles with the visible list.
+            // Previously the strip showed the ACCOUNT-WIDE day (e.g. "43 paid / 80 departed" on a
+            // collector who took 23) — the "Omar ezz" customer report. The per-month status buckets
+            // below stay account-wide: they are not collector-attributable and the collector screen
+            // does not render them.
+            var (collectorTxs, collectorTxCount) = await repo.GetTransactionsByDateRangePagedAsync(
+                teacherId, startDate, endInclusiveTick, sessionId, collectorUid,
+                page: 1, pageSize: int.MaxValue);
+            var collectorRefunds = (await repo.GetCollectorRefundsInRangeAsync(
+                    teacherId, collectorUid, startDate, endExclusive, includeDeleted: false))
+                .Where(r => r.RefundAmount > 0m)
+                .ToList();
+            var collectorDepartures = await repo.GetDepartureRefundsByDateRangeAsync(
+                teacherId, startDate, endExclusive, collectorUid);
+
+            decimal grossCollected = collectorTxs.Sum(t => t.AmountPaid);
+            refundsTotal = collectorRefunds.Sum(r => r.RefundAmount);
+            // Clients render "collected" as net + refunds (gross) — emit net accordingly.
+            netCash = grossCollected - refundsTotal;
+            txCount = collectorTxCount;
+            studentsPaid = collectorTxs
+                .Where(t => t.TeacherStudentId != null)
+                .Select(t => t.TeacherStudentId!.Value)
+                .Distinct()
+                .Count();
+            // "Departed" on a collector strip = departures whose refund was charged to THIS
+            // collector (they originally collected the refunded month) — consistent with the
+            // refund-accounting rule (§7.4). RefundDue mirrors the refund LINES charged to them,
+            // which is what clients render as the refunds count.
+            departedTotal = collectorDepartures.Count;
+            departedRefundDue = collectorRefunds.Count;
+            departedAmountOwed = 0;
+        }
+        else
+        {
+            decimal grossCash = await repo.GetCashCollectedInRangeAsync(teacherId, sessionId, startDate, endExclusive);
+            var refunds = await repo.GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
+            refundsTotal = refunds.Sum(r => r.RefundAmount);
+            // GetCashCollectedInRange is net of soft-deleted (reversed) transactions, but departure
+            // refunds do NOT soft-delete the underlying collection — subtract them so the headline
+            // reconciles with the collections ledger and per-collector cards (mirrors GetTrackingAsync).
+            netCash = grossCash - refundsTotal;
+            (_, txCount) = await repo.GetTransactionsByDateRangePagedAsync(
+                teacherId, startDate, endInclusiveTick, sessionId, null, page: 1, pageSize: 1);
+            studentsPaid = await repo.CountDistinctPayingStudentsInRangeAsync(
+                teacherId, sessionId, startDate, endExclusive);
+
+            // ── Departures — true range. ──
+            (departedTotal, departedRefundDue, departedAmountOwed) =
+                await repo.CountDeparturesInRangeAsync(teacherId, startDate, endExclusive);
+        }
 
         // ── Student payment status — anchored to asOfMonth. ──
         var (paidInFull, prorated, unpaid) = await repo.GetStudentPaymentStatusCountsAsync(teacherId, asOfMonthEnd);
         int partial = await repo.CountPartiallyPaidStudentsInMonthAsync(teacherId, asOfMonthStart, asOfMonthEnd);
-
-        // ── Departures — true range. ──
-        var (departedTotal, departedRefundDue, departedAmountOwed) =
-            await repo.CountDeparturesInRangeAsync(teacherId, startDate, endExclusive);
 
         // ── Per-collector — true range; enriched with name + role exactly like GetTrackingAsync. ──
         var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, startDate, toInclusive);
@@ -608,6 +680,18 @@ public class PaymentScreenService : IPaymentScreenService
             .Take(limit)
             .ToList();
 
+        // LIVE all-time collections count — the wallet's denormalized TransactionCount counter is
+        // never decremented when a collection is later deleted, so it drifts above the live count
+        // the tracking collectors card shows (the "45 outside / 53 inside" inconsistency report).
+        int liveCollectionsCount = wallet.TransactionCount;
+        var collectorUserId = wallet.Assistant?.UserId ?? wallet.CenterAssistant?.UserId;
+        if (collectorUserId is long walletUserId)
+        {
+            var liveCounts = await _unitOfWork.PaymentsRepo
+                .GetLiveCollectionCountsByCollectorUserAsync(teacherId);
+            liveCollectionsCount = liveCounts.TryGetValue(walletUserId, out var n) ? n : 0;
+        }
+
         var response = new AssistantWalletScreenResponse
         {
             Assistant = new AssistantWalletAssistantDto
@@ -616,7 +700,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Name = wallet.Assistant?.User?.FullName ?? wallet.CenterAssistant?.User?.FullName,
                 Role = "Assistant",
                 AvatarUrl = null,
-                TransactionCount = wallet.TransactionCount
+                TransactionCount = liveCollectionsCount
             },
             Wallet = new AssistantWalletInfoDto
             {
@@ -624,7 +708,7 @@ public class PaymentScreenService : IPaymentScreenService
                 TotalRefunded = periodRefunded,
                 WalletBalance = wallet.CurrentBalance,
                 TotalCollectedAllTime = wallet.TotalCollected,
-                CollectionsCount = wallet.TransactionCount,
+                CollectionsCount = liveCollectionsCount,
                 LastActivityAt = wallet.LastCollectionAt
             },
             Collections = new AssistantWalletCollectionsDto
