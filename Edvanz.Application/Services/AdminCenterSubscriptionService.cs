@@ -94,13 +94,21 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
         {
             var previous = await _unitOfWork.Centers.GetCurrentCenterSubscriptionForUpdateAsync(request.CenterId);
             var now = DateTime.UtcNow;
-            var start = previous != null && previous.EndDate > now ? previous.EndDate : now;
+            // Early renewal: the new package starts NOW (it becomes IsCurrent immediately, so its
+            // quotas apply immediately) and the old period's unused remainder is APPENDED to its
+            // end — no paid days lost. Never future-date StartDate: a future-dated current row
+            // derives Expired at every date-based gate (HasActiveSubscriptionAsync /
+            // SubscriptionStatusCalculator), knocking the whole center back to free tier until
+            // the old period would have ended.
+            var carryOver = previous != null && previous.EndDate > now
+                ? previous.EndDate - now
+                : TimeSpan.Zero;
 
             var newSub = new CenterSubscription
             {
                 CenterId = request.CenterId,
-                StartDate = start,
-                EndDate = start.AddDays(dto.DurationDays),
+                StartDate = now,
+                EndDate = now.AddDays(dto.DurationDays) + carryOver,
                 FullTeacherSlots = dto.FullTeacherSlots,
                 ManagerialTeacherSlots = dto.ManagerialTeacherSlots,
                 StudentCapacityTotal = dto.StudentCapacityTotal,
@@ -194,13 +202,18 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
         {
             var previous = await _unitOfWork.Centers.GetCurrentCenterSubscriptionForUpdateAsync(centerId);
             var now = DateTime.UtcNow;
-            var start = previous != null && previous.EndDate > now ? previous.EndDate : now;
+            // Same early-renewal rule as the approve path: start NOW, append the old period's
+            // unused remainder — never future-date StartDate (future start derives Expired at
+            // every date-based gate and blocks the center until the old period's end).
+            var carryOver = previous != null && previous.EndDate > now
+                ? previous.EndDate - now
+                : TimeSpan.Zero;
 
             var newSub = new CenterSubscription
             {
                 CenterId = centerId,
-                StartDate = start,
-                EndDate = start.AddDays(durationDays <= 0 ? 30 : durationDays),
+                StartDate = now,
+                EndDate = now.AddDays(durationDays <= 0 ? 30 : durationDays) + carryOver,
                 FullTeacherSlots = pkg.FullTeacherSlots,
                 ManagerialTeacherSlots = pkg.ManagerialTeacherSlots,
                 StudentCapacityTotal = pkg.StudentCapacityTotal,
