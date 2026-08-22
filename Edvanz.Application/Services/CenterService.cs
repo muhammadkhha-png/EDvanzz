@@ -246,6 +246,20 @@ public class CenterService : ICenterService
         if (teacher == null || center == null)
             return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherNotFound", HttpStatusCode.NotFound);
 
+        // A plan-type FLIP consumes a slot of the target plan — enforce the same quota as
+        // CreateTeacherAsync (free-tier fallback included), otherwise a center with 0 Full slots
+        // could create a Managerial teacher and edit it to Full, bypassing the package entirely.
+        if (dto.PlanType.HasValue && dto.PlanType.Value != teacher.CenterPlanType)
+        {
+            var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
+            var used = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, dto.PlanType.Value);
+            var slots = dto.PlanType.Value == SubscriptionPlanType.Managerial
+                ? (sub?.ManagerialTeacherSlots ?? CenterConstants.FreeTierManagerialTeacherSlots)
+                : (sub?.FullTeacherSlots ?? CenterConstants.FreeTierFullTeacherSlots);
+            if (used >= slots)
+                return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherSlotExhausted", HttpStatusCode.Conflict);
+        }
+
         var user = await _unitOfWork.Users.GetUserByIdAsync(teacher.UserId);
 
         await _unitOfWork.BeginTransactionAsync();
