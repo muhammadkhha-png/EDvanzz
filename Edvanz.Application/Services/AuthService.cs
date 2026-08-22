@@ -352,26 +352,23 @@ namespace Edvanz.Application.Services
             await _unitOfWork.BeginTransactionAsync();
 
             user.PasswordHashed = newHashedPassword;
-            user.SecurityStamp = Guid.NewGuid().ToString(); 
+            user.SecurityStamp = Guid.NewGuid().ToString();
 
-            if (req.logOutFromAllDevices)
-            {
-                var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
-                await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(allTokens);
-            }
-            else
-            {
-                var currentToken = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].ToString()?.Replace("Bearer ", "");
-                if (!string.IsNullOrEmpty(currentToken))
-                {
-                    var tokenEntity = await _unitOfWork.RefreshTokenRepo.GetUserByRefreshToken(currentToken);
-                    if (tokenEntity != null)
-                    {
-                        tokenEntity.IsRevoked = true;
-                        await _unitOfWork.RefreshTokenRepo.UpdateAsync(tokenEntity);
-                    }
-                }
-            }
+            // A password change ALWAYS signs out every OTHER device: the stamp bump kills their
+            // access tokens on the next request, and deleting their refresh-token rows stops the
+            // silent 401→refresh recovery (refresh does not re-check the stamp, so without this
+            // delete other devices survived a password change). The CALLING device's own refresh
+            // token — sent by the client in the body — is the one row kept, so this device's next
+            // 401 refreshes seamlessly and its session survives. Matching is confined to THIS
+            // user's rows; an absent/foreign/stale token keeps nothing (older clients simply sign
+            // in again). The old logOutFromAllDevices flag is ignored: its false-branch looked up
+            // the ACCESS token in the refresh-token table (never matched), so it revoked nothing.
+            var allTokens = _unitOfWork.RefreshTokenRepo.GetByUserId(userId);
+            var keepToken = req.currentRefreshToken?.Trim();
+            var tokensToDelete = string.IsNullOrEmpty(keepToken)
+                ? allTokens
+                : allTokens.Where(t => !string.Equals(t.Token, keepToken, StringComparison.Ordinal)).ToList();
+            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(tokensToDelete);
 
             var res = await _unitOfWork.SaveChangesAsync();
             if (res <= 0)
