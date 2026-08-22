@@ -882,6 +882,7 @@ public class PaymentScreenService : IPaymentScreenService
                 UnpaidMonths = r.UnpaidMonths,
                 StudentCode = r.StudentCode,
                 IsExempt = r.AmountPerMonth == 0m,
+                SessionId = r.SessionId,
                 SessionName = r.SessionName,
                 PaidOn = r.PaidOn,
                 CollectedByName = collectedByName,
@@ -1326,22 +1327,22 @@ public class PaymentScreenService : IPaymentScreenService
 
         note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
 
-        // Feature C: when no note is supplied, a note is REQUIRED if any resolvable item's amount is a
-        // partial/custom value — i.e. NOT a whole-month multiple of that student's monthly rate. A
-        // whole-month multiple (N × rate) is a plain "pay N months" and needs none. Unresolved students
-        // / invalid amounts are left to the per-item loop below (they fail there, not as a note error).
-        if (note is null)
+        // Feature C: a note is REQUIRED for any resolvable item whose amount is a partial/custom
+        // value — i.e. NOT a whole-month multiple of that student's monthly rate. A whole-month
+        // multiple (N × rate) is a plain "pay N months" and needs none. The note may be PER-ITEM
+        // (item.Note — how the mobile app sends it) or batch-level; either satisfies the rule.
+        // Unresolved students / invalid amounts are left to the per-item loop below (they fail
+        // there, not as a note error).
+        foreach (var item in students)
         {
-            foreach (var item in students)
-            {
-                if (item.Amount <= 0m) continue;
-                var st = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(item.StudentId, teacherId);
-                if (st is null) continue;
-                decimal rate = await _unitOfWork.PaymentsRepo.GetStudentMonthlyRateAsync(teacherId, item.StudentId);
-                if (!Extensions.PaymentAmountRules.IsWholeMonthMultiple(item.Amount, rate))
-                    return Result<SubmitCollectionResponse>.Failure(
-                        _localizer, PaymentConstants.Messages.CollectNoteRequired, HttpStatusCode.BadRequest);
-            }
+            if (EffectiveItemNote(item, note) is not null) continue;
+            if (item.Amount <= 0m) continue;
+            var st = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(item.StudentId, teacherId);
+            if (st is null) continue;
+            decimal rate = await _unitOfWork.PaymentsRepo.GetStudentMonthlyRateAsync(teacherId, item.StudentId);
+            if (!Extensions.PaymentAmountRules.IsWholeMonthMultiple(item.Amount, rate))
+                return Result<SubmitCollectionResponse>.Failure(
+                    _localizer, PaymentConstants.Messages.CollectNoteRequired, HttpStatusCode.BadRequest);
         }
 
         var stored = await _idempotency.GetStoredResultAsync("submit", teacherId, idempotencyKey);
@@ -1396,7 +1397,7 @@ public class PaymentScreenService : IPaymentScreenService
                 Amount = item.Amount,
                 PaymentMethod = PaymentCollectionMethod.BarcodeScan,
                 CollectedByUserId = actingUserId,
-                CollectionNote = note,
+                CollectionNote = EffectiveItemNote(item, note),
                 DuplicateConfirmed = true,
                 AlreadyPaidConfirmed = true
             });
@@ -1423,6 +1424,13 @@ public class PaymentScreenService : IPaymentScreenService
             JsonSerializer.Serialize(response, IdempotencyJson));
         return Result<SubmitCollectionResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
     }
+
+    /// <summary>
+    /// Feature C: the note that applies to one submit item — its own trimmed <c>Note</c> when
+    /// present, else the batch-level note (already trimmed by the caller). Null when neither is set.
+    /// </summary>
+    private static string? EffectiveItemNote(SubmitCollectionItem item, string? batchNote)
+        => string.IsNullOrWhiteSpace(item.Note) ? batchNote : item.Note.Trim();
 
     /// <inheritdoc />
     public async Task<Result<WalletWithdrawResponse>> WithdrawAsync(

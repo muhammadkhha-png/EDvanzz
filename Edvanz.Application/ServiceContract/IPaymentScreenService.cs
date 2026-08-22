@@ -138,9 +138,10 @@ public interface IPaymentScreenService
     /// <summary>
     /// Screen: CollectPaymentSession "Submit N students" (MONEY). Collects each {studentId, amount}
     /// via <c>CollectPaymentAsync</c>. Idempotent via <paramref name="idempotencyKey"/>. 409 on empty batch.
-    /// <para>Feature C: <paramref name="note"/> is stored on each collected transaction and REQUIRED
-    /// (else 400 <c>CollectNoteRequired</c>) when any item's amount is a partial/custom value — not a
-    /// whole-month multiple of that student's monthly rate.</para>
+    /// <para>Feature C: each transaction stores its item's note (<c>SubmitCollectionItem.Note</c>,
+    /// how the mobile app sends it) falling back to the batch-level <paramref name="note"/>. A note
+    /// (either level) is REQUIRED (else 400 <c>CollectNoteRequired</c>) for any item whose amount is
+    /// a partial/custom value — not a whole-month multiple of that student's monthly rate.</para>
     /// </summary>
     Task<Result<SubmitCollectionResponse>> SubmitCollectionAsync(
         long teacherId, long actingUserId, string? month, long? classSessionId,

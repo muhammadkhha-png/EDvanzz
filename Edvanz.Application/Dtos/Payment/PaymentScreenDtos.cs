@@ -383,6 +383,13 @@ public class StudentByStatusDto
     /// <summary>True when the required amount is 0 (free/scholarship) → "Not paying" label.</summary>
     public bool IsExempt { get; set; }
 
+    /// <summary>
+    /// The student's CURRENTLY-assigned session id — always present (only assigned students are
+    /// listed). The mobile app's global student-leaving picker reads this to open the departure
+    /// sheet without a session screen to fall back on.
+    /// </summary>
+    public long? SessionId { get; set; }
+
     /// <summary>Session the student paid on (falls back to the month's period session).</summary>
     public string? SessionName { get; set; }
 
@@ -680,9 +687,11 @@ public class SubmitCollectionRequest
     public List<SubmitCollectionItem> Students { get; set; } = new();
 
     /// <summary>
-    /// Feature C: optional note applied to every collection in this submit. REQUIRED (else 400
-    /// <c>CollectNoteRequired</c>) when any item's amount is a partial/custom value — not a whole-month
-    /// multiple of that student's monthly rate. Stored on each transaction and shown in history.
+    /// Feature C: optional batch-level note applied to every collection in this submit that has no
+    /// per-item <see cref="SubmitCollectionItem.Note"/>. A note (item-level or this) is REQUIRED
+    /// (else 400 <c>CollectNoteRequired</c>) for any item whose amount is a partial/custom value —
+    /// not a whole-month multiple of that student's monthly rate. Stored on each transaction and
+    /// shown in history.
     /// </summary>
     public string? Note { get; set; }
 }
@@ -691,6 +700,14 @@ public class SubmitCollectionItem
 {
     public long StudentId { get; set; }
     public decimal Amount { get; set; }
+
+    /// <summary>
+    /// Feature C: per-student note for THIS collection (the mobile app sends the note here, per
+    /// item — not at the batch level). Overrides the batch-level
+    /// <see cref="SubmitCollectionRequest.Note"/> for this item and satisfies the
+    /// partial/custom-amount note requirement on its own.
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 public class SubmitCollectionResponse

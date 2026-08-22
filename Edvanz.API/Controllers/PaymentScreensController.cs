@@ -326,7 +326,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
     // ══════════════════════════════════════════════════════════════════════════
     // Screen: CollectPaymentSession — submit batch  (MONEY)
-    // POST /api/v1/collect/submit   body { month?, classSessionId?, students: [{studentId, amount}] }
+    // POST /api/v1/collect/submit   body { month?, classSessionId?, note?, students: [{studentId, amount, note?}] }
     // Header: Idempotency-Key (optional) — replay returns the original result. 409 on empty batch.
     // AUTH: Teacher (module) OR Assistant with Payment.Collect.
     // ══════════════════════════════════════════════════════════════════════════

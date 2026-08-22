@@ -1603,6 +1603,11 @@
                         .Count(),
                         StudentCode = ts.StudentCode,
 
+                    // The student's currently-assigned session (never null here — the
+                    // assigned-only gate above filters SessionId != null). Distinct from
+                    // SessionName below, which reflects the session they PAID on.
+                    SessionId = ts.SessionId,
+
                     // "Paid on" + "session he paid on" + "collected by": the student's latest paying
                     // transaction that SETTLED an in-month period. A month can be cleared as a
                     // non-oldest slice of a multi-month cascade, whose transaction FK points only at

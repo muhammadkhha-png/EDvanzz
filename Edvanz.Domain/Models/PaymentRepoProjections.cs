@@ -92,6 +92,15 @@ public sealed class StudentByStatusRow
     public string? StudentCode { get; set; }
 
     /// <summary>
+    /// The student's CURRENTLY-assigned session id (<c>TeacherStudent.SessionId</c>).
+    /// Non-null for every row by construction — the list only classifies assigned
+    /// students. Drives client flows that need the session context of a picked
+    /// student (e.g. the assistant's global student-leaving picker, which has no
+    /// session screen to fall back on).
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>
     /// The session the student actually paid on this month (from the latest paying
     /// transaction). Falls back to the month's period session name when no payment
     /// exists, so unpaid/prorated rows still show a session.
