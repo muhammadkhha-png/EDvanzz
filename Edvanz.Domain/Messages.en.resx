@@ -850,7 +850,7 @@
     <value>Assistant not found.</value>
   </data>
   <data name="AssistantHasWalletBalance" xml:space="preserve">
-    <value>This assistant is still holding collected cash. Hand over or withdraw their wallet first, then delete.</value>
+    <value>This assistant is still holding collected cash. Hand over or withdraw their wallet first, then try again.</value>
   </data>
   <data name="AssistantDeactivated" xml:space="preserve">
     <value>Assistant deactivated.</value>

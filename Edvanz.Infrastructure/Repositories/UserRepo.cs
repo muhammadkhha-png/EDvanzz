@@ -223,6 +223,16 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<long?> GetTeacherUserIdByIdAsync(long teacherId)
+        {
+            return await _context.Set<Teacher>()
+                .AsNoTracking()
+                .Where(t => t.Id == teacherId)
+                .Select(t => (long?)t.UserId)
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<bool> TeacherExistsByUserIdAsync(long userId)
         {
             return await _context.Set<Teacher>()

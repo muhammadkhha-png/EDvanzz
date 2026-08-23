@@ -474,14 +474,19 @@ public class PaymentScreenService : IPaymentScreenService
         var names = collectorUserIds.Count > 0
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
             : new Dictionary<long, string>();
-        var assistantUserIds = (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet();
+        // Role by IDENTITY, not an active-assistant allow-list: the ONLY "Teacher" collector is the
+        // teacher account owner. Every other collector — assistant, REMOVED (soft-deleted) assistant,
+        // or center assistant — is "Assistant". The old allow-list (GetUserIdsByTeacherAccountIdAsync,
+        // active-only) excluded a removed assistant, so her collections defaulted to "Teacher" and the
+        // app filed them under the teacher's own "collected by me" card (§7.4).
+        var teacherOwnerUserId = await _unitOfWork.Users.GetTeacherUserIdByIdAsync(teacherId);
         var byCollector = collectors
             .OrderByDescending(c => c.Collected)
             .Select(c => new CollectionsSummaryCollectorDto
             {
                 UserId = c.UserId.ToString(CultureInfo.InvariantCulture),
                 Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
-                Role = assistantUserIds.Contains(c.UserId) ? "Assistant" : "Teacher",
+                Role = c.UserId == teacherOwnerUserId ? "Teacher" : "Assistant",
                 CollectedAmount = c.Collected,
                 TransactionCount = c.TransactionCount
             })
@@ -920,9 +925,11 @@ public class PaymentScreenService : IPaymentScreenService
         var collectorNames = collectorUserIds.Count > 0
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
             : new Dictionary<long, string>();
-        var assistantUserIds = collectorUserIds.Count > 0
-            ? (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet()
-            : new HashSet<long>();
+        // Role by identity (see GetCollectionsSummaryAsync): "Teacher" only for the account owner's
+        // own collections; every other collector — including a removed assistant — is "Assistant".
+        var teacherOwnerUserId = collectorUserIds.Count > 0
+            ? await _unitOfWork.Users.GetTeacherUserIdByIdAsync(teacherId)
+            : (long?)null;
 
         // Proration transparency: batch the anchor-period info (prorated amount + fraction) and the
         // anchor date (first-Present in the anchor month, else assignment date) so a prorated row can
@@ -957,7 +964,7 @@ public class PaymentScreenService : IPaymentScreenService
             if (r.CollectedByUserId is long cby)
             {
                 collectedByName = collectorNames.TryGetValue(cby, out var cn) ? cn : null;
-                collectedByRole = assistantUserIds.Contains(cby) ? "Assistant" : "Teacher";
+                collectedByRole = cby == teacherOwnerUserId ? "Teacher" : "Assistant";
             }
 
             bool isProrated = false;
@@ -1222,7 +1229,10 @@ public class PaymentScreenService : IPaymentScreenService
         var names = collectorUserIds.Count > 0
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
             : new Dictionary<long, string>();
-        var assistantUserIds = (await _unitOfWork.AssistantRepo.GetUserIdsByTeacherAccountIdAsync(teacherId)).ToHashSet();
+        // Role by identity (see GetCollectionsSummaryAsync): the teacher row is ONLY the account
+        // owner's own collections. A removed/center assistant who collected is NOT a teacher row —
+        // she surfaces from her wallet in assistantRows below, correctly labeled "Assistant".
+        var teacherOwnerUserId = await _unitOfWork.Users.GetTeacherUserIdByIdAsync(teacherId);
 
         // All assistant wallets (every assistant on the account, even those who collected nothing
         // this month), keyed by user id — the source for "show ALL assistants" + each one's held
@@ -1233,10 +1243,10 @@ public class PaymentScreenService : IPaymentScreenService
             .GroupBy(c => c.UserId)
             .ToDictionary(g => g.Key, g => g.First());
 
-        // Teacher row(s): collectors who are NOT assistants. The teacher has no wallet, but their
-        // card is still shown (and the app links it to the teacher's own collections list).
+        // Teacher row: the account owner's own collections (at most one). The teacher has no wallet,
+        // but their card is still shown (and the app links it to the teacher's own collections list).
         var teacherRows = collectors
-            .Where(c => !assistantUserIds.Contains(c.UserId))
+            .Where(c => c.UserId == teacherOwnerUserId)
             .Select(c => new TrackingAssistantDto
             {
                 Id = c.UserId.ToString(CultureInfo.InvariantCulture),

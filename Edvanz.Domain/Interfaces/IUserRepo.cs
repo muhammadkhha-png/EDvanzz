@@ -119,6 +119,15 @@ namespace Edvanz.Domain.Interfaces
         Task<Teacher?> GetActiveTeacherByIdAsync(long teacherId);
 
         /// <summary>
+        /// Resolves the owning <see cref="User"/> id for a teacher (Teacher.UserId) without
+        /// materializing the whole entity. This is the ONLY user id that represents "the teacher"
+        /// as a collector; every other collector id belongs to an assistant (active, removed, or
+        /// center). Used by the payment screens to label a collector Teacher vs Assistant by
+        /// identity rather than an active-assistant allow-list (§7.4). Returns null if not found.
+        /// </summary>
+        Task<long?> GetTeacherUserIdByIdAsync(long teacherId);
+
+        /// <summary>
         /// Checks if a teacher record already exists for the given UserId.
         /// Used during initialization to prevent duplicates.
         /// </summary>

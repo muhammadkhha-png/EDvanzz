@@ -575,6 +575,24 @@ namespace Edvanz.Application.Services
             if (assistant.AccountStatus == req.targetStatus)
                 return Result<string>.Failure(localizer, "AssistantAlreadyInThisStatus");
 
+            // -- 4b. Cash guard (Suspend only) ----------------------------------------
+            // Suspending sets DeletedAt (below), which hides the assistant from the active-collector
+            // set — so, exactly like a hard delete (SoftDeleteAssistantAsync), it must not strand
+            // cash she is still holding. The tutor must hand over / withdraw the wallet first.
+            // Plain Deactivate (Inactive) is intentionally EXEMPT: it leaves DeletedAt null (the
+            // assistant stays visible and correctly labeled) and may be needed to stop an assistant
+            // from collecting while a cash dispute is resolved.
+            if (req.targetStatus == AccountStatus.Suspended)
+            {
+                var suspendWallet = (await _unitOfWork
+                        .GetRepository<AssistantWallet, long>()
+                        .GetAsync(w => w.AssistantId == assistant.Id))
+                    .FirstOrDefault();
+                if (suspendWallet is not null && suspendWallet.CurrentBalance != 0m)
+                    return Result<string>.Failure(
+                        localizer, "AssistantHasWalletBalance", HttpStatusCode.Conflict);
+            }
+
             // -- 5. Apply status ------------------------------------------------------
             assistant.AccountStatus = req.targetStatus;
                 

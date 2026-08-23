@@ -850,7 +850,7 @@
     <value>المساعد مش موجود.</value>
   </data>
   <data name="AssistantHasWalletBalance" xml:space="preserve">
-    <value>المساعد ده لسه ماسك فلوس متحصّلة. اعمل تسليم أو سحب للمحفظة الأول وبعدين احذفه.</value>
+    <value>المساعد ده لسه ماسك فلوس متحصّلة. اعمل تسليم أو سحب للمحفظة الأول وبعدين حاول تاني.</value>
   </data>
   <data name="AssistantDeactivated" xml:space="preserve">
     <value>تم إيقاف المساعد.</value>
