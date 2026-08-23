@@ -11,6 +11,7 @@ using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Domain.Resources;
 using Edvanz.Domain.ServiceContract;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Localization;
 using System;
 using System.Collections.Generic;
@@ -84,25 +85,37 @@ namespace Edvanz.Application.Services
                 return Result<string?>.Failure(_localizer, "InvalidUserType");
             if (user.password != user.confirmedPassword)
                 return Result<string?>.Failure(_localizer, "password must be equail confirmed password");
+
+            // Normalize credentials up front so both the duplicate checks below and the stored row
+            // are trimmed/consistent (defense-in-depth; the client already trims).
+            user.username = user.username?.Trim() ?? string.Empty;
+            user.phoneNumber = user.phoneNumber?.Trim();
+            user.email = string.IsNullOrWhiteSpace(user.email) ? null : user.email.Trim();
+
             if (string.IsNullOrWhiteSpace(user.phoneNumber))
                 return Result<string?>.Failure(_localizer, "PhoneNumberRequired");
 
             if (!PhoneNumberValidator.IsValidEgyptianMobile(user.phoneNumber))
                 return Result<string?>.Failure(_localizer, "PhoneNumberInvalidFormat");
-            var existingUser = await _unitOfWork.Users.FindExistingUserByCredentialsAsync(
-                user.phoneNumber, user.username, user.email);
 
-            if (existingUser != null)
-            {
-                if (existingUser.PhoneNumber == user.phoneNumber)
-                    return Result<string?>.Failure(_localizer, "repeatedPhoneNumber");
+            // Duplicate pre-check — query EACH credential SEPARATELY so the DB's own case- and
+            // trailing-space-insensitive collation decides the match, exactly like the unique
+            // indexes (UX_Users_Username / UX_Users_PhoneNumber) do. The old single-lookup + C# "=="
+            // re-check was ordinal/case-SENSITIVE, so a case- or whitespace-differing duplicate
+            // (stored "Mohamed" vs typed "mohamed") passed every branch, fell through to the INSERT,
+            // and surfaced as the raw "DatabaseConflict" (SQL 2601 on UX_Users_Username) instead of a
+            // friendly "username already taken". (Reproduced against SQL Server 2022, CI collation.)
+            if (await _unitOfWork.Users
+                    .FindExistingUserByCredentialsAsync(user.phoneNumber, string.Empty, null) is not null)
+                return Result<string?>.Failure(_localizer, "repeatedPhoneNumber");
 
-                if (existingUser.Username == user.username)
-                    return Result<string?>.Failure(_localizer, "repeatedUserName");
+            if (await _unitOfWork.Users
+                    .FindExistingUserByCredentialsAsync(string.Empty, user.username, null) is not null)
+                return Result<string?>.Failure(_localizer, "repeatedUserName");
 
-                if (!string.IsNullOrEmpty(user.email) && existingUser.Email == user.email)
-                    return Result<string?>.Failure(_localizer, "repeatedEmail");
-            }
+            if (!string.IsNullOrEmpty(user.email) && await _unitOfWork.Users
+                    .FindExistingUserByCredentialsAsync(string.Empty, string.Empty, user.email) is not null)
+                return Result<string?>.Failure(_localizer, "repeatedEmail");
             if(user.userType==UserType.Teacher && (user.subjectIds == null || user.subjectIds.Count == 0) )
             {
                 return Result<string>.Failure(_localizer, "SubjectRequired");
@@ -237,11 +250,45 @@ namespace Edvanz.Application.Services
 
                 return Result<string?>.Success(null, _localizer, "SuccessSaving");
             }
+            catch (DbUpdateException ex) when (ResolveUserUniqueViolationKey(ex) is { } messageKey)
+            {
+                // Safety net: a concurrent sign-up or a legacy unnormalized row can still trip a Users
+                // unique index between the pre-check and the INSERT. Map it to the same friendly
+                // message instead of surfacing the raw "DatabaseConflict".
+                await _unitOfWork.RollbackAsync();
+                return Result<string?>.Failure(_localizer, messageKey, HttpStatusCode.Conflict);
+            }
             catch
             {
                 await _unitOfWork.RollbackAsync();
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Maps a SQL Server unique-key violation (2601/2627) on the Users table to the matching
+        /// localized message key by inspecting the column embedded in the index name. Returns null
+        /// when the exception is not a Users unique violation, so it rethrows unchanged. Mirrors
+        /// <c>AssistantService.ResolveUserUniqueViolationKey</c>.
+        /// </summary>
+        private static string? ResolveUserUniqueViolationKey(DbUpdateException ex)
+        {
+            var sql = ex.InnerException as Microsoft.Data.SqlClient.SqlException
+                      ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
+
+            if (sql is not { Number: 2601 or 2627 })
+                return null;
+
+            string message = sql.Message;
+
+            if (message.Contains("PhoneNumber", StringComparison.OrdinalIgnoreCase))
+                return "repeatedPhoneNumber";
+            if (message.Contains("Username", StringComparison.OrdinalIgnoreCase))
+                return "repeatedUserName";
+            if (message.Contains("Email", StringComparison.OrdinalIgnoreCase))
+                return "repeatedEmail";
+
+            return null;
         }
 
         public static class PhoneNumberValidator
