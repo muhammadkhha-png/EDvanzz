@@ -1185,12 +1185,34 @@ public class AttendanceService : IAttendanceService
             // The occurrence status query uses AsNoTracking, so it needs the records
             // flushed to the database first to get an accurate count. This flush also persists the
             // reconciliation pre-pass's in-place status changes so the recompute below reads them.
-            await _unitOfWork.SaveChangesAsync();
+            //
+            // Resilient flush: a CONCURRENT scan (teacher + assistant scanning the same class at the
+            // same time) may have recorded one of these students on this occurrence between the
+            // pre-check snapshot and now. Rather than let that single unique-violation roll the WHOLE
+            // batch back — which left every scanned student unmarked, and the night job then flipped
+            // them to Absent — drop ONLY the already-recorded duplicate(s) and save the rest.
+            var droppedDuplicateIds = await _unitOfWork.AttendanceRepo
+                .FlushSkippingDuplicateRecordsAsync();
+
+            // Report each dropped student as a graceful skip (they DO have a record — the competing
+            // scan's — so this is a true duplicate, not a lost mark).
+            foreach (var droppedId in droppedDuplicateIds.Distinct())
+            {
+                var res = studentResults.FirstOrDefault(r => r.TeacherStudentId == droppedId && r.Success);
+                if (res is null) continue;
+                res.Success = false;
+                res.Code = AttendanceConstants.Messages.AttendanceDuplicateDetected;
+                res.Reason = _localizer[AttendanceConstants.Messages.AttendanceDuplicateDetected];
+                successCount--;
+                skippedCount++;
+            }
 
             // Reconciled students (overwrite/flip) bypassed the in-memory counter mutation — recompute
             // their counters from the now-flushed records (full recompute, so a flipped/overwritten
             // absence correctly drops the consecutive-absence streak that drives the "was absent" alert).
-            foreach (var reconciledId in reconciledStudentIds)
+            // Dropped-duplicate students are recomputed too: their record was detached (never inserted),
+            // so recomputing from records corrects the counter increment that was flushed for them.
+            foreach (var reconciledId in reconciledStudentIds.Concat(droppedDuplicateIds).Distinct())
                 await RecalculateAbsenceCounterFromRecordsAsync(dto.TeacherId, reconciledId);
 
             // Update the status of EVERY occurrence that received a mark (the selected occurrence for

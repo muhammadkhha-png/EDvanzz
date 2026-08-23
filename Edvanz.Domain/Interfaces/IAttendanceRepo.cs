@@ -354,6 +354,20 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
         IEnumerable<long> teacherStudentIds, long sessionOccurrenceId);
 
     /// <summary>
+    /// Flushes the tracked changes but tolerates a CONCURRENT-INSERT race on the AttendanceRecords
+    /// unique index — a second scanner (teacher + assistant scanning the same class at once) recording
+    /// the same student on the same occurrence between our pre-check snapshot and this flush. Instead
+    /// of letting that one unique-violation roll the WHOLE batch back (which left every scanned student
+    /// unmarked → the night job then marked them Absent), it detaches only the Added
+    /// <see cref="AttendanceRecord"/>(s) that now collide with an already-persisted
+    /// (SessionOccurrenceId, TeacherStudentId) row and retries the flush with the rest, up to
+    /// <paramref name="maxAttempts"/> times. Returns the TeacherStudentIds whose record was dropped as
+    /// an already-recorded duplicate, so the caller reports them skipped and recomputes their absence
+    /// counters from records. Any non-unique-violation DB error is rethrown unchanged.
+    /// </summary>
+    Task<IReadOnlyList<long>> FlushSkippingDuplicateRecordsAsync(int maxAttempts = 5);
+
+    /// <summary>
     /// Step 3.1: Gets a held record for a student on a specific occurrence.
     /// REQ-ATT-061: Find held records to release them.
     /// </summary>

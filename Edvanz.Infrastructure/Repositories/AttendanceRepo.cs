@@ -477,6 +477,69 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> FlushSkippingDuplicateRecordsAsync(int maxAttempts = 5)
+    {
+        var dropped = new List<long>();
+
+        for (int attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await _context.SaveChangesAsync();
+                return dropped;
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex) && attempt < maxAttempts)
+            {
+                // A competing request recorded one of our students on the same occurrence between the
+                // caller's pre-check snapshot and this flush. Identify the Added AttendanceRecords that
+                // now collide with a PERSISTED (SessionOccurrenceId, TeacherStudentId) row, detach only
+                // those, and retry — so a single concurrent collision cannot discard the whole batch.
+                var added = _context.ChangeTracker.Entries<AttendanceRecord>()
+                    .Where(e => e.State == EntityState.Added)
+                    .Select(e => e.Entity)
+                    .Where(r => r.SessionOccurrenceId.HasValue && r.TeacherStudentId.HasValue)
+                    .ToList();
+                if (added.Count == 0)
+                    throw; // nothing we can drop → not our race; surface it
+
+                var occurrenceIds = added.Select(r => r.SessionOccurrenceId!.Value).Distinct().ToList();
+                var persistedPairs = (await _context.AttendanceRecords
+                        .AsNoTracking()
+                        .Where(r => r.SessionOccurrenceId != null && r.TeacherStudentId != null
+                                    && occurrenceIds.Contains(r.SessionOccurrenceId.Value))
+                        .Select(r => new { r.SessionOccurrenceId, r.TeacherStudentId })
+                        .ToListAsync())
+                    .Select(x => (Occ: x.SessionOccurrenceId!.Value, Student: x.TeacherStudentId!.Value))
+                    .ToHashSet();
+
+                var collisions = added
+                    .Where(r => persistedPairs.Contains(
+                        (r.SessionOccurrenceId!.Value, r.TeacherStudentId!.Value)))
+                    .ToList();
+                if (collisions.Count == 0)
+                    throw; // couldn't localize the culprit (index unrelated to our rows) → surface it
+
+                foreach (var r in collisions)
+                {
+                    _context.Entry(r).State = EntityState.Detached;
+                    dropped.Add(r.TeacherStudentId!.Value);
+                }
+                // loop and retry the flush with the colliding rows removed
+            }
+        }
+    }
+
+    /// <summary>
+    /// SQL Server unique-key violation (2601/2627) inside a <see cref="DbUpdateException"/>.
+    /// </summary>
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        var sql = ex.InnerException as Microsoft.Data.SqlClient.SqlException
+                  ?? ex.GetBaseException() as Microsoft.Data.SqlClient.SqlException;
+        return sql is { Number: 2601 or 2627 };
+    }
+
+    /// <inheritdoc />
     /// Step 3.1: Find a held record for hold/release flow.
     public async Task<AttendanceRecord?> GetHeldRecordAsync(
         long teacherStudentId, long sessionOccurrenceId)
