@@ -2204,27 +2204,18 @@ public class PaymentService : IPaymentService
             // If amount owed, record as outstanding balance flagged for collection
             if (summary.DepartureOutcome == DepartureOutcome.RefundDue && finalAmount > 0)
             {
-                // Auto-refund: the refunded cash is returned to the student, so deduct it from the
-                // wallet of the assistant who collected it (held cash decreases). No-op when the
-                // tutor collected (they have no wallet) — the refund is then just recorded.
-                var collectorUserId = await _unitOfWork.PaymentsRepo
-                    .GetLatestCollectorUserIdForStudentSessionAsync(
-                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
-                // Collection instant of that same latest payment — for the reset-aware wallet reversal:
-                // if the refunded cash was collected before the collector's last hand-over it was already
-                // given to the tutor, so it must not drive the wallet negative.
-                var latestCollectionAt = await _unitOfWork.PaymentsRepo
-                    .GetLatestCollectionInstantForStudentSessionAsync(
-                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
-
-                // Attribute the refund so it can be surfaced as a negative against this collector
-                // (an assistant OR the tutor) in the anchored month — across the collections ledger
-                // and the per-collector totals. The entity is change-tracked, so this persists on save.
-                departure.CollectedByUserId = collectorUserId;
+                // Auto-refund: the refund cash is physically handed to the student by WHOEVER
+                // CONFIRMS the departure — it leaves THEIR drawer, so THEIR wallet is charged
+                // (decided 2026-08-24; formerly the ORIGINAL collector of the refunded month, but
+                // that collector's held cash is untouched by someone else's payout). No-op when the
+                // confirmer is the tutor (they have no wallet) — the refund is then just recorded.
+                // The payout happens NOW from cash currently held, so no reset-aware collection
+                // anchor applies (unlike a collection reversal).
+                departure.CollectedByUserId = dto.ConfirmedByUserId;
                 departure.RefundPeriodStart = summary.PeriodStart;
 
                 await AdjustAssistantWalletAsync(
-                    dto.TeacherId, collectorUserId, -finalAmount, latestCollectionAt);
+                    dto.TeacherId, dto.ConfirmedByUserId, -finalAmount);
 
                 // Reverse the refunded cash on the ANCHORED period as well. Without this the money
                 // left the wallet but the month still read Paid with its full AmountPaid, so the
@@ -2329,13 +2320,18 @@ public class PaymentService : IPaymentService
 
         // Audit: attach the log to the most recent transaction that settled this period when there
         // is one (the FK is nullable + SET NULL, so a period with no surviving transaction still
-        // gets an auditable row).
+        // gets an auditable row). A month settled INSIDE a multi-month cascade has no transaction
+        // pointing directly at it — resolve through the PAY-1 allocation ledger then, otherwise the
+        // refund line (which requires a transaction for student identity) vanishes from every
+        // collector ledger while the wallet math still counts it.
         var periodTransactions = await _unitOfWork.PaymentsRepo
             .GetTransactionsByPeriodAsync(period.Id);
         var latestTransaction = periodTransactions
             .OrderByDescending(t => t.CollectedAt)
             .ThenByDescending(t => t.Id)
-            .FirstOrDefault();
+            .FirstOrDefault()
+            ?? await _unitOfWork.PaymentsRepo
+                .GetLatestTransactionForPeriodViaAllocationsAsync(period.Id);
 
         await _unitOfWork.PaymentsRepo.AddPaymentEditLogAsync(new PaymentEditLog
         {

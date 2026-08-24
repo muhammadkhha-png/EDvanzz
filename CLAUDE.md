@@ -603,13 +603,19 @@ per-session dashboard figures are month-scoped (`GetSessionMonthCollectionAsync`
 `GetAssignedStudentCountsPerSessionAsync`); `TotalStudents` = students assigned to a
 session (`CountAssignedStudentsAsync`).
 
-**Assistant wallet & refunds.** Wallet rises on collect, falls on refund; a **refund**
-(a `Deleted`/`Reversed` `PaymentEditLog` on a transaction) is deducted from the
-**original collector** and shown in that collector's **month log as a negative-amount
-entry** in the same list as collections (`GetCollectorTransactionsInRangeAsync` +
-`GetCollectorRefundsInRangeAsync`, merged). `TotalCashCollected` = money in − money out
-for the month. **Withdraw** = tutor taking cash (a `WalletResetLog`), reduces
-`CurrentBalance` only, distinct from a refund.
+**Assistant wallet & refunds.** Wallet rises on collect, falls on refund; refunds are
+negative-amount entries in the same month log as collections
+(`GetCollectorTransactionsInRangeAsync` + `GetCollectorRefundsInRangeAsync`, merged).
+**Who a refund is charged to depends on its kind (changed 2026-08-24):** a **delete/edit**
+(`Deleted` `PaymentEditLog`) is a CORRECTION — charged to the **original collector**
+(the transaction's `CollectedByUserId`) whose figure it corrects, no fresh cash moves; a
+**departure refund** (`Reversed` log, sole writer `ReverseDeparturePeriodAsync`) is a
+physical PAYOUT — charged to the **performer who confirmed the departure**
+(`EditedByUserId` on the log; `StudentDeparture.CollectedByUserId` also holds the
+performer despite its name — their drawer handed the cash back, the original collector's
+held cash is untouched). Migration `20260824190558` flipped historical departure rows.
+`TotalCashCollected` = money in − money out for the month. **Withdraw** = tutor taking
+cash (a `WalletResetLog`), reduces `CurrentBalance` only, distinct from a refund.
 
 **Transfer between sessions.** No proration on monthly→monthly; the carried balance is
 the source session's **arrears through the current month** (`GetOverdueTotalThroughAsync`,

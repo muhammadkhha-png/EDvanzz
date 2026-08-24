@@ -106,6 +106,19 @@
         }
 
         /// <inheritdoc />
+        public async Task<PaymentTransaction?> GetLatestTransactionForPeriodViaAllocationsAsync(
+            long paymentPeriodId)
+        {
+            return await _context.PaymentTransactionAllocations
+                .Where(a => a.PaymentPeriodId == paymentPeriodId && !a.PaymentTransaction.IsDeleted)
+                .OrderByDescending(a => a.PaymentTransaction.CollectedAt)
+                .ThenByDescending(a => a.PaymentTransactionId)
+                .Select(a => a.PaymentTransaction)
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<PaymentTransaction>> GetSameDayTransactionsAsync(
             long teacherId, long teacherStudentId, DateTime localDate)
         {
@@ -792,10 +805,15 @@
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
             bool includeDeleted = true)
         {
-            // A refund = the collector's collection being fully handed back: a delete or reversal
-            // (refund = the whole PreviousAmount). Partial amount-edits are treated as corrections to
-            // the collected figure (reflected in the collection's own amount), not refund lines, so the
-            // month log never double-counts. IgnoreQueryFilters because the transaction is soft-deleted.
+            // A refund = money handed back. Two kinds, charged to DIFFERENT collectors:
+            //   • Deleted — a CORRECTION of the original collection (no fresh cash moves): charged to
+            //     the ORIGINAL collector (the transaction's CollectedByUserId) whose figure it corrects.
+            //   • Reversed — a DEPARTURE payout: cash physically handed to the student by whoever
+            //     CONFIRMED the departure, so it is charged to that PERFORMER (EditedByUserId), not the
+            //     original collector — their held cash is untouched (decided 2026-08-24).
+            // Partial amount-edits are treated as corrections to the collected figure (reflected in the
+            // collection's own amount), not refund lines, so the month log never double-counts.
+            // IgnoreQueryFilters because the transaction is soft-deleted.
             //
             // includeDeleted=false (the "view more" collections list) drops Deleted rows: a full delete
             // ALSO removes the collection's positive row from that !IsDeleted-filtered list, so surfacing
@@ -805,10 +823,11 @@
                 .IgnoreQueryFilters()
                 .Where(l => l.PaymentTransaction != null
                     && l.PaymentTransaction.TeacherId == teacherId
-                    && l.PaymentTransaction.CollectedByUserId == collectorUserId
                     && l.EditedAt >= startInclusive && l.EditedAt < endExclusive
-                    && (l.EditAction == PaymentEditAction.Reversed
-                        || (includeDeleted && l.EditAction == PaymentEditAction.Deleted)))
+                    && ((l.EditAction == PaymentEditAction.Reversed
+                            && l.EditedByUserId == collectorUserId)
+                        || (includeDeleted && l.EditAction == PaymentEditAction.Deleted
+                            && l.PaymentTransaction.CollectedByUserId == collectorUserId)))
                 .Select(l => new CollectorRefundRow
                 {
                     Id = l.Id,
@@ -2638,12 +2657,12 @@
                 })
                 .ToListAsync();
 
-            // Departure refunds reverse cash a collector took but do NOT soft-delete the underlying
-            // transaction, so the !IsDeleted sum above still counts refunded cash. Subtract each
-            // collector's departure refunds (RefundDue, authoritative FinalAmount) confirmed in the
-            // same window so the collected total reflects the money returned — for an assistant OR the
-            // tutor. A collector who ONLY refunded in the window (their collection was an earlier
-            // month) still surfaces here, as a net-negative total.
+            // Departure refunds hand cash back to the student but do NOT soft-delete the underlying
+            // transaction, so the !IsDeleted sum above still counts the collected cash. Subtract each
+            // collector's departure payouts (RefundDue, authoritative FinalAmount; CollectedByUserId =
+            // the CONFIRMING performer whose drawer the cash left — §7.4) in the same window so the
+            // total reflects the money returned — for an assistant OR the tutor. A collector who ONLY
+            // paid out refunds in the window still surfaces here, as a net-negative total.
             var refundQuery = _context.StudentDepartures
                 .Where(d => d.TeacherId == teacherId
                     && d.DepartureOutcome == DepartureOutcome.RefundDue

@@ -438,9 +438,9 @@ public class PaymentScreenService : IPaymentScreenService
                 .Distinct()
                 .Count();
             // "Departed" on a collector strip = departures whose refund was charged to THIS
-            // collector (they originally collected the refunded month) — consistent with the
-            // refund-accounting rule (§7.4). RefundDue mirrors the refund LINES charged to them,
-            // which is what clients render as the refunds count.
+            // collector (they CONFIRMED the departure and handed the cash back — §7.4).
+            // RefundDue mirrors the refund LINES charged to them, which is what clients render
+            // as the refunds count.
             departedTotal = collectorDepartures.Count;
             departedRefundDue = collectorRefunds.Count;
             departedAmountOwed = 0;

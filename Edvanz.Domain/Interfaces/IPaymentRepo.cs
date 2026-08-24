@@ -54,6 +54,16 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<IReadOnlyList<PaymentTransaction>> GetTransactionsByPeriodAsync(long paymentPeriodId);
 
     /// <summary>
+    /// The most recent non-deleted transaction that settled the period via the PAY-1 allocation
+    /// ledger. Fallback for months settled inside a multi-month cascade: the ONE transaction's
+    /// direct PaymentPeriodId points at a single period, so the OTHER months it cleared have no
+    /// row in <see cref="GetTransactionsByPeriodAsync"/> — without this fallback a departure
+    /// refund on such a month writes an edit log with no transaction and vanishes from every
+    /// collector ledger.
+    /// </summary>
+    Task<PaymentTransaction?> GetLatestTransactionForPeriodViaAllocationsAsync(long paymentPeriodId);
+
+    /// <summary>
     /// Returns the CollectedByUserId of the most recent non-deleted payment the student made for the
     /// given session — i.e. who is holding the cash. Used to attribute a departure refund back to the
     /// correct assistant wallet. Null when there is no such payment (or it was collected by the tutor).
