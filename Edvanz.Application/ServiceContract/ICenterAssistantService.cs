@@ -10,4 +10,8 @@ public interface ICenterAssistantService
     Task<Result<List<CenterAssistantListItemDto>>> GetAssistantsAsync(long centerId);
     Task<Result<string>> DeactivateAsync(long centerId, long centerAssistantId);
     Task<Result<string>> ReactivateAsync(long centerId, long centerAssistantId);
+
+    /// <summary>Center-managed password reset for one of its assistants (no old password needed).
+    /// Revokes the assistant's live sessions.</summary>
+    Task<Result<string>> ResetPasswordAsync(long centerId, long centerAssistantId, ResetCenterAssistantPasswordDto dto);
 }

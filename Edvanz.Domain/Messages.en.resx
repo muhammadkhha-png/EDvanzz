@@ -2436,6 +2436,9 @@
   <data name="CenterTeacherPasswordReset" xml:space="preserve">
     <value>Password reset. The teacher's active sessions were signed out.</value>
   </data>
+  <data name="CenterAssistantPasswordReset" xml:space="preserve">
+    <value>Password reset. The assistant's active sessions were signed out.</value>
+  </data>
   <data name="CenterTeacherLoginDisabled" xml:space="preserve">
     <value>Login disabled. The teacher can no longer sign in.</value>
   </data>

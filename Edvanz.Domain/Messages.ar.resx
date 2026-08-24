@@ -2424,6 +2424,9 @@
   <data name="CenterTeacherPasswordReset" xml:space="preserve">
     <value>تم إعادة تعيين الباسورد، واتقفلت الجلسات المفتوحة للمدرس.</value>
   </data>
+  <data name="CenterAssistantPasswordReset" xml:space="preserve">
+    <value>تم إعادة تعيين الباسورد، واتقفلت الجلسات المفتوحة للمساعد.</value>
+  </data>
   <data name="CenterTeacherLoginDisabled" xml:space="preserve">
     <value>تم إيقاف الدخول. المدرس مش هيقدر يسجّل دخول تاني.</value>
   </data>

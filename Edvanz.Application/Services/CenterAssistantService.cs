@@ -21,12 +21,18 @@ public class CenterAssistantService : ICenterAssistantService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Messages> _localizer;
     private readonly IPasswordService _passwordService;
+    private readonly IservicesContract.IUserAuthInvalidationService _authInvalidation;
 
-    public CenterAssistantService(IUnitOfWork unitOfWork, IStringLocalizer<Messages> localizer, IPasswordService passwordService)
+    public CenterAssistantService(
+        IUnitOfWork unitOfWork,
+        IStringLocalizer<Messages> localizer,
+        IPasswordService passwordService,
+        IservicesContract.IUserAuthInvalidationService authInvalidation)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
         _passwordService = passwordService;
+        _authInvalidation = authInvalidation;
     }
 
     /// <inheritdoc />
@@ -121,9 +127,51 @@ public class CenterAssistantService : ICenterAssistantService
             assistant.DeactivatedAt = active ? null : DateTime.UtcNow;
             assistant.UpdatedAt = DateTime.UtcNow;
             if (assistant.User != null) assistant.User.IsActive = active; // toggles the login
+            // Deactivation must also end the assistant's LIVE sessions (stamp bump joins the
+            // transaction — see the SecurityStamp rule); without it the cached auth snapshot kept a
+            // deactivated assistant working until cache expiry.
+            if (!active && assistant.User != null)
+                await _authInvalidation.InvalidateUserAsync(assistant.User.Id);
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
             return Result<string>.Success("ok", _localizer, successKey);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            return Result<string>.Failure(_localizer, "ServerError");
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<string>> ResetPasswordAsync(long centerId, long centerAssistantId, ResetCenterAssistantPasswordDto dto)
+    {
+        if (!string.Equals(dto.NewPassword, dto.ConfirmPassword, StringComparison.Ordinal))
+            return Result<string>.Failure(_localizer, "PasswordConfirmationMismatch");
+        if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 8)
+            return Result<string>.Failure(_localizer, "PasswordTooShort");
+
+        var assistant = await _unitOfWork.Centers.GetCenterAssistantByIdAsync(centerAssistantId);
+        if (assistant == null || assistant.CenterId != centerId)
+            return Result<string>.Failure(_localizer, "AssistantNotFound", HttpStatusCode.NotFound);
+
+        var user = assistant.User ?? await _unitOfWork.Users.GetUserByIdAsync(assistant.UserId);
+        if (user == null)
+            return Result<string>.Failure(_localizer, "ServerError");
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            user.PasswordHashed = _passwordService.HashPassword(dto.NewPassword);
+            user.SecurityStamp = Guid.NewGuid().ToString();
+            // A center-driven reset always revokes the assistant's live sessions (mirrors the
+            // center-teacher reset), so a shared/old device is signed out.
+            var tokens = _unitOfWork.RefreshTokenRepo.GetByUserId(user.Id);
+            await _unitOfWork.GetRepository<RefreshToken, long>().DeleteRangeAsync(tokens);
+            await _authInvalidation.InvalidateUserAsync(user.Id);
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+            return Result<string>.Success("ok", _localizer, "CenterAssistantPasswordReset");
         }
         catch
         {

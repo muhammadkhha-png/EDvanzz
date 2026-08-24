@@ -24,3 +24,14 @@ public class CenterAssistantListItemDto
     public string? PhoneNumber { get; set; }
     public AccountStatus AccountStatus { get; set; }
 }
+
+/// <summary>Mirrors <see cref="ResetCenterTeacherPasswordDto"/> for the center's assistants.</summary>
+public class ResetCenterAssistantPasswordDto
+{
+    [System.ComponentModel.DataAnnotations.Required]
+    [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 8)]
+    public string NewPassword { get; set; } = null!;
+
+    [System.ComponentModel.DataAnnotations.Required]
+    public string ConfirmPassword { get; set; } = null!;
+}

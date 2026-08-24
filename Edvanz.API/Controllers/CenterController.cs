@@ -262,4 +262,17 @@ public class CenterController : ApiBaseController
         if (centerId is null) return CenterNotResolved();
         return ToResponse(await _centerAssistantService.ReactivateAsync(centerId.Value, centerAssistantId));
     }
+
+    /// <summary>Center-managed password reset for one of its assistants (no old password needed).
+    /// Revokes the assistant's live sessions.</summary>
+    [HttpPost("assistants/{centerAssistantId:long}/reset-password")]
+    [Authorize(Roles = "Center")]
+    public async Task<IActionResult> ResetAssistantPassword(
+        [FromRoute] long centerAssistantId,
+        [FromBody] ResetCenterAssistantPasswordDto dto)
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerAssistantService.ResetPasswordAsync(centerId.Value, centerAssistantId, dto));
+    }
 }
