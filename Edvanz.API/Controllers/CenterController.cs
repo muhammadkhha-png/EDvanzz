@@ -209,6 +209,20 @@ public class CenterController : ApiBaseController
         return ToResponse(await _centerService.ResolveStudentByCodeAsync(centerId.Value, code));
     }
 
+    // ── Front-desk today's classes (session-first attendance scanning) ──
+
+    /// <summary>
+    /// TODAY's scheduled class occurrences across the center's ACTIVE teachers (teacher-local
+    /// date). The front desk picks the class being held, then scans its students continuously.
+    /// </summary>
+    [HttpGet("sessions/today")]
+    public async Task<IActionResult> GetTodaySessions()
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.GetTodaySessionsAsync(centerId.Value));
+    }
+
     // ── Center assistants (managed by the center OWNER only) ──
 
     [HttpGet("assistants")]

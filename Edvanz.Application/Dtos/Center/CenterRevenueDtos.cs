@@ -52,3 +52,27 @@ public class CenterStudentResolveCandidateDto
     /// </summary>
     public long? TodaySessionOccurrenceId { get; set; }
 }
+
+/// <summary>
+/// One of TODAY's scheduled class occurrences across the center's ACTIVE teachers — the
+/// session-first pick list for front-desk attendance scanning: the operator chooses the class
+/// being held, then scans that class's students continuously. "Today" is each teacher's local
+/// date, mirroring <see cref="CenterStudentResolveCandidateDto.TodaySessionOccurrenceId"/>.
+/// </summary>
+public class CenterTodaySessionDto
+{
+    public long TeacherId { get; set; }
+    public string TeacherName { get; set; } = string.Empty;
+    public string TeacherCode { get; set; } = string.Empty;
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = string.Empty;
+    public long SessionOccurrenceId { get; set; }
+    /// <summary>The occurrence's date (teacher-local calendar day).</summary>
+    public DateTime OccurrenceDate { get; set; }
+    /// <summary>Scheduled start time of the class (time of day).</summary>
+    public TimeSpan StartTime { get; set; }
+    /// <summary>Scheduled end time = StartTime + the session's duration.</summary>
+    public TimeSpan EndTime { get; set; }
+    /// <summary>Occurrence lifecycle status (serialized as string, e.g. "Pending").</summary>
+    public OccurrenceStatus Status { get; set; }
+}

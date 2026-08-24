@@ -37,4 +37,11 @@ public interface ICenterService
     /// <summary>Center-wide exact-match code resolve — returns one candidate per teacher using the
     /// code (0/1/many) so a shared code can be disambiguated at the front desk.</summary>
     Task<Result<List<CenterStudentResolveCandidateDto>>> ResolveStudentByCodeAsync(long centerId, string? code);
+
+    /// <summary>
+    /// TODAY's scheduled class occurrences across the center's ACTIVE teachers (teacher-local
+    /// date), ordered by teacher then start time — the session-first pick list for front-desk
+    /// attendance scanning.
+    /// </summary>
+    Task<Result<List<CenterTodaySessionDto>>> GetTodaySessionsAsync(long centerId);
 }

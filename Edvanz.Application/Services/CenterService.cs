@@ -533,6 +533,38 @@ public class CenterService : ICenterService
         return Result<List<CenterStudentResolveCandidateDto>>.Success(list, _localizer, messageKey);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<List<CenterTodaySessionDto>>> GetTodaySessionsAsync(long centerId)
+    {
+        var teachers = await _unitOfWork.Centers.GetTeachersByCenterAsync(centerId);
+        var list = new List<CenterTodaySessionDto>();
+        foreach (var teacher in teachers.Where(t => t.AccountStatus != AccountStatus.Inactive))
+        {
+            var teacherName = teacher.User?.FullName ?? string.Empty;
+            var localToday = _timeZone.GetTeacherLocalDate(teacher.Id);
+            var occurrences = await _unitOfWork.AttendanceRepo
+                .GetOccurrencesByTeacherAndDateAsync(teacher.Id, localToday);
+            foreach (var occurrence in occurrences.OrderBy(o => o.Session.StartTime))
+            {
+                list.Add(new CenterTodaySessionDto
+                {
+                    TeacherId = teacher.Id,
+                    TeacherName = teacherName,
+                    TeacherCode = teacher.TeacherCode,
+                    SessionId = occurrence.SessionId,
+                    SessionName = occurrence.Session.SessionName,
+                    SessionOccurrenceId = occurrence.Id,
+                    OccurrenceDate = occurrence.OccurrenceDate,
+                    StartTime = occurrence.Session.StartTime,
+                    EndTime = occurrence.Session.StartTime
+                              + TimeSpan.FromMinutes(occurrence.Session.DurationMinutes),
+                    Status = occurrence.Status
+                });
+            }
+        }
+        return Result<List<CenterTodaySessionDto>>.Success(list, _localizer, "Success");
+    }
+
     // ── mappers ──
     private static CenterTeacherListItemDto ToTeacherItem(Teacher t, decimal centerDefaultPercent,
         GenerationMode centerDefaultCodeMode, int studentCount, string? fullNameOverride = null) => new()
