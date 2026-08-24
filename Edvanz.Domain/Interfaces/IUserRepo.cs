@@ -45,6 +45,13 @@ namespace Edvanz.Domain.Interfaces
         Task<User?> GetByUserName(string userName);
 
         /// <summary>
+        /// Stamps <see cref="User.LastActivityAt"/> ("last seen") with a set-based UPDATE
+        /// (no tracking, no SaveChanges). Called by SessionActivitySlidingMiddleware inside
+        /// its per-user throttle window, alongside the refresh-token idle-deadline slide.
+        /// </summary>
+        Task<int> StampLastActivityAsync(long userId, DateTime nowUtc);
+
+        /// <summary>
         /// Finds a user by Id and UserType.
         /// Used by Teacher/Student/Parent services during initialization to validate
         /// that the user exists and has the correct type before creating type-specific records.

@@ -76,6 +76,11 @@ public sealed class SessionActivitySlidingMiddleware
             DateTime now = DateTime.UtcNow;
             await unitOfWork.RefreshTokenRepo.SlideActiveExpiryAsync(userId, now.AddMinutes(idleMinutes), now);
 
+            // "Last seen" stamp for the SuperAdmin Activity Monitor. Rides the same
+            // throttle window as the slide, so this stays at most one extra UPDATE per
+            // user per SlideThrottle regardless of request volume.
+            await unitOfWork.Users.StampLastActivityAsync(userId, now);
+
             // Mark throttled only after a successful write, so a transient failure retries next request.
             cache.Set(throttleKey, true, SlideThrottle);
         }

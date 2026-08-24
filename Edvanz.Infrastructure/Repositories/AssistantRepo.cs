@@ -181,5 +181,20 @@ namespace Edvanz.Infrastructure.Repositories
 
             return (list, totalCount);
         }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, int>> GetAssistantCountsAsync(
+            IReadOnlyCollection<long> teacherIds)
+        {
+            if (teacherIds.Count == 0) return new Dictionary<long, int>();
+
+            // Same base set as GetAllAssistantsAsync (no DeletedAt filter) — one GROUP BY
+            // for the page, so the count matches the expandable list row-for-row.
+            return await _context.Set<Assistant>()
+                .Where(a => teacherIds.Contains(a.TeacherAccountId))
+                .GroupBy(a => a.TeacherAccountId)
+                .Select(g => new { TeacherId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TeacherId, x => x.Count);
+        }
     }
 }

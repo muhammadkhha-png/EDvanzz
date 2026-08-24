@@ -875,6 +875,8 @@ public class TeacherService : ITeacherService
             .GetActiveStudentCountsAsync(pagedTeacherIds);
         var linkedCounts = await _unitOfWork.studentTeacherLinkRepo
             .GetActiveLinkedCountsAsync(pagedTeacherIds);
+        var assistantCounts = await _unitOfWork.AssistantRepo
+            .GetAssistantCountsAsync(pagedTeacherIds);
 
         // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
         var dtoNow = DateTime.UtcNow;
@@ -898,6 +900,8 @@ public class TeacherService : ITeacherService
             SubscriptionEndDate = x.LatestSub?.EndDate,
             CreatedAt = x.Teacher.CreateAt,
             LastLoginAt = x.User?.LastLoginAt,
+            LastActivityAt = x.User?.LastActivityAt,
+            AssistantCount = assistantCounts.GetValueOrDefault(x.Teacher.Id, 0),
             CenterId = x.Teacher.CenterId,
             CenterPlanType = x.Teacher.CenterPlanType
         }).ToList();

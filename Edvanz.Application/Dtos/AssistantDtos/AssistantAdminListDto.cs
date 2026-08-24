@@ -24,5 +24,18 @@ namespace Edvanz.Application.Dtos.AssistantDtos
         public DateTime? deletedAt { get; set; }
         public DateTime updatedAt { get; set; }
         public string? languagePreference { get; set; }
+
+        /// <summary>
+        /// UTC timestamp of the assistant's most recent successful login, or null if the
+        /// account has never logged in. Sourced from User.LastLoginAt (Activity Monitor).
+        /// </summary>
+        public DateTime? lastLoginAt { get; set; }
+
+        /// <summary>
+        /// UTC "last seen" — most recent authenticated request, stamped by
+        /// SessionActivitySlidingMiddleware (±5-minute throttle). Null until the account's
+        /// first request after the LastActivityAt column shipped.
+        /// </summary>
+        public DateTime? lastActivityAt { get; set; }
     }
 }

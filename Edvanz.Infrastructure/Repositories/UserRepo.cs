@@ -61,6 +61,14 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
+        public async Task<int> StampLastActivityAsync(long userId, DateTime nowUtc)
+        {
+            return await _context.Users
+                .Where(u => u.Id == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(u => u.LastActivityAt, nowUtc));
+        }
+
+        /// <inheritdoc />
         public async Task<User?> GetByEmail(string email)
         {
             return await _context.Users

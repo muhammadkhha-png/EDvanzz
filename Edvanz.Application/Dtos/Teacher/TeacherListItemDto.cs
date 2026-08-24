@@ -45,6 +45,20 @@ public class TeacherListItemDto
     public DateTime? LastLoginAt { get; set; }
 
     /// <summary>
+    /// UTC "last seen" — the teacher's most recent authenticated request, stamped by
+    /// SessionActivitySlidingMiddleware (±5-minute throttle). Null until the account's
+    /// first request after the LastActivityAt column shipped. Activity Monitor column.
+    /// </summary>
+    public DateTime? LastActivityAt { get; set; }
+
+    /// <summary>
+    /// Number of assistant accounts under this teacher — same population as
+    /// GET /api/assistant/all?teacherId={Id}, so the Activity Monitor's collapsed row
+    /// count always matches what expanding the row loads.
+    /// </summary>
+    public int AssistantCount { get; set; }
+
+    /// <summary>
     /// The owning Center's id when this teacher is center-owned (operated by a Center account with no
     /// login of its own); null for a standalone teacher. Additive — lets the SuperAdmin list identify
     /// and filter center-owned teachers.

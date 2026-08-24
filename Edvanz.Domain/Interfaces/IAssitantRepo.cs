@@ -54,5 +54,15 @@ namespace Edvanz.Domain.Interfaces
             int page,
             int pageSize);
 
+        /// <summary>
+        /// Per-teacher assistant counts for one PAGE of the SuperAdmin teacher list
+        /// (one GROUP BY, mirrors ITeacherStudentRepo.GetActiveStudentCountsAsync).
+        /// Deliberately counts the SAME population as <see cref="GetAllAssistantsAsync"/>
+        /// (no DeletedAt filter) so the Activity Monitor's collapsed count always equals
+        /// the rows shown when the teacher is expanded. Teachers with no assistants are
+        /// absent from the dictionary — callers default to 0.
+        /// </summary>
+        Task<Dictionary<long, int>> GetAssistantCountsAsync(IReadOnlyCollection<long> teacherIds);
+
     }
 }

@@ -35,6 +35,16 @@ public class User: BaseEntity
     /// </summary>
     public DateTime? LastLoginAt { get; set; }
 
+    /// <summary>
+    /// UTC timestamp of this account's most recent AUTHENTICATED request — "last seen",
+    /// as opposed to <see cref="LastLoginAt"/> which only moves on a real login.
+    /// Stamped by SessionActivitySlidingMiddleware inside its existing throttle window
+    /// (at most one write per user per 5 minutes), so a long-lived active session keeps
+    /// it fresh without hot-path cost. Null until the first request after this column
+    /// shipped. Surfaced on the SuperAdmin Activity Monitor (teachers + assistants).
+    /// </summary>
+    public DateTime? LastActivityAt { get; set; }
+
     [ForeignKey(nameof(CreateByUser))]
     public long? CreateByUserId { get; set; }
     public User? CreateByUser { get; set; }

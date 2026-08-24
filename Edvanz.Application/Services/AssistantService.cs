@@ -854,6 +854,8 @@ namespace Edvanz.Application.Services
                     deletedAt = a.DeletedAt,
                     languagePreference = a.LanguagePreference,
                     updatedAt = a.UpdatedAt,
+                    lastLoginAt = a.User.LastLoginAt,
+                    lastActivityAt = a.User.LastActivityAt,
                 }).ToList();
 
                 var response = new PaginatedResponse<List<AssistantAdminListDto>>
