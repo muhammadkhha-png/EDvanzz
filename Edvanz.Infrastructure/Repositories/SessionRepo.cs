@@ -80,6 +80,19 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetSessionCountsAsync(
+        IReadOnlyCollection<long> teacherIds)
+    {
+        if (teacherIds.Count == 0) return new Dictionary<long, int>();
+
+        return await _context.Sessions
+            .Where(s => teacherIds.Contains(s.TeacherId))
+            .GroupBy(s => s.TeacherId)
+            .Select(g => new { TeacherId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TeacherId, x => x.Count);
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountGroupsByTeacherAsync(long teacherId)
     {
         return await _context.SessionGroups

@@ -58,6 +58,14 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     Task<int> CountSessionsByTeacherAsync(long teacherId);
 
     /// <summary>
+    /// Per-teacher session counts for one PAGE of the SuperAdmin teacher list (one GROUP BY,
+    /// mirrors ITeacherStudentRepo.GetActiveStudentCountsAsync). Sessions are hard-deleted,
+    /// so live rows == the real count. Teachers with no sessions are absent from the
+    /// dictionary — callers default to 0. Activity Monitor "Sessions" column.
+    /// </summary>
+    Task<Dictionary<long, int>> GetSessionCountsAsync(IReadOnlyCollection<long> teacherIds);
+
+    /// <summary>
     /// Counts the session groups owned by a teacher. Used to enforce the free-tier group quota
     /// for unsubscribed teachers.
     /// </summary>

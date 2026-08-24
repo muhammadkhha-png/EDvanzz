@@ -25,6 +25,12 @@ public class TeacherListItemDto
     /// <summary>Number of students who have an ACTIVE account link (connected) to this teacher.</summary>
     public int LinkedStudentCount { get; set; }
 
+    /// <summary>
+    /// Number of sessions (classes) owned by this teacher. Sessions are hard-deleted, so
+    /// live rows == the real count. Activity Monitor "Sessions" column.
+    /// </summary>
+    public int SessionCount { get; set; }
+
     public string AccountStatus { get; set; } = null!;
     public bool IsConfigurationCompleted { get; set; }
     public string? SubscriptionStatus { get; set; }

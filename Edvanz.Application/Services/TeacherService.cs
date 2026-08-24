@@ -892,6 +892,8 @@ public class TeacherService : ITeacherService
             .GetActiveLinkedCountsAsync(pagedTeacherIds);
         var assistantStats = await _unitOfWork.AssistantRepo
             .GetAssistantActivityStatsAsync(pagedTeacherIds);
+        var sessionCounts = await _unitOfWork.SessionsRepo
+            .GetSessionCountsAsync(pagedTeacherIds);
 
         // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
         var dtoNow = DateTime.UtcNow;
@@ -921,6 +923,7 @@ public class TeacherService : ITeacherService
                 StudentCapacity = x.Teacher.StudentCapacity,
                 StudentCount = studentCounts.GetValueOrDefault(x.Teacher.Id, 0),
                 LinkedStudentCount = linkedCounts.GetValueOrDefault(x.Teacher.Id, 0),
+                SessionCount = sessionCounts.GetValueOrDefault(x.Teacher.Id, 0),
                 AccountStatus = x.Teacher.AccountStatus.ToString(),
                 IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
                 SubscriptionStatus = x.LatestSub is null
