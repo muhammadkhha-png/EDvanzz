@@ -2077,6 +2077,13 @@
         }
 
         /// <inheritdoc />
+        public async Task<WalletResetLog?> GetWalletResetLogByIdAsync(long walletResetLogId)
+        {
+            return await _context.WalletResetLogs
+                .FirstOrDefaultAsync(l => l.Id == walletResetLogId);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCenterAssistantAsync(
             long teacherId, long centerAssistantId)
         {

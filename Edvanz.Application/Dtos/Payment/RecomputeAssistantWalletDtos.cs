@@ -39,3 +39,28 @@ public sealed class RecomputeAssistantWalletReport
     /// <summary>Sum of partial withdrawals recorded after the anchor.</summary>
     public decimal PostHandoverWithdrawals { get; set; }
 }
+
+/// <summary>
+/// Report for the adjust-withdrawal admin op: corrects a <c>WalletResetLog</c>'s recorded amount
+/// when the physical hand-over differed from what was logged (e.g. a withdrawal recorded BEFORE
+/// the 2026-08-24 performer-attribution change swept up refund cash the assistant had already
+/// paid out — the record must shrink by that refund so the wallet reconciles to reality).
+/// Applying also re-runs the reset-aware balance recompute for the wallet's assistant.
+/// </summary>
+public sealed class AdjustWithdrawalReport
+{
+    /// <summary>True when the run only PREVIEWED (wrote nothing).</summary>
+    public bool DryRun { get; set; }
+
+    public long WalletResetLogId { get; set; }
+    public long TeacherId { get; set; }
+    public long? AssistantId { get; set; }
+    public System.DateTime ResetAt { get; set; }
+
+    public decimal OldAmount { get; set; }
+    public decimal NewAmount { get; set; }
+
+    /// <summary>The follow-up balance recompute (apply only; null on dry-run or when the log
+    /// belongs to a center assistant, whose wallet has no recompute op yet).</summary>
+    public RecomputeAssistantWalletReport? Recompute { get; set; }
+}

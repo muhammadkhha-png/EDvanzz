@@ -418,6 +418,16 @@ public interface IPaymentService
     Task<Result<RecomputeAssistantWalletReport>> RecomputeAssistantWalletAsync(long assistantId, bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). Corrects a withdrawal (<c>WalletResetLog</c>) whose RECORDED
+    /// amount differs from the cash physically handed over — e.g. a withdrawal logged before the
+    /// 2026-08-24 performer-attribution change swept up refund cash the assistant had already paid
+    /// out to a departing student. Applying sets <c>AmountReset</c> then re-runs the reset-aware
+    /// balance recompute for the wallet's assistant. <paramref name="dryRun"/>=true (default)
+    /// writes nothing and reports old vs new.
+    /// </summary>
+    Task<Result<AdjustWithdrawalReport>> AdjustWithdrawalAmountAsync(long walletResetLogId, decimal newAmount, bool dryRun);
+
+    /// <summary>
     /// ADMIN one-off (SuperAdmin). Repairs students left with a DUPLICATE period ladder for the same
     /// session (root cause: a non-idempotent assign that regenerated a full parallel ladder, only
     /// skipping PAID months — now fixed in <c>OnStudentAssignedToSessionAsync</c>). For each group of

@@ -4035,6 +4035,63 @@ public class PaymentService : IPaymentService
     }
 
     /// <inheritdoc />
+    public async Task<Result<AdjustWithdrawalReport>> AdjustWithdrawalAmountAsync(
+        long walletResetLogId, decimal newAmount, bool dryRun)
+    {
+        if (newAmount < 0m)
+            return Result<AdjustWithdrawalReport>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentAmountNegative);
+
+        var log = await _unitOfWork.PaymentsRepo.GetWalletResetLogByIdAsync(walletResetLogId);
+        if (log is null)
+            return Result<AdjustWithdrawalReport>.Failure(
+                _localizer, PaymentConstants.Messages.WalletNotFound, HttpStatusCode.NotFound);
+
+        var report = new AdjustWithdrawalReport
+        {
+            DryRun = dryRun,
+            WalletResetLogId = log.Id,
+            TeacherId = log.TeacherId,
+            AssistantId = log.AssistantId,
+            ResetAt = log.ResetAt,
+            OldAmount = log.AmountReset,
+            NewAmount = newAmount
+        };
+
+        if (dryRun)
+            return Result<AdjustWithdrawalReport>.Success(
+                report, _localizer, PaymentConstants.Messages.RecomputeWalletSuccess);
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            log.AmountReset = newAmount;
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        // The withdrawal amount feeds the reset-aware balance reconstruction, so re-derive the
+        // stored balance from the corrected ledger. Best-effort ordering: the amount change is
+        // already committed above, so a recompute failure leaves a consistent ledger that a
+        // manual recompute can still true up.
+        if (log.AssistantId is long assistantId)
+        {
+            var recompute = await RecomputeAssistantWalletAsync(assistantId, dryRun: false);
+            if (recompute.IsSuccess)
+                report.Recompute = recompute.Data;
+        }
+
+        return Result<AdjustWithdrawalReport>.Success(
+            report, _localizer, PaymentConstants.Messages.RecomputeWalletSuccess);
+    }
+
+    /// <inheritdoc />
     public async Task<Result<DuplicatePeriodsReconcileReport>> ReconcileDuplicatePeriodsAsync(
         long? teacherId, bool dryRun)
     {

@@ -579,6 +579,10 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsAsync(long teacherId, long assistantId);
 
+    /// <summary>One reset/withdrawal log by id, TRACKED — the admin adjust-withdrawal op mutates
+    /// <see cref="WalletResetLog.AmountReset"/> and saves.</summary>
+    Task<WalletResetLog?> GetWalletResetLogByIdAsync(long walletResetLogId);
+
     /// <summary>Reset/withdrawal ledger entries for a center-assistant's wallet (keyed by CenterAssistantId).</summary>
     Task<IReadOnlyList<WalletResetLog>> GetWalletResetLogsForCenterAssistantAsync(long teacherId, long centerAssistantId);
 

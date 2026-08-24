@@ -130,6 +130,27 @@ public class AdminPaymentController : ApiBaseController
         return ToResponse(await _paymentService.RecomputeAssistantWalletAsync(assistantId, dryRun));
     }
 
+    /// <summary>
+    /// Corrects a withdrawal's RECORDED amount when it differs from the cash physically handed
+    /// over (e.g. it swept up refund money the assistant had already paid out before the
+    /// 2026-08-24 performer-attribution change). Applying also re-runs the reset-aware wallet
+    /// recompute for the assistant.
+    /// </summary>
+    [HttpPost("adjust-withdrawal")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(AdjustWithdrawalReport), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AdjustWithdrawal(
+        [FromQuery] long walletResetLogId,
+        [FromQuery] decimal newAmount,
+        [FromQuery] bool dryRun = true)
+    {
+        if (_currentUser.UserId is null)
+            return Unauthorized();
+
+        return ToResponse(await _paymentService.AdjustWithdrawalAmountAsync(walletResetLogId, newAmount, dryRun));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT: RECONCILE DUPLICATE PAYMENT PERIODS
     //
