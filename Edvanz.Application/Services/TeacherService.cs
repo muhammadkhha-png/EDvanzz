@@ -815,23 +815,25 @@ public class TeacherService : ITeacherService
                 .Where(x => x.LatestSub != null && x.LatestSub.StartDate >= cutoff)
                 .ToList();
         }
-        // ── 5. Search — contains, case-insensitive, across all fields ─────────
+        // ── 5. Search — contains, case-insensitive AND Arabic-variant-insensitive ──
+        // Both sides are folded through ArabicTextNormalizer so أ/ا, ة/ه, ى/ي etc.
+        // match each other (in-memory filter, so the fold is safe here).
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var search = request.Search.Trim().ToLower();
+            var search = ArabicTextNormalizer.Normalize(request.Search.Trim());
 
             joined = joined.Where(x =>
                 // Teacher code
-                x.Teacher.TeacherCode.ToLower().Contains(search) ||
+                ArabicTextNormalizer.Normalize(x.Teacher.TeacherCode).Contains(search) ||
                 // Full name
-                (x.User != null && x.User.FullName.ToLower().Contains(search)) ||
+                (x.User != null && ArabicTextNormalizer.Normalize(x.User.FullName).Contains(search)) ||
                 // Username
-                (x.User != null && x.User.Username.ToLower().Contains(search)) ||
+                (x.User != null && ArabicTextNormalizer.Normalize(x.User.Username).Contains(search)) ||
                 // Phone number
                 (x.User != null && !string.IsNullOrWhiteSpace(x.User.PhoneNumber) &&
-                 x.User.PhoneNumber.ToLower().Contains(search)) ||
+                 ArabicTextNormalizer.Normalize(x.User.PhoneNumber).Contains(search)) ||
                 // Subject (predefined + custom)
-                x.SubjectSearchText.ToLower().Contains(search)
+                ArabicTextNormalizer.Normalize(x.SubjectSearchText).Contains(search)
             ).ToList();
         }
 
