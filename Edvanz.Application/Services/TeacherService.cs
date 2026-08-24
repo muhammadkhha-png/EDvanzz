@@ -729,7 +729,8 @@ public class TeacherService : ITeacherService
     public async Task<Result<PaginatedResponse<List<TeacherListItemDto>>>> GetTeachersAsync(
         PaginatedRequest request,
         string? accountStatus = null,
-        string? subscriptionStatus = null)
+        string? subscriptionStatus = null,
+        int? subscribedWithinDays = null)
     {
         // ── 1. Load all base data via named repo methods ───────────────────────
         var allTeachers = await _unitOfWork.Users.GetAllTeachersAsync();
@@ -804,6 +805,16 @@ public class TeacherService : ITeacherService
                 .Where(x => SubscriptionStatusCalculator.Derive(x.LatestSub, filterNow) == parsedSubStatus)
                 .ToList();
         }
+
+        // ── 4b. Newly-subscribed filter (Activity Monitor tab) ────────────────
+        // Teachers whose CURRENT subscription started within the window, newest first.
+        if (subscribedWithinDays is > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-subscribedWithinDays.Value);
+            joined = joined
+                .Where(x => x.LatestSub != null && x.LatestSub.StartDate >= cutoff)
+                .ToList();
+        }
         // ── 5. Search — contains, case-insensitive, across all fields ─────────
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
@@ -829,7 +840,11 @@ public class TeacherService : ITeacherService
 
         bool isDesc = request.SortDirection == SortDirection.Desc;
 
-        joined = request.SortBy switch
+        // Newly-subscribed mode orders by subscription start (newest first) — the tab's
+        // whole point — overriding the generic sort options.
+        joined = subscribedWithinDays is > 0
+            ? joined.OrderByDescending(x => x.LatestSub!.StartDate).ToList()
+            : request.SortBy switch
         {
             TeacherSortBy.Capacity => isDesc
                 ? joined.OrderByDescending(x => x.Teacher.StudentCapacity).ToList()
@@ -875,35 +890,55 @@ public class TeacherService : ITeacherService
             .GetActiveStudentCountsAsync(pagedTeacherIds);
         var linkedCounts = await _unitOfWork.studentTeacherLinkRepo
             .GetActiveLinkedCountsAsync(pagedTeacherIds);
-        var assistantCounts = await _unitOfWork.AssistantRepo
-            .GetAssistantCountsAsync(pagedTeacherIds);
+        var assistantStats = await _unitOfWork.AssistantRepo
+            .GetAssistantActivityStatsAsync(pagedTeacherIds);
 
         // ── 9. Build DTOs (status DERIVED, not read from column) ─────────────
         var dtoNow = DateTime.UtcNow;
-        var items = paged.Select(x => new TeacherListItemDto
+
+        // Later of two nullable instants — nulls lose to any value.
+        static DateTime? MaxDate(DateTime? a, DateTime? b) =>
+            a is null ? b : b is null ? a : (a > b ? a : b);
+
+        var items = paged.Select(x =>
         {
-            Id = x.Teacher.Id,
-            UserId = x.User?.Id ?? 0,
-            FullName = x.User?.FullName ?? string.Empty,
-            Username = x.User?.Username ?? string.Empty,
-            TeacherCode = x.Teacher.TeacherCode,
-            PhoneNumber = x.User?.PhoneNumber,
-            StudentCapacity = x.Teacher.StudentCapacity,
-            StudentCount = studentCounts.GetValueOrDefault(x.Teacher.Id, 0),
-            LinkedStudentCount = linkedCounts.GetValueOrDefault(x.Teacher.Id, 0),
-            AccountStatus = x.Teacher.AccountStatus.ToString(),
-            IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
-            SubscriptionStatus = x.LatestSub is null
-                ? null
-                : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),
-            PlanType = x.LatestSub?.PlanType,
-            SubscriptionEndDate = x.LatestSub?.EndDate,
-            CreatedAt = x.Teacher.CreateAt,
-            LastLoginAt = x.User?.LastLoginAt,
-            LastActivityAt = x.User?.LastActivityAt,
-            AssistantCount = assistantCounts.GetValueOrDefault(x.Teacher.Id, 0),
-            CenterId = x.Teacher.CenterId,
-            CenterPlanType = x.Teacher.CenterPlanType
+            var stats = assistantStats.GetValueOrDefault(
+                x.Teacher.Id, (Count: 0, MaxLastActivityAt: (DateTime?)null, MaxLastLoginAt: (DateTime?)null));
+
+            // "Last seen" per side = the later of last-activity and last-login (login IS
+            // activity, and LastActivityAt is null for accounts idle since it shipped).
+            var teacherSeen = MaxDate(x.User?.LastActivityAt, x.User?.LastLoginAt);
+            var assistantSeen = MaxDate(stats.MaxLastActivityAt, stats.MaxLastLoginAt);
+
+            return new TeacherListItemDto
+            {
+                Id = x.Teacher.Id,
+                UserId = x.User?.Id ?? 0,
+                FullName = x.User?.FullName ?? string.Empty,
+                Username = x.User?.Username ?? string.Empty,
+                TeacherCode = x.Teacher.TeacherCode,
+                PhoneNumber = x.User?.PhoneNumber,
+                StudentCapacity = x.Teacher.StudentCapacity,
+                StudentCount = studentCounts.GetValueOrDefault(x.Teacher.Id, 0),
+                LinkedStudentCount = linkedCounts.GetValueOrDefault(x.Teacher.Id, 0),
+                AccountStatus = x.Teacher.AccountStatus.ToString(),
+                IsConfigurationCompleted = x.Teacher.IsConfigurationCompleted,
+                SubscriptionStatus = x.LatestSub is null
+                    ? null
+                    : SubscriptionStatusCalculator.Derive(x.LatestSub, dtoNow).ToString(),
+                PlanType = x.LatestSub?.PlanType,
+                SubscriptionEndDate = x.LatestSub?.EndDate,
+                SubscriptionStartDate = x.LatestSub?.StartDate,
+                CreatedAt = x.Teacher.CreateAt,
+                LastLoginAt = x.User?.LastLoginAt,
+                LastActivityAt = x.User?.LastActivityAt,
+                AssistantCount = stats.Count,
+                TeamLastActivityAt = MaxDate(teacherSeen, assistantSeen),
+                TeamLastActivityIsAssistant =
+                    assistantSeen.HasValue && (teacherSeen is null || assistantSeen > teacherSeen),
+                CenterId = x.Teacher.CenterId,
+                CenterPlanType = x.Teacher.CenterPlanType
+            };
         }).ToList();
 
         // ── 10. Build response ─────────────────────────────────────────────────

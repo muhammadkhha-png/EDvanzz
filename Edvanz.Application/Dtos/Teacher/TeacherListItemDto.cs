@@ -36,6 +36,14 @@ public class TeacherListItemDto
     public SubscriptionPlanType? PlanType { get; set; }
 
     public DateTime? SubscriptionEndDate { get; set; }
+
+    /// <summary>
+    /// Start date of the teacher's CURRENT subscription (IsCurrent row), or null when the
+    /// teacher has never subscribed / has no current row. "Subscribed on" column and the
+    /// Activity Monitor's newly-subscribed tab both read this.
+    /// </summary>
+    public DateTime? SubscriptionStartDate { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
@@ -57,6 +65,21 @@ public class TeacherListItemDto
     /// count always matches what expanding the row loads.
     /// </summary>
     public int AssistantCount { get; set; }
+
+    /// <summary>
+    /// Latest "seen" moment across the whole team: the max of the teacher's own
+    /// LastActivityAt/LastLoginAt and every assistant's LastActivityAt/LastLoginAt.
+    /// Answers "when did this teacher OR any of their assistants last use the app"
+    /// without expanding the row. Null when nobody has ever logged in.
+    /// </summary>
+    public DateTime? TeamLastActivityAt { get; set; }
+
+    /// <summary>
+    /// True when <see cref="TeamLastActivityAt"/> came from an assistant rather than the
+    /// teacher's own account — the UI annotates the value with "assistant" so the admin
+    /// knows who was actually active.
+    /// </summary>
+    public bool TeamLastActivityIsAssistant { get; set; }
 
     /// <summary>
     /// The owning Center's id when this teacher is center-owned (operated by a Center account with no

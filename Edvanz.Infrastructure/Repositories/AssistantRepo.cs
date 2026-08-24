@@ -183,18 +183,29 @@ namespace Edvanz.Infrastructure.Repositories
         }
 
         /// <inheritdoc />
-        public async Task<Dictionary<long, int>> GetAssistantCountsAsync(
-            IReadOnlyCollection<long> teacherIds)
+        public async Task<Dictionary<long, (int Count, DateTime? MaxLastActivityAt, DateTime? MaxLastLoginAt)>>
+            GetAssistantActivityStatsAsync(IReadOnlyCollection<long> teacherIds)
         {
-            if (teacherIds.Count == 0) return new Dictionary<long, int>();
+            if (teacherIds.Count == 0)
+                return new Dictionary<long, (int, DateTime?, DateTime?)>();
 
             // Same base set as GetAllAssistantsAsync (no DeletedAt filter) — one GROUP BY
             // for the page, so the count matches the expandable list row-for-row.
-            return await _context.Set<Assistant>()
+            var rows = await _context.Set<Assistant>()
                 .Where(a => teacherIds.Contains(a.TeacherAccountId))
                 .GroupBy(a => a.TeacherAccountId)
-                .Select(g => new { TeacherId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.TeacherId, x => x.Count);
+                .Select(g => new
+                {
+                    TeacherId = g.Key,
+                    Count = g.Count(),
+                    MaxLastActivityAt = g.Max(a => a.User.LastActivityAt),
+                    MaxLastLoginAt = g.Max(a => a.User.LastLoginAt),
+                })
+                .ToListAsync();
+
+            return rows.ToDictionary(
+                x => x.TeacherId,
+                x => (x.Count, x.MaxLastActivityAt, x.MaxLastLoginAt));
         }
     }
 }

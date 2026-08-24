@@ -124,10 +124,14 @@ public interface ITeacherService
     /// <param name="request">Pagination, search, and sort parameters.</param>
     /// <param name="accountStatus">Optional filter by account status (Active, Inactive, Suspended).</param>
     /// <param name="subscriptionStatus">Optional filter by derived subscription status (Active, ExpiringSoon, Expired).</param>
+    /// <param name="subscribedWithinDays">Optional — only teachers whose CURRENT subscription
+    /// started within this many days, ordered newest-subscription-first (Activity Monitor's
+    /// newly-subscribed tab).</param>
     Task<Result<PaginatedResponse<List<TeacherListItemDto>>>> GetTeachersAsync(
         PaginatedRequest request,
         string? accountStatus = null,
-        string? subscriptionStatus = null);
+        string? subscriptionStatus = null,
+        int? subscribedWithinDays = null);
     /// <summary>
     /// Toggles a teacher's account status (Active / Inactive / Suspended). Sets User.IsActive
     /// (the login gate) and bumps the security stamp in the same transaction so any live session

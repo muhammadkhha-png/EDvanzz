@@ -661,6 +661,9 @@ public class TeacherController : ApiBaseController
     //   - sortDirection (string, optional): "asc" or "desc" (default: "asc")
     //   - accountStatus (string, optional): "Active", "Inactive", or "Suspended"
     //   - subscriptionStatus (string, optional): "Active", "ExpiringSoon", or "Expired"
+    //   - subscribedWithinDays (int, optional): only teachers whose CURRENT subscription
+    //     started within this many days, ordered newest-subscription-first
+    //     (Activity Monitor "Newly subscribed" tab)
     //
     // TABLES READ:
     //   Teachers, Users, TeacherSubscriptions
@@ -707,12 +710,14 @@ public class TeacherController : ApiBaseController
     public async Task<IActionResult> GetTeachers(
     [FromQuery] PaginatedRequest request,
     [FromQuery] AccountStatus? accountStatus = null,
-    [FromQuery] SubscriptionStatus? subscriptionStatus = null)
+    [FromQuery] SubscriptionStatus? subscriptionStatus = null,
+    [FromQuery] int? subscribedWithinDays = null)
     {
         var result = await _teacherService.GetTeachersAsync(
             request,
             accountStatus?.ToString(),
-            subscriptionStatus?.ToString());
+            subscriptionStatus?.ToString(),
+            subscribedWithinDays);
         return ToResponse(result);
     }
     [HttpPatch("{id:long}/deactivate")]
