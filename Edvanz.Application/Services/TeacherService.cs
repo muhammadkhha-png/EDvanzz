@@ -730,7 +730,9 @@ public class TeacherService : ITeacherService
         PaginatedRequest request,
         string? accountStatus = null,
         string? subscriptionStatus = null,
-        int? subscribedWithinDays = null)
+        int? subscribedWithinDays = null,
+        DateTime? registeredFrom = null,
+        DateTime? registeredTo = null)
     {
         // ── 1. Load all base data via named repo methods ───────────────────────
         var allTeachers = await _unitOfWork.Users.GetAllTeachersAsync();
@@ -815,6 +817,27 @@ public class TeacherService : ITeacherService
                 .Where(x => x.LatestSub != null && x.LatestSub.StartDate >= cutoff)
                 .ToList();
         }
+
+        // ── 4c. Registration date-range filter (Activity Monitor "registered on") ──
+        // Filters by Teacher.CreateAt (account registration). Both bounds are inclusive:
+        // registeredFrom is snapped to the start of its day; registeredTo covers the WHOLE
+        // of its day (compared against an exclusive next-day bound), so "20 Aug → 25 Aug"
+        // includes every teacher registered on any of those days regardless of the time of
+        // day sent. Either bound may be omitted for an open-ended range.
+        var registrationFilterActive = registeredFrom is not null || registeredTo is not null;
+        if (registrationFilterActive)
+        {
+            if (registeredFrom is not null)
+            {
+                var from = registeredFrom.Value.Date;
+                joined = joined.Where(x => x.Teacher.CreateAt >= from).ToList();
+            }
+            if (registeredTo is not null)
+            {
+                var toExclusive = registeredTo.Value.Date.AddDays(1);
+                joined = joined.Where(x => x.Teacher.CreateAt < toExclusive).ToList();
+            }
+        }
         // ── 5. Search — contains, case-insensitive AND Arabic-variant-insensitive ──
         // Both sides are folded through ArabicTextNormalizer so أ/ا, ة/ه, ى/ي etc.
         // match each other (in-memory filter, so the fold is safe here).
@@ -843,9 +866,14 @@ public class TeacherService : ITeacherService
         bool isDesc = request.SortDirection == SortDirection.Desc;
 
         // Newly-subscribed mode orders by subscription start (newest first) — the tab's
-        // whole point — overriding the generic sort options.
+        // whole point — overriding the generic sort options. A registration date-range
+        // filter likewise orders by registration date (newest first) so the most recent
+        // registrations in the window surface first. These two modes never coexist (they
+        // drive separate Activity Monitor tabs), so a simple precedence chain is enough.
         joined = subscribedWithinDays is > 0
             ? joined.OrderByDescending(x => x.LatestSub!.StartDate).ToList()
+            : registrationFilterActive
+            ? joined.OrderByDescending(x => x.Teacher.CreateAt).ToList()
             : request.SortBy switch
         {
             TeacherSortBy.Capacity => isDesc

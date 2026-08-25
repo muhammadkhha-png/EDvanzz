@@ -127,11 +127,19 @@ public interface ITeacherService
     /// <param name="subscribedWithinDays">Optional — only teachers whose CURRENT subscription
     /// started within this many days, ordered newest-subscription-first (Activity Monitor's
     /// newly-subscribed tab).</param>
+    /// <param name="registeredFrom">Optional inclusive lower bound on REGISTRATION date
+    /// (Teacher.CreateAt). Rows created before this instant are excluded.</param>
+    /// <param name="registeredTo">Optional inclusive upper bound on REGISTRATION date
+    /// (Teacher.CreateAt) — the WHOLE of that calendar day is included. When either bound is
+    /// supplied, results are ordered newest-registration-first (Activity Monitor's
+    /// "registered on" date-range filter).</param>
     Task<Result<PaginatedResponse<List<TeacherListItemDto>>>> GetTeachersAsync(
         PaginatedRequest request,
         string? accountStatus = null,
         string? subscriptionStatus = null,
-        int? subscribedWithinDays = null);
+        int? subscribedWithinDays = null,
+        DateTime? registeredFrom = null,
+        DateTime? registeredTo = null);
     /// <summary>
     /// Toggles a teacher's account status (Active / Inactive / Suspended). Sets User.IsActive
     /// (the login gate) and bumps the security stamp in the same transaction so any live session

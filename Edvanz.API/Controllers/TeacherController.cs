@@ -664,6 +664,10 @@ public class TeacherController : ApiBaseController
     //   - subscribedWithinDays (int, optional): only teachers whose CURRENT subscription
     //     started within this many days, ordered newest-subscription-first
     //     (Activity Monitor "Newly subscribed" tab)
+    //   - registeredFrom / registeredTo (date, optional): filter by REGISTRATION date
+    //     (Teacher.CreateAt). Inclusive on both ends — registeredTo covers the whole of
+    //     that day. Ordered newest-registration-first (Activity Monitor "Registered on"
+    //     date-range filter). Either bound may be omitted (open-ended range).
     //
     // TABLES READ:
     //   Teachers, Users, TeacherSubscriptions
@@ -711,13 +715,17 @@ public class TeacherController : ApiBaseController
     [FromQuery] PaginatedRequest request,
     [FromQuery] AccountStatus? accountStatus = null,
     [FromQuery] SubscriptionStatus? subscriptionStatus = null,
-    [FromQuery] int? subscribedWithinDays = null)
+    [FromQuery] int? subscribedWithinDays = null,
+    [FromQuery] DateTime? registeredFrom = null,
+    [FromQuery] DateTime? registeredTo = null)
     {
         var result = await _teacherService.GetTeachersAsync(
             request,
             accountStatus?.ToString(),
             subscriptionStatus?.ToString(),
-            subscribedWithinDays);
+            subscribedWithinDays,
+            registeredFrom,
+            registeredTo);
         return ToResponse(result);
     }
     [HttpPatch("{id:long}/deactivate")]
