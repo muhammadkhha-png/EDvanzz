@@ -32,6 +32,23 @@ public class CenterListItemDto
     public int FullTeacherCount { get; set; }
     public int ManagerialTeacherCount { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>The center's login <see cref="User"/> id — the SuperAdmin dashboard passes this to
+    /// <c>POST /api/Auth/admin/force-change-password</c> to reset the center's password.</summary>
+    public long UserId { get; set; }
+
+    /// <summary>The username the center signs in with (from its login User). Shown in the admin list,
+    /// mirroring the teacher list's Username column.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>UTC timestamp of the center's most recent successful login, or null if it has never
+    /// logged in. Sourced from User.LastLoginAt — the Activity Monitor "Last login" column.</summary>
+    public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>UTC "last seen" — the center's most recent authenticated request, stamped by
+    /// SessionActivitySlidingMiddleware (±5-minute throttle). Null until the account's first request
+    /// after the column shipped. Activity Monitor column.</summary>
+    public DateTime? LastActivityAt { get; set; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
