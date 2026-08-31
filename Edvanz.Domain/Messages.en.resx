@@ -2526,6 +2526,9 @@
   <data name="CenterSettingsUpdated" xml:space="preserve">
     <value>Center settings updated.</value>
   </data>
+  <data name="CenterConfigAppliedToAllTeachers" xml:space="preserve">
+    <value>Center settings applied to all teachers.</value>
+  </data>
   <data name="BackfillInvalidMonthFormat" xml:space="preserve">
     <value>Month must be in YYYY-MM format.</value>
   </data>

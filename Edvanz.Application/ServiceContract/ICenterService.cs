@@ -12,9 +12,16 @@ public interface ICenterService
 {
     Task<Result<CenterOverviewDto>> GetOverviewAsync(long centerId);
 
-    /// <summary>Center's own settings (revenue-share %, student-code mode) — center-controlled.</summary>
+    /// <summary>Center's own settings (revenue-share %, student-code mode, + the full center-default
+    /// configuration = teacher-parity toggles + prorated tiers) — center-controlled.</summary>
     Task<Result<CenterSettingsDto>> GetSettingsAsync(long centerId);
     Task<Result<CenterSettingsDto>> UpdateSettingsAsync(long centerId, UpdateCenterSettingsDto dto);
+
+    /// <summary>Overwrites EVERY non-deleted center teacher's configuration (all mirrored toggles +
+    /// prorated tiers) from the center's default config, running the SAME per-teacher save the teacher
+    /// settings screen runs — including the proration reconcile. Never touches a teacher's
+    /// capacity/subscription/revenue-override. Idempotent; returns the number of teachers updated.</summary>
+    Task<Result<ApplyCenterConfigResultDto>> ApplyConfigToAllTeachersAsync(long centerId);
 
     Task<Result<List<CenterTeacherListItemDto>>> GetTeachersAsync(long centerId);
     Task<Result<CenterTeacherListItemDto>> CreateTeacherAsync(long centerId, long actingUserId, CreateCenterTeacherDto dto);
@@ -44,4 +51,14 @@ public interface ICenterService
     /// attendance scanning.
     /// </summary>
     Task<Result<List<CenterTodaySessionDto>>> GetTodaySessionsAsync(long centerId);
+
+    /// <summary>
+    /// The recurrence SCHEDULES of every ACTIVE session across the center's ACTIVE teachers (with
+    /// teacher identity), in a single batched read. The front-desk attendance picker runs the
+    /// teacher-home recurrence logic client-side over these to render a week-day strip and the
+    /// selected day's classes grouped per teacher — matching the teacher home exactly, scaled to many
+    /// teachers. Unlike <see cref="GetTodaySessionsAsync"/> this is schedule-derived (not occurrence-
+    /// derived), so it never lags materialized occurrences.
+    /// </summary>
+    Task<Result<List<CenterTeacherScheduleDto>>> GetTeacherScheduleSummariesAsync(long centerId);
 }

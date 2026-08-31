@@ -73,6 +73,21 @@ public class CenterController : ApiBaseController
         return ToResponse(await _centerService.UpdateSettingsAsync(centerId.Value, dto));
     }
 
+    /// <summary>
+    /// Owner-only: overwrite EVERY center teacher's configuration from the center's default config
+    /// (all mirrored toggles + prorated tiers), running the same per-teacher save (incl. proration
+    /// re-pricing). Does NOT touch any teacher's capacity/subscription/revenue-override. Returns the
+    /// number of teachers updated. The client confirms with a warning dialog before calling this.
+    /// </summary>
+    [HttpPost("settings/apply-to-all-teachers")]
+    [Authorize(Roles = "Center")]
+    public async Task<IActionResult> ApplyConfigToAllTeachers()
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.ApplyConfigToAllTeachersAsync(centerId.Value));
+    }
+
     [HttpGet("teachers")]
     public async Task<IActionResult> GetTeachers()
     {
@@ -221,6 +236,20 @@ public class CenterController : ApiBaseController
         var centerId = await ResolveCenterIdAsync();
         if (centerId is null) return CenterNotResolved();
         return ToResponse(await _centerService.GetTodaySessionsAsync(centerId.Value));
+    }
+
+    /// <summary>
+    /// The recurrence SCHEDULES of every active session across the center's active teachers (with
+    /// teacher identity). The front desk renders a teacher-home-style week-day strip from these and
+    /// shows the selected day's classes grouped per teacher, then scans the chosen class. Schedule-
+    /// derived (never lags materialized occurrences); the tap still targets today's live occurrence.
+    /// </summary>
+    [HttpGet("sessions/schedules")]
+    public async Task<IActionResult> GetSessionSchedules()
+    {
+        var centerId = await ResolveCenterIdAsync();
+        if (centerId is null) return CenterNotResolved();
+        return ToResponse(await _centerService.GetTeacherScheduleSummariesAsync(centerId.Value));
     }
 
     // ── Center assistants (managed by the center OWNER only) ──

@@ -1,3 +1,4 @@
+using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.Dtos.Center;
@@ -65,14 +66,35 @@ public class CenterSettingsDto
     public decimal DefaultRevenueSharePercent { get; set; }
     /// <summary>Center-wide default student-code mode ("Auto" | "Manual").</summary>
     public GenerationMode StudentCodeGenerationMode { get; set; }
+
+    /// <summary>
+    /// The center's FULL default configuration (teacher-parity toggles + prorated tiers). Reuses the
+    /// teacher config DTO shape so the client can render the exact same settings UI, just bound to
+    /// center defaults. Lazy-created with system defaults on first read.
+    /// </summary>
+    public TeacherConfigurationDto Configuration { get; set; } = new();
 }
 
-/// <summary>Center updates its own settings. Omitted fields are left unchanged.</summary>
+/// <summary>Center updates its own settings. Omitted top-level fields are left unchanged; the config
+/// block, when present, is a FULL replace (mirrors the teacher settings save, incl. tier replace).</summary>
 public class UpdateCenterSettingsDto
 {
     public string? Name { get; set; }
     public decimal? DefaultRevenueSharePercent { get; set; }
     public GenerationMode? StudentCodeGenerationMode { get; set; }
+
+    /// <summary>
+    /// Full center default configuration to save. Null = leave the config unchanged (only business
+    /// fields updated). Reuses the teacher update DTO; <c>StudentCapacityPackageId</c> is IGNORED for a
+    /// center (capacity is a per-teacher/subscription concern).
+    /// </summary>
+    public UpdateTeacherConfigurationDto? Configuration { get; set; }
+}
+
+/// <summary>Result of "apply center config to all teachers" — how many teachers were updated.</summary>
+public class ApplyCenterConfigResultDto
+{
+    public int UpdatedTeacherCount { get; set; }
 }
 
 /// <summary>Center creates a teacher PROFILE (no login — the User row is created IsActive=false).</summary>

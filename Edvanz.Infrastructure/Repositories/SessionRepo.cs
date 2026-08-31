@@ -93,6 +93,34 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<Session>> GetActiveSessionsByTeacherIdsAsync(
+        IReadOnlyCollection<long> teacherIds, DateTime today)
+    {
+        if (teacherIds.Count == 0) return new List<Session>();
+
+        // Same "activeOnly" predicate as BuildSessionListQuery (EndDate >= today), fanned across a
+        // whole center's teachers in a single query — no ordering (the client groups per teacher).
+        return await _context.Sessions
+            .Where(s => teacherIds.Contains(s.TeacherId) && s.EndDate >= today)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetStudentCountsBySessionIdsAsync(
+        IReadOnlyCollection<long> sessionIds)
+    {
+        if (sessionIds.Count == 0) return new Dictionary<long, int>();
+
+        // Mirrors CountStudentsBySessionAsync (active roster rows via the global filter), grouped so
+        // the center picker gets every session's live count in one round-trip.
+        return await _context.TeacherStudents
+            .Where(ts => ts.SessionId != null && sessionIds.Contains(ts.SessionId.Value))
+            .GroupBy(ts => ts.SessionId!.Value)
+            .Select(g => new { SessionId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.SessionId, x => x.Count);
+    }
+
+    /// <inheritdoc />
     public async Task<int> CountGroupsByTeacherAsync(long teacherId)
     {
         return await _context.SessionGroups

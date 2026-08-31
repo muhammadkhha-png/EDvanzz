@@ -89,14 +89,8 @@ public class CenterService : ICenterService
         if (center == null)
             return Result<CenterSettingsDto>.Failure(_localizer, "CenterNotFound", HttpStatusCode.NotFound);
 
-        return Result<CenterSettingsDto>.Success(new CenterSettingsDto
-        {
-            CenterId = center.Id,
-            Name = center.Name,
-            CenterCode = center.CenterCode,
-            DefaultRevenueSharePercent = center.DefaultRevenueSharePercent,
-            StudentCodeGenerationMode = center.StudentCodeGenerationMode
-        }, _localizer, "Success");
+        var dto = await BuildSettingsDtoAsync(center);
+        return Result<CenterSettingsDto>.Success(dto, _localizer, "Success");
     }
 
     /// <inheritdoc />
@@ -108,23 +102,30 @@ public class CenterService : ICenterService
         if (dto.DefaultRevenueSharePercent is < 0 or > 100)
             return Result<CenterSettingsDto>.Failure(_localizer, "InvalidRevenueSharePercent", HttpStatusCode.BadRequest);
 
+        // Validate the config block up front (same rules as the teacher settings save). It is a DEFAULT
+        // template — no students hang off it — so a center-config save never re-prices anyone.
+        if (dto.Configuration is not null)
+        {
+            var validationKey = ValidateConfigTiers(dto.Configuration);
+            if (validationKey is not null)
+                return Result<CenterSettingsDto>.Failure(_localizer, validationKey, HttpStatusCode.BadRequest);
+        }
+
         await _unitOfWork.BeginTransactionAsync();
         try
         {
             if (!string.IsNullOrWhiteSpace(dto.Name)) center.Name = dto.Name.Trim();
             if (dto.DefaultRevenueSharePercent.HasValue) center.DefaultRevenueSharePercent = dto.DefaultRevenueSharePercent.Value;
             if (dto.StudentCodeGenerationMode.HasValue) center.StudentCodeGenerationMode = dto.StudentCodeGenerationMode.Value;
+
+            if (dto.Configuration is not null)
+                await SaveCenterConfigInTransactionAsync(center, dto.Configuration);
+
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
 
-            return Result<CenterSettingsDto>.Success(new CenterSettingsDto
-            {
-                CenterId = center.Id,
-                Name = center.Name,
-                CenterCode = center.CenterCode,
-                DefaultRevenueSharePercent = center.DefaultRevenueSharePercent,
-                StudentCodeGenerationMode = center.StudentCodeGenerationMode
-            }, _localizer, "CenterSettingsUpdated");
+            var resultDto = await BuildSettingsDtoAsync(center);
+            return Result<CenterSettingsDto>.Success(resultDto, _localizer, "CenterSettingsUpdated");
         }
         catch
         {
@@ -132,6 +133,252 @@ public class CenterService : ICenterService
             return Result<CenterSettingsDto>.Failure(_localizer, "ServerError");
         }
     }
+
+    /// <inheritdoc />
+    public async Task<Result<ApplyCenterConfigResultDto>> ApplyConfigToAllTeachersAsync(long centerId)
+    {
+        var center = await _unitOfWork.Centers.GetCenterByIdAsync(centerId);
+        if (center == null)
+            return Result<ApplyCenterConfigResultDto>.Failure(_localizer, "CenterNotFound", HttpStatusCode.NotFound);
+
+        // Snapshot the center's template into a teacher update DTO (never carries a capacity package).
+        var config = await EnsureCenterConfigAsync(center);
+        var tiers = await _unitOfWork.Centers.GetProratedTiersByConfigIdAsync(config.Id);
+        var templateDto = MapConfigToUpdateDto(config, tiers, center.StudentCodeGenerationMode);
+
+        // ALL non-deleted teachers (active + inactive) owned by the center.
+        var teacherIds = await _unitOfWork.Centers.GetTeacherIdsByCenterAsync(centerId);
+
+        int updated = 0;
+        foreach (var teacherId in teacherIds)
+        {
+            // Reuse the EXACT single-teacher settings save so behavior is IDENTICAL — including the
+            // proration reconcile that re-prices existing students when the proration config changed.
+            // Each call owns its own transaction, so this is literally N independent single-teacher
+            // saves (idempotent: re-running writes the same values). A teacher whose save can't apply
+            // (e.g. missing config row) is skipped and not counted; infra failures still throw.
+            var result = await _teacherService.SaveConfigurationAsync(teacherId, templateDto);
+            if (result.IsSuccess) updated++;
+        }
+
+        return Result<ApplyCenterConfigResultDto>.Success(
+            new ApplyCenterConfigResultDto { UpdatedTeacherCount = updated },
+            _localizer, "CenterConfigAppliedToAllTeachers");
+    }
+
+    /// <summary>Builds the full center settings DTO (business fields + the config block), lazy-creating
+    /// the config if needed. The config block's StudentCodeGenerationMode is projected from the
+    /// authoritative <see cref="Center.StudentCodeGenerationMode"/> so the two never disagree.</summary>
+    private async Task<CenterSettingsDto> BuildSettingsDtoAsync(Center center)
+    {
+        var config = await EnsureCenterConfigAsync(center);
+        var tiers = await _unitOfWork.Centers.GetProratedTiersByConfigIdAsync(config.Id);
+        return new CenterSettingsDto
+        {
+            CenterId = center.Id,
+            Name = center.Name,
+            CenterCode = center.CenterCode,
+            DefaultRevenueSharePercent = center.DefaultRevenueSharePercent,
+            StudentCodeGenerationMode = center.StudentCodeGenerationMode,
+            Configuration = MapConfigToDto(config, tiers, center.StudentCodeGenerationMode)
+        };
+    }
+
+    /// <summary>Persists the center config block INSIDE the caller's transaction (full replace incl.
+    /// prorated tiers). Keeps the stored code-mode mirror in sync with the authoritative
+    /// <see cref="Center.StudentCodeGenerationMode"/> (edited via the top-level card).</summary>
+    private async Task SaveCenterConfigInTransactionAsync(Center center, UpdateTeacherConfigurationDto dto)
+    {
+        var config = await EnsureCenterConfigAsync(center);
+
+        config.StudentCodeGenerationMode = center.StudentCodeGenerationMode; // mirror stays synced
+        config.StudentCodeLanguage = dto.StudentCodeLanguage;
+        config.SessionNameMode = dto.SessionNameMode;
+        config.SessionNameLanguage = dto.SessionNameLanguage;
+        config.IsProratedPaymentEnabled = dto.IsProratedPaymentEnabled;
+        config.ConsecutiveAbsenceThreshold = dto.ConsecutiveAbsenceThreshold;
+        config.ConsecutiveUnpaidThreshold = dto.ConsecutiveUnpaidThreshold;
+        config.BarcodeDisplayMode = dto.BarcodeDisplayMode;
+        config.StudentVisibilityAttendance = dto.StudentVisibilityAttendance;
+        config.StudentVisibilityPayment = dto.StudentVisibilityPayment;
+        config.StudentVisibilityHomework = dto.StudentVisibilityHomework;
+        config.StudentVisibilityExamDefault = dto.StudentVisibilityExamDefault;
+        config.StudentVisibilityVideo = dto.StudentVisibilityVideo;
+        config.ParentVisibilityAttendance = dto.ParentVisibilityAttendance;
+        config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
+        config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
+        config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
+        config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
+        config.ShowPaymentInfoOnAttendanceScreen = dto.ShowPaymentInfoOnAttendanceScreen;
+        config.ShowAttendanceHistoryOnAttendanceScreen = dto.ShowAttendanceHistoryOnAttendanceScreen;
+        config.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.Centers.UpdateConfigurationAsync(config);
+
+        // Replace tiers (delete existing, add new) — same pattern as the teacher save.
+        var existing = await _unitOfWork.Centers.GetProratedTiersByConfigIdAsync(config.Id);
+        if (existing.Any())
+            await _unitOfWork.Centers.DeleteProratedTiersAsync(existing);
+
+        var newTiers = dto.ProratedTiers.Select(t => new CenterProratedTier
+        {
+            CenterConfigurationId = config.Id,
+            TierNumber = t.TierNumber,
+            ThresholdDayStart = t.ThresholdDayStart,
+            ThresholdDayEnd = t.ThresholdDayEnd,
+            FractionRate = t.FractionRate,
+            CreateAt = DateTime.UtcNow
+        }).ToList();
+        if (newTiers.Count > 0)
+            await _unitOfWork.Centers.AddProratedTiersAsync(newTiers);
+    }
+
+    /// <summary>Lazy-loads (creating with system defaults + the 3 default prorated tiers if missing) the
+    /// center's configuration — a safety net for centers created before the backfill migration or via a
+    /// path that didn't seed one. Persists via SaveChanges (joins the caller's transaction when one is
+    /// active); the caller still owns the commit. The initial code-mode mirrors the authoritative
+    /// <see cref="Center.StudentCodeGenerationMode"/>.</summary>
+    private async Task<CenterConfiguration> EnsureCenterConfigAsync(Center center)
+    {
+        var config = await _unitOfWork.Centers.GetConfigurationByCenterIdAsync(center.Id);
+        if (config is not null) return config;
+
+        config = new CenterConfiguration
+        {
+            CenterId = center.Id,
+            StudentCodeGenerationMode = center.StudentCodeGenerationMode,
+            StudentCodeLanguage = GenerationLanguage.English,
+            SessionNameMode = GenerationMode.Auto,
+            SessionNameLanguage = GenerationLanguage.English,
+            IsProratedPaymentEnabled = false,
+            ConsecutiveAbsenceThreshold = 3,
+            ConsecutiveUnpaidThreshold = 3,
+            BarcodeDisplayMode = BarcodeDisplayMode.InApp,
+            StudentVisibilityAttendance = true,
+            StudentVisibilityPayment = true,
+            StudentVisibilityHomework = true,
+            StudentVisibilityExamDefault = true,
+            StudentVisibilityOnlineExamDefault = true,
+            StudentVisibilityVideo = true,
+            ParentVisibilityAttendance = true,
+            ParentVisibilityPayment = true,
+            ParentVisibilityHomework = true,
+            ParentVisibilityExamDefault = false,
+            ParentVisibilityOnlineExamDefault = false,
+            ParentVisibilityVideo = true,
+            IsDeviceLockEnabled = false,
+            ShowPaymentInfoOnAttendanceScreen = true,
+            ShowAttendanceHistoryOnAttendanceScreen = true,
+            CreateAt = DateTime.UtcNow
+        };
+        await _unitOfWork.Centers.AddConfigurationAsync(config);
+        await _unitOfWork.SaveChangesAsync();
+
+        var defaultTiers = new List<CenterProratedTier>
+        {
+            new() { CenterConfigurationId = config.Id, TierNumber = 1, ThresholdDayStart = 1, ThresholdDayEnd = 10, FractionRate = 1.0000m, CreateAt = DateTime.UtcNow },
+            new() { CenterConfigurationId = config.Id, TierNumber = 2, ThresholdDayStart = 11, ThresholdDayEnd = 20, FractionRate = 0.6667m, CreateAt = DateTime.UtcNow },
+            new() { CenterConfigurationId = config.Id, TierNumber = 3, ThresholdDayStart = 21, ThresholdDayEnd = 31, FractionRate = 0.3333m, CreateAt = DateTime.UtcNow }
+        };
+        await _unitOfWork.Centers.AddProratedTiersAsync(defaultTiers);
+        await _unitOfWork.SaveChangesAsync();
+
+        return config;
+    }
+
+    /// <summary>Validates the config's prorated tiers exactly like TeacherService.SaveConfigurationAsync
+    /// (fraction in (0,1], day range 1..31 with start ≤ end, no overlap, ≤3 tiers). Returns the resx key
+    /// of the first failure, or null when valid.</summary>
+    private static string? ValidateConfigTiers(UpdateTeacherConfigurationDto dto)
+    {
+        if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count == 0)
+            return "ProratedTiersRequired";
+        if (dto.ProratedTiers.Count > 3)
+            return "MaxThreeProratedTiers";
+        if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count > 0)
+        {
+            if (dto.ProratedTiers.Any(t => t.FractionRate <= 0m || t.FractionRate > 1m))
+                return "ProratedTierFractionInvalid";
+            if (dto.ProratedTiers.Any(t => t.ThresholdDayStart < 1 || t.ThresholdDayEnd > 31 || t.ThresholdDayStart > t.ThresholdDayEnd))
+                return "ProratedTierDayRangeInvalid";
+            var ordered = dto.ProratedTiers.OrderBy(t => t.ThresholdDayStart).ToList();
+            for (int i = 1; i < ordered.Count; i++)
+                if (ordered[i].ThresholdDayStart <= ordered[i - 1].ThresholdDayEnd)
+                    return "ProratedTiersOverlap";
+        }
+        return null;
+    }
+
+    /// <summary>Maps a center config (+tiers) to the teacher OUTPUT DTO (reused for FE parity). The
+    /// code-mode is projected from the authoritative Center value, not the stored mirror.</summary>
+    private static TeacherConfigurationDto MapConfigToDto(
+        CenterConfiguration config, IReadOnlyList<CenterProratedTier> tiers, GenerationMode codeMode) => new()
+    {
+        Id = config.Id,
+        TeacherId = 0, // reused teacher DTO; the center id lives on the parent CenterSettingsDto
+        StudentCodeGenerationMode = codeMode,
+        StudentCodeLanguage = config.StudentCodeLanguage,
+        SessionNameMode = config.SessionNameMode,
+        SessionNameLanguage = config.SessionNameLanguage,
+        IsProratedPaymentEnabled = config.IsProratedPaymentEnabled,
+        ConsecutiveAbsenceThreshold = config.ConsecutiveAbsenceThreshold,
+        ConsecutiveUnpaidThreshold = config.ConsecutiveUnpaidThreshold,
+        BarcodeDisplayMode = config.BarcodeDisplayMode,
+        StudentVisibilityAttendance = config.StudentVisibilityAttendance,
+        StudentVisibilityPayment = config.StudentVisibilityPayment,
+        StudentVisibilityHomework = config.StudentVisibilityHomework,
+        StudentVisibilityExamDefault = config.StudentVisibilityExamDefault,
+        StudentVisibilityVideo = config.StudentVisibilityVideo,
+        ParentVisibilityAttendance = config.ParentVisibilityAttendance,
+        ParentVisibilityPayment = config.ParentVisibilityPayment,
+        ParentVisibilityHomework = config.ParentVisibilityHomework,
+        ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+        IsDeviceLockEnabled = config.IsDeviceLockEnabled,
+        ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
+        ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
+        UpdatedAt = config.UpdatedAt,
+        ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
+        {
+            TierNumber = t.TierNumber,
+            ThresholdDayStart = t.ThresholdDayStart,
+            ThresholdDayEnd = t.ThresholdDayEnd,
+            FractionRate = t.FractionRate
+        }).ToList()
+    };
+
+    /// <summary>Maps a center config (+tiers) to the teacher UPDATE DTO used by "apply to all". Never
+    /// carries a StudentCapacityPackageId — a teacher's capacity/subscription is untouched.</summary>
+    private static UpdateTeacherConfigurationDto MapConfigToUpdateDto(
+        CenterConfiguration config, IReadOnlyList<CenterProratedTier> tiers, GenerationMode codeMode) => new()
+    {
+        StudentCapacityPackageId = null,
+        StudentCodeGenerationMode = codeMode,
+        StudentCodeLanguage = config.StudentCodeLanguage,
+        SessionNameMode = config.SessionNameMode,
+        SessionNameLanguage = config.SessionNameLanguage,
+        IsProratedPaymentEnabled = config.IsProratedPaymentEnabled,
+        ConsecutiveAbsenceThreshold = config.ConsecutiveAbsenceThreshold,
+        ConsecutiveUnpaidThreshold = config.ConsecutiveUnpaidThreshold,
+        BarcodeDisplayMode = config.BarcodeDisplayMode,
+        StudentVisibilityAttendance = config.StudentVisibilityAttendance,
+        StudentVisibilityPayment = config.StudentVisibilityPayment,
+        StudentVisibilityHomework = config.StudentVisibilityHomework,
+        StudentVisibilityExamDefault = config.StudentVisibilityExamDefault,
+        StudentVisibilityVideo = config.StudentVisibilityVideo,
+        ParentVisibilityAttendance = config.ParentVisibilityAttendance,
+        ParentVisibilityPayment = config.ParentVisibilityPayment,
+        ParentVisibilityHomework = config.ParentVisibilityHomework,
+        ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+        IsDeviceLockEnabled = config.IsDeviceLockEnabled,
+        ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
+        ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
+        ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
+        {
+            TierNumber = t.TierNumber,
+            ThresholdDayStart = t.ThresholdDayStart,
+            ThresholdDayEnd = t.ThresholdDayEnd,
+            FractionRate = t.FractionRate
+        }).ToList()
+    };
 
     /// <inheritdoc />
     public async Task<Result<List<CenterTeacherListItemDto>>> GetTeachersAsync(long centerId)
@@ -563,6 +810,71 @@ public class CenterService : ICenterService
             }
         }
         return Result<List<CenterTodaySessionDto>>.Success(list, _localizer, "Success");
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<CenterTeacherScheduleDto>>> GetTeacherScheduleSummariesAsync(long centerId)
+    {
+        var teachers = await _unitOfWork.Centers.GetTeachersByCenterAsync(centerId);
+
+        // Active teachers only (mirrors GetTodaySessionsAsync's AccountStatus filter).
+        var activeTeachers = teachers
+            .Where(t => t.AccountStatus != AccountStatus.Inactive)
+            .ToList();
+        if (activeTeachers.Count == 0)
+            return Result<List<CenterTeacherScheduleDto>>.Success(
+                new List<CenterTeacherScheduleDto>(), _localizer, "Success");
+
+        var teacherById = activeTeachers.ToDictionary(t => t.Id);
+
+        // Two BATCHED reads → fixed query cost regardless of teacher count (avoids the per-teacher
+        // occurrence loop GetTodaySessionsAsync does). Active-session filter mirrors the teacher home.
+        var sessions = await _unitOfWork.SessionsRepo
+            .GetActiveSessionsByTeacherIdsAsync(teacherById.Keys.ToList(), DateTime.UtcNow.Date);
+        var studentCounts = await _unitOfWork.SessionsRepo
+            .GetStudentCountsBySessionIdsAsync(sessions.Select(s => s.Id).ToList());
+
+        var today = DateTime.UtcNow.Date;
+        var list = sessions
+            .Select(s =>
+            {
+                var teacher = teacherById[s.TeacherId];
+                return new CenterTeacherScheduleDto
+                {
+                    TeacherId = teacher.Id,
+                    TeacherName = teacher.User?.FullName ?? string.Empty,
+                    TeacherCode = teacher.TeacherCode,
+                    SessionId = s.Id,
+                    SessionName = s.SessionName,
+                    OccurrenceType = s.OccurrenceType,
+                    SelectedDays = ParseSelectedDays(s.SelectedDays),
+                    MonthlyDayOfMonth = s.MonthlyDayOfMonth,
+                    StartDate = s.StartDate,
+                    EndDate = s.EndDate,
+                    StartTime = s.StartTime,
+                    DurationMinutes = s.DurationMinutes,
+                    StudentCount = studentCounts.TryGetValue(s.Id, out var c) ? c : 0,
+                    IsExpired = s.EndDate.Date < today
+                };
+            })
+            .OrderBy(x => x.TeacherName)
+            .ThenBy(x => x.StartTime)
+            .ToList();
+
+        return Result<List<CenterTeacherScheduleDto>>.Success(list, _localizer, "Success");
+    }
+
+    /// <summary>Parses the comma-separated selected-days string into an app day-index list (or null),
+    /// matching SessionService.ParseSelectedDays so the client mapper sees identical data.</summary>
+    private static List<int>? ParseSelectedDays(string? daysString)
+    {
+        if (string.IsNullOrWhiteSpace(daysString))
+            return null;
+
+        return daysString.Split(',')
+            .Where(s => int.TryParse(s, out _))
+            .Select(int.Parse)
+            .ToList();
     }
 
     // ── mappers ──

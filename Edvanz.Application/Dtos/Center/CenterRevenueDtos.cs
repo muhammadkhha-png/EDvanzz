@@ -76,3 +76,36 @@ public class CenterTodaySessionDto
     /// <summary>Occurrence lifecycle status (serialized as string, e.g. "Pending").</summary>
     public OccurrenceStatus Status { get; set; }
 }
+
+/// <summary>
+/// One ACTIVE session's recurrence SCHEDULE (not a materialized occurrence) belonging to one of the
+/// center's active teachers, carrying the owning teacher's identity. The union of these across the
+/// center powers the front-desk attendance picker's teacher-home-style week strip: the client runs the
+/// SAME recurrence logic the teacher home uses (day-of-week / biweekly / monthly, bounded by
+/// start/end) to decide which classes fall on the selected day, then groups them per teacher. Mirrors
+/// the teacher <c>SessionDto</c> schedule fields so the client can reuse its existing mapper.
+/// </summary>
+public class CenterTeacherScheduleDto
+{
+    public long TeacherId { get; set; }
+    public string TeacherName { get; set; } = string.Empty;
+    public string TeacherCode { get; set; } = string.Empty;
+    public long SessionId { get; set; }
+    public string SessionName { get; set; } = string.Empty;
+    /// <summary>Recurrence type (serialized as string: "Weekly"/"BiWeekly"/"Monthly").</summary>
+    public OccurrenceType OccurrenceType { get; set; }
+    /// <summary>Weekly/biweekly selected weekdays (app day-index list), or null for monthly.</summary>
+    public List<int>? SelectedDays { get; set; }
+    /// <summary>Day-of-month for monthly recurrence, or null.</summary>
+    public byte? MonthlyDayOfMonth { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    /// <summary>Scheduled start time of the class (time of day).</summary>
+    public TimeSpan StartTime { get; set; }
+    /// <summary>Class duration in minutes (client derives the end-time chip).</summary>
+    public short DurationMinutes { get; set; }
+    /// <summary>Live roster count for the session (same source as the teacher-home card).</summary>
+    public int StudentCount { get; set; }
+    /// <summary>Whether the session's end date has passed (always false in the active set; kept for parity).</summary>
+    public bool IsExpired { get; set; }
+}

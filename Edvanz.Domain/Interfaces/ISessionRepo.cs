@@ -66,6 +66,23 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     Task<Dictionary<long, int>> GetSessionCountsAsync(IReadOnlyCollection<long> teacherIds);
 
     /// <summary>
+    /// ACTIVE (not-yet-expired, EndDate &gt;= today) sessions across MANY teachers in ONE query — the
+    /// center front-desk attendance picker fans a whole center's active teachers into a single
+    /// schedule feed with no per-teacher round-trip. Mirrors the teacher session-list "activeOnly"
+    /// filter (BuildSessionListQuery) so the center picker sees exactly the sessions the teacher home
+    /// would. Empty input → empty result.
+    /// </summary>
+    Task<IReadOnlyList<Session>> GetActiveSessionsByTeacherIdsAsync(IReadOnlyCollection<long> teacherIds, DateTime today);
+
+    /// <summary>
+    /// Live roster student counts for MANY sessions in ONE GROUP BY (sessionId → count). Same source
+    /// as <see cref="CountStudentsBySessionAsync"/> (active TeacherStudents rows) so the center
+    /// picker's per-session count matches the teacher-home card exactly. Sessions with no students are
+    /// absent from the dictionary — callers default to 0. Empty input → empty result.
+    /// </summary>
+    Task<Dictionary<long, int>> GetStudentCountsBySessionIdsAsync(IReadOnlyCollection<long> sessionIds);
+
+    /// <summary>
     /// Counts the session groups owned by a teacher. Used to enforce the free-tier group quota
     /// for unsubscribed teachers.
     /// </summary>

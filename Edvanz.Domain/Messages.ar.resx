@@ -2514,6 +2514,9 @@
   <data name="CenterSettingsUpdated" xml:space="preserve">
     <value>تم تحديث إعدادات السنتر.</value>
   </data>
+  <data name="CenterConfigAppliedToAllTeachers" xml:space="preserve">
+    <value>تم تطبيق إعدادات السنتر على كل المدرّسين.</value>
+  </data>
   <data name="BackfillInvalidMonthFormat" xml:space="preserve">
     <value>لازم الشهر يكون بصيغة YYYY-MM.</value>
   </data>

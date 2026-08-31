@@ -130,4 +130,25 @@ public interface ICenterRepo : IGenericRepo<Center, long>
     /// rows only). Backs the front-desk center-wide code resolve / disambiguation.
     /// </summary>
     Task<IReadOnlyList<CenterStudentCodeMatch>> ResolveStudentsByCodeAcrossCenterAsync(long centerId, string code);
+
+    // ── Center configuration (the center-wide DEFAULTS template that "apply to all" propagates) ──
+
+    /// <summary>The center's configuration row (1:1), or null if not created yet. Tiers load separately
+    /// via <see cref="GetProratedTiersByConfigIdAsync"/> (mirrors the teacher-config access pattern).</summary>
+    Task<CenterConfiguration?> GetConfigurationByCenterIdAsync(long centerId);
+
+    /// <summary>Adds a new center configuration row. Caller owns SaveChanges/commit.</summary>
+    Task AddConfigurationAsync(CenterConfiguration configuration);
+
+    /// <summary>Marks an existing center configuration row Modified. Caller owns SaveChanges/commit.</summary>
+    Task UpdateConfigurationAsync(CenterConfiguration configuration);
+
+    /// <summary>The prorated tiers for a center configuration (AsNoTracking).</summary>
+    Task<IReadOnlyList<CenterProratedTier>> GetProratedTiersByConfigIdAsync(long configurationId);
+
+    /// <summary>Adds prorated tiers for a center configuration. Caller owns SaveChanges/commit.</summary>
+    Task AddProratedTiersAsync(IEnumerable<CenterProratedTier> tiers);
+
+    /// <summary>Removes prorated tiers of a center configuration (tier replace). Caller owns SaveChanges/commit.</summary>
+    Task DeleteProratedTiersAsync(IEnumerable<CenterProratedTier> tiers);
 }

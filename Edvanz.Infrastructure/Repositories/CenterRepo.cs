@@ -200,4 +200,36 @@ public class CenterRepo : GenericRepo<Center, long>, ICenterRepo
                })
             .AsNoTracking()
             .ToListAsync();
+
+    // ── Center configuration (the center-wide DEFAULTS template) ──
+    // Mirrors the teacher-config methods on IUserRepo/UserRepo (same tracking/async-contract shape).
+
+    public Task<CenterConfiguration?> GetConfigurationByCenterIdAsync(long centerId) =>
+        _context.Set<CenterConfiguration>().FirstOrDefaultAsync(c => c.CenterId == centerId);
+
+    public async Task AddConfigurationAsync(CenterConfiguration configuration) =>
+        await _context.Set<CenterConfiguration>().AddAsync(configuration);
+
+    // Entry().State is synchronous (BUG-2 convention) — await Task.CompletedTask for the async contract.
+    public async Task UpdateConfigurationAsync(CenterConfiguration configuration)
+    {
+        _context.Entry(configuration).State = EntityState.Modified;
+        await Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<CenterProratedTier>> GetProratedTiersByConfigIdAsync(long configurationId) =>
+        await _context.Set<CenterProratedTier>()
+            .AsNoTracking()
+            .Where(pt => pt.CenterConfigurationId == configurationId)
+            .ToListAsync();
+
+    public async Task AddProratedTiersAsync(IEnumerable<CenterProratedTier> tiers) =>
+        await _context.Set<CenterProratedTier>().AddRangeAsync(tiers);
+
+    // RemoveRange is synchronous (BUG-2 convention) — await Task.CompletedTask for the async contract.
+    public async Task DeleteProratedTiersAsync(IEnumerable<CenterProratedTier> tiers)
+    {
+        _context.Set<CenterProratedTier>().RemoveRange(tiers);
+        await Task.CompletedTask;
+    }
 }

@@ -90,6 +90,49 @@ public class AdminCenterService : IAdminCenterService
             };
             await _unitOfWork.Centers.AddAsync(center);
             await _unitOfWork.SaveChangesAsync();
+
+            // Seed the center's DEFAULT configuration (+ the 3 default prorated tiers) up front, exactly
+            // like a teacher gets one at InitializeTeacherAsync. This guarantees every center has a config
+            // row from creation, so the settings/apply paths never have to lazy-create one (removing the
+            // only concurrent-first-touch race on IX_CenterConfigurations_CenterId). Same tenant tx.
+            var config = new CenterConfiguration
+            {
+                CenterId = center.Id,
+                StudentCodeGenerationMode = center.StudentCodeGenerationMode,
+                StudentCodeLanguage = GenerationLanguage.English,
+                SessionNameMode = GenerationMode.Auto,
+                SessionNameLanguage = GenerationLanguage.English,
+                IsProratedPaymentEnabled = false,
+                ConsecutiveAbsenceThreshold = 3,
+                ConsecutiveUnpaidThreshold = 3,
+                BarcodeDisplayMode = BarcodeDisplayMode.InApp,
+                StudentVisibilityAttendance = true,
+                StudentVisibilityPayment = true,
+                StudentVisibilityHomework = true,
+                StudentVisibilityExamDefault = true,
+                StudentVisibilityOnlineExamDefault = true,
+                StudentVisibilityVideo = true,
+                ParentVisibilityAttendance = true,
+                ParentVisibilityPayment = true,
+                ParentVisibilityHomework = true,
+                ParentVisibilityExamDefault = false,
+                ParentVisibilityOnlineExamDefault = false,
+                ParentVisibilityVideo = true,
+                IsDeviceLockEnabled = false,
+                ShowPaymentInfoOnAttendanceScreen = true,
+                ShowAttendanceHistoryOnAttendanceScreen = true,
+                CreateAt = DateTime.UtcNow
+            };
+            await _unitOfWork.Centers.AddConfigurationAsync(config);
+            await _unitOfWork.SaveChangesAsync();
+
+            await _unitOfWork.Centers.AddProratedTiersAsync(new List<CenterProratedTier>
+            {
+                new() { CenterConfigurationId = config.Id, TierNumber = 1, ThresholdDayStart = 1, ThresholdDayEnd = 10, FractionRate = 1.0000m, CreateAt = DateTime.UtcNow },
+                new() { CenterConfigurationId = config.Id, TierNumber = 2, ThresholdDayStart = 11, ThresholdDayEnd = 20, FractionRate = 0.6667m, CreateAt = DateTime.UtcNow },
+                new() { CenterConfigurationId = config.Id, TierNumber = 3, ThresholdDayStart = 21, ThresholdDayEnd = 31, FractionRate = 0.3333m, CreateAt = DateTime.UtcNow }
+            });
+            await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
 
             return Result<CenterListItemDto>.Success(ToListItem(center, user, 0, 0, 0), _localizer, "CenterCreated");

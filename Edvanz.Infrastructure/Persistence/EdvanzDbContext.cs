@@ -96,6 +96,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<CenterSubscriptionRequest> CenterSubscriptionRequests { get; set; }
     public DbSet<CenterAssistant> CenterAssistants { get; set; }
     public DbSet<CenterSubscriptionPricingSetting> CenterSubscriptionPricingSettings { get; set; }
+    public DbSet<CenterConfiguration> CenterConfigurations { get; set; }
+    public DbSet<CenterProratedTier> CenterProratedTiers { get; set; }
     public DbSet<TeacherIndependenceRequest> TeacherIndependenceRequests { get; set; }
     public DbSet<UserNotification> UserNotifications { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
@@ -638,6 +640,44 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasMany(c => c.Teachers)
                 .WithOne(t => t.Center)
                 .HasForeignKey(t => t.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region CenterConfiguration (1:1 with Center) — Fluent-only (BUG-4)
+        modelBuilder.Entity<CenterConfiguration>(entity =>
+        {
+            entity.ToTable("CenterConfigurations");
+
+            // One-to-one: unique index on CenterId.
+            entity.HasIndex(cc => cc.CenterId)
+                .IsUnique()
+                .HasDatabaseName("IX_CenterConfigurations_CenterId");
+
+            // No back-nav on Center (kept minimal). App-layer cascade (NoAction) per §4.2.
+            entity.HasOne(cc => cc.Center)
+                .WithOne()
+                .HasForeignKey<CenterConfiguration>(cc => cc.CenterId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region CenterProratedTier (1:N from CenterConfiguration) — Fluent-only (BUG-4)
+        modelBuilder.Entity<CenterProratedTier>(entity =>
+        {
+            entity.ToTable("CenterProratedTiers");
+
+            entity.Property(pt => pt.FractionRate)
+                .HasColumnType("decimal(5,4)");
+
+            // Unique tier numbers per configuration.
+            entity.HasIndex(pt => new { pt.CenterConfigurationId, pt.TierNumber })
+                .IsUnique()
+                .HasDatabaseName("IX_CenterProratedTiers_ConfigId_TierNumber");
+
+            entity.HasOne(pt => pt.CenterConfiguration)
+                .WithMany(cc => cc.ProratedTiers)
+                .HasForeignKey(pt => pt.CenterConfigurationId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
         #endregion
