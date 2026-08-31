@@ -12,8 +12,11 @@ namespace Edvanz.Domain.Constants;
 /// </summary>
 public static class UploadConstants
 {
-    /// <summary>Maximum size of a single uploaded file. 10 MB — ratified with product.</summary>
-    public const long MaxFileSizeBytes = 10 * 1024 * 1024;
+    /// <summary>Maximum size of a single uploaded file. 25 MB — raised from 10 MB
+    /// (2026-08-31) so larger lecture PDFs are accepted; the client compresses
+    /// oversized PDFs down to fit before upload. Kept within the 50 MB request
+    /// cap on <see cref="Edvanz.API"/>'s UploadController.</summary>
+    public const long MaxFileSizeBytes = 25 * 1024 * 1024;
 
     /// <summary>Maximum number of files accepted in one multipart request.</summary>
     public const int MaxFilesPerRequest = 10;

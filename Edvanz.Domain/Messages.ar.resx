@@ -1574,7 +1574,7 @@
     <value>ملفات كتير أوي في الطلب الواحد. ارفع ملفات أقل.</value>
   </data>
   <data name="UploadFileTooLarge" xml:space="preserve">
-    <value>واحد من الملفات كبير أوي. الحد الأقصى ١٠ ميجا للملف.</value>
+    <value>واحد من الملفات كبير أوي. الحد الأقصى ٢٥ ميجا للملف.</value>
   </data>
   <data name="UploadInvalidType" xml:space="preserve">
     <value>نوع الملف ده مش مدعوم. مسموح بالصور وملفات PDF بس.</value>

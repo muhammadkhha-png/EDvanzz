@@ -1557,7 +1557,7 @@
     <value>Too many files in one request. Please upload fewer files.</value>
   </data>
   <data name="UploadFileTooLarge" xml:space="preserve">
-    <value>One of the files is too large. The maximum size is 10 MB per file.</value>
+    <value>One of the files is too large. The maximum size is 25 MB per file.</value>
   </data>
   <data name="UploadInvalidType" xml:space="preserve">
     <value>Unsupported file type. Only images and PDF files are allowed.</value>
