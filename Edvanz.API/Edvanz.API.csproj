@@ -7,6 +7,18 @@
 	  <GenerateDocumentationFile>true</GenerateDocumentationFile>
 	  <NoWarn>$(NoWarn);1591</NoWarn>
     <UserSecretsId>db6539ed-aa86-4ca5-8915-2a6122e531c1</UserSecretsId>
+
+    <!-- PERF Tier-1 (2026-08-31, docs/perf-tier1-2026-08-31.md). Build/publish-only knobs — they
+         change nothing about runtime behaviour, only how the app is compiled, and any failure is
+         caught by the CI publish step BEFORE deploy (never affects the running app). Revert by
+         deleting these two lines.
+         PublishReadyToRun: pre-compiles IL to native at publish time -> faster cold start / fewer
+           slow first requests after a deploy or App Service container swap. Compiled natively on
+           the linux-x64 CI runner for the linux-x64 self-contained publish.
+         TieredPGO: profile-guided re-JIT of hot code for better steady-state throughput (already
+           the .NET 10 default; pinned here explicitly for documentation). -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>

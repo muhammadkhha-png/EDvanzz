@@ -278,14 +278,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<HelpFaqItem> HelpFaqItems => Set<HelpFaqItem>();
 
 
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        base.OnConfiguring(optionsBuilder);
-        optionsBuilder.ConfigureWarnings(warnings =>
-            warnings.Ignore(RelationalEventId.PendingModelChangesWarning));
-
-        optionsBuilder.UseSqlServer(opt => opt.CommandTimeout(300));
-    }
+    // NOTE (2026-08-31, perf Tier-1): OnConfiguring MUST NOT modify options — DbContext pooling
+    // (AddDbContextPool in Program.cs) throws "'OnConfiguring' cannot be used to modify
+    // DbContextOptions when DbContext pooling is enabled". The former settings here —
+    // ConfigureWarnings(Ignore PendingModelChangesWarning) and UseSqlServer CommandTimeout(300) —
+    // were moved into the ConfigureDbContext registration lambda in Program.cs, which feeds BOTH
+    // the pooled and non-pooled paths (and the design-time/migrations context). Do not re-add an
+    // options-modifying OnConfiguring here unless pooling is permanently disabled.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

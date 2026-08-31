@@ -22,12 +22,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using System.Globalization;
+using System.IO.Compression;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -48,15 +51,68 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 var x = builder.Configuration.GetConnectionString("con");
 
-builder.Services.AddDbContext<EdvanzDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("con"),
-        sqlOpts => sqlOpts
-            //.EnableRetryOnFailure(
-            //    maxRetryCount: 5,
-            //    maxRetryDelay: TimeSpan.FromSeconds(30),
-            //    errorNumbersToAdd: null)   // null = use EF's default transient-error list
-            .CommandTimeout(30)));
+// ── Database context ─────────────────────────────────────────────────────────────────────
+// PERF Tier-1 (2026-08-31, docs/perf-tier1-2026-08-31.md): DbContext POOLING reuses context
+// instances across requests, removing per-request context allocation + internal-service-provider
+// setup — a real saving on the single-core B1. The context is safe to pool: options-only primary
+// ctor, no per-request injected state, no SaveChanges override, and a static OnConfiguring.
+// KILL SWITCH (reversible WITHOUT a redeploy): set App Service setting
+//   Performance__DbContextPoolingEnabled = false  then Restart.
+// It is read BEFORE the registration, so it also recovers a boot that ever failed under pooling —
+// flip it, restart, and the app falls back to the classic per-request AddDbContext.
+bool enableDbContextPooling =
+    builder.Configuration.GetValue("Performance:DbContextPoolingEnabled", true);
+
+// NOTE: this configures the options for BOTH the pooled and the non-pooled path. It also holds
+// the settings that USED to live in EdvanzDbContext.OnConfiguring — pooling forbids OnConfiguring
+// from modifying options ("'OnConfiguring' cannot be used to modify DbContextOptions when DbContext
+// pooling is enabled"), so they were consolidated here. CommandTimeout stays 300 to preserve the
+// previous EFFECTIVE behaviour (the old OnConfiguring's 300 overrode the DI block's 30).
+void ConfigureDbContext(DbContextOptionsBuilder options) =>
+    options
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))
+        .UseSqlServer(
+            builder.Configuration.GetConnectionString("con"),
+            sqlOpts => sqlOpts
+                //.EnableRetryOnFailure(          // Tier-2, deliberately still OFF — enabling it requires
+                //    maxRetryCount: 5,           // wrapping the UnitOfWork transaction boundary in a
+                //    maxRetryDelay: TimeSpan.FromSeconds(30),  // DB execution strategy, or explicit
+                //    errorNumbersToAdd: null)    // transactions throw. See the perf doc, Tier-2.
+                .CommandTimeout(300));
+
+if (enableDbContextPooling)
+    builder.Services.AddDbContextPool<EdvanzDbContext>(ConfigureDbContext);
+else
+    builder.Services.AddDbContext<EdvanzDbContext>(ConfigureDbContext);
+
+// ── Response compression ─────────────────────────────────────────────────────────────────
+// PERF Tier-1 (2026-08-31, docs/perf-tier1-2026-08-31.md): gzip/brotli-compress JSON responses.
+// Mobile payloads shrink ~70-85% → faster screen loads on cellular. The Flutter client already
+// sends "Accept-Encoding: gzip" and auto-decompresses, so this is transparent — NO app change.
+// Providers run at CompressionLevel.Fastest to stay cheap on the 1-core B1 (Brotli "Optimal"
+// would peg the CPU). EnableForHttps is safe here: this is a Bearer-token JSON API with no
+// cookie/CSRF secrets reflected into responses, so the BREACH concern that disables HTTPS
+// compression by default does not apply.
+// KILL SWITCH (reversible WITHOUT a redeploy): set App Service setting
+//   Performance__ResponseCompressionEnabled = false  then Restart — the UseResponseCompression
+// middleware below is only added when this flag is true.
+bool enableResponseCompression =
+    builder.Configuration.GetValue("Performance:ResponseCompressionEnabled", true);
+if (enableResponseCompression)
+{
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+        // application/json is in the defaults, but the middleware matches the FULL content-type,
+        // so pin the "; charset=utf-8" variant System.Text.Json emits or JSON won't be compressed.
+        options.MimeTypes = ResponseCompressionDefaults.MimeTypes
+            .Concat(new[] { "application/json; charset=utf-8" });
+    });
+    builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+    builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+}
 builder.Services.AddScoped(typeof(IUnitOfWork), typeof(UnitOfWork));
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -506,6 +562,12 @@ if (!app.Environment.IsProduction())
 // so recurring-job registration works independently of the seeder.
 _ = app.Services.GetRequiredService<JobStorage>();
 
+
+// PERF Tier-1 (2026-08-31): compress responses. Placed first so it wraps the whole pipeline.
+// Only added when Performance:ResponseCompressionEnabled (default true) — see the service
+// registration above for the rationale and the kill switch.
+if (enableResponseCompression)
+    app.UseResponseCompression();
 
 // Use localization middleware
 var locOptions = app.Services.GetRequiredService<IOptions<RequestLocalizationOptions>>();
