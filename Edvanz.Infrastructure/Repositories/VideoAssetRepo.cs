@@ -1,6 +1,7 @@
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -261,8 +262,8 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
-            query = query.Where(v => EF.Functions.Like(v.Title, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
+            query = query.Where(v => EF.Functions.Like(DbSearch.ArabicNormalize(v.Title), pattern));
         }
 
         int totalCount = await query.CountAsync();
@@ -1072,10 +1073,10 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // Optional search on student name or code.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             rowsQuery = rowsQuery.Where(r =>
-                EF.Functions.Like(r.StudentName, pattern)
-             || EF.Functions.Like(r.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentName), pattern)
+             || EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern));
         }
 
         // G-ANL-4: server-side status filter. Same 90%-threshold definition

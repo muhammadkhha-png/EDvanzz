@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -752,17 +753,17 @@ namespace Edvanz.Infrastructure.Repositories
                     x => x.su.UserId, u => u.Id,
                     (x, u) => new { x.l, x.su, u });
 
-            var term = search?.Trim();
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
             if (!string.IsNullOrEmpty(term))
             {
                 var like = $"%{term}%";
                 joined = joined.Where(x =>
-                    (x.u.FullName != null && EF.Functions.Like(x.u.FullName, like))
-                    || (x.su.StudentAccountCode != null && EF.Functions.Like(x.su.StudentAccountCode, like))
+                    (x.u.FullName != null && EF.Functions.Like(DbSearch.ArabicNormalize(x.u.FullName), like))
+                    || (x.su.StudentAccountCode != null && EF.Functions.Like(DbSearch.ArabicNormalize(x.su.StudentAccountCode), like))
                     || (x.l.TeacherStudent != null && x.l.TeacherStudent.StudentName != null
-                        && EF.Functions.Like(x.l.TeacherStudent.StudentName, like))
+                        && EF.Functions.Like(DbSearch.ArabicNormalize(x.l.TeacherStudent.StudentName), like))
                     || (x.l.TeacherStudent != null && x.l.TeacherStudent.StudentCode != null
-                        && EF.Functions.Like(x.l.TeacherStudent.StudentCode, like)));
+                        && EF.Functions.Like(DbSearch.ArabicNormalize(x.l.TeacherStudent.StudentCode), like)));
             }
 
             int total = await joined.CountAsync();
@@ -1528,13 +1529,13 @@ namespace Edvanz.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                var term = search.Trim();
+                var term = ArabicTextNormalizer.Normalize(search.Trim());
                 query = query.Where(su =>
-                    su.User.FullName.Contains(term) ||
+                    DbSearch.ArabicNormalize(su.User.FullName).Contains(term) ||
                     su.StudentTeacherLinks.Any(l =>
                         l.LinkStatus == LinkStatus.Active &&
                         l.TeacherStudent != null &&
-                        l.TeacherStudent.StudentCode.Contains(term)));
+                        DbSearch.ArabicNormalize(l.TeacherStudent.StudentCode).Contains(term)));
             }
 
             int total = await query.CountAsync();

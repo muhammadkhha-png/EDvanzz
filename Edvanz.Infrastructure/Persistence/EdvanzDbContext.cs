@@ -291,6 +291,15 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     {
         base.OnModelCreating(modelBuilder);
 
+        // Arabic-variant-insensitive search: map DbSearch.ArabicNormalize(...) to the scalar
+        // UDF dbo.ArabicNormalize (created in migration AddArabicNormalizeFunction). Lets
+        // paginated SQL searches fold أ/ا, ة/ه, ى/ي … the same way ArabicTextNormalizer does
+        // in memory. See DbSearch.cs.
+        modelBuilder.HasDbFunction(
+                typeof(DbSearch).GetMethod(nameof(DbSearch.ArabicNormalize), new[] { typeof(string) })!)
+            .HasName("ArabicNormalize")
+            .HasSchema("dbo");
+
         // ════════════════════════════════════════════════
         // EXISTING TABLE CONFIGURATION (preserved)
         // ════════════════════════════════════════════════

@@ -10,6 +10,7 @@ using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Localization;
 
@@ -170,11 +171,13 @@ public class PaymentScreenService : IPaymentScreenService
         //     edits/reversals AND departure refunds (the edit-log trail already contains the departure
         //     reversals, so one source avoids double-counting) — so a collector's own-collections list
         //     matches their ledger instead of hiding refunds.
-        var term = search?.Trim();
+        // Arabic-variant-insensitive (أ/ا, ة/ه, ى/ي …): both sides folded in memory, mirroring
+        // the SQL dbo.ArabicNormalize path. Normalize already lower-cases, so Ordinal suffices.
+        var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
         bool MatchesSearch(string? name, string? code) =>
             string.IsNullOrEmpty(term)
-            || (name != null && name.Contains(term, StringComparison.OrdinalIgnoreCase))
-            || (code != null && code.Contains(term, StringComparison.OrdinalIgnoreCase));
+            || (name != null && ArabicTextNormalizer.Normalize(name).Contains(term, StringComparison.Ordinal))
+            || (code != null && ArabicTextNormalizer.Normalize(code).Contains(term, StringComparison.Ordinal));
 
         var refundRows = new List<CollectionRow>();
         // Money-out rows whose PERFORMER is someone other than the collector this ledger is scoped
@@ -671,10 +674,10 @@ public class PaymentScreenService : IPaymentScreenService
         var merged = windowed;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string searchLower = search.Trim().ToLowerInvariant();
+            string searchLower = ArabicTextNormalizer.Normalize(search.Trim());
             merged = merged.Where(m =>
-                (m.StudentName is not null && m.StudentName.ToLowerInvariant().Contains(searchLower))
-                || (m.StudentCode is not null && m.StudentCode.ToLowerInvariant().Contains(searchLower)))
+                (m.StudentName is not null && ArabicTextNormalizer.Normalize(m.StudentName).Contains(searchLower, StringComparison.Ordinal))
+                || (m.StudentCode is not null && ArabicTextNormalizer.Normalize(m.StudentCode).Contains(searchLower, StringComparison.Ordinal)))
                 .ToList();
         }
 

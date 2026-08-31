@@ -1,6 +1,7 @@
 ﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -893,12 +894,12 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         {
             // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
             // SQL Server default collation is case-insensitive, so LIKE works correctly.
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(r =>
-                (r.StudentName != null && EF.Functions.Like(r.StudentName, pattern))
-                || (r.StudentCode != null && EF.Functions.Like(r.StudentCode, pattern))
-                || (r.TeacherStudent != null && EF.Functions.Like(r.TeacherStudent.StudentName, pattern))
-                || (r.TeacherStudent != null && EF.Functions.Like(r.TeacherStudent.StudentCode, pattern)));
+                (r.StudentName != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentName), pattern))
+                || (r.StudentCode != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern))
+                || (r.TeacherStudent != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.TeacherStudent.StudentName), pattern))
+                || (r.TeacherStudent != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.TeacherStudent.StudentCode), pattern)));
         }
 
         // FIX H4: Apply phone filters (were missing on the date-specific path).
@@ -946,10 +947,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(r =>
-                (r.StudentName != null && EF.Functions.Like(r.StudentName, pattern))
-                || (r.StudentCode != null && EF.Functions.Like(r.StudentCode, pattern)));
+                (r.StudentName != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentName), pattern))
+                || (r.StudentCode != null && EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern)));
         }
 
         if (missingStudentPhone == true)
@@ -1006,10 +1007,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (!string.IsNullOrWhiteSpace(search))
         {
             // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(c =>
-                EF.Functions.Like(c.TeacherStudent!.StudentName, pattern)
-                || EF.Functions.Like(c.TeacherStudent.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(c.TeacherStudent!.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(c.TeacherStudent.StudentCode), pattern));
         }
 
         if (missingStudentPhone == true)
@@ -1139,14 +1140,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (!string.IsNullOrWhiteSpace(studentName))
         {
             // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
-            string pattern = $"%{studentName.Trim()}%";
-            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentName, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(studentName.Trim())}%";
+            query = query.Where(a => EF.Functions.Like(DbSearch.ArabicNormalize(a.TeacherStudent!.StudentName), pattern));
         }
 
         if (!string.IsNullOrWhiteSpace(studentCode))
         {
-            string pattern = $"%{studentCode.Trim()}%";
-            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentCode, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(studentCode.Trim())}%";
+            query = query.Where(a => EF.Functions.Like(DbSearch.ArabicNormalize(a.TeacherStudent!.StudentCode), pattern));
         }
 
         return await query
@@ -1224,11 +1225,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
 
         if (trimmedSearch is not null)
         {
-            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains()
-            string pattern = $"%{trimmedSearch}%";
+            // FIX M7: Use EF.Functions.Like instead of ToLower().Contains().
+            // Arabic-folded pattern only; the raw trimmedSearch is still used below for the
+            // EXACT StudentCode ranking (barcode scan), which must stay a code-point match.
+            string pattern = $"%{ArabicTextNormalizer.Normalize(trimmedSearch)}%";
             rowQuery = rowQuery.Where(r =>
-                EF.Functions.Like(r.StudentName, pattern)
-                || EF.Functions.Like(r.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern));
         }
 
         if (unmarkedOnly)
@@ -1339,10 +1342,10 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (!string.IsNullOrWhiteSpace(search))
         {
             // FIX M7 convention: EF.Functions.Like instead of ToLower().Contains()
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             rosterQuery = rosterQuery.Where(r =>
-                EF.Functions.Like(r.StudentName, pattern)
-                || EF.Functions.Like(r.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern));
         }
 
         int totalCount = await rosterQuery.CountAsync();
@@ -1487,14 +1490,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         if (!string.IsNullOrWhiteSpace(studentName))
         {
             // FIX M7: Use EF.Functions.Like
-            string pattern = $"%{studentName.Trim()}%";
-            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentName, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(studentName.Trim())}%";
+            query = query.Where(a => EF.Functions.Like(DbSearch.ArabicNormalize(a.TeacherStudent!.StudentName), pattern));
         }
 
         if (!string.IsNullOrWhiteSpace(studentCode))
         {
-            string pattern = $"%{studentCode.Trim()}%";
-            query = query.Where(a => EF.Functions.Like(a.TeacherStudent!.StudentCode, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(studentCode.Trim())}%";
+            query = query.Where(a => EF.Functions.Like(DbSearch.ArabicNormalize(a.TeacherStudent!.StudentCode), pattern));
         }
 
         // Get distinct student IDs with DB-level pagination

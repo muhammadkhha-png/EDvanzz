@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -180,13 +181,14 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
 
         // ── SEARCH (applied after filters) ──
         // REQ-STU-032: Search by name or code (partial match)
-        // REQ-STU-034: Case-insensitive, supports Arabic and English
+        // REQ-STU-034: Case-insensitive, Arabic-variant-insensitive (أ/ا, ة/ه, ى/ي …) via
+        // dbo.ArabicNormalize on both sides — see DbSearch / ArabicTextNormalizer.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
+            var term = ArabicTextNormalizer.Normalize(search.Trim());
             query = query.Where(ts =>
-                ts.StudentName.Contains(term) ||
-                ts.StudentCode.Contains(term));
+                DbSearch.ArabicNormalize(ts.StudentName).Contains(term) ||
+                DbSearch.ArabicNormalize(ts.StudentCode).Contains(term));
         }
 
         // ── SORT (applied AFTER filter per REQ-STU-SRT-005) ──
@@ -290,10 +292,10 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(ts =>
-                EF.Functions.Like(ts.StudentName, pattern)
-                || EF.Functions.Like(ts.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(ts.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(ts.StudentCode), pattern));
         }
 
         int countAll = await query.CountAsync();

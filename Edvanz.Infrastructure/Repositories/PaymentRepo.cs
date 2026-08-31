@@ -1,6 +1,7 @@
 ﻿    using Edvanz.Domain.Constants;
     using Edvanz.Domain.Entities;
     using Edvanz.Domain.Enums;
+    using Edvanz.Domain.Helpers;
     using Edvanz.Domain.Interfaces;
     using Edvanz.Infrastructure.Persistence;
     using Microsoft.EntityFrameworkCore;
@@ -222,12 +223,13 @@
                 query = query.Where(t => t.SessionId == sessionId.Value);
             if (collectedByUserId.HasValue)
                 query = query.Where(t => t.CollectedByUserId == collectedByUserId.Value);
-            // Optional filter over the denormalized student name/code (case-insensitive, provider-side).
-            var term = search?.Trim();
+            // Optional filter over the denormalized student name/code (case- AND
+            // Arabic-variant-insensitive, provider-side via dbo.ArabicNormalize).
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
             if (!string.IsNullOrEmpty(term))
                 query = query.Where(t =>
-                    (t.StudentName != null && EF.Functions.Like(t.StudentName, $"%{term}%"))
-                    || (t.StudentCode != null && EF.Functions.Like(t.StudentCode, $"%{term}%")));
+                    (t.StudentName != null && EF.Functions.Like(DbSearch.ArabicNormalize(t.StudentName), $"%{term}%"))
+                    || (t.StudentCode != null && EF.Functions.Like(DbSearch.ArabicNormalize(t.StudentCode), $"%{term}%")));
 
             int totalCount = await query.CountAsync();
             var items = await query
@@ -1252,11 +1254,11 @@
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                string searchLower = search.Trim().ToLower();
+                string searchLower = ArabicTextNormalizer.Normalize(search.Trim());
             periods = periods.Where(p =>
                 p.TeacherStudent != null
-                && (p.TeacherStudent.StudentName.ToLower().Contains(searchLower)
-                    || p.TeacherStudent.StudentCode.ToLower().Contains(searchLower)));
+                && (DbSearch.ArabicNormalize(p.TeacherStudent.StudentName).Contains(searchLower)
+                    || DbSearch.ArabicNormalize(p.TeacherStudent.StudentCode).Contains(searchLower)));
             }
 
         // One row per student: arrears and unpaid-period count THROUGH the cutoff. The collection
@@ -1392,9 +1394,9 @@
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                string s = search.Trim().ToLower();
+                string s = ArabicTextNormalizer.Normalize(search.Trim());
                 baseQuery = baseQuery.Where(ts =>
-                    ts.StudentName.ToLower().Contains(s) || ts.StudentCode.ToLower().Contains(s));
+                    DbSearch.ArabicNormalize(ts.StudentName).Contains(s) || DbSearch.ArabicNormalize(ts.StudentCode).Contains(s));
             }
 
             // Per-tab counts reflect the current search.
@@ -1514,10 +1516,10 @@
                 assignedQuery = assignedQuery.Where(ts => ts.SessionId == sessionId.Value);
             if (!string.IsNullOrWhiteSpace(search))
             {
-                string searchLower = search.Trim().ToLower();
+                string searchLower = ArabicTextNormalizer.Normalize(search.Trim());
                 assignedQuery = assignedQuery.Where(ts =>
-                    ts.StudentName.ToLower().Contains(searchLower)
-                    || (ts.StudentCode != null && ts.StudentCode.ToLower().Contains(searchLower)));
+                    DbSearch.ArabicNormalize(ts.StudentName).Contains(searchLower)
+                    || (ts.StudentCode != null && DbSearch.ArabicNormalize(ts.StudentCode).Contains(searchLower)));
             }
             var assignedStudentIds = assignedQuery.Select(ts => ts.Id);
 
@@ -1829,8 +1831,8 @@
             }
             else if (!string.IsNullOrWhiteSpace(name))
             {
-                string n = name.Trim().ToLower();
-                q = q.Where(ts => ts.StudentName.ToLower().Contains(n));
+                string n = ArabicTextNormalizer.Normalize(name.Trim());
+                q = q.Where(ts => DbSearch.ArabicNormalize(ts.StudentName).Contains(n));
             }
             else
             {
@@ -2246,10 +2248,10 @@
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                string s = search.Trim().ToLower();
+                string s = ArabicTextNormalizer.Normalize(search.Trim());
                 query = query.Where(d =>
-                    (d.StudentName != null && d.StudentName.ToLower().Contains(s))
-                    || (d.StudentCode != null && d.StudentCode.ToLower().Contains(s)));
+                    (d.StudentName != null && DbSearch.ArabicNormalize(d.StudentName).Contains(s))
+                    || (d.StudentCode != null && DbSearch.ArabicNormalize(d.StudentCode).Contains(s)));
             }
 
             int total = await query.CountAsync();
@@ -2782,10 +2784,10 @@
             // REQ-EVT-016: Search by student name or student code
             if (!string.IsNullOrWhiteSpace(search))
             {
-                string searchLower = search.Trim().ToLower();
+                string searchLower = ArabicTextNormalizer.Normalize(search.Trim());
                 query = query.Where(o =>
-                    (o.StudentName != null && o.StudentName.ToLower().Contains(searchLower))
-                    || (o.StudentCode != null && o.StudentCode.ToLower().Contains(searchLower)));
+                    (o.StudentName != null && DbSearch.ArabicNormalize(o.StudentName).Contains(searchLower))
+                    || (o.StudentCode != null && DbSearch.ArabicNormalize(o.StudentCode).Contains(searchLower)));
             }
 
             int totalCount = await query.CountAsync();
@@ -2827,8 +2829,8 @@
 
             if (!string.IsNullOrWhiteSpace(searchName))
             {
-                string search = searchName.Trim().ToLower();
-                query = query.Where(e => e.EventName.ToLower().Contains(search));
+                string search = ArabicTextNormalizer.Normalize(searchName.Trim());
+                query = query.Where(e => DbSearch.ArabicNormalize(e.EventName).Contains(search));
             }
 
             if (scopeTypeFilter.HasValue)

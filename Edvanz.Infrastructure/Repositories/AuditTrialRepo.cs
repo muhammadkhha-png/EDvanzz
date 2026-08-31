@@ -1,6 +1,7 @@
 ﻿using Edvanz.Application.Dtos.AuditTrial;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -41,16 +42,18 @@ namespace Edvanz.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(assistantName))
             {
+                var assistantNameTerm = ArabicTextNormalizer.Normalize(assistantName.Trim());
                 query = query.Where(a =>
                     a.assistant != null &&
-                    a.assistant.User.FullName.ToLower().Contains(assistantName.ToLower()));
+                    DbSearch.ArabicNormalize(a.assistant.User.FullName).Contains(assistantNameTerm));
             }
 
             if (!string.IsNullOrWhiteSpace(module))
             {
+                var moduleTerm = ArabicTextNormalizer.Normalize(module.Trim());
                 query = query.Where(a =>
                     a.module != null &&
-                    a.module.Name.ToLower().Contains(module.ToLower()));
+                    DbSearch.ArabicNormalize(a.module.Name).Contains(moduleTerm));
             }
 
             if (from.HasValue)
@@ -93,19 +96,19 @@ namespace Edvanz.Infrastructure.Repositories
             // 🔹 Filter: Assistant name
             if (!string.IsNullOrWhiteSpace(AssistantName))
             {
-                var name = AssistantName.ToLower();
+                var name = ArabicTextNormalizer.Normalize(AssistantName.Trim());
                 query = query.Where(a =>
                     a.assistant != null &&
-                    a.assistant.User.FullName.ToLower().Contains(name));
+                    DbSearch.ArabicNormalize(a.assistant.User.FullName).Contains(name));
             }
 
             // 🔹 Filter: Module
             if (!string.IsNullOrWhiteSpace(Module))
             {
-                var module = Module.ToLower();
+                var module = ArabicTextNormalizer.Normalize(Module.Trim());
                 query = query.Where(a =>
                     a.module != null &&
-                    a.module.Name.ToLower().Contains(module));
+                    DbSearch.ArabicNormalize(a.module.Name).Contains(module));
             }
 
             // 🔹 Filter: Date From

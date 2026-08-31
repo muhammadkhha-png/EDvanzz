@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -246,7 +247,10 @@ public class OnlineExamRepo : GenericRepo<OnlineExam, long>, IOnlineExamRepo
             query = query.Where(e => e.Status == status.Value);
 
         if (!string.IsNullOrWhiteSpace(search))
-            query = query.Where(e => EF.Functions.Like(e.Title, $"%{search}%"));
+        {
+            var titleTerm = ArabicTextNormalizer.Normalize(search.Trim());
+            query = query.Where(e => EF.Functions.Like(DbSearch.ArabicNormalize(e.Title), $"%{titleTerm}%"));
+        }
 
         int totalCount = await query.CountAsync();
 

@@ -1,5 +1,6 @@
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -281,10 +282,10 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(t =>
-                EF.Functions.Like(t.Name, pattern)
-                || EF.Functions.Like(t.NameAr, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(t.Name), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(t.NameAr), pattern));
         }
 
         if (assignmentType.HasValue)
@@ -472,10 +473,10 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
         // REQ-EXH-031 — search by name or code.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(o =>
-                EF.Functions.Like(o.TeacherStudent.StudentName, pattern)
-                || EF.Functions.Like(o.TeacherStudent.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentCode), pattern));
         }
 
         // REQ-EXH-031 filter 1 — by completion / attendance status.
@@ -557,10 +558,10 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(o =>
-                EF.Functions.Like(o.TeacherStudent.StudentName, pattern)
-                || EF.Functions.Like(o.TeacherStudent.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentCode), pattern));
         }
 
         int totalCount = await query.CountAsync();
@@ -1109,10 +1110,10 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(t =>
-                EF.Functions.Like(t.Name, pattern)
-             || EF.Functions.Like(t.NameAr, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(t.Name), pattern)
+             || EF.Functions.Like(DbSearch.ArabicNormalize(t.NameAr), pattern));
         }
 
         if (assignmentType.HasValue)
@@ -1678,7 +1679,7 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     public async Task<IReadOnlyList<StudentPickerRow>> SearchStudentsInOccurrenceAsync(
             long teacherId, long occurrenceId, string query, int limit)
     {
-        string trimmed = query?.Trim() ?? string.Empty;
+        string trimmed = ArabicTextNormalizer.Normalize(query?.Trim() ?? string.Empty);
         string pattern = $"%{trimmed}%";
 
         // Backed by IX_StudentAssignmentObligations_Tracking (TeacherId, OccurrenceId).
@@ -1686,8 +1687,8 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             .Where(o => o.TeacherId == teacherId
                      && o.OccurrenceId == occurrenceId
                      && (string.IsNullOrEmpty(trimmed)
-                         || EF.Functions.Like(o.TeacherStudent.StudentName, pattern)
-                         || EF.Functions.Like(o.TeacherStudent.StudentCode, pattern)))
+                         || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentName), pattern)
+                         || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentCode), pattern)))
             .OrderBy(o => o.TeacherStudent.StudentName)
             .Take(limit)
             .Select(o => new StudentPickerRow
@@ -1750,10 +1751,10 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
             query = query.Where(ts =>
-                EF.Functions.Like(ts.StudentName, pattern)
-             || EF.Functions.Like(ts.StudentCode, pattern));
+                EF.Functions.Like(DbSearch.ArabicNormalize(ts.StudentName), pattern)
+             || EF.Functions.Like(DbSearch.ArabicNormalize(ts.StudentCode), pattern));
         }
 
         int totalCount = await query.CountAsync();

@@ -1,4 +1,5 @@
 ﻿using Edvanz.Domain.Entities.Messaging;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -36,7 +37,8 @@ namespace Edvanz.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(templateName))
             {
-                query = query.Where(t => t.Name.Contains(templateName));
+                var nameTerm = ArabicTextNormalizer.Normalize(templateName.Trim());
+                query = query.Where(t => DbSearch.ArabicNormalize(t.Name).Contains(nameTerm));
             }
 
             var count = await query.CountAsync();

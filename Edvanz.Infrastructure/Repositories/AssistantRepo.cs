@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -49,14 +50,14 @@ namespace Edvanz.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(fullName))
             {
-                var nameTerm = fullName.Trim().ToLower();
-                query = query.Where(a => a.User.FullName.ToLower().Contains(nameTerm));
+                var nameTerm = ArabicTextNormalizer.Normalize(fullName.Trim());
+                query = query.Where(a => DbSearch.ArabicNormalize(a.User.FullName).Contains(nameTerm));
             }
 
             if (!string.IsNullOrWhiteSpace(username))
             {
-                var usernameTerm = username.Trim().ToLower();
-                query = query.Where(a => a.User.Username.ToLower().Contains(usernameTerm));
+                var usernameTerm = ArabicTextNormalizer.Normalize(username.Trim());
+                query = query.Where(a => DbSearch.ArabicNormalize(a.User.Username).Contains(usernameTerm));
             }
 
             if (isAssignedToTeacher.HasValue && teacherId.HasValue)
@@ -154,10 +155,10 @@ namespace Edvanz.Infrastructure.Repositories
 
             if (!string.IsNullOrWhiteSpace(search))
             {
-                var term = search.Trim().ToLower();
+                var term = ArabicTextNormalizer.Normalize(search.Trim());
                 query = query.Where(a =>
-                    a.User.FullName.ToLower().Contains(term) ||
-                    (a.User.PhoneNumber != null && a.User.PhoneNumber.ToLower().Contains(term)));
+                    DbSearch.ArabicNormalize(a.User.FullName).Contains(term) ||
+                    (a.User.PhoneNumber != null && DbSearch.ArabicNormalize(a.User.PhoneNumber).Contains(term)));
             }
 
             var totalCount = await query.CountAsync();

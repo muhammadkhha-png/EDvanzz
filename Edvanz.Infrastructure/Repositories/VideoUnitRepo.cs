@@ -1,5 +1,6 @@
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -59,8 +60,8 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
-            query = query.Where(u => EF.Functions.Like(u.Title, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
+            query = query.Where(u => EF.Functions.Like(DbSearch.ArabicNormalize(u.Title), pattern));
         }
 
         int totalCount = await query.CountAsync();
@@ -112,8 +113,8 @@ public class VideoUnitRepo : GenericRepo<VideoUnit, long>, IVideoUnitRepo
         // Same Title search as GetTeacherVideosPagedAsync — parity with the top-level list.
         if (!string.IsNullOrWhiteSpace(search))
         {
-            string pattern = $"%{search.Trim()}%";
-            query = query.Where(v => EF.Functions.Like(v.Title, pattern));
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
+            query = query.Where(v => EF.Functions.Like(DbSearch.ArabicNormalize(v.Title), pattern));
         }
 
         int totalCount = await query.CountAsync();

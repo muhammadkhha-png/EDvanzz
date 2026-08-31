@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities.Messaging;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -32,10 +33,16 @@ namespace Edvanz.Infrastructure.Repositories
             query = query.Where(x => x.TeacherId == teacherId);
 
             if (!string.IsNullOrWhiteSpace(studentName))
-                query = query.Where(x => x.StudentName.Contains(studentName));
+            {
+                var nameTerm = ArabicTextNormalizer.Normalize(studentName.Trim());
+                query = query.Where(x => DbSearch.ArabicNormalize(x.StudentName).Contains(nameTerm));
+            }
 
             if (!string.IsNullOrWhiteSpace(studentCode))
-                query = query.Where(x => x.StudentCode.Contains(studentCode));
+            {
+                var codeTerm = ArabicTextNormalizer.Normalize(studentCode.Trim());
+                query = query.Where(x => DbSearch.ArabicNormalize(x.StudentCode).Contains(codeTerm));
+            }
 
             if (from.HasValue)
                 query = query.Where(x => x.CreateAt >= from.Value);

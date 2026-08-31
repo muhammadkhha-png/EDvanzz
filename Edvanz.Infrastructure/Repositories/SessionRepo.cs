@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
+using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -178,8 +179,8 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
         // REQ-SES-044: Search by session name (partial match)
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(s => s.SessionName.Contains(term));
+            var term = ArabicTextNormalizer.Normalize(search.Trim());
+            query = query.Where(s => DbSearch.ArabicNormalize(s.SessionName).Contains(term));
         }
 
         // ── SORT ──
