@@ -190,6 +190,16 @@ public sealed class CollectLookupRow
     /// payment covers — accurate even when a month is prorated or partially paid.
     /// </summary>
     public List<CollectLookupUnpaidMonth> UnpaidMonths { get; set; } = new();
+
+    /// <summary>
+    /// One-month-in-advance OFFER: the next unpaid month (current + 1, the cap CollectPaymentAsync
+    /// accepts), populated ONLY when the student has no arrears through the current month (fully paid).
+    /// It is kept SEPARATE from <see cref="AmountDue"/>/<see cref="IsUnpaid"/>/<see cref="UnpaidMonths"/>
+    /// on purpose: the student must keep reading as PAID everywhere (roster, attendance scan, status) —
+    /// the advance is only an option the deliberate collect pop-up may surface. Null when arrears exist,
+    /// no next-month period exists, or the lookup is not scoped to the current month.
+    /// </summary>
+    public CollectLookupUnpaidMonth? AdvanceMonth { get; set; }
 }
 
 /// <summary>One unpaid month in a collect lookup: the period, the month it falls in, and the

@@ -1814,7 +1814,8 @@
 
         /// <inheritdoc />
         public async Task<CollectLookupRow?> ResolveCollectLookupAsync(
-            long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd)
+            long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd,
+            DateTime? advanceCapEnd = null)
         {
             var q = _context.TeacherStudents.Where(ts => ts.TeacherId == teacherId);
 
@@ -1894,8 +1895,37 @@
                 })
                 .ToListAsync();
 
+            // One-month-in-advance OFFER: when the student is fully caught up through the
+            // selected/current month (no arrears), find the NEXT unpaid month within the advance window
+            // (current + 1, the same cap CollectPaymentAsync enforces). It is returned in a SEPARATE
+            // field — arrears/AmountDue/IsUnpaid stay untouched so the student keeps reading as PAID
+            // everywhere (roster, attendance scan, status). The deliberate collect pop-up is the only
+            // place that surfaces it. Null while arrears exist, no next-month period exists, or the
+            // lookup is not scoped to the current month (advanceCapEnd is null then).
+            CollectLookupUnpaidMonth? advanceMonth = null;
+            if (overdueTotal == 0m && advanceCapEnd.HasValue)
+            {
+                advanceMonth = await _context.PaymentPeriods
+                    .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == student.Id
+                        && p.PaymentStatus != PaymentStatus.Paid
+                        && p.PeriodStart > throughMonthEnd
+                        && p.PeriodStart <= advanceCapEnd.Value
+                        && (p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)) > 0m)
+                    .OrderBy(p => p.PeriodSequence).ThenBy(p => p.PeriodStart)
+                    .Select(p => new CollectLookupUnpaidMonth
+                    {
+                        PeriodId = p.Id,
+                        PeriodStart = p.PeriodStart,
+                        Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                        IsProRated = p.IsProRated,
+                        ProRatedFraction = p.ProRatedFraction
+                    })
+                    .FirstOrDefaultAsync();
+            }
+
             return new CollectLookupRow
             {
+                AdvanceMonth = advanceMonth,
                 TeacherStudentId = student.Id,
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,

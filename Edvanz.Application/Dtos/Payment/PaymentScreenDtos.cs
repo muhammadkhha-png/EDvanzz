@@ -517,6 +517,15 @@ public class CollectLookupResponse
     /// first N entries (the student must clear older months before newer ones).
     /// </summary>
     public List<CollectLookupMonthDto> UnpaidMonthsBreakdown { get; set; } = new();
+
+    /// <summary>
+    /// One-month-in-advance OFFER (nullable): the next month the student MAY pay ahead — populated
+    /// only when they are fully paid through the current month and a next-month period (current + 1)
+    /// exists. It does NOT affect <see cref="AmountDue"/>/<see cref="PaymentStatus"/> (the student
+    /// stays "paid" everywhere); the deliberate collect pop-up is the only surface that offers it.
+    /// Older clients ignore this field and keep showing the student as already paid.
+    /// </summary>
+    public CollectLookupMonthDto? AdvanceMonth { get; set; }
 }
 
 /// <summary>One unpaid month in a collect lookup breakdown.</summary>

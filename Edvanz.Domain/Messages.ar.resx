@@ -1986,6 +1986,9 @@
 <data name="AutoAbsentOverwrittenByMark" xml:space="preserve">
   <value>اتعدّل الحضور بدل الغياب التلقائي.</value>
 </data>
+<data name="HeldResolvedByMark" xml:space="preserve">
+  <value>اتسجّل الحضور (كان معلّق).</value>
+</data>
 <data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
   <value>اتسجّل حاضر في حصة مرتبطة (نفس الحصة) واتشال الغياب اللي فات.</value>
 </data>

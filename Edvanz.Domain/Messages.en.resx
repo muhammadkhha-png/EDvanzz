@@ -1998,6 +1998,9 @@
 <data name="AutoAbsentOverwrittenByMark" xml:space="preserve">
   <value>Attendance re-marked over an automatic absence.</value>
 </data>
+<data name="HeldResolvedByMark" xml:space="preserve">
+  <value>Attendance recorded (was on hold).</value>
+</data>
 <data name="AbsentFlippedToCrossSessionPresent" xml:space="preserve">
   <value>Marked present in a linked session (same class); the earlier absence was cleared.</value>
 </data>

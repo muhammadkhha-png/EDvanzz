@@ -516,9 +516,18 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// then student code, then name (first match by name), returning the amount they should pay
     /// (custom amount → earliest-unpaid-period remaining → session amount) and paid/unpaid state.
     /// Returns null when nothing matches or no lookup key is supplied.
+    ///
+    /// <paramref name="advanceCapEnd"/> enables the one-month-in-advance option: when it is
+    /// non-null AND the student has NO arrears through <paramref name="throughMonthEnd"/> (fully
+    /// caught up), the earliest unpaid month in the window
+    /// (<paramref name="throughMonthEnd"/>, <paramref name="advanceCapEnd"/>] — i.e. the current
+    /// month + 1, the same cap CollectPaymentAsync enforces — is surfaced as the collectable month
+    /// so the assistant can take next month's fee ahead. Null (or arrears present) keeps the
+    /// arrears-only behaviour. Never surfaces more than one month ahead.
     /// </summary>
     Task<CollectLookupRow?> ResolveCollectLookupAsync(
-        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd);
+        long teacherId, string? qr, string? code, string? name, DateTime throughMonthEnd,
+        DateTime? advanceCapEnd = null);
 
     // ══════════════════════════════════════════════
     // ASSISTANT WALLET QUERIES

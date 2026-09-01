@@ -1129,8 +1129,20 @@ public class PaymentScreenService : IPaymentScreenService
                 _localizer, PaymentConstants.Messages.PaymentInvalidMonthFormat,
                 HttpStatusCode.UnprocessableEntity);
 
+        // One-month-in-advance option (only for the current-month collect flow, which is what QR
+        // scan + tap-to-collect use): when the student is caught up through this month, the lookup
+        // also offers next month (current + 1 — the same cap CollectPaymentAsync accepts). Anchored
+        // to the teacher's LOCAL current month, and only when the lookup covers it, so a past-month
+        // view never offers an "advance". Paying one month ahead is optional, never forced.
+        var localDate = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
+        var currentMonthEnd = currentMonthStart.AddMonths(1).AddDays(-1);
+        DateTime? advanceCapEnd = throughMonthEnd >= currentMonthEnd
+            ? currentMonthStart.AddMonths(2).AddDays(-1)
+            : (DateTime?)null;
+
         var row = await _unitOfWork.PaymentsRepo.ResolveCollectLookupAsync(
-            teacherId, qr, code, name, throughMonthEnd);
+            teacherId, qr, code, name, throughMonthEnd, advanceCapEnd);
         if (row is null)
             return Result<CollectLookupResponse>.Failure(
                 _localizer, PaymentConstants.Messages.PaymentLookupStudentNotFound, HttpStatusCode.NotFound);
@@ -1163,7 +1175,17 @@ public class PaymentScreenService : IPaymentScreenService
                     IsProrated = m.IsProRated,
                     ProRatedFraction = m.IsProRated ? m.ProRatedFraction : (decimal?)null
                 })
-                .ToList()
+                .ToList(),
+            // Separate advance offer — the student stays "paid"; only the collect pop-up uses this.
+            AdvanceMonth = row.AdvanceMonth is null ? null : new CollectLookupMonthDto
+            {
+                PeriodId = row.AdvanceMonth.PeriodId.ToString(CultureInfo.InvariantCulture),
+                Month = row.AdvanceMonth.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                MonthLabel = row.AdvanceMonth.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+                Amount = row.AdvanceMonth.Remaining,
+                IsProrated = row.AdvanceMonth.IsProRated,
+                ProRatedFraction = row.AdvanceMonth.IsProRated ? row.AdvanceMonth.ProRatedFraction : (decimal?)null
+            }
         };
 
         return Result<CollectLookupResponse>.Success(

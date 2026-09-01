@@ -609,6 +609,16 @@ public class AttendanceService : IAttendanceService
                     AttendanceConstants.Messages.AutoAbsentOverwrittenByMark,
                     isCrossFlip: false, null, null, null, trackedOccurrence: occurrence);
 
+            // A Held record is a DEFERRED, non-final state (created only via Hold, never a real
+            // attendance decision). A later Present/Absent mark RESOLVES it in place — exactly like
+            // ReleaseHold — instead of 409-ing as a duplicate. Without this the mark parks as an
+            // unresolved conflict in the offline sync centre (the roster row stays Held, so the
+            // offline reconcile never matches the Present/Absent it tried to write).
+            if (existingRecord.Status == AttendanceStatus.Held)
+                return await ReconcileSingleMarkAsync(existingRecord, markStatus, session, dto,
+                    AttendanceConstants.Messages.HeldResolvedByMark,
+                    isCrossFlip: false, null, null, null, trackedOccurrence: occurrence);
+
             return Result<MarkAttendanceResultDto>.Success(new MarkAttendanceResultDto
             {
                 Record = null,
@@ -956,6 +966,17 @@ public class AttendanceService : IAttendanceService
                     {
                         await ApplyReconciliationAsync(occRec, prePassStatus,
                             AttendanceConstants.Messages.AutoAbsentOverwrittenByMark,
+                            isCrossFlip: false, null, null, null, dto.RecordedByUserId);
+                        reconciledStudentIds.Add(studentId);
+                        reconciledOccurrenceIds.Add(occurrence.Id);
+                    }
+                    // A Held record is a deferred, non-final state — a Present/Absent scan RESOLVES it
+                    // in place (mirrors the single-mark path + ReleaseHold), instead of being reported
+                    // as a duplicate skip. prePassStatus is Present/Absent here (Held was skipped above).
+                    else if (occRec.Status == AttendanceStatus.Held)
+                    {
+                        await ApplyReconciliationAsync(occRec, prePassStatus,
+                            AttendanceConstants.Messages.HeldResolvedByMark,
                             isCrossFlip: false, null, null, null, dto.RecordedByUserId);
                         reconciledStudentIds.Add(studentId);
                         reconciledOccurrenceIds.Add(occurrence.Id);

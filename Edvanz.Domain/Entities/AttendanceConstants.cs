@@ -173,6 +173,9 @@ public static class AttendanceConstants
         /// <summary>A later same-occurrence mark overwrote a system-written auto-absent record.</summary>
         public const string AutoAbsentOverwrittenByMark = "AutoAbsentOverwrittenByMark";
 
+        /// <summary>A later same-occurrence mark resolved a deferred Held record to Present/Absent.</summary>
+        public const string HeldResolvedByMark = "HeldResolvedByMark";
+
         /// <summary>A later equivalent-occurrence present scan flipped a prior Absent to CrossSessionPresent.</summary>
         public const string AbsentFlippedToCrossSessionPresent = "AbsentFlippedToCrossSessionPresent";
     }
