@@ -30,12 +30,22 @@ public interface IPaymentScreenService
     /// <para>SEARCH (additive): <paramref name="search"/> filters both the collection rows and the
     /// negative refund/edit lines by student name/code (case-insensitive substring); null/blank →
     /// no filter.</para>
+    ///
+    /// <para>ORDERING (collector-scoped path): when <paramref name="collectedByUserId"/> is set the
+    /// whole ledger is ordered by calendar day (newest first) and, within a day, money-OUT lines
+    /// (refunds/withdrawals) before collections — then paginated in memory so the ordering holds
+    /// across pages. The response also carries <c>DailyNets</c> (per-day totals for the whole scope).</para>
+    ///
+    /// <para><paramref name="includeAdjustments"/> (additive; default <c>true</c>): when <c>false</c>
+    /// the negative refund/withdrawal lines are omitted entirely ("collections only" view), so the list
+    /// and its pagination cover collections alone. No effect on the amount tiers (already collections-only).</para>
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
         long? collectedByUserId = null,
         DateTime? from = null, DateTime? to = null,
-        string? search = null);
+        string? search = null,
+        bool includeAdjustments = true);
 
     /// <summary>
     /// Screen: Collections date-filtered SUMMARY. Period overview for the payment/collections

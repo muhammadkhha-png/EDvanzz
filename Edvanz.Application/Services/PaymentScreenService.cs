@@ -112,7 +112,8 @@ public class PaymentScreenService : IPaymentScreenService
         long teacherId, string? month, int? year, int page, int limit,
         long? collectedByUserId = null,
         DateTime? from = null, DateTime? to = null,
-        string? search = null)
+        string? search = null,
+        bool includeAdjustments = true)
     {
         (page, limit) = NormalizePaging(page, limit);
 
@@ -151,26 +152,36 @@ public class PaymentScreenService : IPaymentScreenService
                     _localizer, errorKey, HttpStatusCode.UnprocessableEntity);
 
             startDate = new DateTime(resolvedYear, resolvedMonth, 1);
-            endDate = startDate.AddMonths(1).AddDays(-1);
             endExclusive = startDate.AddMonths(1);
+            // End-of-day of the last day (Aug 31 23:59:59.9999999), NOT the last day at midnight.
+            // `GetTransactionsByDateRangePagedAsync` filters `CollectedAt <= endDate` and CollectedAt
+            // carries a real time-of-day, so `AddMonths(1).AddDays(-1)` (= last day 00:00:00) silently
+            // dropped every collection made after midnight on the last calendar day of the month —
+            // i.e. the whole last day (the "no collections on Aug 31" bug). Mirrors the date-range path.
+            endDate = endExclusive.AddTicks(-1);
             monthLabel = startDate.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
         }
 
+        // Collector-scoped ledger ("collected by me" / an assistant's own collections): materialize the
+        // whole scope so the list can be ordered by day (newest first; money-OUT before collections
+        // within a day) and paginated consistently across pages, and so per-day nets are authoritative.
+        if (collectedByUserId is long collectorId)
+        {
+            return await BuildCollectorScopedCollectionsAsync(
+                teacherId, collectorId, page, limit,
+                startDate, endDate, endExclusive,
+                resolvedYear, resolvedMonth, monthLabel, fromEcho, toEcho, search, includeAdjustments);
+        }
+
+        // ── TEACHER-WIDE (account) path — collectedByUserId is null here (the collector-scoped path
+        // returned above). Keeps SQL pagination: the few departure-refund lines are surfaced on page 1
+        // and counted into the totals on every page. ──
         var (items, totalCount) = await _unitOfWork.PaymentsRepo
             .GetTransactionsByDateRangePagedAsync(
                 teacherId, startDate, endDate,
-                sessionId: null, collectedByUserId: collectedByUserId,
+                sessionId: null, collectedByUserId: null,
                 page: page, pageSize: limit, search: search);
 
-        // Negative-amount ledger lines (money OUT). They are few, so the whole in-range set is
-        // surfaced ONCE on page 1 (prepended, most visible) and counted into the totals; later pages
-        // simply page the collections. Two scopes:
-        //   • Teacher-wide (collectedByUserId == null): student-departure refunds confirmed in-range,
-        //     carrying the departed month they apply to.
-        //   • Collector-scoped (collectedByUserId set): THAT collector's own money-out — payment
-        //     edits/reversals AND departure refunds (the edit-log trail already contains the departure
-        //     reversals, so one source avoids double-counting) — so a collector's own-collections list
-        //     matches their ledger instead of hiding refunds.
         // Arabic-variant-insensitive (أ/ا, ة/ه, ى/ي …): both sides folded in memory, mirroring
         // the SQL dbo.ArabicNormalize path. Normalize already lower-cases, so Ordinal suffices.
         var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
@@ -180,12 +191,9 @@ public class PaymentScreenService : IPaymentScreenService
             || (code != null && ArabicTextNormalizer.Normalize(code).Contains(term, StringComparison.Ordinal));
 
         var refundRows = new List<CollectionRow>();
-        // Money-out rows whose PERFORMER is someone other than the collector this ledger is scoped
-        // to — labeled below so a tutor's hand-over/departure never reads as the collector's own
-        // action (the "my withdrawal shows under Omar" report). Collector-scoped rows only.
-        var moneyOutPerformers = new List<(CollectionRow Row, long PerformerId)>();
-        int refundCount;
-        if (collectedByUserId is null)
+        int refundCount = 0;
+        // Student-departure refunds confirmed in-range (money OUT). Omitted when includeAdjustments=false.
+        if (includeAdjustments)
         {
             var refunds = (await _unitOfWork.PaymentsRepo
                     .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive))
@@ -197,7 +205,6 @@ public class PaymentScreenService : IPaymentScreenService
                 refundRows.AddRange(refunds.Select(r => new CollectionRow
                 {
                     Id = $"departure-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
-                    // Refund lines are rendered with a distinct marker, not a ledger ordinal.
                     Index = 0,
                     StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
                     StudentName = r.StudentName,
@@ -213,57 +220,108 @@ public class PaymentScreenService : IPaymentScreenService
                 }));
             }
         }
-        else
+
+        int baseIndex = (page - 1) * limit;
+        var rows = new List<CollectionRow>(items.Count + refundRows.Count);
+        rows.AddRange(refundRows);
+        for (int i = 0; i < items.Count; i++)
+            rows.Add(BuildCollectionRowFromTransaction(items[i], baseIndex + i + 1));
+
+        // "How many paid X" distribution across the whole scope (not just this page), by per-month amount.
+        var amountTiers = (await _unitOfWork.PaymentsRepo
+                .GetCollectionAmountTiersAsync(teacherId, startDate, endDate, null))
+            .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
+            .ToList();
+
+        int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
+        var response = new CollectionsByMonthResponse
         {
-            // includeDeleted: false — this "view more" list reads collections with the !IsDeleted filter
-            // (GetTransactionsByDateRangePagedAsync), so a fully-DELETED collection's positive row is
-            // already excluded; keeping its Deleted refund line here would be an orphaned −amount with no
-            // positive counterpart (the Omar bug). Reversed (partial departure) refunds are still shown —
-            // their transaction stays visible, so the positive row is on the list to net against.
-            var refunds = (await _unitOfWork.PaymentsRepo
-                    .GetCollectorRefundsInRangeAsync(teacherId, collectedByUserId.Value, startDate, endExclusive,
-                        includeDeleted: false))
+            Month = resolvedMonth,
+            Year = resolvedYear,
+            MonthLabel = monthLabel,
+            Page = page,
+            Limit = limit,
+            TotalItems = totalCount + refundCount,
+            TotalPages = transactionPages == 0 ? (refundCount > 0 ? 1 : 0) : transactionPages,
+            FromDate = fromEcho,
+            ToDate = toEcho,
+            Items = rows,
+            AmountTiers = amountTiers
+        };
+
+        return Result<CollectionsByMonthResponse>.Success(
+            response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>
+    /// Builds the collector-scoped collections ledger ("collected by me" / an assistant's own
+    /// collections). The whole scope is materialized in memory so the flat list can be ordered by
+    /// calendar day (newest first) with money-OUT lines (refunds/withdrawals) before collections
+    /// within each day, then paginated consistently across pages — and so the per-day nets that drive
+    /// the day-separator headers are authoritative for every day regardless of which page is loaded.
+    /// A single collector's single month/range is bounded (smaller than the all-time assistant-wallet
+    /// ledger, which already loads in memory), so this stays within the module's established pattern.
+    /// </summary>
+    private async Task<Result<CollectionsByMonthResponse>> BuildCollectorScopedCollectionsAsync(
+        long teacherId, long collectorId, int page, int limit,
+        DateTime startDate, DateTime endDate, DateTime endExclusive,
+        int resolvedYear, int resolvedMonth, string monthLabel,
+        DateTime? fromEcho, DateTime? toEcho, string? search, bool includeAdjustments)
+    {
+        var repo = _unitOfWork.PaymentsRepo;
+        var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+        bool MatchesSearch(string? name, string? code) =>
+            string.IsNullOrEmpty(term)
+            || (name != null && ArabicTextNormalizer.Normalize(name).Contains(term, StringComparison.Ordinal))
+            || (code != null && ArabicTextNormalizer.Normalize(code).Contains(term, StringComparison.Ordinal));
+
+        // ── Positives: EVERY collection in scope (int.MaxValue page size — same as the summary strip). ──
+        var (txns, _) = await repo.GetTransactionsByDateRangePagedAsync(
+            teacherId, startDate, endDate, sessionId: null, collectedByUserId: collectorId,
+            page: 1, pageSize: int.MaxValue, search: search);
+
+        var all = new List<CollectionRow>(txns.Count);
+        foreach (var tx in txns)
+            all.Add(BuildCollectionRowFromTransaction(tx, 0));
+
+        // ── Negatives (money OUT) — refunds + wallet withdrawals — unless "collections only". ──
+        var moneyOutPerformers = new List<(CollectionRow Row, long PerformerId)>();
+        if (includeAdjustments)
+        {
+            // includeDeleted:false — a fully-DELETED collection's positive row is already excluded, so its
+            // Deleted refund line would be an orphaned −amount (the Omar bug). Reversed (partial departure)
+            // refunds stay: their transaction is still visible above to net against.
+            var refunds = (await repo.GetCollectorRefundsInRangeAsync(
+                    teacherId, collectorId, startDate, endExclusive, includeDeleted: false))
                 .Where(r => r.RefundAmount > 0m && MatchesSearch(r.StudentName, r.StudentCode))
                 .ToList();
-            refundCount = refunds.Count;
-            if (page == 1)
+            foreach (var r in refunds)
             {
-                foreach (var r in refunds)
+                var row = new CollectionRow
                 {
-                    var row = new CollectionRow
-                    {
-                        Id = $"collector-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
-                        Index = 0,
-                        StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
-                        StudentName = r.StudentName,
-                        StudentCode = r.StudentCode,
-                        Amount = -r.RefundAmount,
-                        Status = "refund",
-                        IsRefund = true,
-                        SessionName = r.SessionName,
-                        RefundedForMonthLabel = null,
-                        CollectedAt = r.RefundedAt
-                    };
-                    refundRows.Add(row);
-                    if (r.PerformedByUserId is long performerId && performerId != collectedByUserId.Value)
-                        moneyOutPerformers.Add((row, performerId));
-                }
+                    Id = $"collector-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+                    Index = 0,
+                    StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+                    StudentName = r.StudentName,
+                    StudentCode = r.StudentCode,
+                    Amount = -r.RefundAmount,
+                    Status = "refund",
+                    IsRefund = true,
+                    SessionName = r.SessionName,
+                    RefundedForMonthLabel = null,
+                    CollectedAt = r.RefundedAt
+                };
+                all.Add(row);
+                if (r.PerformedByUserId is long performerId && performerId != collectorId)
+                    moneyOutPerformers.Add((row, performerId));
             }
-        }
 
-        // Cash withdrawals (money handed over FROM this collector's wallet) — collector-scoped only.
-        // Skipped when a student search is active (a withdrawal has no student to match). The tutor's
-        // own "collected by me" view resolves to no wallet, so this is naturally empty there.
-        var withdrawalRows = new List<CollectionRow>();
-        int withdrawalCount = 0;
-        if (collectedByUserId is not null && string.IsNullOrEmpty(term))
-        {
-            var withdrawals = await _unitOfWork.PaymentsRepo
-                .GetWalletResetLogsForCollectorInRangeAsync(
-                    teacherId, collectedByUserId.Value, startDate, endExclusive);
-            withdrawalCount = withdrawals.Count;
-            if (page == 1)
+            // Cash withdrawals (hand-overs FROM this collector's wallet). A withdrawal carries no student,
+            // so it's skipped while a student search is active. The tutor's own view has no wallet → empty.
+            if (string.IsNullOrEmpty(term))
             {
+                var withdrawals = await repo.GetWalletResetLogsForCollectorInRangeAsync(
+                    teacherId, collectorId, startDate, endExclusive);
                 foreach (var w in withdrawals)
                 {
                     var row = new CollectionRow
@@ -280,71 +338,72 @@ public class PaymentScreenService : IPaymentScreenService
                         RefundedForMonthLabel = null,
                         CollectedAt = w.ResetAt
                     };
-                    withdrawalRows.Add(row);
-                    if (w.ResetByUserId != collectedByUserId.Value)
+                    all.Add(row);
+                    if (w.ResetByUserId != collectorId)
                         moneyOutPerformers.Add((row, w.ResetByUserId));
                 }
             }
         }
 
-        // One name lookup for every foreign performer collected above (page-1 rows only, tiny set).
+        // Name every foreign performer (tutor taking a hand-over / departing a student) — tiny set.
         if (moneyOutPerformers.Count > 0)
         {
             var performerNames = await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(
                 moneyOutPerformers.Select(p => p.PerformerId).Distinct().ToList());
             foreach (var (row, performerId) in moneyOutPerformers)
-            {
                 if (performerNames.TryGetValue(performerId, out var name))
                     row.PerformedByName = name;
-            }
         }
 
-        // Negative lines (refunds/edits + withdrawals) live entirely on page 1; both are counted into
-        // the totals on every page so pagination stays correct.
-        int negativeCount = refundCount + withdrawalCount;
+        // Stable per-row day key (invariant "yyyy-MM-dd" of the raw CollectedAt) — the client groups the
+        // ledger into day sections by this string, matching the collections date-filter's day notion.
+        foreach (var r in all)
+            r.DayKey = (r.CollectedAt ?? DateTime.MinValue).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-        int baseIndex = (page - 1) * limit;
-        var rows = new List<CollectionRow>(items.Count + refundRows.Count + withdrawalRows.Count);
-        rows.AddRange(refundRows);
-        rows.AddRange(withdrawalRows);
-
-        for (int i = 0; i < items.Count; i++)
+        // ── Order: newest DAY first; within a day money-OUT (negative) before collections; newest time
+        // first as the final tiebreak. This replaces the old "all negatives, then all positives" layout. ──
+        all.Sort((a, b) =>
         {
-            var tx = items[i];
-            var (appliedMonths, isEdited, originalAmount) = BuildCollectionLedgerMeta(tx);
-            rows.Add(new CollectionRow
-            {
-                Id = tx.Id.ToString(CultureInfo.InvariantCulture),
-                Index = baseIndex + i + 1,
-                StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
-                StudentName = tx.StudentName,
-                StudentCode = tx.StudentCode,
-                Amount = tx.AmountPaid,
-                Status = "collected",
-                // Months this one cash event cleared (settlement slices); legacy rows w/o allocations → 1.
-                PeriodsCovered = tx.Allocations != null && tx.Allocations.Count > 0
-                    ? tx.Allocations.Count : 1,
-                // Which month(s) this collection settled (oldest-first) + any amount-edit trail.
-                AppliedMonths = appliedMonths,
-                IsEdited = isEdited,
-                OriginalAmount = originalAmount,
-                // Live session name; the transaction's copy is a stale-on-rename snapshot.
-                SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
-                CollectedAt = tx.CollectedAt
-            });
-        }
+            var da = (a.CollectedAt ?? DateTime.MinValue).Date;
+            var db = (b.CollectedAt ?? DateTime.MinValue).Date;
+            int byDay = db.CompareTo(da);
+            if (byDay != 0) return byDay;
+            int bySign = SignOrder(a).CompareTo(SignOrder(b));   // 0 = money-out first, 1 = collection
+            if (bySign != 0) return bySign;
+            return (b.CollectedAt ?? DateTime.MinValue).CompareTo(a.CollectedAt ?? DateTime.MinValue);
+        });
 
-        // "How many paid X" distribution across the whole scope (not just this page), by per-month
-        // amount. Independent of search/paging so the cards summarise the full day/month.
-        var tiers = await _unitOfWork.PaymentsRepo
-            .GetCollectionAmountTiersAsync(teacherId, startDate, endDate, collectedByUserId);
-        var amountTiers = tiers
+        // ── Per-day nets over the FULL scope (authoritative regardless of pagination). ──
+        var dailyNets = all
+            .GroupBy(r => (r.CollectedAt ?? DateTime.MinValue).Date)
+            .Select(g =>
+            {
+                decimal collected = g.Where(r => r.Amount > 0m).Sum(r => r.Amount);
+                decimal deducted = g.Where(r => r.Amount < 0m).Sum(r => -r.Amount);
+                return new CollectionDailyNet
+                {
+                    DateKey = g.Key.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    Date = g.Key,
+                    Collected = collected,
+                    Deducted = deducted,
+                    Net = collected - deducted,
+                    CollectionsCount = g.Count(r => r.Amount > 0m)
+                };
+            })
+            .OrderByDescending(d => d.Date)
+            .ToList();
+
+        // ── In-memory pagination + a display ordinal for the page's rows. ──
+        int totalItems = all.Count;
+        int totalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)limit);
+        var pageRows = all.Skip((page - 1) * limit).Take(limit).ToList();
+        for (int i = 0; i < pageRows.Count; i++)
+            pageRows[i].Index = (page - 1) * limit + i + 1;
+
+        var amountTiers = (await repo.GetCollectionAmountTiersAsync(teacherId, startDate, endDate, collectorId))
             .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
             .ToList();
 
-        // Pagination follows the collections; the negative lines live entirely on page 1. Guarantee at
-        // least one page when a range has ONLY negative lines so page 1 still renders.
-        int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
         var response = new CollectionsByMonthResponse
         {
             Month = resolvedMonth,
@@ -352,16 +411,45 @@ public class PaymentScreenService : IPaymentScreenService
             MonthLabel = monthLabel,
             Page = page,
             Limit = limit,
-            TotalItems = totalCount + negativeCount,
-            TotalPages = transactionPages == 0 ? (negativeCount > 0 ? 1 : 0) : transactionPages,
+            TotalItems = totalItems,
+            TotalPages = totalPages,
             FromDate = fromEcho,
             ToDate = toEcho,
-            Items = rows,
-            AmountTiers = amountTiers
+            Items = pageRows,
+            AmountTiers = amountTiers,
+            DailyNets = dailyNets
         };
 
         return Result<CollectionsByMonthResponse>.Success(
             response, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <summary>Within-day ordering key: money-out lines (refunds/withdrawals) sort before collections.</summary>
+    private static int SignOrder(CollectionRow r) => r.Amount < 0m ? 0 : 1;
+
+    /// <summary>Maps a collection <see cref="PaymentTransaction"/> to its ledger row (shared by both paths).</summary>
+    private CollectionRow BuildCollectionRowFromTransaction(PaymentTransaction tx, int index)
+    {
+        var (appliedMonths, isEdited, originalAmount) = BuildCollectionLedgerMeta(tx);
+        return new CollectionRow
+        {
+            Id = tx.Id.ToString(CultureInfo.InvariantCulture),
+            Index = index,
+            StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = tx.StudentName,
+            StudentCode = tx.StudentCode,
+            Amount = tx.AmountPaid,
+            Status = "collected",
+            // Months this one cash event cleared (settlement slices); legacy rows w/o allocations → 1.
+            PeriodsCovered = tx.Allocations != null && tx.Allocations.Count > 0
+                ? tx.Allocations.Count : 1,
+            AppliedMonths = appliedMonths,
+            IsEdited = isEdited,
+            OriginalAmount = originalAmount,
+            // Live session name; the transaction's copy is a stale-on-rename snapshot.
+            SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
+            CollectedAt = tx.CollectedAt
+        };
     }
 
     /// <inheritdoc />
@@ -682,8 +770,13 @@ public class PaymentScreenService : IPaymentScreenService
         }
 
         int total = merged.Count;
+        // Display order (mirrors the collector-scoped collections ledger): newest DAY first; within a
+        // day, money-OUT (refunds/withdrawals, negative) before collections; newest time as the final
+        // tiebreak. The running-balance pass above keeps its own chronological sort — untouched.
         var items = merged
-            .OrderByDescending(i => i.CollectedAt)
+            .OrderByDescending(i => i.CollectedAt.Date)
+            .ThenBy(i => i.Amount < 0m ? 0 : 1)
+            .ThenByDescending(i => i.CollectedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
             .ToList();

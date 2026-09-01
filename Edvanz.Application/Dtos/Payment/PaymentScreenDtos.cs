@@ -46,6 +46,14 @@ public class CollectionsByMonthResponse
     /// monthly amount. Covers the whole scope (not just the current page); withdrawals are excluded.
     /// </summary>
     public List<CollectionAmountTier> AmountTiers { get; set; } = new();
+
+    /// <summary>
+    /// Per-day money totals for the whole collector-scoped scope (not just the current page), newest
+    /// day first — powers the ledger's day-separator headers ("31 Aug 2026 · +1,250 · −300"). Computed
+    /// over the full in-memory set so each day's net is authoritative regardless of pagination. Empty on
+    /// the teacher-wide (account) path; only populated when the ledger is scoped to one collector.
+    /// </summary>
+    public List<CollectionDailyNet> DailyNets { get; set; } = new();
 }
 
 /// <summary>One "how many paid X" bucket for the collections summary cards.</summary>
@@ -55,6 +63,26 @@ public class CollectionAmountTier
     public decimal Amount { get; set; }
     /// <summary>How many month-payments were collected at this amount in scope.</summary>
     public int Count { get; set; }
+}
+
+/// <summary>
+/// One calendar day's money totals in a collector-scoped ledger — the source for the ledger's
+/// day-separator headers. Computed over the whole scope (all pages), so <see cref="Net"/> is final.
+/// </summary>
+public class CollectionDailyNet
+{
+    /// <summary>Stable calendar-day key ("yyyy-MM-dd") — matches <see cref="CollectionRow.DayKey"/>.</summary>
+    public string DateKey { get; set; } = string.Empty;
+    /// <summary>The calendar day (date component only).</summary>
+    public DateTime Date { get; set; }
+    /// <summary>Total money collected (positive lines) on this day.</summary>
+    public decimal Collected { get; set; }
+    /// <summary>Total money returned/handed-over on this day (refunds + withdrawals), as a positive number.</summary>
+    public decimal Deducted { get; set; }
+    /// <summary>Net for the day = <see cref="Collected"/> − <see cref="Deducted"/> (may be negative).</summary>
+    public decimal Net { get; set; }
+    /// <summary>How many collection (positive) lines landed on this day.</summary>
+    public int CollectionsCount { get; set; }
 }
 
 /// <summary>One row in the collected-payments ledger.</summary>
@@ -72,6 +100,15 @@ public class CollectionRow
     public string Status { get; set; } = "collected";
     public string? SessionName { get; set; }
     public DateTime? CollectedAt { get; set; }
+
+    /// <summary>
+    /// Stable calendar-day key ("yyyy-MM-dd") for this row, from the raw stored <see cref="CollectedAt"/>
+    /// — the SAME day notion the collections date-filter uses. The client groups the ledger into
+    /// day-separator sections by this string (never by re-deriving a date from <see cref="CollectedAt"/>,
+    /// which would drift at the UTC/local boundary) and matches it to a <see cref="CollectionDailyNet"/>.
+    /// Populated on the collector-scoped path; null on the teacher-wide path.
+    /// </summary>
+    public string? DayKey { get; set; }
 
     /// <summary>True when this row is a student-departure refund (negative amount).</summary>
     public bool IsRefund { get; set; }

@@ -68,13 +68,17 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery(Name = "from")] DateTime? fromDate = null,
         [FromQuery(Name = "to")] DateTime? toDate = null,
         // Optional filter over the ledger (collections + refund/edit lines) by student name/code.
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        // "Collections only" toggle: false omits the negative refund/withdrawal lines (and paginates
+        // collections alone). Default true = the full signed ledger (unchanged behaviour).
+        [FromQuery] bool includeAdjustments = true)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
         var result = await _screenService.GetCollectionsByMonthAsync(
-            teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate, search);
+            teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate, search,
+            includeAdjustments);
         return ToResponse(result);
     }
 
