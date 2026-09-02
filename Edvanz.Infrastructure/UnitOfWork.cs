@@ -272,6 +272,12 @@ namespace Edvanz.Infrastructure
         /// <summary>Center tenancy tier — see <see cref="ICenterRepo"/>.</summary>
         public ICenterRepo Centers
             => _centersRepo ??= new Repositories.CenterRepo(_Context);
+
+        private IAppVersionConfigRepo? _appVersionConfigsRepo;
+
+        /// <summary>Per-platform mobile-app version gate — see <see cref="IAppVersionConfigRepo"/>.</summary>
+        public IAppVersionConfigRepo AppVersionConfigs
+            => _appVersionConfigsRepo ??= new Repositories.AppVersionConfigRepo(_Context);
     }
 
 

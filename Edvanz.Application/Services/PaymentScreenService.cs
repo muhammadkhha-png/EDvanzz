@@ -457,7 +457,9 @@ public class PaymentScreenService : IPaymentScreenService
             IsProratedFirstMonth = appliedMonths.Any(m => m.IsProRated),
             // Live session name; the transaction's copy is a stale-on-rename snapshot.
             SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
-            CollectedAt = tx.CollectedAt
+            CollectedAt = tx.CollectedAt,
+            // Collector's free-text note for a custom/partial collect (null for whole-month collects).
+            Note = tx.CollectionNote
         };
     }
 
@@ -724,6 +726,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Amount = tx.AmountPaid,
                 CollectedAt = tx.CollectedAt,
                 Kind = "collection",
+                // Collector's free-text note for a custom/partial collect (null for whole-month collects);
+                // only collection lines carry a transaction — refund/withdrawal lines below leave it null.
+                Note = tx.CollectionNote,
                 // Which month(s) this collection settled (oldest-first) + any amount-edit trail.
                 AppliedMonths = appliedMonths,
                 IsEdited = isEdited,

@@ -77,6 +77,21 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
                          && ts.Id != excludeStudentId);
     }
 
+    /// <inheritdoc />
+    public async Task<HashSet<string>> GetAllStudentCodesAsync(long teacherId)
+    {
+        // Global filter already excludes soft-deleted — active records only (mirrors
+        // StudentCodeExistsAsync). One projected read; membership is then tested in memory by the
+        // bulk-import loop instead of one AnyAsync round-trip per row. Bounded by the teacher's
+        // student count. StudentCode is a required column, so every active row carries one.
+        var codes = await _context.TeacherStudents
+            .Where(ts => ts.TeacherId == teacherId)
+            .Select(ts => ts.StudentCode)
+            .ToListAsync();
+
+        return new HashSet<string>(codes, StringComparer.OrdinalIgnoreCase);
+    }
+
     // ══════════════════════════════════════════════
     // CODE GENERATION SUPPORT
     // ══════════════════════════════════════════════

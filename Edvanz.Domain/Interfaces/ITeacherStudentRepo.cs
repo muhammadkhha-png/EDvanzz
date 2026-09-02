@@ -62,6 +62,16 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// </summary>
     Task<bool> StudentCodeExistsExcludingAsync(long teacherId, string studentCode, long excludeStudentId);
 
+    /// <summary>
+    /// Returns ALL active (non-deleted) student codes under this teacher's account as a
+    /// case-insensitive <see cref="HashSet{String}"/>. One round-trip alternative to calling
+    /// <see cref="StudentCodeExistsAsync"/> per row — used by bulk import (manual-code mode) to check
+    /// membership in memory instead of issuing up to N sequential existence queries. Same active-only
+    /// semantics as <see cref="StudentCodeExistsAsync"/> (the global soft-delete filter applies, so a
+    /// code freed by permanent purge is absent and may be reused). Null codes are excluded.
+    /// </summary>
+    Task<HashSet<string>> GetAllStudentCodesAsync(long teacherId);
+
     // ══════════════════════════════════════════════
     // CODE GENERATION SUPPORT
     // ══════════════════════════════════════════════

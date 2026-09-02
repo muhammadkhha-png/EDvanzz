@@ -198,5 +198,10 @@ namespace Edvanz.Domain.Interfaces
         /// membership checks, quota-enforcement counts, and current-subscription lookup.
         /// </summary>
         ICenterRepo Centers { get; }
+
+        /// <summary>
+        /// Per-platform mobile-app version gate (runtime-editable; DB-first, options-fallback).
+        /// </summary>
+        IAppVersionConfigRepo AppVersionConfigs { get; }
     }
 }

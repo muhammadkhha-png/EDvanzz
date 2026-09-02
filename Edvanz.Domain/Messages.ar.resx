@@ -2565,4 +2565,28 @@
   <data name="RecomputeWalletSuccess" xml:space="preserve">
     <value>تم إعادة حساب رصيد المحفظة بنجاح.</value>
   </data>
+  <data name="AppUpdateForcedTitle" xml:space="preserve">
+    <value>لازم تحدّث التطبيق</value>
+  </data>
+  <data name="AppUpdateForcedMessage" xml:space="preserve">
+    <value>النسخة دي بقت قديمة ومش مدعومة. حدّث لأحدث نسخة عشان تكمل استخدام التطبيق.</value>
+  </data>
+  <data name="AppUpdateOptionalTitle" xml:space="preserve">
+    <value>فيه تحديث جديد</value>
+  </data>
+  <data name="AppUpdateOptionalMessage" xml:space="preserve">
+    <value>نزلت نسخة جديدة فيها تحسينات وإصلاحات. حدّث دلوقتي عشان تجربة أحسن.</value>
+  </data>
+  <data name="AppVersionInvalidRequest" xml:space="preserve">
+    <value>لازم تبعت إعدادات أندرويد و iOS الاتنين.</value>
+  </data>
+  <data name="AppVersionBuildsInvalid" xml:space="preserve">
+    <value>أرقام الإصدار لازم تكون موجبة، وأحدث إصدار لازم يكون أكبر من أو يساوي أقل إصدار مدعوم.</value>
+  </data>
+  <data name="AppVersionFieldsRequired" xml:space="preserve">
+    <value>اسم أحدث نسخة ورابط المتجر مطلوبين لكل منصة.</value>
+  </data>
+  <data name="AppVersionUpdated" xml:space="preserve">
+    <value>تم تحديث إعدادات نسخة التطبيق بنجاح.</value>
+  </data>
 </root>

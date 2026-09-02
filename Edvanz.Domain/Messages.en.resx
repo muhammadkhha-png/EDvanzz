@@ -2577,4 +2577,28 @@
   <data name="RecomputeWalletSuccess" xml:space="preserve">
     <value>Wallet balance recomputed successfully.</value>
   </data>
+  <data name="AppUpdateForcedTitle" xml:space="preserve">
+    <value>Update required</value>
+  </data>
+  <data name="AppUpdateForcedMessage" xml:space="preserve">
+    <value>This version is no longer supported. Please update to the latest version to keep using the app.</value>
+  </data>
+  <data name="AppUpdateOptionalTitle" xml:space="preserve">
+    <value>Update available</value>
+  </data>
+  <data name="AppUpdateOptionalMessage" xml:space="preserve">
+    <value>A new version is available with improvements and fixes. Update now for the best experience.</value>
+  </data>
+  <data name="AppVersionInvalidRequest" xml:space="preserve">
+    <value>Both android and ios configurations are required.</value>
+  </data>
+  <data name="AppVersionBuildsInvalid" xml:space="preserve">
+    <value>Build numbers must be non-negative and the latest build must be greater than or equal to the minimum supported build.</value>
+  </data>
+  <data name="AppVersionFieldsRequired" xml:space="preserve">
+    <value>Latest version and store URL are required for each platform.</value>
+  </data>
+  <data name="AppVersionUpdated" xml:space="preserve">
+    <value>App version settings updated successfully.</value>
+  </data>
 </root>

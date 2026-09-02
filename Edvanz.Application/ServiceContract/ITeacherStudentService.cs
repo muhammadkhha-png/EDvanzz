@@ -166,8 +166,20 @@ public interface ITeacherStudentService
     /// REQ-STU-015 through REQ-STU-020: Bulk import with validation and summary report.
     /// REQ-STU-018: Skips empty names, auto-generates codes, rejects duplicates.
     /// REQ-STU-054: Auto-generates barcode for each imported student.
+    ///
+    /// <para>Everything is committed in ONE transaction, so the whole import is all-or-nothing:
+    /// if <paramref name="cancellationToken"/> fires before the final commit (the streaming caller
+    /// passes <c>HttpContext.RequestAborted</c>, so a disconnected/cancelled client trips it), the
+    /// transaction is rolled back and NOTHING is saved. <paramref name="onProgress"/>, when supplied,
+    /// is awaited during the slow per-student assignment phase as <c>(processed, total)</c> so a
+    /// streaming endpoint can report a live counter; it is null for the plain (non-streaming)
+    /// endpoint, whose behavior is unchanged.</para>
     /// </summary>
-    Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(long teacherId, BulkImportTeacherStudentsDto dto);
+    Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(
+        long teacherId,
+        BulkImportTeacherStudentsDto dto,
+        Func<int, int, Task>? onProgress = null,
+        CancellationToken cancellationToken = default);
     /// <summary>
     /// Builds the chip-strip data for the "Assign Students" screen: All / Unassigned
     /// counts plus one chip per session with its assigned-student count. Counts respect

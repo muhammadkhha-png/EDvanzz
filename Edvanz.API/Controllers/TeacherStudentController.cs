@@ -6,7 +6,10 @@ using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Edvanz.API.Controllers;
 
@@ -27,6 +30,14 @@ namespace Edvanz.API.Controllers;
 public class TeacherStudentController : ModuleSixApiBaseController
 {
     private readonly ITeacherStudentService _studentService;
+
+    /// <summary>Web-default (camelCase) JSON + string enums, matching the global controller options —
+    /// used to hand-serialize the NDJSON progress/result lines on the streaming bulk-import endpoint.</summary>
+    private static readonly JsonSerializerOptions StreamJsonOptions =
+        new(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter() },
+        };
     private readonly IStudentBarcodeService _barcodeService;
 
     public TeacherStudentController(
@@ -503,6 +514,85 @@ public class TeacherStudentController : ModuleSixApiBaseController
 
         var result = await _studentService.BulkImportStudentsAsync(teacherId.Value, dto);
         return ToResponse(result);
+    }
+
+    /// <summary>
+    /// Streaming variant of <see cref="BulkImportStudents"/> for large sheets: runs the import in ONE
+    /// all-or-nothing transaction while streaming live progress as newline-delimited JSON (NDJSON), so
+    /// the client can show a "processed / total" counter and the request never idles into a timeout.
+    /// The import commits only at the very end and honors <c>HttpContext.RequestAborted</c>, so a client
+    /// that disconnects or cancels mid-import saves NOTHING (full rollback).
+    /// </summary>
+    /// <remarks>
+    /// Response is <c>application/x-ndjson</c>, one JSON object per line:
+    /// <code>
+    /// {"type":"progress","processed":150,"total":1000}
+    /// ... (repeated) ...
+    /// {"type":"result","success":true,"code":"BulkImportComplete","message":"…","data":{…BulkImportResultDto…}}
+    /// </code>
+    /// A pre/uncommitted failure (capacity exceeded, unresolved teacher, unexpected error) is a terminal
+    /// <c>{"type":"error","code":"…","message":"…"}</c> or a <c>result</c> line with <c>success:false</c>.
+    /// AUTH/TENANCY identical to <c>bulk-import</c> (Student/Import permission; teacherId from the JWT).
+    /// </remarks>
+    [HttpPost("bulk-import/stream")]
+    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionImport)]
+    public async Task BulkImportStudentsStream([FromBody] BulkImportTeacherStudentsDto dto)
+    {
+        var ct = HttpContext.RequestAborted;
+        Response.ContentType = "application/x-ndjson";
+        Response.Headers.CacheControl = "no-cache";
+        // Push each line to the client immediately instead of buffering the whole response.
+        HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+
+        async Task WriteLineAsync(object payload)
+        {
+            var json = JsonSerializer.Serialize(payload, StreamJsonOptions);
+            await Response.WriteAsync(json + "\n", ct);
+            await Response.Body.FlushAsync(ct);
+        }
+
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null)
+        {
+            await WriteLineAsync(new { type = "error", code = "TeacherNotResolved", message = "Teacher not resolved" });
+            return;
+        }
+
+        try
+        {
+            var result = await _studentService.BulkImportStudentsAsync(
+                teacherId.Value,
+                dto,
+                onProgress: (processed, total) =>
+                    WriteLineAsync(new { type = "progress", processed, total }),
+                cancellationToken: ct);
+
+            await WriteLineAsync(new
+            {
+                type = "result",
+                success = result.IsSuccess,
+                code = result.Code,
+                message = result.Message,
+                data = result.Data,
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected / cancelled — the import was rolled back (nothing saved). The socket
+            // is gone, so there is nothing to write back; just end the request.
+        }
+        catch (Exception)
+        {
+            // Best-effort terminal error line (no-ops if the connection is already gone).
+            try
+            {
+                await WriteLineAsync(new { type = "error", code = "BulkImportFailed", message = "Import failed" });
+            }
+            catch
+            {
+                // ignore — connection likely gone
+            }
+        }
     }
     /// <summary>Returns the chip-strip data for the "Assign Students" screen: All / Unassigned counts plus one chip per session with its assigned-student count.</summary>
     /// <remarks>

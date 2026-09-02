@@ -102,6 +102,13 @@ public class CollectionRow
     public DateTime? CollectedAt { get; set; }
 
     /// <summary>
+    /// The collector's free-text note captured for a custom/partial collect (from
+    /// <c>PaymentTransaction.CollectionNote</c>). Null for whole-month collects and for
+    /// refund/withdrawal lines (which carry no transaction).
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
     /// Stable calendar-day key ("yyyy-MM-dd") for this row, from the raw stored <see cref="CollectedAt"/>
     /// — the SAME day notion the collections date-filter uses. The client groups the ledger into
     /// day-separator sections by this string (never by re-deriving a date from <see cref="CollectedAt"/>,
@@ -307,6 +314,14 @@ public class AssistantWalletCollectionItemDto
     public string? SessionName { get; set; }
     public decimal Amount { get; set; }
     public DateTime CollectedAt { get; set; }
+
+    /// <summary>
+    /// The collector's free-text note captured for a custom/partial collect (from
+    /// <c>PaymentTransaction.CollectionNote</c>). Null for whole-month collects and for
+    /// refund/withdrawal lines (which carry no transaction).
+    /// </summary>
+    public string? Note { get; set; }
+
     /// <summary>
     /// Ledger line type so the client can label/render it: "collection" (positive, a student
     /// payment), "refund" (negative, cash handed back — e.g. a departure), or "withdrawal"

@@ -114,6 +114,9 @@ public static class ServicesCollectionExtensions
         // Super-admin operations (§4.4 / FR-SUB-060…064)
         services.AddScoped<IAdminSubscriptionService, AdminSubscriptionService>();
 
+        // Mobile-app version gate — DB-first (SuperAdmin-editable), options-fallback.
+        services.AddScoped<IAppVersionService, AppVersionService>();
+
         // Center tenancy tier — SuperAdmin provisioning + center self-service (teacher management).
         services.AddScoped<IAdminCenterService, AdminCenterService>();
         services.AddScoped<ICenterService, CenterService>();

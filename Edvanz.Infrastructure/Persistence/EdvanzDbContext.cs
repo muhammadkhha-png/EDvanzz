@@ -234,6 +234,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<ModuleQuota> ModuleQuotas => Set<ModuleQuota>();
 
     /// <summary>
+    /// Per-platform mobile-app version gate (runtime-editable; DB-first, options-fallback). See
+    /// <see cref="AppVersionConfig"/>.
+    /// </summary>
+    public DbSet<AppVersionConfig> AppVersionConfigs => Set<AppVersionConfig>();
+
+    /// <summary>
     /// Central file registry — one row per uploaded file, served through the gated
     /// <c>GET /api/files/{fileId}</c> endpoint. See <see cref="FileObject"/>.
     /// </summary>
@@ -4053,6 +4059,21 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 new ModuleQuota { Id = 10, ModuleKey = ModuleQuotaKeys.Exams, FreeTierLimit = 1, CreateAt = examsSeededAt },
                 new ModuleQuota { Id = 11, ModuleKey = ModuleQuotaKeys.OnlineExams, FreeTierLimit = 1, CreateAt = examsSeededAt }
             );
+        });
+        #endregion
+
+        #region AppVersionConfig (runtime-editable per-platform mobile update gate)
+        // Fluent API is the SOLE source of truth (CLAUDE.md §4.1). UpdatedByUserId is a plain audit
+        // column — NO FK / navigation. Deliberately NOT seeded: an absent platform row means "use the
+        // AppVersionOptions default", so the table starts empty and the gate stays dormant.
+        modelBuilder.Entity<AppVersionConfig>(entity =>
+        {
+            entity.ToTable("AppVersionConfigs");
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Platform).IsRequired().HasMaxLength(16);
+            entity.Property(c => c.LatestVersion).IsRequired().HasMaxLength(32);
+            entity.Property(c => c.StoreUrl).IsRequired().HasMaxLength(512);
+            entity.HasIndex(c => c.Platform).IsUnique().HasDatabaseName("UX_AppVersionConfigs_Platform");
         });
         #endregion
 

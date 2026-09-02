@@ -973,7 +973,11 @@ public class TeacherStudentService : ITeacherStudentService
     ///            auto-generating them. This ensures the bulk import respects the same business
     ///            rules as the single-entry form.
     /// </summary>
-    public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(long teacherId, BulkImportTeacherStudentsDto dto)
+    public async Task<Result<BulkImportResultDto>> BulkImportStudentsAsync(
+        long teacherId,
+        BulkImportTeacherStudentsDto dto,
+        Func<int, int, Task>? onProgress = null,
+        CancellationToken cancellationToken = default)
     {
         // 1. Validate teacher exists
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
@@ -1023,6 +1027,12 @@ public class TeacherStudentService : ITeacherStudentService
         var result = new BulkImportResultDto { TotalProcessed = dto.Students.Count };
         var validStudents = new List<TeacherStudent>();
         var usedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // PERF: existing DB codes for this teacher, loaded in ONE round-trip so the manual-code
+        // duplicate check below is an in-memory HashSet lookup instead of one StudentCodeExistsAsync
+        // query per row (a 1000-row manual import used to fire up to 1000 sequential round-trips and
+        // time out the mobile client). Case-insensitive, active-only — identical semantics to the
+        // per-row StudentCodeExistsAsync it replaces.
+        var existingCodes = await _unitOfWork.Students.GetAllStudentCodesAsync(teacherId);
         // Student phone numbers claimed by earlier rows in THIS batch. The DB enforces
         // uniqueness of (TeacherId, StudentPhoneNumber); catching duplicates here as per-row
         // failures stops a single collision from aborting the whole transaction with one
@@ -1143,8 +1153,10 @@ public class TeacherStudentService : ITeacherStudentService
                     continue;
                 }
 
-                // REQ-STU-018: Detect and reject duplicate codes against existing DB records
-                bool codeExists = await _unitOfWork.Students.StudentCodeExistsAsync(teacherId, studentCode);
+                // REQ-STU-018: Detect and reject duplicate codes against existing DB records.
+                // In-memory lookup against the pre-loaded set (see existingCodes above) — same
+                // active-only, case-insensitive semantics as StudentCodeExistsAsync, no per-row query.
+                bool codeExists = existingCodes.Contains(studentCode);
                 if (codeExists)
                 {
                     result.Failures.Add(new BulkImportFailureDto
@@ -1245,34 +1257,67 @@ public class TeacherStudentService : ITeacherStudentService
             return Result<BulkImportResultDto>.Failure(_localizer, "BulkImportExceedsCapacity", HttpStatusCode.BadRequest);
         }
 
-        // 5. Insert all valid students in a single transaction
+        // 5. Insert all valid students in a single transaction. The whole import is all-or-nothing:
+        // cancellationToken (the streaming caller passes HttpContext.RequestAborted) is checked right
+        // before the commit, so a disconnected/cancelled client rolls the transaction back and saves
+        // NOTHING — the import becomes permanent only past CommitAsync.
         if (validStudents.Count > 0)
         {
+            int progressTotal = validStudents.Count;
+            // Emit a progress tick ~every 1% (bounded to >=1) so the streamed counter moves smoothly
+            // without a network write per student on a large import.
+            int progressStep = Math.Max(1, progressTotal / 100);
+
             await _unitOfWork.BeginTransactionAsync();
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 await _unitOfWork.Students.AddRangeAsync(validStudents);
                 await _unitOfWork.SaveChangesAsync(); // materialize student Ids for the assignment hooks
+
+                if (onProgress is not null)
+                    await onProgress(0, progressTotal);
 
                 // Wire each imported student that resolved to a session into the attendance/payment
                 // integration (assignment record + absence counter + payment periods). Without this
                 // the student carries SessionId but never appears on the attendance roster, which is
                 // driven by StudentSessionAssignments. Each student uses its own resolved session.
+                // This per-student loop is the slow phase, so the streamed counter is driven from here.
                 if (studentSessions.Count > 0)
                 {
+                    int processed = 0;
                     foreach (var s in validStudents)
                     {
-                        if (!studentSessions.TryGetValue(s, out var session))
-                            continue;
-                        await _attendanceService.OnStudentAssignedToSessionAsync(
-                            teacherId, s.Id, session.Id, session.SessionName);
-                        await _paymentService.OnStudentAssignedToSessionAsync(
-                            teacherId, s.Id, session.Id, session.SessionName, DateTime.UtcNow);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (studentSessions.TryGetValue(s, out var session))
+                        {
+                            await _attendanceService.OnStudentAssignedToSessionAsync(
+                                teacherId, s.Id, session.Id, session.SessionName);
+                            await _paymentService.OnStudentAssignedToSessionAsync(
+                                teacherId, s.Id, session.Id, session.SessionName, DateTime.UtcNow);
+                        }
+                        processed++;
+                        if (onProgress is not null &&
+                            (processed % progressStep == 0 || processed == progressTotal))
+                            await onProgress(processed, progressTotal);
                     }
                     await _unitOfWork.SaveChangesAsync();
                 }
+                else if (onProgress is not null)
+                {
+                    await onProgress(progressTotal, progressTotal);
+                }
 
+                // FINAL cancellation guard — if the client disconnected/cancelled anywhere above, trip
+                // here so the commit never runs and the transaction is rolled back (nothing saved).
+                cancellationToken.ThrowIfCancellationRequested();
                 await _unitOfWork.CommitAsync();
+            }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected / cancelled before commit — full rollback, nothing saved.
+                await _unitOfWork.RollbackAsync();
+                throw;
             }
             catch (DbUpdateException ex) when (ResolveUniqueViolationKey(ex) is { } messageKey)
             {
