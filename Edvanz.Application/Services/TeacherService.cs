@@ -183,6 +183,7 @@ public class TeacherService : ITeacherService
                 SessionNameMode = GenerationMode.Auto,
                 SessionNameLanguage = GenerationLanguage.English,
                 IsProratedPaymentEnabled = false,
+                ProrationMethod = ProrationMethod.ByPercentage,
                 ConsecutiveAbsenceThreshold = 3,
                 ConsecutiveUnpaidThreshold = 3,
                 BarcodeDisplayMode = BarcodeDisplayMode.InApp,
@@ -418,6 +419,7 @@ public class TeacherService : ITeacherService
         // Capture the proration state BEFORE it is overwritten below, so we can detect a genuine change
         // (enable/disable/tier edit) and retroactively re-price existing students' first month (req 3).
         bool wasProrationEnabled = config.IsProratedPaymentEnabled;
+        var wasProrationMethod = config.ProrationMethod;
 
         if (dto.IsProratedPaymentEnabled && dto.ProratedTiers.Count == 0)
             return Result<TeacherConfigurationDto>.Failure(_localizer, "ProratedTiersRequired", HttpStatusCode.BadRequest);
@@ -491,6 +493,7 @@ public class TeacherService : ITeacherService
             config.SessionNameMode = dto.SessionNameMode;
             config.SessionNameLanguage = dto.SessionNameLanguage;
             config.IsProratedPaymentEnabled = dto.IsProratedPaymentEnabled;
+            config.ProrationMethod = dto.ProrationMethod;
             config.ConsecutiveAbsenceThreshold = dto.ConsecutiveAbsenceThreshold;
             config.ConsecutiveUnpaidThreshold = dto.ConsecutiveUnpaidThreshold;
             config.BarcodeDisplayMode = dto.BarcodeDisplayMode;
@@ -515,16 +518,21 @@ public class TeacherService : ITeacherService
 
             // Signature of the proration config BEFORE vs AFTER this save. A change (enable/disable, or
             // any tier boundary/fraction edit) triggers the retroactive first-month re-price below.
-            static string ProrationSignature(bool enabled, IEnumerable<(int Start, int End, decimal Frac)> tiers) =>
+            // The suggestion METHOD is part of the signature: switching By%/ByClasses/Manual changes how
+            // existing students' still-owed first month should be re-priced, so it must also trigger the
+            // retroactive reconcile below.
+            static string ProrationSignature(
+                bool enabled, ProrationMethod method,
+                IEnumerable<(int Start, int End, decimal Frac)> tiers) =>
                 enabled
-                    ? "ON:" + string.Join(";", tiers.OrderBy(t => t.Start).ThenBy(t => t.End)
+                    ? $"ON:{method}:" + string.Join(";", tiers.OrderBy(t => t.Start).ThenBy(t => t.End)
                         .Select(t => $"{t.Start}-{t.End}@{t.Frac}"))
                     : "OFF";
             string oldProrationSignature = ProrationSignature(
-                wasProrationEnabled,
+                wasProrationEnabled, wasProrationMethod,
                 existingTiers.Select(t => (t.ThresholdDayStart, t.ThresholdDayEnd, t.FractionRate)));
             string newProrationSignature = ProrationSignature(
-                dto.IsProratedPaymentEnabled,
+                dto.IsProratedPaymentEnabled, dto.ProrationMethod,
                 dto.ProratedTiers.Select(t => (t.ThresholdDayStart, t.ThresholdDayEnd, t.FractionRate)));
 
             if (existingTiers.Any())
@@ -596,6 +604,7 @@ public class TeacherService : ITeacherService
             SessionNameMode = config.SessionNameMode,
             SessionNameLanguage = config.SessionNameLanguage,
             IsProratedPaymentEnabled = config.IsProratedPaymentEnabled,
+            ProrationMethod = config.ProrationMethod,
             ConsecutiveAbsenceThreshold = config.ConsecutiveAbsenceThreshold,
             ConsecutiveUnpaidThreshold = config.ConsecutiveUnpaidThreshold,
             BarcodeDisplayMode = config.BarcodeDisplayMode,

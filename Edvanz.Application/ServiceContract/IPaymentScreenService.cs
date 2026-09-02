@@ -152,9 +152,12 @@ public interface IPaymentScreenService
     /// arrears THROUGH that month only (what the month-scoped card displayed) instead of through
     /// the current month. 422 when malformed.</para>
     /// </summary>
+    /// <para>Issue 1 (2026-09-02): a student already collected-from today is returned as
+    /// <c>needs_confirmation</c> (with attribution) rather than a hard fail; the client re-submits with
+    /// <paramref name="duplicateConfirmed"/> = true to proceed.</para>
     Task<Result<MarkPaidResponse>> MarkPaidAsync(
         long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey,
-        string? month = null);
+        string? month = null, bool duplicateConfirmed = false);
 
     /// <summary>
     /// Screen: CollectPaymentSession "Submit N students" (MONEY). Collects each {studentId, amount}
@@ -196,4 +199,16 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<ForgiveBalanceResponse>> ReverseForgivenessAsync(
         long teacherId, long actingUserId, long forgivenessId, string? note);
+
+    /// <summary>
+    /// Screen: CollectPayment — set/clear a student's JOINING-MONTH proration amount (REQ-PAY-021/022).
+    /// Allowed for the teacher AND assistants (the acting user is recorded). Delegates to
+    /// <c>IPaymentService.SetStudentProrationAmountAsync</c>: <paramref name="amount"/> is snapped to the
+    /// nearest 5 and clamped to [0, full month]; <c>null</c> clears the sticky override and reverts to the
+    /// method's auto suggestion. Guard: only a new enrollment's still-unpaid anchor month. Returns the
+    /// updated period so the popup refreshes in place. 404 unknown student; 400 not assigned / no anchor;
+    /// 422 amount out of range or cash already collected on the joining month.
+    /// </summary>
+    Task<Result<ProrationUpdateResultDto>> SetProrationAmountAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal? amount);
 }

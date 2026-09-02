@@ -21,6 +21,14 @@ public class TeacherConfigurationDto
 
     // ─── AAM-FR-04.4 ───
     public bool IsProratedPaymentEnabled { get; set; }
+
+    /// <summary>
+    /// How the app suggests a new student's joining-month amount (REQ-PAY-021/022): ByPercentage
+    /// (default, current behaviour) | ByClasses | Manual. Serialized as a string via
+    /// <c>JsonStringEnumConverter</c>.
+    /// </summary>
+    public ProrationMethod ProrationMethod { get; set; } = ProrationMethod.ByPercentage;
+
     public List<ProratedTierDto> ProratedTiers { get; set; } = new();
 
     // ─── AAM-FR-04.5 & 04.6 ───

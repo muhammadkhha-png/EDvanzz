@@ -158,6 +158,21 @@ public class CollectionRow
     /// <summary>The amount originally collected, before the first amount-edit. Null when never edited;
     /// the current (edited) value is <see cref="Amount"/>.</summary>
     public decimal? OriginalAmount { get; set; }
+
+    // ── Prorated-first-month transparency (REQ-PAY-021/022 §2b, 2026-09-02) ──
+    // So a teacher can always see what an assistant did on a joining month: that it was prorated, the
+    // system's suggestion, and who set the amount.
+
+    /// <summary>True when this collection settled a student's prorated JOINING (anchor) month.</summary>
+    public bool IsProratedFirstMonth { get; set; }
+
+    /// <summary>The system-suggested joining amount at set time (from the proration audit log), when the
+    /// human-set amount differed from it. Null when never manually overridden (auto suggestion == amount).</summary>
+    public decimal? SystemSuggestedProratedAmount { get; set; }
+
+    /// <summary>Display name of the user who SET the manual joining amount (from the proration audit log).
+    /// Null when the joining month was never manually overridden.</summary>
+    public string? ProrationSetByName { get; set; }
 }
 
 /// <summary>One month a collection settled: the month key/label and how much of the cash landed on it.</summary>
@@ -580,6 +595,34 @@ public class CollectLookupMonthDto
     public bool IsProrated { get; set; }
     /// <summary>The proration fraction (e.g. 0.6685) when prorated; null otherwise.</summary>
     public decimal? ProRatedFraction { get; set; }
+
+    // ── Joining-month proration enrichment (REQ-PAY-021/022, 2026-09-02) ──
+    // Populated ONLY on the joining/anchor month entry (a NEW enrollment's still-owed first month) so the
+    // collect popup can render the "prorated joining month" box in ONE call (no N+1). All null otherwise.
+
+    /// <summary>True when THIS month is the student's joining/anchor month and proration is enabled.</summary>
+    public bool IsJoiningMonthProrated { get; set; }
+
+    /// <summary>System-suggested joining amount, already rounded to the nearest 5 (the pre-fill for the field).</summary>
+    public decimal? SuggestedProratedAmount { get; set; }
+
+    /// <summary>ByClasses: classes the student has attended so far this month (informational "attended 3").</summary>
+    public int? ClassesAttendedThisMonth { get; set; }
+
+    /// <summary>ByClasses: total scheduled classes in the joining month (the "of 6").</summary>
+    public int? ClassesTotalThisMonth { get; set; }
+
+    /// <summary>ByClasses: scheduled classes billed (from the first class through month-end) — the "4" in "4 of 6".</summary>
+    public int? ClassesBilledThisMonth { get; set; }
+
+    /// <summary>The student's first attended class date (drives the suggestion). Null until they attend.</summary>
+    public DateTime? FirstClassDate { get; set; }
+
+    /// <summary>Plain reason string, e.g. "4 of 6 classes from first class 17 Sep". Null when not the joining month.</summary>
+    public string? ProratedReason { get; set; }
+
+    /// <summary>True when a person already set a sticky manual joining amount (auto-suggest will not overwrite it).</summary>
+    public bool IsProrationManual { get; set; }
 }
 
 public class CollectLookupStudentDto
@@ -589,6 +632,45 @@ public class CollectLookupStudentDto
     public string? Code { get; set; }
     public string? Group { get; set; }
     public string? AvatarUrl { get; set; }
+}
+
+// ── Screen: per-student joining-month proration override (REQ-PAY-021/022, 2026-09-02) ─────────────
+
+/// <summary>
+/// Body for <c>PUT /api/v1/payments/students/{teacherStudentId}/proration</c>. Sets (or clears) the
+/// student's joining-month amount. <c>amount</c> is snapped to the nearest 5 and must be in
+/// [0, full month]; <c>null</c> CLEARS the manual override and reverts to the method's auto suggestion.
+/// </summary>
+public class SetProrationRequest
+{
+    /// <summary>The exact joining-month amount to set (snapped to nearest 5, 0..full month). Null = clear override.</summary>
+    public decimal? Amount { get; set; }
+}
+
+/// <summary>Result of setting/clearing a student's joining-month proration — the popup refreshes in place.</summary>
+public class ProrationUpdateResultDto
+{
+    public string TeacherStudentId { get; set; } = string.Empty;
+    /// <summary>The anchor payment-period id (string per the api/v1 contract).</summary>
+    public string PeriodId { get; set; } = string.Empty;
+    /// <summary>The joining month, as "YYYY-MM".</summary>
+    public string Month { get; set; } = string.Empty;
+    /// <summary>Human label, e.g. "September 2026".</summary>
+    public string MonthLabel { get; set; } = string.Empty;
+    /// <summary>The new joining-month amount now due.</summary>
+    public decimal AmountDue { get; set; }
+    /// <summary>The full month base (custom amount ?? session amount).</summary>
+    public decimal FullBase { get; set; }
+    /// <summary>Whether the joining month is prorated (AmountDue &lt; FullBase).</summary>
+    public bool IsProrated { get; set; }
+    /// <summary>AmountDue ÷ FullBase (display only).</summary>
+    public decimal ProRatedFraction { get; set; }
+    /// <summary>True when a human set the amount (sticky — auto-suggest will not overwrite it).</summary>
+    public bool IsProrationManual { get; set; }
+    /// <summary>The current system suggestion (rounded to 5) for reference beside the set amount.</summary>
+    public decimal SuggestedProratedAmount { get; set; }
+    /// <summary>Plain reason string for the suggestion, e.g. "4 of 6 classes from first class 17 Sep".</summary>
+    public string? ProratedReason { get; set; }
 }
 
 // ── Screen: PaymentTracking (aggregate) ────────────────────────────────────
@@ -732,6 +814,14 @@ public class MarkPaidRequest
     /// behavior, unchanged for older clients.
     /// </summary>
     public string? Month { get; set; }
+
+    /// <summary>
+    /// Issue 1 (2026-09-02): the client re-submits with this = true to CONFIRM a same-day collection
+    /// warning and proceed. Omitted/false → a student already collected-from today is returned as
+    /// <c>needs_confirmation</c> (with attribution) instead of being hard-failed. The money engine still
+    /// cannot double-charge the same month, so confirming only takes a real unpaid/advance month or no-ops.
+    /// </summary>
+    public bool DuplicateConfirmed { get; set; } = false;
 }
 
 public class MarkPaidResponse
@@ -743,9 +833,25 @@ public class MarkPaidResponse
 public class MarkPaidResultDto
 {
     public string StudentId { get; set; } = string.Empty;
-    /// <summary>paid | failed</summary>
+    /// <summary>paid | failed | needs_confirmation</summary>
     public string Status { get; set; } = "failed";
     public string? Reason { get; set; }
+
+    // ── Same-day soft-confirm (Issue 1, 2026-09-02) ──
+    // Set when Status == "needs_confirmation": a payment already exists for this student today. The client
+    // shows the attribution + a "Collect anyway" action, then re-submits with duplicateConfirmed = true.
+
+    /// <summary>True when this student was NOT collected because a same-day payment exists — confirmable.</summary>
+    public bool NeedsConfirmation { get; set; }
+
+    /// <summary>Display name of the user who recorded the same-day payment (attribution). Null when unresolved.</summary>
+    public string? TodayPaidByName { get; set; }
+
+    /// <summary>Total already collected from this student today.</summary>
+    public decimal? TodayPaidAmount { get; set; }
+
+    /// <summary>The installment month/period label the same-day payment settled (e.g. "September 2026").</summary>
+    public string? TodayPaidMonthLabel { get; set; }
 }
 
 // ── Money: submit batch collection (CollectPaymentSession screen) ──────────

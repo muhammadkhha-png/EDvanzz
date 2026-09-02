@@ -232,13 +232,36 @@ public class PaymentService : IPaymentService
             if (sameDayTransactions.Count > 0)
             {
                 var todayTotal = sameDayTransactions.Sum(t => t.AmountPaid);
-                return Result<CollectPaymentResultDto>.Success(new CollectPaymentResultDto
+                var mostRecent = sameDayTransactions.OrderByDescending(t => t.CollectedAt).First();
+
+                // Issue 1 attribution (2026-09-02): a second user collecting from the same student the same
+                // day is WARNED (soft-confirm), not blocked. Resolve WHO collected + WHICH month it settled —
+                // ONE name lookup + one period read, only on this rare warning path. The client shows the
+                // dialog and re-submits with DuplicateConfirmed=true to proceed.
+                string? paidByName = mostRecent.CollectedByUserId is long cid
+                    ? await _unitOfWork.Users.GetUserFullNameByUserIdAsync(cid)
+                    : null;
+                string? monthLabel = null;
+                if (mostRecent.PaymentPeriodId is long pid)
+                {
+                    var settledPeriod = await _unitOfWork.PaymentsRepo.GetPaymentPeriodByIdAsync(pid);
+                    if (settledPeriod is not null) monthLabel = FormatPeriodLabel(settledPeriod);
+                }
+
+                var warnDto = new CollectPaymentResultDto
                 {
                     Transaction = null,
                     IsSameDayDuplicate = true,
                     TodayPaidAmount = todayTotal,
-                    TodayPaidSessionName = sameDayTransactions.First().SessionName
-                }, _localizer, PaymentConstants.Messages.PaymentSameDayWarning);
+                    TodayPaidSessionName = mostRecent.SessionName,
+                    TodayPaidByName = paidByName,
+                    TodayPaidMonthLabel = monthLabel
+                };
+                // Templated warning ({0}=name, {1}=amount, {2}=month) with the pieces ALSO on the DTO so the
+                // client can build its own copy. Older clients keep showing the plain warning text.
+                return Result<CollectPaymentResultDto>.Success(
+                    warnDto, _localizer, PaymentConstants.Messages.PaymentSameDayWarning,
+                    new object?[] { paidByName ?? string.Empty, todayTotal, monthLabel ?? string.Empty });
             }
         }
 
@@ -948,6 +971,10 @@ public class PaymentService : IPaymentService
 
                 foreach (var p in periods)
                 {
+                    // Sticky joining-month override (REQ-PAY-021/022): a human-set first-month amount is
+                    // never clobbered by a later custom-rate change.
+                    if (p.IsProrationManual) continue;
+
                     // Custom set → that amount; cleared (null) → revert to the period's own session default.
                     decimal newBase;
                     if (dto.CustomAmount.HasValue)
@@ -1020,6 +1047,9 @@ public class PaymentService : IPaymentService
         foreach (var p in periods)
         {
             if (p.TeacherStudentId is null) continue;
+            // Sticky joining-month override (REQ-PAY-021/022): a human-set first-month amount is never
+            // clobbered by a later session-price change.
+            if (p.IsProrationManual) continue;
             var d = RepricePeriodInPlace(p, newAmount);
             await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
 
@@ -1055,9 +1085,12 @@ public class PaymentService : IPaymentService
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
         bool enabled = config?.IsProratedPaymentEnabled == true;
+        var method = config?.ProrationMethod ?? ProrationMethod.ByPercentage;
         IReadOnlyList<TeacherProratedTier> tiers = enabled && config != null
             ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id)
             : System.Array.Empty<TeacherProratedTier>();
+        // Memoizes per-(session, month) TOTAL occurrence counts for the ByClasses method across the roster.
+        var occCache = new Dictionary<(long SessionId, DateTime Month), int>();
 
         // Batch-load everything the loop needs so a whole-roster reconcile stays a handful of queries,
         // not O(students): the anchor DAY sources and the affected counters (tracked — they carry
@@ -1104,6 +1137,9 @@ public class PaymentService : IPaymentService
             // anchors are already excluded by GetUnpaidAnchorMonthPeriodsAsync.
             if (p.AmountPaid > 0m) continue;
 
+            // Sticky override (REQ-PAY-021/022): a human-set joining amount is never reconciled away.
+            if (p.IsProrationManual) continue;
+
             counters.TryGetValue(studentId, out var counter);
 
             decimal fullBase;
@@ -1122,22 +1158,32 @@ public class PaymentService : IPaymentService
             else fullBase = p.AmountDue;
 
             // Enabled + a fraction < 1 → prorate; disabled, or a day in a full-price/unknown tier → full.
-            // Anchor day = the student's FIRST-Present day when they attended IN the anchor month
-            // (agreed design), else the assignment day (not yet attended, or first attended a later month
-            // per "prorate the assignment month only").
+            // METHOD-AWARE (REQ-PAY-021/022): ByPercentage uses the anchor DAY tier (FIRST-Present day
+            // when they attended IN the anchor month — agreed design — else the assignment day). ByClasses
+            // uses billed÷total classes anchored to the first class IN the anchor month (full until they
+            // attend it). Manual never auto-suggests → full price (the teacher sets each first month).
             decimal fraction = 1.0m;
             if (enabled && p.SessionId is long sid)
             {
                 var anchorMonth = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
-                int? anchorDay = null;
+                var anchorMonthEnd = anchorMonth.AddMonths(1).AddDays(-1);
+
+                DateTime? firstClassInMonth = null;
+                int? percentageAnchorDay = null;
                 if (firstPresent.TryGetValue((studentId, sid), out var present)
                     && new DateTime(present.Year, present.Month, 1) == anchorMonth)
-                    anchorDay = present.Day;
+                {
+                    firstClassInMonth = present;
+                    percentageAnchorDay = present.Day;
+                }
                 else if (joinDates.TryGetValue((studentId, sid), out var assignedAt))
-                    anchorDay = assignedAt.Day;
+                {
+                    percentageAnchorDay = assignedAt.Day; // not-yet-attended fallback for ByPercentage
+                }
 
-                if (anchorDay is int day)
-                    fraction = MatchProrationFraction(tiers, day);
+                (fraction, _, _) = await ComputeMethodFractionAsync(
+                    method, tiers, sid, anchorMonth, anchorMonthEnd,
+                    firstClassInMonth, percentageAnchorDay, occCache);
             }
 
             bool prorate = enabled && fraction < 1.0m;
@@ -1210,6 +1256,12 @@ public class PaymentService : IPaymentService
             .GetProrationAnchorPeriodAsync(teacherId, teacherStudentId, sessionId);
         if (anchor is null || anchor.PaymentStatus == PaymentStatus.Paid) return; // gone or already settled
 
+        // Sticky override (REQ-PAY-021/022): a human-set joining amount is NEVER auto-overwritten.
+        if (anchor.IsProrationManual) return;
+
+        // Manual method never auto-suggests — the first month stays at full price until a person sets it.
+        if (config.ProrationMethod == ProrationMethod.Manual) return;
+
         var firstAttendance = await _unitOfWork.PaymentsRepo
             .GetFirstAttendanceDateAsync(teacherId, teacherStudentId, sessionId);
         if (firstAttendance is null) return;
@@ -1217,10 +1269,15 @@ public class PaymentService : IPaymentService
         // "Prorate the assignment month only" (agreed): only re-anchor when the first attendance falls
         // in the anchor (assignment) month; a later-month first class leaves the assignment-day proration.
         var anchorMonth = new DateTime(anchor.PeriodStart.Year, anchor.PeriodStart.Month, 1);
+        var anchorMonthEnd = anchorMonth.AddMonths(1).AddDays(-1);
         if (new DateTime(firstAttendance.Value.Year, firstAttendance.Value.Month, 1) != anchorMonth) return;
 
         var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
-        decimal fraction = MatchProrationFraction(tiers, firstAttendance.Value.Day);
+        // Method-aware fraction: ByPercentage → join-day tier; ByClasses → billed/total classes from the
+        // first attended class through month-end. (Manual already returned above.)
+        var (fraction, _, _) = await ComputeMethodFractionAsync(
+            config.ProrationMethod, tiers, sessionId, anchorMonth, anchorMonthEnd,
+            firstAttendance.Value, firstAttendance.Value.Day, null);
 
         var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
         decimal fullBase;
@@ -1266,6 +1323,299 @@ public class PaymentService : IPaymentService
             if (ownsTransaction) await _unitOfWork.RollbackAsync();
             throw;
         }
+    }
+
+    // ══════════════════════════════════════════════
+    // TEACHER-DECIDED PRORATION (REQ-PAY-021/022, 2026-09-02)
+    // ══════════════════════════════════════════════
+
+    /// <summary>Rounds a raw amount to the NEAREST 5 (away-from-zero on a tie) — the joining-month rule.</summary>
+    private static decimal SnapToNearest5(decimal raw) =>
+        Math.Round(raw / 5m, MidpointRounding.AwayFromZero) * 5m;
+
+    /// <summary>Clamps a joining amount to [0, fullBase].</summary>
+    private static decimal ClampJoiningAmount(decimal amount, decimal fullBase) =>
+        amount < 0m ? 0m : amount > fullBase ? fullBase : amount;
+
+    /// <summary>
+    /// Core method-aware proration FRACTION for a joining month. ByPercentage → the join-day tier;
+    /// ByClasses → billed (first class through month-end) ÷ total classes that month; Manual → 1.0.
+    /// Returns the fraction plus the class counts (ByClasses only). <paramref name="occCache"/> memoizes
+    /// per-(session, monthStart) TOTAL occurrence counts across a batch reconcile.
+    /// </summary>
+    private async Task<(decimal Fraction, int? TotalOcc, int? BilledOcc)> ComputeMethodFractionAsync(
+        ProrationMethod method, IReadOnlyList<TeacherProratedTier> tiers,
+        long sessionId, DateTime anchorMonthStart, DateTime anchorMonthEnd,
+        DateTime? firstClassInMonth, int? percentageAnchorDay,
+        Dictionary<(long SessionId, DateTime Month), int>? occCache)
+    {
+        switch (method)
+        {
+            case ProrationMethod.Manual:
+                return (1.0m, null, null);
+
+            case ProrationMethod.ByClasses:
+            {
+                int total;
+                var key = (sessionId, anchorMonthStart);
+                if (occCache != null && occCache.TryGetValue(key, out var cached))
+                    total = cached;
+                else
+                {
+                    total = await _unitOfWork.AttendanceRepo
+                        .CountOccurrencesBySessionAndDateRangeAsync(sessionId, anchorMonthStart, anchorMonthEnd);
+                    if (occCache != null) occCache[key] = total;
+                }
+
+                if (firstClassInMonth is null || total <= 0)
+                    return (1.0m, total > 0 ? total : (int?)null, null); // full until they attend
+
+                int billed = await _unitOfWork.AttendanceRepo
+                    .CountOccurrencesBySessionAndDateRangeAsync(
+                        sessionId, firstClassInMonth.Value.Date, anchorMonthEnd);
+                if (billed <= 0) billed = 1;          // attended → bill at least the class they came to
+                if (billed > total) billed = total;
+                decimal frac = Math.Round((decimal)billed / total, 4, MidpointRounding.AwayFromZero);
+                return (frac, total, billed);
+            }
+
+            case ProrationMethod.ByPercentage:
+            default:
+                if (percentageAnchorDay is int day)
+                    return (MatchProrationFraction(tiers, day), null, null);
+                return (1.0m, null, null);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<ProrationSuggestionResult> ComputeProrationSuggestionAsync(
+        long teacherId, long teacherStudentId, long sessionId)
+    {
+        var result = new ProrationSuggestionResult { Method = ProrationMethod.ByPercentage };
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config?.IsProratedPaymentEnabled != true)
+            return result; // proration off → no suggestion (full month)
+        result.Method = config.ProrationMethod;
+
+        var anchor = await _unitOfWork.PaymentsRepo
+            .GetProrationAnchorPeriodAsync(teacherId, teacherStudentId, sessionId);
+        // Only a still-owed anchor (a NEW enrollment's not-yet-paid first month) can be prorated.
+        if (anchor is null || anchor.AmountPaid > 0m || anchor.PaymentStatus == PaymentStatus.Paid)
+            return result;
+
+        var anchorMonthStart = new DateTime(anchor.PeriodStart.Year, anchor.PeriodStart.Month, 1);
+        var anchorMonthEnd = anchorMonthStart.AddMonths(1).AddDays(-1);
+
+        var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
+        decimal fullBase;
+        if (counter?.CustomPaymentAmount is decimal custom) fullBase = custom;
+        else
+        {
+            var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+            fullBase = session?.SessionAmount ?? anchor.AmountDue;
+        }
+
+        var firstAttendance = await _unitOfWork.PaymentsRepo
+            .GetFirstAttendanceDateAsync(teacherId, teacherStudentId, sessionId);
+        DateTime? firstClassInMonth = firstAttendance is DateTime fa
+            && new DateTime(fa.Year, fa.Month, 1) == anchorMonthStart ? fa : (DateTime?)null;
+
+        result.Applicable = true;
+        result.AnchorPeriodId = anchor.Id;
+        result.AnchorMonthStart = anchorMonthStart;
+        result.FullBase = fullBase;
+        result.CurrentAmountDue = anchor.AmountDue;
+        result.IsManualOverride = anchor.IsProrationManual;
+        result.FirstClassDate = firstClassInMonth ?? firstAttendance;
+
+        var tiers = config.ProrationMethod == ProrationMethod.ByPercentage
+            ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id)
+            : (IReadOnlyList<TeacherProratedTier>)Array.Empty<TeacherProratedTier>();
+
+        decimal suggestedRaw;
+        if (config.ProrationMethod == ProrationMethod.ByPercentage && firstClassInMonth is null)
+        {
+            // No attendance yet → keep the assignment-day proration the anchor already carries.
+            suggestedRaw = fullBase * anchor.ProRatedFraction;
+        }
+        else
+        {
+            var (fraction, total, billed) = await ComputeMethodFractionAsync(
+                config.ProrationMethod, tiers, sessionId, anchorMonthStart, anchorMonthEnd,
+                firstClassInMonth, firstClassInMonth?.Day, null);
+            suggestedRaw = fullBase * fraction;
+            result.ClassesTotalThisMonth = total;
+            result.ClassesBilledThisMonth = billed;
+        }
+
+        // ByClasses shows an informational "attended N so far".
+        if (config.ProrationMethod == ProrationMethod.ByClasses)
+            result.ClassesAttendedThisMonth = await _unitOfWork.PaymentsRepo
+                .CountAttendedClassesInRangeAsync(
+                    teacherId, teacherStudentId, sessionId, anchorMonthStart, anchorMonthEnd);
+
+        result.SuggestedAmount = ClampJoiningAmount(SnapToNearest5(suggestedRaw), fullBase);
+        result.Fraction = fullBase > 0m
+            ? Math.Round(result.SuggestedAmount / fullBase, 4, MidpointRounding.AwayFromZero)
+            : 1.0m;
+        result.Reason = BuildProrationReason(result);
+        return result;
+    }
+
+    /// <summary>Plain, buildable reason string for a joining-month suggestion (FE may re-format/localize).</summary>
+    private static string? BuildProrationReason(ProrationSuggestionResult s)
+    {
+        if (s.SuggestedAmount >= s.FullBase) return null; // not actually discounted → no "prorated" reason
+        if (s.Method == ProrationMethod.ByClasses && s.ClassesBilledThisMonth is int billed
+            && s.ClassesTotalThisMonth is int total)
+        {
+            var from = s.FirstClassDate.HasValue ? $" from first class {s.FirstClassDate.Value:d MMM}" : string.Empty;
+            return $"{billed} of {total} classes billed{from}";
+        }
+        if (s.FirstClassDate.HasValue)
+            return $"Joined {s.FirstClassDate.Value:d MMM} — {s.Fraction:P0} of the month";
+        return $"{s.Fraction:P0} of the month";
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ProrationUpdateResultDto>> SetStudentProrationAmountAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal? amount)
+    {
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(teacherStudentId, teacherId);
+        if (student is null)
+            return Result<ProrationUpdateResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
+        if (student.SessionId is null)
+            return Result<ProrationUpdateResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentStudentNotAssigned, HttpStatusCode.BadRequest);
+        long sessionId = student.SessionId.Value;
+
+        var anchor = await _unitOfWork.PaymentsRepo
+            .GetProrationAnchorPeriodAsync(teacherId, teacherStudentId, sessionId);
+        if (anchor is null)
+            return Result<ProrationUpdateResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.ProrationNoAnchorMonth, HttpStatusCode.BadRequest);
+        // Proration is history once any cash has landed on the joining month (existing rule).
+        if (anchor.AmountPaid > 0m || anchor.PaymentStatus == PaymentStatus.Paid)
+            return Result<ProrationUpdateResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.ProrationLockedAfterPayment, HttpStatusCode.UnprocessableEntity);
+
+        // Full month base + the current system suggestion (for validation, audit, and the response).
+        var suggestion = await ComputeProrationSuggestionAsync(teacherId, teacherStudentId, sessionId);
+        decimal fullBase;
+        if (suggestion.Applicable) fullBase = suggestion.FullBase;
+        else
+        {
+            var counter0 = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, teacherStudentId);
+            if (counter0?.CustomPaymentAmount is decimal c0) fullBase = c0;
+            else
+            {
+                var session0 = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+                fullBase = session0?.SessionAmount ?? anchor.AmountDue;
+            }
+        }
+
+        // Validate the requested amount BEFORE opening a transaction.
+        decimal targetDue;
+        bool manual;
+        if (amount.HasValue)
+        {
+            if (amount.Value < 0m)
+                return Result<ProrationUpdateResultDto>.Failure(
+                    _localizer, PaymentConstants.Messages.ProrationAmountNegative, HttpStatusCode.UnprocessableEntity);
+            if (amount.Value > fullBase)
+                return Result<ProrationUpdateResultDto>.Failure(
+                    _localizer, PaymentConstants.Messages.ProrationAmountExceedsFull, HttpStatusCode.UnprocessableEntity);
+            targetDue = ClampJoiningAmount(SnapToNearest5(amount.Value), fullBase);
+            manual = true;
+        }
+        else
+        {
+            // Clear the override → revert to the method's auto suggestion (full when Manual/off).
+            targetDue = ClampJoiningAmount(suggestion.Applicable ? suggestion.SuggestedAmount : fullBase, fullBase);
+            manual = false;
+        }
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            // Reprice the anchor IN PLACE (set AmountDue directly to avoid fraction cent-drift), then move
+            // the counter by the same deltas the shared reprice path produces + refresh consecutive-unpaid.
+            decimal oldOutstanding = Math.Max(0m, anchor.AmountDue - anchor.AmountPaid - (anchor.ForgivenAmount ?? 0m));
+            bool oldPaid = anchor.PaymentStatus == PaymentStatus.Paid;
+
+            anchor.AmountDue = targetDue;
+            anchor.IsProRated = targetDue < fullBase;
+            anchor.ProRatedFraction = fullBase > 0m
+                ? Math.Round(Math.Min(1.0m, targetDue / fullBase), 4, MidpointRounding.AwayFromZero)
+                : 1.0m;
+            anchor.IsProrationManual = manual;
+            anchor.PaymentStatus = RecomputePeriodStatus(anchor);
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(anchor);
+
+            // Flush the period rewrite so the consecutive-unpaid recompute inside the counter update
+            // reads fresh state (mirrors OnSessionAmountChangedAsync ordering).
+            await _unitOfWork.SaveChangesAsync();
+
+            bool nowPaid = anchor.PaymentStatus == PaymentStatus.Paid;
+            decimal newOutstanding = nowPaid
+                ? 0m
+                : Math.Max(0m, anchor.AmountDue - anchor.AmountPaid - (anchor.ForgivenAmount ?? 0m));
+            await ApplyRepriceCounterDeltasAsync(
+                teacherId, teacherStudentId,
+                newOutstanding - oldOutstanding,
+                (nowPaid ? 1 : 0) - (oldPaid ? 1 : 0),
+                (nowPaid ? -1 : 0) - (oldPaid ? -1 : 0));
+
+            // Audit (transparency §2b): when the SET amount differs from the system suggestion, record
+            // actor + suggested + set as a proration-decision log (null transaction, period-linked).
+            if (manual && suggestion.Applicable && targetDue != suggestion.SuggestedAmount)
+            {
+                await _unitOfWork.PaymentsRepo.AddPaymentEditLogAsync(new PaymentEditLog
+                {
+                    PaymentTransactionId = null,
+                    PaymentPeriodId = anchor.Id,
+                    EditAction = PaymentEditAction.AmountChanged,
+                    PreviousAmount = suggestion.SuggestedAmount,
+                    NewAmount = targetDue,
+                    PreviousStatus = anchor.PaymentStatus,
+                    NewStatus = anchor.PaymentStatus,
+                    EditedByUserId = actingUserId,
+                    EditedAt = DateTime.UtcNow,
+                    EditReason = _localizer[PaymentConstants.Messages.ProrationManualEditReason],
+                    CreateAt = DateTime.UtcNow
+                });
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction) await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction) await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        var updated = new ProrationUpdateResultDto
+        {
+            TeacherStudentId = teacherStudentId.ToString(),
+            PeriodId = anchor.Id.ToString(),
+            Month = anchor.PeriodStart.ToString("yyyy-MM"),
+            MonthLabel = anchor.PeriodStart.ToString("MMMM yyyy"),
+            AmountDue = anchor.AmountDue,
+            FullBase = fullBase,
+            IsProrated = anchor.IsProRated,
+            ProRatedFraction = anchor.ProRatedFraction,
+            IsProrationManual = anchor.IsProrationManual,
+            SuggestedProratedAmount = suggestion.Applicable ? suggestion.SuggestedAmount : fullBase,
+            ProratedReason = suggestion.Reason
+        };
+        var msgKey = amount.HasValue
+            ? PaymentConstants.Messages.ProrationUpdatedSuccess
+            : PaymentConstants.Messages.ProrationClearedSuccess;
+        return Result<ProrationUpdateResultDto>.Success(updated, _localizer, msgKey);
     }
 
     /// <inheritdoc />
@@ -2545,27 +2895,13 @@ public class PaymentService : IPaymentService
                 }
             }
 
-            // 2. Cross-device conflict: same student + same day recorded by a
-            // DIFFERENT device/user needs human resolution (REQ-PAY-082).
-            var existing = await _unitOfWork.PaymentsRepo
-                .GetSameDayTransactionsAsync(dto.TeacherId, offlineRecord.TeacherStudentId,
-                    offlineRecord.OfflineCollectedAt?.Date ?? DateTime.UtcNow.Date);
-
-            if (existing.Any(e => e.OfflineDeviceId != offlineRecord.OfflineDeviceId))
-            {
-                result.ConflictCount++;
-                var conflictRecord = MapToTransactionDto(existing.First());
-                result.Conflicts.Add(new PaymentConflictDto
-                {
-                    OfflineRecord = offlineRecord,
-                    ExistingRecord = conflictRecord,
-                    ConflictReason = "Same student paid by different user/device on same day"
-                });
-                entry.IsConflict = true;
-                entry.ErrorMessage = "Same student paid by different user/device on same day";
-                entry.ExistingRecord = conflictRecord;
-                continue;
-            }
+            // 2. Cross-device same-day is NO LONGER a hard conflict (Issue 1, 2026-09-02). Two people can
+            // legitimately collect from one student the same day (a different month, an advance, a
+            // correction), and the money engine already cannot double-charge the same month (oldest-unpaid
+            // -first, advance cap, already-paid guard). Exactly-once replay stays guarded SEPARATELY by the
+            // ClientEntryId dedupe (step 1) — so we drop the conflict rejection and RECORD normally. An
+            // offline drain has no human to confirm; DuplicateConfirmed=true below records it, and the
+            // attribution still rides the CollectPaymentAsync same-day warning on the interactive paths.
 
             // 3. Resolve the student's active session when the client did not
             // send one (offline clients don't know session ids — same
@@ -3528,12 +3864,17 @@ public class PaymentService : IPaymentService
             // transfer/move (isNewEnrollment=false). The provisional fraction here is anchored to the
             // ASSIGNMENT day; it is re-anchored to the student's FIRST-Present-attendance day when they
             // first attend (ReapplyFirstAttendanceProrationAsync), per the agreed design.
+            // METHOD-AWARE (REQ-PAY-021/022): only ByPercentage prorates provisionally at assignment
+            // (join-day tier). ByClasses can't be computed before any class exists, and Manual never
+            // auto-guesses — both leave the first month at FULL price until first attendance (ByClasses)
+            // or a human sets it (Manual).
             bool applyProRate = false;
             decimal proRateFraction = 1.0m;
             if (isNewEnrollment)
             {
                 var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-                if (config?.IsProratedPaymentEnabled == true)
+                if (config?.IsProratedPaymentEnabled == true
+                    && config.ProrationMethod == ProrationMethod.ByPercentage)
                 {
                     var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
                     proRateFraction = MatchProrationFraction(tiers, assignedAt.Day);

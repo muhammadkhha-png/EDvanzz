@@ -152,6 +152,16 @@ public class PaymentPeriod : BaseEntity
     /// </summary>
     public bool IsProrationAnchorMonth { get; set; } = false;
 
+    /// <summary>
+    /// True when a HUMAN (teacher or assistant) explicitly set this anchor month's joining amount
+    /// (REQ-PAY-021/022, teacher-decided proration 2026-09-02) via the per-student proration endpoint.
+    /// A manual amount is STICKY: the auto re-proration paths (first-attendance re-anchor, settings
+    /// reconcile) and every price-change reprice SKIP a period with this flag, so a later monthly-price
+    /// change never clobbers a number a person chose. Cleared when the override is removed (reverts to
+    /// the method's auto suggestion). Additive column, <c>bit NOT NULL default 0</c>.
+    /// </summary>
+    public bool IsProrationManual { get; set; } = false;
+
     // ══════════════════════════════════════════════
     // ORDERING
     // ══════════════════════════════════════════════

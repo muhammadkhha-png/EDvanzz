@@ -546,6 +546,59 @@
         }
 
         /// <inheritdoc />
+        public async Task<int> CountAttendedClassesInRangeAsync(
+            long teacherId, long teacherStudentId, long sessionId, DateTime start, DateTime end)
+        {
+            // Classes the student actually attended (Present or the linked-session CrossSessionPresent)
+            // in [start, end] — the informational "attended N so far" for the ByClasses suggestion.
+            return await _context.AttendanceRecords
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId
+                    && a.SessionId == sessionId
+                    && a.OccurrenceDate >= start.Date && a.OccurrenceDate <= end.Date
+                    && (a.Status == AttendanceStatus.Present
+                        || a.Status == AttendanceStatus.CrossSessionPresent))
+                .CountAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<(long PaymentTransactionId, decimal SuggestedAmount, decimal SetAmount, long? SetByUserId)>>
+            GetProrationAuditByTransactionIdsAsync(long teacherId, IReadOnlyCollection<long> transactionIds)
+        {
+            if (transactionIds.Count == 0)
+                return new List<(long, decimal, decimal, long?)>();
+
+            // Join each transaction's settled periods (allocations) to any proration-decision edit log
+            // (a log with a null PaymentTransactionId linked by PaymentPeriodId). Take the LATEST decision
+            // per transaction. PreviousAmount = system suggestion, NewAmount = the human-set amount.
+            var rows = await (
+                from a in _context.PaymentTransactionAllocations.AsNoTracking()
+                where a.TeacherId == teacherId
+                    && transactionIds.Contains(a.PaymentTransactionId)
+                    && a.PaymentPeriodId != null
+                join el in _context.PaymentEditLogs.AsNoTracking()
+                        .Where(e => e.PaymentTransactionId == null && e.PaymentPeriodId != null)
+                    on a.PaymentPeriodId equals el.PaymentPeriodId
+                select new
+                {
+                    a.PaymentTransactionId,
+                    el.PreviousAmount,
+                    el.NewAmount,
+                    el.EditedByUserId,
+                    el.EditedAt
+                })
+                .ToListAsync();
+
+            return rows
+                .GroupBy(r => r.PaymentTransactionId)
+                .Select(g =>
+                {
+                    var latest = g.OrderByDescending(x => x.EditedAt).First();
+                    return (g.Key, latest.PreviousAmount, latest.NewAmount, latest.EditedByUserId);
+                })
+                .ToList();
+        }
+
+        /// <inheritdoc />
         public async Task<List<StudentPaymentCounter>> GetPaymentCountersByStudentIdsAsync(
             long teacherId, IReadOnlyCollection<long> teacherStudentIds)
         {

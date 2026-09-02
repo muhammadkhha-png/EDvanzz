@@ -321,6 +321,29 @@ public interface IPaymentService
     Task ReapplyFirstAttendanceProrationAsync(long teacherId, long teacherStudentId, long sessionId);
 
     /// <summary>
+    /// Computes the SYSTEM-SUGGESTED joining-month amount for a student in a session, per the teacher's
+    /// chosen <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022). Anchored to the first
+    /// attended class date. Rounded to the nearest 5, clamped to [0, full month]. Pure read — never
+    /// persists. Returns <c>Applicable == false</c> when there is nothing to prorate (proration off, no
+    /// still-owed anchor month, transfer, or already paid). Feeds the collect-lookup enrichment + the
+    /// per-student proration endpoint (no N+1 — one student per call).
+    /// </summary>
+    Task<ProrationSuggestionResult> ComputeProrationSuggestionAsync(
+        long teacherId, long teacherStudentId, long sessionId);
+
+    /// <summary>
+    /// Sets (amount != null) or CLEARS (amount == null) a student's joining-month proration amount
+    /// (REQ-PAY-021/022). Allowed for the teacher AND assistants — the acting user is recorded. The amount
+    /// is snapped to the nearest 5 and must be in [0, full month]; setting marks the anchor
+    /// <c>IsProrationManual</c> (sticky — auto re-proration/price-change never overwrites it) and, when it
+    /// differs from the system suggestion, writes a proration-decision <see cref="Edvanz.Domain.Entities.PaymentEditLog"/>
+    /// (actor · suggested · set). Clearing reverts to the method's auto suggestion. Guard: only the still-unpaid
+    /// anchor month of a new enrollment. Reuses the reprice + counter-delta + consecutive-unpaid path.
+    /// </summary>
+    Task<Result<ProrationUpdateResultDto>> SetStudentProrationAmountAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal? amount);
+
+    /// <summary>
     /// Called by SessionService after a session's date window changed. Billing periods are only
     /// generated ONCE — when a student is assigned — and only as far as the session's end date AT
     /// THAT MOMENT. Extending the end date afterwards therefore left the already-assigned students

@@ -754,7 +754,28 @@
     <value>الطالب ده خالص بالكامل، بما فيه لحد شهر مقدّم. مفيش مبلغ تاني ينفع يتحصّل دلوقتي.</value>
   </data>
   <data name="PaymentSameDayWarning" xml:space="preserve">
-    <value>الطالب ده عنده دفعة النهارده بالفعل. عايز تضيف واحدة تانية؟</value>
+    <value>{0} حصّل {1} جنيه عن {2} من الطالب ده النهارده بالفعل. تحصّل برضه؟</value>
+  </data>
+  <data name="ProrationUpdatedSuccess" xml:space="preserve">
+    <value>اتحفظ مبلغ شهر الانضمام.</value>
+  </data>
+  <data name="ProrationClearedSuccess" xml:space="preserve">
+    <value>رجّعنا مبلغ شهر الانضمام للمبلغ المقترح.</value>
+  </data>
+  <data name="ProrationNoAnchorMonth" xml:space="preserve">
+    <value>الطالب ده مش عنده شهر انضمام يتحسب عليه نسبة (بس أول شهر لطالب جديد ولسه متدفعش هو اللي ينفع يتظبط).</value>
+  </data>
+  <data name="ProrationLockedAfterPayment" xml:space="preserve">
+    <value>اتحصّل فلوس على شهر الانضمام خلاص، فمبلغه مبقاش ينفع يتغيّر.</value>
+  </data>
+  <data name="ProrationAmountExceedsFull" xml:space="preserve">
+    <value>مبلغ الانضمام ماينفعش يكون أكبر من الشهر كامل. لو عايز تحصّل مقدّم استخدم خيار الدفع المقدّم.</value>
+  </data>
+  <data name="ProrationAmountNegative" xml:space="preserve">
+    <value>مبلغ الانضمام ماينفعش يكون بالسالب.</value>
+  </data>
+  <data name="ProrationManualEditReason" xml:space="preserve">
+    <value>مبلغ شهر الانضمام اتظبط يدوي.</value>
   </data>
   <data name="PaymentAmountInvalid" xml:space="preserve">
     <value>مبلغ الدفع لازم يكون أكبر من صفر.</value>

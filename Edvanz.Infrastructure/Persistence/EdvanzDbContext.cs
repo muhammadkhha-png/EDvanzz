@@ -2320,6 +2320,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(l => l.PaymentTransactionId)
                 .HasDatabaseName("IX_PEL_PaymentTransactionId");
 
+            // Proration-decision logs (PaymentTransactionId null) are looked up by the anchor period id
+            // so the collections ledger can show "system-suggested vs set · by whom" for a prorated
+            // first month. Plain denormalized column, NO FK (§4.1) — index only.
+            entity.HasIndex(l => l.PaymentPeriodId)
+                .HasDatabaseName("IX_PEL_PaymentPeriodId");
+
             // PaymentTransaction FK: SET NULL — log survives parent deletion for audit
             entity.HasOne(l => l.PaymentTransaction)
                 .WithMany(t => t.EditLogs)

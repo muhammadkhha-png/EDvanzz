@@ -24,6 +24,16 @@ public class PaymentEditLog : BaseEntity
     public PaymentTransaction? PaymentTransaction { get; set; }
 
     /// <summary>
+    /// Optional PLAIN denormalized link to the <see cref="PaymentPeriod"/> this log concerns — set only
+    /// by a proration-decision log (the per-student joining-amount override, 2026-09-02) which has NO
+    /// parent transaction (<see cref="PaymentTransactionId"/> is null). NO FK (a plain nullable long,
+    /// per §4.1 — it must survive a period delete and never fight OnDelete). Lets the collections ledger
+    /// batch-resolve "system-suggested vs set · by whom" for a prorated first month. Null for every
+    /// classic transaction-scoped edit log.
+    /// </summary>
+    public long? PaymentPeriodId { get; set; }
+
+    /// <summary>
     /// The type of edit action performed.
     /// </summary>
     public PaymentEditAction EditAction { get; set; }

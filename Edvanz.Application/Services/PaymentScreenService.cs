@@ -233,6 +233,9 @@ public class PaymentScreenService : IPaymentScreenService
             .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
             .ToList();
 
+        // §2b transparency: fill system-suggested + set-by name on this page's prorated-first-month rows.
+        await EnrichProrationTransparencyAsync(teacherId, rows);
+
         int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
         var response = new CollectionsByMonthResponse
         {
@@ -400,6 +403,9 @@ public class PaymentScreenService : IPaymentScreenService
         for (int i = 0; i < pageRows.Count; i++)
             pageRows[i].Index = (page - 1) * limit + i + 1;
 
+        // §2b transparency: fill system-suggested + set-by name on this page's prorated-first-month rows.
+        await EnrichProrationTransparencyAsync(teacherId, pageRows);
+
         var amountTiers = (await repo.GetCollectionAmountTiersAsync(teacherId, startDate, endDate, collectorId))
             .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
             .ToList();
@@ -446,10 +452,50 @@ public class PaymentScreenService : IPaymentScreenService
             AppliedMonths = appliedMonths,
             IsEdited = isEdited,
             OriginalAmount = originalAmount,
+            // §2b transparency: this collection settled a prorated JOINING (anchor) month. The
+            // system-suggested amount + who set it are batch-filled by EnrichProrationTransparencyAsync.
+            IsProratedFirstMonth = appliedMonths.Any(m => m.IsProRated),
             // Live session name; the transaction's copy is a stale-on-rename snapshot.
             SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
             CollectedAt = tx.CollectedAt
         };
+    }
+
+    /// <summary>
+    /// §2b transparency (REQ-PAY-021/022): for the prorated-first-month collection rows on the page, fill
+    /// the SYSTEM-suggested amount and the NAME of whoever set the manual joining amount, from the
+    /// proration-decision audit logs (batch — one repo query + one name lookup, no N+1). Rows with no
+    /// override (auto-prorated) keep null suggested/setBy — the amount IS the suggestion.
+    /// </summary>
+    private async Task EnrichProrationTransparencyAsync(long teacherId, List<CollectionRow> rows)
+    {
+        var txIds = rows
+            .Where(r => r.IsProratedFirstMonth && r.Status == "collected"
+                && long.TryParse(r.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            .Select(r => long.Parse(r.Id, CultureInfo.InvariantCulture))
+            .Distinct()
+            .ToList();
+        if (txIds.Count == 0) return;
+
+        var audit = await _unitOfWork.PaymentsRepo
+            .GetProrationAuditByTransactionIdsAsync(teacherId, txIds);
+        if (audit.Count == 0) return;
+
+        var byTx = audit.ToDictionary(a => a.PaymentTransactionId);
+        var setterIds = audit.Where(a => a.SetByUserId.HasValue).Select(a => a.SetByUserId!.Value).Distinct().ToList();
+        var names = setterIds.Count > 0
+            ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(setterIds)
+            : new Dictionary<long, string>();
+
+        foreach (var r in rows)
+        {
+            if (!r.IsProratedFirstMonth || r.Status != "collected") continue;
+            if (!long.TryParse(r.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var txId)) continue;
+            if (!byTx.TryGetValue(txId, out var a)) continue;
+            r.SystemSuggestedProratedAmount = a.SuggestedAmount;
+            if (a.SetByUserId is long uid && names.TryGetValue(uid, out var nm))
+                r.ProrationSetByName = nm;
+        }
     }
 
     /// <inheritdoc />
@@ -1281,6 +1327,34 @@ public class PaymentScreenService : IPaymentScreenService
             }
         };
 
+        // Joining-month proration enrichment (REQ-PAY-021/022): if the student has a still-unpaid anchor
+        // month, decorate its breakdown entry with the system suggestion + class counts so the collect
+        // popup renders the "prorated joining month" box in ONE call. Single student → no N+1.
+        var studentForSession = await _unitOfWork.Students
+            .GetActiveByIdAndTeacherAsync(row.TeacherStudentId, teacherId);
+        if (studentForSession?.SessionId is long lookupSessionId)
+        {
+            var suggestion = await _paymentService.ComputeProrationSuggestionAsync(
+                teacherId, row.TeacherStudentId, lookupSessionId);
+            if (suggestion.Applicable && suggestion.AnchorPeriodId is long anchorId)
+            {
+                var anchorIdStr = anchorId.ToString(CultureInfo.InvariantCulture);
+                var monthDto = response.UnpaidMonthsBreakdown
+                    .FirstOrDefault(m => m.PeriodId == anchorIdStr);
+                if (monthDto is not null)
+                {
+                    monthDto.IsJoiningMonthProrated = true;
+                    monthDto.SuggestedProratedAmount = suggestion.SuggestedAmount;
+                    monthDto.ClassesAttendedThisMonth = suggestion.ClassesAttendedThisMonth;
+                    monthDto.ClassesTotalThisMonth = suggestion.ClassesTotalThisMonth;
+                    monthDto.ClassesBilledThisMonth = suggestion.ClassesBilledThisMonth;
+                    monthDto.FirstClassDate = suggestion.FirstClassDate;
+                    monthDto.ProratedReason = suggestion.Reason;
+                    monthDto.IsProrationManual = suggestion.IsManualOverride;
+                }
+            }
+        }
+
         return Result<CollectLookupResponse>.Success(
             response, _localizer, PaymentConstants.Messages.Success);
     }
@@ -1484,7 +1558,7 @@ public class PaymentScreenService : IPaymentScreenService
     /// <inheritdoc />
     public async Task<Result<MarkPaidResponse>> MarkPaidAsync(
         long teacherId, long actingUserId, List<long> studentIds, string? idempotencyKey,
-        string? month = null)
+        string? month = null, bool duplicateConfirmed = false)
     {
         if (studentIds is null || studentIds.Count == 0)
             return Result<MarkPaidResponse>.Failure(
@@ -1547,7 +1621,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Amount = amount,
                 PaymentMethod = PaymentCollectionMethod.ManualCode,
                 CollectedByUserId = actingUserId,
-                DuplicateConfirmed = false,
+                // Issue 1 (2026-09-02): honour the confirm flag so a re-submit proceeds past a same-day
+                // warning instead of dead-ending on "Already collected today".
+                DuplicateConfirmed = duplicateConfirmed,
                 AlreadyPaidConfirmed = false
             });
 
@@ -1563,7 +1639,18 @@ public class PaymentScreenService : IPaymentScreenService
             }
             else if (collect.Data?.IsSameDayDuplicate == true)
             {
-                results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "failed", Reason = "Already collected today." });
+                // Confirmable warning (NOT a dead fail): carry the attribution so the client can render
+                // "Mohamed collected 200 for September today · Collect anyway" and re-submit confirmed.
+                results.Add(new MarkPaidResultDto
+                {
+                    StudentId = idStr,
+                    Status = "needs_confirmation",
+                    Reason = collect.Message,
+                    NeedsConfirmation = true,
+                    TodayPaidByName = collect.Data.TodayPaidByName,
+                    TodayPaidAmount = collect.Data.TodayPaidAmount,
+                    TodayPaidMonthLabel = collect.Data.TodayPaidMonthLabel
+                });
             }
             else
             {
@@ -1572,8 +1659,12 @@ public class PaymentScreenService : IPaymentScreenService
         }
 
         var response = new MarkPaidResponse { MarkedPaidCount = markedPaid, Results = results };
-        await _idempotency.StoreResultAsync("mark-paid", teacherId, idempotencyKey,
-            JsonSerializer.Serialize(response, IdempotencyJson));
+        // Only cache the idempotent result when nothing is pending a confirm — otherwise a re-submit with
+        // the SAME key + duplicateConfirmed=true would replay the (stale) needs_confirmation response and
+        // never collect. No money moved on a needs_confirmation pass, so re-running it is safe.
+        if (!results.Any(r => r.NeedsConfirmation))
+            await _idempotency.StoreResultAsync("mark-paid", teacherId, idempotencyKey,
+                JsonSerializer.Serialize(response, IdempotencyJson));
         return Result<MarkPaidResponse>.Success(response, _localizer, PaymentConstants.Messages.Success);
     }
 
@@ -2184,6 +2275,12 @@ public class PaymentScreenService : IPaymentScreenService
 
         return null;
     }
+
+    /// <inheritdoc />
+    public Task<Result<ProrationUpdateResultDto>> SetProrationAmountAsync(
+        long teacherId, long actingUserId, long teacherStudentId, decimal? amount) =>
+        // Pure delegation — all money/reprice/audit logic lives in the single PaymentService owner.
+        _paymentService.SetStudentProrationAmountAsync(teacherId, actingUserId, teacherStudentId, amount);
 
     /// <summary>Parses a "YYYY-MM" month selector; false when malformed or out of range.</summary>
     private static bool TryParseYearMonth(string? value, out int year, out int month)

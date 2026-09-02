@@ -59,6 +59,15 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool IsProratedPaymentEnabled { get; set; } = false;
 
+    /// <summary>
+    /// How the app SUGGESTS a new student's joining-month amount when proration is enabled
+    /// (REQ-PAY-021/022, teacher-decided proration 2026-09-02): by percentage tiers, by class count,
+    /// or Manual (no auto-suggestion — the teacher types each first-month amount). Only affects the
+    /// SUGGESTION; a per-student manual override always wins (<see cref="PaymentPeriod.IsProrationManual"/>).
+    /// Default: <see cref="ProrationMethod.ByPercentage"/> — the exact behaviour existing teachers have today.
+    /// </summary>
+    public ProrationMethod ProrationMethod { get; set; } = ProrationMethod.ByPercentage;
+
     // ─── AAM-FR-04.5: Consecutive Absence Alert ───
 
     /// <summary>

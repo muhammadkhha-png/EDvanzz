@@ -37,6 +37,29 @@ namespace Edvanz.Application.Dtos
             };
         }
 
+        /// <summary>
+        /// Success with a FORMATTED, localized message (placeholders filled from <paramref name="args"/>),
+        /// keeping the stable <see cref="Code"/> = <paramref name="messageKey"/>. Mirror of the formatted
+        /// <c>Failure</c> overload — used e.g. for the same-day soft-confirm warning that names the
+        /// collector / amount / month.
+        /// </summary>
+        public static Result<T> Success(
+            T data,
+            IStringLocalizer localizer,
+            string messageKey,
+            object?[] args,
+            HttpStatusCode statusCode = HttpStatusCode.OK)
+        {
+            return new Result<T>
+            {
+                IsSuccess = true,
+                Data = data,
+                Message = localizer[messageKey, args],
+                Code = messageKey,
+                StatusCode = statusCode
+            };
+        }
+
         public static Result<T> Success(
             T data,
             HttpStatusCode statusCode)

@@ -81,6 +81,16 @@ public class CollectPaymentResultDto
     public bool IsSameDayDuplicate { get; set; } = false;
     public decimal? TodayPaidAmount { get; set; }
     public string? TodayPaidSessionName { get; set; }
+
+    // ── Same-day soft-confirm attribution (Issue 1, 2026-09-02) ──
+    // A second user collecting from the same student the same day is WARNED, not blocked. These fields
+    // let the client render "Mohamed (assistant) collected 200 EGP for September today · Collect anyway".
+
+    /// <summary>Display name of the user who recorded the (most recent) same-day payment. Null when unresolved.</summary>
+    public string? TodayPaidByName { get; set; }
+
+    /// <summary>The installment month/period label the same-day payment settled (e.g. "September 2026"). Null when unknown.</summary>
+    public string? TodayPaidMonthLabel { get; set; }
     /// <summary>
     /// Whether the period was already fully paid.
     /// REQ-PAY-026: Warning to collector.
@@ -94,6 +104,57 @@ public class CollectPaymentResultDto
     public string? ProRatedTierLabel { get; set; }
     public decimal? OriginalAmount { get; set; }
     public decimal? ProRatedAmount { get; set; }
+}
+
+/// <summary>
+/// The system-SUGGESTED joining-month (first-month) proration for a student, per the teacher's chosen
+/// <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022, 2026-09-02). Anchored to the
+/// student's FIRST ATTENDED CLASS date (never sign-up). Pure output — computed on demand, never persisted.
+/// Consumed by the collect-lookup enrichment and the per-student proration endpoint.
+/// </summary>
+public class ProrationSuggestionResult
+{
+    /// <summary>True when the student has a still-owed proration anchor month (a NEW enrollment's first
+    /// month, not yet paid). False = nothing to prorate (proration off, transfer, already paid, or no anchor).</summary>
+    public bool Applicable { get; set; }
+
+    public Edvanz.Domain.Enums.ProrationMethod Method { get; set; }
+
+    /// <summary>The anchor <see cref="Edvanz.Domain.Entities.PaymentPeriod"/> id, when applicable.</summary>
+    public long? AnchorPeriodId { get; set; }
+
+    /// <summary>First day of the anchor (joining) month.</summary>
+    public DateTime AnchorMonthStart { get; set; }
+
+    /// <summary>The full month base = custom per-student amount ?? session amount.</summary>
+    public decimal FullBase { get; set; }
+
+    /// <summary>Suggested joining amount — already rounded to the nearest 5 and clamped to [0, FullBase].</summary>
+    public decimal SuggestedAmount { get; set; }
+
+    /// <summary>SuggestedAmount ÷ FullBase (display only).</summary>
+    public decimal Fraction { get; set; }
+
+    /// <summary>The student's first attended class date (drives the suggestion). Null when they have not attended yet.</summary>
+    public DateTime? FirstClassDate { get; set; }
+
+    /// <summary>ByClasses: total scheduled classes in the anchor month. Null for other methods / no session.</summary>
+    public int? ClassesTotalThisMonth { get; set; }
+
+    /// <summary>ByClasses: scheduled classes from the first attended class through month-end (the billed numerator).</summary>
+    public int? ClassesBilledThisMonth { get; set; }
+
+    /// <summary>Informational: classes the student has actually attended so far in the anchor month.</summary>
+    public int? ClassesAttendedThisMonth { get; set; }
+
+    /// <summary>The anchor's stored AmountDue right now (may already be a manual override).</summary>
+    public decimal CurrentAmountDue { get; set; }
+
+    /// <summary>True when the anchor already carries a human-set (sticky) joining amount.</summary>
+    public bool IsManualOverride { get; set; }
+
+    /// <summary>Plain, buildable reason string, e.g. "4 of 6 classes from first class 17 Sep". Null when not prorated.</summary>
+    public string? Reason { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

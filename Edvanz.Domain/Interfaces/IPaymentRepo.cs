@@ -823,6 +823,20 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// CrossSessionPresent) — the anchor for attendance-based proration. Null if never attended.</summary>
     Task<DateTime?> GetFirstAttendanceDateAsync(long teacherId, long teacherStudentId, long sessionId);
 
+    /// <summary>Counts the classes a student has actually ATTENDED (Present or CrossSessionPresent) in a
+    /// session within [start, end] — the informational "attended N so far" for the ByClasses joining-month
+    /// suggestion (REQ-PAY-021/022). Dates are OccurrenceDate-bounded (date-only).</summary>
+    Task<int> CountAttendedClassesInRangeAsync(
+        long teacherId, long teacherStudentId, long sessionId, DateTime start, DateTime end);
+
+    /// <summary>Batch proration-audit for the collections ledger: for each collection transaction id that
+    /// settled a manually-overridden joining month, returns the suggestion vs the set amount and who set it
+    /// (from the proration-decision <see cref="Edvanz.Domain.Entities.PaymentEditLog"/> — the one with a
+    /// null <c>PaymentTransactionId</c> linked by <c>PaymentPeriodId</c> to a settled allocation). Latest
+    /// decision per transaction. Only transactions with such an audit row are returned.</summary>
+    Task<List<(long PaymentTransactionId, decimal SuggestedAmount, decimal SetAmount, long? SetByUserId)>>
+        GetProrationAuditByTransactionIdsAsync(long teacherId, IReadOnlyCollection<long> transactionIds);
+
     /// <summary>Earliest date the student physically attended ANY session (Present or the linked
     /// CrossSessionPresent) — the SESSION-AGNOSTIC first-attendance anchor used by the never-paid
     /// first-month-move re-proration remediation when a carried period's SessionId was nulled by a later

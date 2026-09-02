@@ -101,6 +101,20 @@ public static class PaymentConstants
         public const string PaymentAmountInvalid = "PaymentAmountInvalid";
         public const string PaymentAmountExceedsAdvanceLimit = "PaymentAmountExceedsAdvanceLimit";
         public const string PaymentStudentInRecycleBin = "PaymentStudentInRecycleBin";
+
+        // Per-student joining-month proration override (REQ-PAY-021/022, 2026-09-02)
+        public const string ProrationUpdatedSuccess = "ProrationUpdatedSuccess";
+        public const string ProrationClearedSuccess = "ProrationClearedSuccess";
+        /// <summary>No proration anchor (a new enrollment's still-owed first month) exists for this student+session.</summary>
+        public const string ProrationNoAnchorMonth = "ProrationNoAnchorMonth";
+        /// <summary>The joining month already has cash collected — proration is history and can no longer be set.</summary>
+        public const string ProrationLockedAfterPayment = "ProrationLockedAfterPayment";
+        /// <summary>The requested joining amount exceeds the full month (that is an advance, not a proration).</summary>
+        public const string ProrationAmountExceedsFull = "ProrationAmountExceedsFull";
+        /// <summary>The joining amount is negative.</summary>
+        public const string ProrationAmountNegative = "ProrationAmountNegative";
+        /// <summary>Audit reason stored on the proration-decision PaymentEditLog (suggested vs set).</summary>
+        public const string ProrationManualEditReason = "ProrationManualEditReason";
         public const string PaymentBatchRevertSuccess = "PaymentBatchRevertSuccess";   // NEW — batch-revert envelope (D1)
         // Pro-rating
         public const string PaymentProRatedApplied = "PaymentProRatedApplied";

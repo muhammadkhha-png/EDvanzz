@@ -332,7 +332,8 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
         var result = await _screenService.MarkPaidAsync(
             teacherId.Value, GetActingUserId(),
-            request?.StudentIds ?? new List<long>(), idempotencyKey, request?.Month);
+            request?.StudentIds ?? new List<long>(), idempotencyKey, request?.Month,
+            request?.DuplicateConfirmed ?? false);
         return ToResponse(result);
     }
 
@@ -443,6 +444,34 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
         var result = await _screenService.ReverseForgivenessAsync(
             teacherId.Value, GetActingUserId(), forgivenessId, request?.Note);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Screen: CollectPayment — set/clear a student's JOINING-MONTH proration amount (REQ-PAY-021/022)
+    // PUT /api/v1/payments/students/{teacherStudentId}/proration   body { amount: number|null }
+    // Teacher-decided proration: type the exact first-month amount (snapped to 5, 0..full month), or
+    // send null to clear the override and revert to the method's auto suggestion. Allowed for the
+    // teacher AND assistants (the acting user is resolved from the JWT and recorded).
+    // AUTH: Teacher (module) OR Assistant with Payment.Collect.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("/api/v1/payments/students/{teacherStudentId:long}/proration")]
+    [ModulePermission(PaymentConstants.ModuleName, PaymentConstants.PermissionCollect)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.ProrationUpdateResultDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> SetProration(
+        long teacherStudentId,
+        [FromBody] SetProrationRequest? request)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        var result = await _screenService.SetProrationAmountAsync(
+            teacherId.Value, GetActingUserId(), teacherStudentId, request?.Amount);
         return ToResponse(result);
     }
 }
