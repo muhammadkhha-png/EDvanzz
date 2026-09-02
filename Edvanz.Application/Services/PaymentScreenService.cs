@@ -1351,7 +1351,40 @@ public class PaymentScreenService : IPaymentScreenService
                     monthDto.FirstClassDate = suggestion.FirstClassDate;
                     monthDto.ProratedReason = suggestion.Reason;
                     monthDto.IsProrationManual = suggestion.IsManualOverride;
+
+                    // Mirror onto the response root so the mobile collect popup reads it without
+                    // walking the breakdown (the item above stays populated for other clients).
+                    response.IsJoiningMonthProrated = true;
+                    response.SuggestedProratedAmount = suggestion.SuggestedAmount;
+                    response.ClassesAttendedThisMonth = suggestion.ClassesAttendedThisMonth;
+                    response.ClassesTotalThisMonth = suggestion.ClassesTotalThisMonth;
+                    response.ClassesBilledThisMonth = suggestion.ClassesBilledThisMonth;
+                    response.FirstClassDate = suggestion.FirstClassDate;
+                    response.ProratedReason = suggestion.Reason;
+                    response.IsProrationManual = suggestion.IsManualOverride;
                 }
+            }
+        }
+
+        // Same-day cross-collector soft-confirm (Issue 1): if someone already collected from this student
+        // today, surface WHO + how much + which month so the collect popup can warn (never block) before
+        // recording. One indexed query; a name/period read only when a same-day payment actually exists.
+        var sameDayToday = await _unitOfWork.PaymentsRepo
+            .GetSameDayTransactionsAsync(teacherId, row.TeacherStudentId, localDate);
+        if (sameDayToday.Count > 0)
+        {
+            var mostRecentToday = sameDayToday.OrderByDescending(t => t.CollectedAt).First();
+            response.HasSameDayPayment = true;
+            response.TodayPaidAmount = sameDayToday.Sum(t => t.AmountPaid);
+            response.TodayPaidByName = mostRecentToday.CollectedByUserId is long todayCid
+                ? await _unitOfWork.Users.GetUserFullNameByUserIdAsync(todayCid)
+                : null;
+            if (mostRecentToday.PaymentPeriodId is long todayPid)
+            {
+                var settled = await _unitOfWork.PaymentsRepo.GetPaymentPeriodByIdAsync(todayPid);
+                if (settled is not null)
+                    response.TodayPaidMonthLabel =
+                        settled.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
             }
         }
 

@@ -578,6 +578,42 @@ public class CollectLookupResponse
     /// Older clients ignore this field and keep showing the student as already paid.
     /// </summary>
     public CollectLookupMonthDto? AdvanceMonth { get; set; }
+
+    // ── Joining-month proration TOP-LEVEL mirror (2026-09-02) ──
+    // Convenience copy of the anchor month's proration enrichment (also present on the matching
+    // UnpaidMonthsBreakdown[] item) so the mobile collect popup can read it at the response root.
+    // Populated ONLY when the student has a still-unpaid joining/anchor month; all null/false otherwise.
+
+    /// <summary>True when the student's joining/anchor month is still owed and proration is enabled.</summary>
+    public bool IsJoiningMonthProrated { get; set; }
+    /// <summary>System-suggested joining amount, already rounded to the nearest 5 (the field pre-fill).</summary>
+    public decimal? SuggestedProratedAmount { get; set; }
+    /// <summary>ByClasses: classes attended so far this month (the "attended 3").</summary>
+    public int? ClassesAttendedThisMonth { get; set; }
+    /// <summary>ByClasses: total scheduled classes in the joining month (the "of 6").</summary>
+    public int? ClassesTotalThisMonth { get; set; }
+    /// <summary>ByClasses: scheduled classes billed from the first class through month-end (the "4" of "4 of 6").</summary>
+    public int? ClassesBilledThisMonth { get; set; }
+    /// <summary>The student's first attended class date (drives the suggestion). Null until they attend.</summary>
+    public DateTime? FirstClassDate { get; set; }
+    /// <summary>Plain reason string, e.g. "4 of 6 classes from first class 17 Sep".</summary>
+    public string? ProratedReason { get; set; }
+    /// <summary>True when a person set a sticky manual joining amount (auto-suggest will not overwrite it).</summary>
+    public bool IsProrationManual { get; set; }
+
+    // ── Same-day cross-collector soft-confirm (Issue 1, 2026-09-02) ──
+    // When someone already collected from THIS student today, the mobile collect popup shows a soft
+    // confirm ("{name} collected {amount} for {month} today — collect anyway?") BEFORE recording; the
+    // collect still proceeds. Populated only when a same-day payment exists; all null/false otherwise.
+
+    /// <summary>True when a payment was already recorded for this student today (any collector).</summary>
+    public bool HasSameDayPayment { get; set; }
+    /// <summary>Display name of who collected today's payment (most recent), for the soft-confirm copy.</summary>
+    public string? TodayPaidByName { get; set; }
+    /// <summary>Total amount already collected from this student today.</summary>
+    public decimal? TodayPaidAmount { get; set; }
+    /// <summary>Human month label the most-recent today's payment settled, e.g. "September 2026".</summary>
+    public string? TodayPaidMonthLabel { get; set; }
 }
 
 /// <summary>One unpaid month in a collect lookup breakdown.</summary>
