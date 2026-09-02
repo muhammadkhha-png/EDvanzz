@@ -201,6 +201,7 @@ public class TeacherService : ITeacherService
                 ParentVisibilityVideo = true,
                 ShowPaymentInfoOnAttendanceScreen = true,
                 ShowAttendanceHistoryOnAttendanceScreen = true,
+                ParentPortalEnabled = false, // public parent portal is opt-in (see TeacherConfiguration)
                 CreateAt = DateTime.UtcNow
             };
 
@@ -506,9 +507,17 @@ public class TeacherService : ITeacherService
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
             config.ParentVisibilityExamDefault = dto.ParentVisibilityExamDefault;
+            // Online-exam parent visibility: only applied when the client actually sent it, so an
+            // older build that does not know the field cannot silently re-hide online exams.
+            if (dto.ParentVisibilityOnlineExamDefault.HasValue)
+                config.ParentVisibilityOnlineExamDefault = dto.ParentVisibilityOnlineExamDefault.Value;
             config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
             config.ShowPaymentInfoOnAttendanceScreen = dto.ShowPaymentInfoOnAttendanceScreen;
             config.ShowAttendanceHistoryOnAttendanceScreen = dto.ShowAttendanceHistoryOnAttendanceScreen;
+            // Parent portal: only applied when the client actually sent it, so an older build that
+            // does not know the field cannot silently switch a teacher's portal off.
+            if (dto.ParentPortalEnabled.HasValue)
+                config.ParentPortalEnabled = dto.ParentPortalEnabled.Value;
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -617,7 +626,9 @@ public class TeacherService : ITeacherService
             ParentVisibilityPayment = config.ParentVisibilityPayment,
             ParentVisibilityHomework = config.ParentVisibilityHomework,
             ParentVisibilityExamDefault = config.ParentVisibilityExamDefault,
+            ParentVisibilityOnlineExamDefault = config.ParentVisibilityOnlineExamDefault,
             IsDeviceLockEnabled = config.IsDeviceLockEnabled,
+            ParentPortalEnabled = config.ParentPortalEnabled,
             ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
             ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
             UpdatedAt = config.UpdatedAt,

@@ -51,8 +51,28 @@ public class TeacherConfigurationDto
     public bool ParentVisibilityHomework { get; set; }
     public bool ParentVisibilityExamDefault { get; set; }
 
+    /// <summary>
+    /// Default visibility of ONLINE exams in parent accounts — the online twin of
+    /// <see cref="ParentVisibilityExamDefault"/>. Default false (opt-in, AAM-BR-10).
+    ///
+    /// Surfaced 2026-09-02: the flag has always existed on <c>TeacherConfiguration</c> and has
+    /// always gated the parent dashboard's online-exam report AND the parent portal's grades
+    /// list, but it was missing from BOTH config DTOs — so no teacher could ever turn it on and
+    /// online exam results were permanently invisible to parents with no toggle and no error.
+    /// </summary>
+    public bool ParentVisibilityOnlineExamDefault { get; set; }
+
     // ─── Device Lock ───
     public bool IsDeviceLockEnabled { get; set; }
+
+    // ─── Parent Portal (public web follow-up page) ───
+
+    /// <summary>
+    /// Whether this teacher accepts followers on the PUBLIC parent portal (parent.edvanz.io).
+    /// Opt-in, default false. While false the portal answers every access request for this
+    /// teacher with the same "pending" placeholder and writes nothing.
+    /// </summary>
+    public bool ParentPortalEnabled { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }

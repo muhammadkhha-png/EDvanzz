@@ -2601,4 +2601,61 @@
   <data name="AppVersionUpdated" xml:space="preserve">
     <value>App version settings updated successfully.</value>
   </data>
+  <data name="ParentPortalTeacherNotFound" xml:space="preserve">
+    <value>No teacher found with this code. Check it and try again.</value>
+  </data>
+  <data name="ParentPortalCodeLength" xml:space="preserve">
+    <value>The teacher code is 8 digits.</value>
+  </data>
+  <data name="ParentPortalStudentCodeRequired" xml:space="preserve">
+    <value>Enter the student code, for example A12.</value>
+  </data>
+  <data name="ParentPortalPhoneFormat" xml:space="preserve">
+    <value>Enter a valid Egyptian mobile number — 11 digits starting with 01 — or leave it empty.</value>
+  </data>
+  <data name="ParentPortalDisabled" xml:space="preserve">
+    <value>This teacher hasn't turned on parent follow-up yet. Ask them to enable it from the app settings.</value>
+  </data>
+  <data name="ParentPortalUnavailable" xml:space="preserve">
+    <value>Parent follow-up isn't available for this teacher right now.</value>
+  </data>
+  <data name="ParentPortalRequestSent" xml:space="preserve">
+    <value>Your request was sent to {0}. You'll get in as soon as they approve.</value>
+  </data>
+  <data name="ParentPortalRequestPending" xml:space="preserve">
+    <value>Still waiting for {0} to approve.</value>
+  </data>
+  <data name="ParentPortalRequestRejected" xml:space="preserve">
+    <value>The teacher didn't approve this request. You can try again tomorrow, or ask them to add your number.</value>
+  </data>
+  <data name="ParentPortalAccessRevoked" xml:space="preserve">
+    <value>The teacher removed your access to this student.</value>
+  </data>
+  <data name="ParentPortalStudentRemoved" xml:space="preserve">
+    <value>This student is no longer on the teacher's list.</value>
+  </data>
+  <data name="ParentPortalNothingShared" xml:space="preserve">
+    <value>Your teacher hasn't shared any details yet.</value>
+  </data>
+  <data name="ParentPortalTooManyRequests" xml:space="preserve">
+    <value>Too many attempts. Try again in {0} minutes.</value>
+  </data>
+  <data name="ParentPortalSessionExpired" xml:space="preserve">
+    <value>You were signed out on this device. Enter the codes again to keep following.</value>
+  </data>
+  <data name="ParentPortalRequestNotFound" xml:space="preserve">
+    <value>This request no longer exists.</value>
+  </data>
+  <data name="ParentPortalAccessGranted" xml:space="preserve">
+    <value>Parent access granted.</value>
+  </data>
+  <data name="ParentPortalAccessRejected" xml:space="preserve">
+    <value>Request rejected.</value>
+  </data>
+  <data name="ParentPortalNewRequestNotification" xml:space="preserve">
+    <value>A parent wants to follow {0}. Tap to approve.</value>
+  </data>
+  <data name="ParentPortalNewRequestsNotification" xml:space="preserve">
+    <value>{0} parents are waiting for your approval.</value>
+  </data>
 </root>

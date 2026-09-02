@@ -278,6 +278,12 @@ namespace Edvanz.Infrastructure
         /// <summary>Per-platform mobile-app version gate — see <see cref="IAppVersionConfigRepo"/>.</summary>
         public IAppVersionConfigRepo AppVersionConfigs
             => _appVersionConfigsRepo ??= new Repositories.AppVersionConfigRepo(_Context);
+
+        private IParentPortalAccessRepo? _parentPortalAccessesRepo;
+
+        /// <summary>Public parent-portal grants — see <see cref="IParentPortalAccessRepo"/>.</summary>
+        public IParentPortalAccessRepo ParentPortalAccesses
+            => _parentPortalAccessesRepo ??= new Repositories.ParentPortalAccessRepo(_Context);
     }
 
 

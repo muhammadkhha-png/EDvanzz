@@ -152,5 +152,11 @@ public static class InfrastructureServiceExtensions
         // Video attachments (Track F, §5) — Azure Blob Storage. No AddHttpClient
         // needed; the Azure SDK manages its own client internally.
         services.AddScoped<IFileStorageService, AzureBlobFileStorageService>();
+
+        // Public parent portal — the teacher notification fan-out. It lives in Infrastructure
+        // (§6.2): notification transport must never become an Application-layer concern, even
+        // though this one is invoked inline post-commit rather than through Hangfire.
+        // ParentPortalOptions itself is bound in Program.cs alongside the other option sections.
+        services.AddScoped<IParentPortalNotifier, ParentPortalNotifier>();
     }
 }

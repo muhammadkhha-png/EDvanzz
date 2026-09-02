@@ -569,6 +569,28 @@ namespace Edvanz.Domain.Interfaces
         /// </summary>
         Task<TeacherStudent?> GetActiveTeacherStudentByIdAsync(long teacherId, long teacherStudentId);
 
+        /// <summary>
+        /// Number of the teacher's ACTIVE roster records with no parent phone on file.
+        /// Powers the parent-portal summary tile: those students can never be auto-approved,
+        /// so every parent request for them lands in the teacher's manual inbox.
+        /// </summary>
+        Task<int> CountStudentsMissingParentPhoneAsync(long teacherId);
+
+        /// <summary>
+        /// Active roster records of one teacher whose <c>ParentPhoneNumber</c> matches ANY of the
+        /// supplied variants.
+        ///
+        /// Roster phones are only <c>.Trim()</c>-ed on write, so the stored format varies
+        /// ("01012345678", "+201012345678", "0020…"). The caller therefore passes the plausible
+        /// STORED spellings of one normalized number rather than a normalized value, keeping the
+        /// query a plain <c>IN</c> that still uses
+        /// <c>IX_TeacherStudents_TeacherId_ParentPhoneNumber</c> (a normalizing expression on the
+        /// column would make it non-sargable). Parent phones are deliberately NOT unique — one
+        /// parent legitimately has several children on the same roster — so this returns a LIST.
+        /// </summary>
+        Task<IReadOnlyList<TeacherStudent>> GetActiveTeacherStudentsByParentPhoneAsync(
+            long teacherId, IEnumerable<string> phoneVariants);
+
         // ══════════════════════════════════════════════
         // PARENT USER ENTITY QUERIES
         // ══════════════════════════════════════════════

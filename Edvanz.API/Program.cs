@@ -311,6 +311,13 @@ builder.Services.Configure<Edvanz.Application.Options.SupportOptions>(
 // "AppVersion__Android__MinSupportedBuild" / "AppVersion__iOS__LatestBuild" etc. (no redeploy).
 builder.Services.Configure<Edvanz.Application.Options.AppVersionOptions>(
     builder.Configuration.GetSection(Edvanz.Application.Options.AppVersionOptions.Section));
+// Public parent portal (parent.edvanz.io). The shared secret is NEVER committed — appsettings.json
+// carries an empty placeholder and the real value is the App Service setting
+// "ParentPortal__PortalKey"; an empty key makes ParentPortalKeyFilter reject every request
+// (fail-closed). "ParentPortal__Enabled" = false takes the whole public surface down without a
+// redeploy.
+builder.Services.Configure<Edvanz.Application.Options.ParentPortalOptions>(
+    builder.Configuration.GetSection(Edvanz.Application.Options.ParentPortalOptions.Section));
 builder.Services.AddScoped<IAuthorizationHandler, ActiveSubscriptionHandler>();
 // Turns a subscription-only Forbidden into a clear localized "please subscribe" envelope
 // (instead of the framework's bare, body-less 403) on every gated action.
@@ -447,6 +454,31 @@ builder.Services.AddRateLimiter(o =>
             });
     });
 
+    // Public parent portal: the ONLY anonymous, internet-facing write surface, so it is
+    // partitioned per BROWSER (the X-Portal-Device header the PHP page mints) rather than per
+    // caller identity — there is no JWT here. Falls back to the forwarded client IP, then to the
+    // socket peer (which is the portal itself, i.e. a shared bucket — acceptable as a last
+    // resort because the service-layer caps in ParentPortalOptions still apply per device and
+    // per teacher).
+    o.AddPolicy(ParentPortalConstants.RateLimitPolicy, httpContext =>
+    {
+        string partitionKey = httpContext.Request.Headers[ParentPortalConstants.DeviceHeader].ToString();
+        if (string.IsNullOrWhiteSpace(partitionKey))
+            partitionKey = httpContext.Request.Headers[ParentPortalConstants.ClientIpHeader].ToString();
+        if (string.IsNullOrWhiteSpace(partitionKey))
+            partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromSeconds(60),
+                PermitLimit = 60,
+                QueueLimit = 0,
+                QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst
+            });
+    });
+
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -486,6 +518,7 @@ options.AddPolicy(SpaCors, policy =>
               "http://localhost:4200",              // Angular dev
               "https://app-edvanz-admin.azurewebsites.net",
               "https://muhammadkhha-png.github.io", // GitHub Pages admin (EdvanzAdminUI)
+              "https://parent.edvanz.io",           // public parent portal (PHP page on Hostinger)
               "https://belalmuhamed.github.io") // prod admin origin
           .AllowAnyHeader()
           .AllowAnyMethod()

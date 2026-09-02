@@ -172,6 +172,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<VideoScope> VideoScopes => Set<VideoScope>();
 
     /// <summary>
+    /// Public parent-portal grants (parent.edvanz.io): one row per (roster student, device),
+    /// carrying the request/approval lifecycle. See <see cref="ParentPortalAccess"/>.
+    /// </summary>
+    public DbSet<ParentPortalAccess> ParentPortalAccesses => Set<ParentPortalAccess>();
+
+    /// <summary>
     /// Video Content Management Module (Module 14) — per-student per-video aggregate.
     /// Atomic UPSERT target via <c>ExecuteUpdateAsync</c> for multi-device watch tracking.
     /// </summary>
@@ -1257,6 +1263,20 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Supports partial match queries on StudentName within a teacher scope
             entity.HasIndex(ts => new { ts.TeacherId, ts.StudentName })
                 .HasDatabaseName("IX_TeacherStudents_TeacherId_StudentName");
+
+            // CRITICAL — composite-FK target (CLAUDE.md §4.4). Children that denormalize TeacherId
+            // and declare a composite FK against (Id, TeacherId) need a UNIQUE constraint over
+            // those columns on this parent; SQL Server refuses the FK without one.
+            // First consumer: ParentPortalAccesses.(TeacherStudentId, TeacherId).
+            //
+            // Declared as an explicit ALTERNATE KEY rather than the VideoAssets recipe
+            // (HasPrincipalKey + a separate `HasIndex(...).IsUnique()`): on VideoAssets that
+            // recipe produces BOTH AK_VideoAssets_Id_TeacherId and UX_VideoAssets_Id_TeacherId —
+            // two identical unique indexes. TeacherStudents is a much hotter write path (roster
+            // CRUD, bulk import), so it carries ONE. The alternate key IS a unique index in SQL
+            // Server, so the FK target requirement is fully satisfied.
+            entity.HasAlternateKey(ts => new { ts.Id, ts.TeacherId })
+                .HasName("AK_TeacherStudents_Id_TeacherId");
         });
         #endregion
 
@@ -4518,6 +4538,75 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
         });
 
         SeedHelpContent(modelBuilder);
+        #endregion
+
+        #region ParentPortalAccess (public parent portal — parent.edvanz.io)
+        modelBuilder.Entity<ParentPortalAccess>(entity =>
+        {
+            entity.ToTable("ParentPortalAccesses");
+
+            // ── COLUMN MAPPINGS ───────────────────────────────────────────────
+
+            // SHA-256 hex is exactly 64 chars; fixed-length so the equality lookups that drive
+            // every portal read never pay for an implicit conversion.
+            entity.Property(a => a.DeviceHash)
+                .HasMaxLength(64)
+                .IsRequired();
+
+            entity.Property(a => a.Status)
+                .HasConversion<byte>()
+                .IsRequired();
+
+            entity.Property(a => a.ClaimedPhone).HasMaxLength(20);
+            entity.Property(a => a.RequestIpHash).HasMaxLength(64);
+            entity.Property(a => a.UserAgent).HasMaxLength(256);
+
+            entity.Property(a => a.RequestedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(a => a.RespondedAt).HasColumnType("datetime2(0)");
+            entity.Property(a => a.LastSeenAt).HasColumnType("datetime2(0)");
+            entity.Property(a => a.CreateAt).HasColumnType("datetime2(0)").IsRequired();
+
+            // ── COMPOSITE-FK TENANT INTEGRITY (CLAUDE.md §4.4) ────────────────
+            //
+            // (TeacherStudentId, TeacherId) → TeacherStudents(Id, TeacherId), targeting the
+            // UX_TeacherStudents_Id_TeacherId unique index declared in the TeacherStudent region.
+            // ONE declaration covers BOTH the structural link to the roster record AND the
+            // guarantee that the denormalized TeacherId always equals the student's own teacher —
+            // a cross-tenant grant simply cannot be inserted.
+            //
+            // Fluent API ONLY: the entity carries NO [ForeignKey] annotation on these columns
+            // (CLAUDE.md §4.1 / BUG-4 — an annotation alongside Fluent OnDelete silently drops
+            // the OnDelete). And do NOT add a second HasOne(a => a.Teacher): EF Core 10 merges it
+            // into this relationship and drops the OnDelete clause (the VideoScope gotcha).
+            //
+            // NoAction: the student purge path deletes these rows explicitly, in the purge
+            // transaction (IParentPortalAccessRepo.DeleteForStudentAsync).
+            entity.HasOne(a => a.TeacherStudent)
+                .WithMany()
+                .HasForeignKey(a => new { a.TeacherStudentId, a.TeacherId })
+                .HasPrincipalKey(ts => new { ts.Id, ts.TeacherId })
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // ── INDEXES ───────────────────────────────────────────────────────
+
+            // ONE live grant per (student, device). The filter literals 1 and 3 are HAND-SYNCED
+            // with ParentPortalAccessStatus.Active = 1 / Pending = 3 — change the enum and you
+            // MUST change this filter (same contract as UX_StudentTeacherLinks_* / §7.2b).
+            // Terminal rows (Rejected = 4, Revoked = 5) are excluded so a parent can request
+            // again after a rejection and the full history is preserved for audit.
+            entity.HasIndex(a => new { a.TeacherStudentId, a.DeviceHash })
+                .IsUnique()
+                .HasFilter("[Status] IN (1, 3)")
+                .HasDatabaseName("UX_PPA_Student_Device_Live");
+
+            // Teacher inbox + summary: pending requests newest first, tenant-scoped.
+            entity.HasIndex(a => new { a.TeacherId, a.Status, a.RequestedAt })
+                .HasDatabaseName("IX_PPA_TeacherId_Status_RequestedAt");
+
+            // Caller resolution on EVERY portal read (device → grant) and the per-device abuse cap.
+            entity.HasIndex(a => a.DeviceHash)
+                .HasDatabaseName("IX_PPA_DeviceHash");
+        });
         #endregion
     }
 

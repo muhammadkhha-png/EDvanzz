@@ -52,7 +52,15 @@ public static class ServicesCollectionExtensions
         services.AddScoped<ITeacherStudentLinkService, TeacherStudentLinkService>();
         services.AddScoped<IStudentLinkNotifier, StudentLinkNotifier>();
         services.AddScoped<IParentUserService, ParentUserService>();
+        // Shared parent SECTION builders (attendance / payments / videos / homework / grades).
+        // Registered before its two consumers below — the parent mobile dashboard and the public
+        // parent portal both compose through this one implementation, never a fork.
+        services.AddScoped<IParentSectionComposer, ParentSectionComposer>();
         services.AddScoped<IParentDashboardService, ParentDashboardService>();
+        // Public parent portal (parent.edvanz.io): the anonymous, portal-key-gated read surface
+        // plus the teacher-side inbox/approval half.
+        services.AddScoped<IParentPortalService, ParentPortalService>();
+        services.AddScoped<ITeacherParentPortalService, TeacherParentPortalService>();
         services.AddScoped<ITokenService, TokenService>();
         // Free-tier quota gate (shared by student/session/assistant/group create paths)
         services.AddScoped<ISubscriptionGateService, SubscriptionGateService>();

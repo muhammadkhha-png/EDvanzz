@@ -133,6 +133,12 @@ public class StudentTeardownService : IStudentTeardownService
         // AssignmentScope is SetNull and needs no help.
         await _unitOfWork.ExamHomeworkRepo.PurgeStudentAssignmentDataAsync(teacherStudentId);
 
+        // ── Public parent portal ───────────────────────────────────────────────
+        // ParentPortalAccess: NON-nullable composite FK (TeacherStudentId, TeacherId), NoAction →
+        // DELETE. SQL Server cleans nothing here, so a surviving grant would BLOCK the hard delete
+        // and, worse, leave a parent's browser pointed at a roster row that no longer exists.
+        await _unitOfWork.ParentPortalAccesses.DeleteForStudentAsync(teacherStudentId);
+
         // ── Account / parent links ─────────────────────────────────────────────
         // Both FKs are SetNull so they never block, but leaving the app-side graph pointing at
         // a row that is about to vanish is exactly the dangling state this task exists to kill.

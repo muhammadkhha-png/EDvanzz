@@ -954,6 +954,42 @@ namespace Edvanz.Infrastructure.Repositories
                     !ts.IsDeleted);
         }
 
+        /// <inheritdoc />
+        public async Task<int> CountStudentsMissingParentPhoneAsync(long teacherId)
+        {
+            // Served by IX_TeacherStudents_TeacherId_IsDeleted. A blank string counts as missing:
+            // legacy imports stored "" rather than NULL, and neither can ever auto-approve.
+            return await _context.Set<TeacherStudent>()
+                .CountAsync(ts =>
+                    ts.TeacherId == teacherId &&
+                    !ts.IsDeleted &&
+                    (ts.ParentPhoneNumber == null || ts.ParentPhoneNumber == string.Empty));
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<TeacherStudent>> GetActiveTeacherStudentsByParentPhoneAsync(
+            long teacherId, IEnumerable<string> phoneVariants)
+        {
+            var variants = phoneVariants?
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .Distinct()
+                .ToList() ?? new List<string>();
+
+            if (variants.Count == 0)
+                return Array.Empty<TeacherStudent>();
+
+            // Plain IN over the raw column so IX_TeacherStudents_TeacherId_ParentPhoneNumber stays
+            // usable — normalizing the column in SQL would make the predicate non-sargable.
+            return await _context.Set<TeacherStudent>()
+                .AsNoTracking()
+                .Where(ts =>
+                    ts.TeacherId == teacherId &&
+                    !ts.IsDeleted &&
+                    ts.ParentPhoneNumber != null &&
+                    variants.Contains(ts.ParentPhoneNumber))
+                .ToListAsync();
+        }
+
         // ══════════════════════════════════════════════
         // PARENT USER ENTITY QUERIES
         // ══════════════════════════════════════════════

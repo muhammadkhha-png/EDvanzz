@@ -203,5 +203,11 @@ namespace Edvanz.Domain.Interfaces
         /// Per-platform mobile-app version gate (runtime-editable; DB-first, options-fallback).
         /// </summary>
         IAppVersionConfigRepo AppVersionConfigs { get; }
+
+        /// <summary>
+        /// Public parent-portal grants (parent.edvanz.io) — one row per (roster student, device),
+        /// request/approval lifecycle, teacher inbox, follower list and abuse caps.
+        /// </summary>
+        IParentPortalAccessRepo ParentPortalAccesses { get; }
     }
 }

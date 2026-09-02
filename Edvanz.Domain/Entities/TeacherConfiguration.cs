@@ -185,6 +185,26 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool IsDeviceLockEnabled { get; set; } = false;
 
+    // ─── Parent Portal (public web follow-up page, parent.edvanz.io) ───
+
+    /// <summary>
+    /// Master switch for the PUBLIC parent portal — the web page where a parent types this
+    /// teacher's code plus a student code to follow that student's attendance, payments and
+    /// grades read-only, without installing the app.
+    ///
+    /// OPT-IN BY DESIGN (default false): the portal is reachable by anyone on the internet and
+    /// the teacher code is public, so a teacher must deliberately turn it on before ANY parent
+    /// request against their account is honoured. While false, an access request is accepted and
+    /// silently discarded (it returns the same "pending" response as a real one — see
+    /// <see cref="ParentPortalAccess"/> — so the endpoint can never be used to probe which
+    /// teachers or student codes exist).
+    ///
+    /// This flag gates ONLY the public portal. It does not affect the parent MOBILE app, whose
+    /// per-module visibility keeps coming from the <c>ParentVisibility*</c> flags above — those
+    /// same flags also gate what the portal shows once a grant is approved.
+    /// </summary>
+    public bool ParentPortalEnabled { get; set; } = false;
+
     // â”€â”€â”€ Attendance Screen Enrichment (teacher-facing, distinct from Student/ParentVisibility*) â”€â”€â”€
 
     /// <summary>

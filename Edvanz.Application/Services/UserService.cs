@@ -291,15 +291,22 @@ namespace Edvanz.Application.Services
             return null;
         }
 
+        /// <summary>
+        /// Egyptian-mobile rule (11 digits, 010/011/012/015), shared by the Teacher / Student /
+        /// Parent / Google paths.
+        ///
+        /// The implementation was EXTRACTED to <see cref="Common.EgyptianPhoneNumber"/> so the
+        /// parent portal — which also needs to NORMALIZE user-typed numbers — can reuse the exact
+        /// same rule instead of copying the regex. This shim stays because several services import
+        /// it via <c>using static Edvanz.Application.Services.UserService;</c>; it forwards, so
+        /// behaviour is byte-for-byte unchanged. New code should call
+        /// <see cref="Common.EgyptianPhoneNumber"/> directly.
+        /// </summary>
         public static class PhoneNumberValidator
         {
-            // Egyptian mobile: 11 digits starting with 010/011/012/015.
-            // Centralized so Teacher/Student/Parent/Google paths share the same rule.
-            private static readonly Regex Pattern =
-                new(@"^01[0125]\d{8}$", RegexOptions.Compiled);
-
+            /// <inheritdoc cref="Common.EgyptianPhoneNumber.IsValidEgyptianMobile"/>
             public static bool IsValidEgyptianMobile(string? phone) =>
-                !string.IsNullOrWhiteSpace(phone) && Pattern.IsMatch(phone);
+                Common.EgyptianPhoneNumber.IsValidEgyptianMobile(phone);
         }
 
         //public async Task<Result<string>> DeactiveUser(long userId)

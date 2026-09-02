@@ -2589,4 +2589,61 @@
   <data name="AppVersionUpdated" xml:space="preserve">
     <value>تم تحديث إعدادات نسخة التطبيق بنجاح.</value>
   </data>
+  <data name="ParentPortalTeacherNotFound" xml:space="preserve">
+    <value>مفيش مدرس بالكود ده. راجع الكود وحاول تاني.</value>
+  </data>
+  <data name="ParentPortalCodeLength" xml:space="preserve">
+    <value>كود المدرس لازم يكون ٨ أرقام.</value>
+  </data>
+  <data name="ParentPortalStudentCodeRequired" xml:space="preserve">
+    <value>اكتب كود الطالب، زي A12.</value>
+  </data>
+  <data name="ParentPortalPhoneFormat" xml:space="preserve">
+    <value>اكتب رقم موبايل مصري صح — ١١ رقم ويبدأ بـ 01 — أو سيبه فاضي.</value>
+  </data>
+  <data name="ParentPortalDisabled" xml:space="preserve">
+    <value>المدرس لسه مفعّلش متابعة أولياء الأمور. كلّمه يفعّلها من إعدادات التطبيق.</value>
+  </data>
+  <data name="ParentPortalUnavailable" xml:space="preserve">
+    <value>متابعة أولياء الأمور مش متاحة دلوقتي للمدرس ده.</value>
+  </data>
+  <data name="ParentPortalRequestSent" xml:space="preserve">
+    <value>طلبك اتبعت لـ {0}. أول ما يوافق هتدخل على طول.</value>
+  </data>
+  <data name="ParentPortalRequestPending" xml:space="preserve">
+    <value>لسه مستني {0} يوافق.</value>
+  </data>
+  <data name="ParentPortalRequestRejected" xml:space="preserve">
+    <value>المدرس مقبلش الطلب. تقدر تحاول بكرة، أو اطلب منه يضيف رقمك.</value>
+  </data>
+  <data name="ParentPortalAccessRevoked" xml:space="preserve">
+    <value>المدرس ألغى وصولك لبيانات الطالب ده.</value>
+  </data>
+  <data name="ParentPortalStudentRemoved" xml:space="preserve">
+    <value>الطالب ده مبقاش موجود عند المدرس.</value>
+  </data>
+  <data name="ParentPortalNothingShared" xml:space="preserve">
+    <value>المدرس لسه مشاركش أي تفاصيل.</value>
+  </data>
+  <data name="ParentPortalTooManyRequests" xml:space="preserve">
+    <value>حاولت كتير. جرّب تاني بعد {0} دقيقة.</value>
+  </data>
+  <data name="ParentPortalSessionExpired" xml:space="preserve">
+    <value>اتسجّل خروجك من الجهاز ده. اكتب الأكواد تاني علشان تكمّل متابعة.</value>
+  </data>
+  <data name="ParentPortalRequestNotFound" xml:space="preserve">
+    <value>الطلب ده مبقاش موجود.</value>
+  </data>
+  <data name="ParentPortalAccessGranted" xml:space="preserve">
+    <value>تم السماح لولي الأمر بالمتابعة.</value>
+  </data>
+  <data name="ParentPortalAccessRejected" xml:space="preserve">
+    <value>تم رفض الطلب.</value>
+  </data>
+  <data name="ParentPortalNewRequestNotification" xml:space="preserve">
+    <value>ولي أمر عايز يتابع {0}. اضغط للموافقة.</value>
+  </data>
+  <data name="ParentPortalNewRequestsNotification" xml:space="preserve">
+    <value>{0} من أولياء الأمور مستنيين موافقتك.</value>
+  </data>
 </root>

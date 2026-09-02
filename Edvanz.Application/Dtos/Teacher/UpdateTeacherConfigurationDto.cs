@@ -63,6 +63,18 @@ public class UpdateTeacherConfigurationDto
     public bool ParentVisibilityHomework { get; set; } = true;
     public bool ParentVisibilityExamDefault { get; set; } = false;
 
+    /// <summary>
+    /// Default visibility of ONLINE exams in parent accounts — the online twin of
+    /// <see cref="ParentVisibilityExamDefault"/>. Gates the parent dashboard's online-exam report
+    /// and the parent portal's grades list. Default (on the entity) is false — opt-in, AAM-BR-10.
+    ///
+    /// NULLABLE ON PURPOSE, same reasoning as <see cref="ParentPortalEnabled"/>: this payload is a
+    /// full replace and older app builds do not know the field, so OMITTING IT LEAVES THE CURRENT
+    /// VALUE ALONE. A non-nullable bool would let an old client silently re-hide online exams on
+    /// any unrelated settings save. Send an explicit true/false to change it.
+    /// </summary>
+    public bool? ParentVisibilityOnlineExamDefault { get; set; }
+
     // ─── Device Lock ───
 
     /// <summary>
@@ -73,6 +85,18 @@ public class UpdateTeacherConfigurationDto
     public bool IsDeviceLockEnabled { get; set; } = false;
     public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }
+
+    // ─── Parent Portal (public web follow-up page) ───
+
+    /// <summary>
+    /// Turns the PUBLIC parent portal (parent.edvanz.io) on or off for this teacher.
+    ///
+    /// NULLABLE ON PURPOSE: this settings payload is a full replace, and older app builds do not
+    /// know the field. Omitting it LEAVES THE CURRENT VALUE ALONE — otherwise an old client saving
+    /// any unrelated setting would silently switch a teacher's portal off. Send an explicit
+    /// true/false to change it.
+    /// </summary>
+    public bool? ParentPortalEnabled { get; set; }
 }
 
 /// <summary>
