@@ -453,6 +453,21 @@ public interface IPaymentService
     Task<Result<OrphanedPeriodsReconcileReport>> ReconcileOrphanedPeriodsAsync(long? teacherId, bool dryRun);
 
     /// <summary>
+    /// ADMIN one-off (SuperAdmin). REMEDIATION for the never-paid FIRST-MONTH-MOVE proration WIPE (root
+    /// cause fixed going-forward in <c>ApplyCarryOverPlanAsync</c> + the DB2a fold-in): a student moved /
+    /// reassigned between sessions within their first month, before paying anything, had their genuine
+    /// prorated first month re-priced to FULL price with its anchor flag dropped (prod: student 8990
+    /// 300×0.3333 → 300). For each AFFECTED student — the earliest period is a carried / moved, never-paid,
+    /// non-prorated monthly anchor, the student has zero paid periods, proration is enabled, and the
+    /// first-attendance day lands in a discounted tier — the anchor is re-priced to
+    /// round(sessionOrCustom × first-attendance fraction), its IsProRated / fraction / anchor flag restored,
+    /// and its counter resynced. Non-qualifying candidates are reported (with a reason) and left untouched.
+    /// <paramref name="teacherId"/> null = every teacher. <paramref name="dryRun"/>=true (default at the
+    /// controller) writes NOTHING and reports exactly what WOULD change.
+    /// </summary>
+    Task<Result<CarriedAnchorReprorationReport>> ReprorateCarriedAnchorsAsync(long? teacherId, bool dryRun);
+
+    /// <summary>
     /// Ensures an AssistantWallet record exists for the given assistant.
     /// Should be called when an assistant is created (from AssistantService)
     /// or as a safety check during payment collection.

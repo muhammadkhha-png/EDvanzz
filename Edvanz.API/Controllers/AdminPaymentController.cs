@@ -212,4 +212,38 @@ public class AdminPaymentController : ApiBaseController
 
         return ToResponse(await _paymentService.ReconcileOrphanedPeriodsAsync(teacherId, dryRun));
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: RE-PRORATE NEVER-PAID FIRST-MONTH CARRIED ANCHORS
+    //
+    // REMEDIATION for the never-paid first-month-MOVE proration WIPE (root cause fixed going-forward in
+    // ApplyCarryOverPlanAsync + the DB2a fold-in): a student moved / reassigned between sessions within
+    // their first month, before paying anything, had their genuine prorated first month re-priced to FULL
+    // price with its anchor flag dropped (prod: student 8990 300×0.3333 → 300). Per AFFECTED student the
+    // carried first-month anchor is re-priced to round(sessionOrCustom × first-attendance fraction), its
+    // IsProRated / fraction / anchor flag restored, and its counter resynced. Non-qualifying candidates are
+    // reported with a reason and left untouched.
+    //
+    // SAMPLE (preview — writes nothing; scope to one teacher, or omit for every teacher):
+    //   POST /api/admin/payments/reprorate-carried-anchors?teacherId=20
+    //   POST /api/admin/payments/reprorate-carried-anchors?teacherId=20&dryRun=true
+    //
+    // SAMPLE (apply):
+    //   POST /api/admin/payments/reprorate-carried-anchors?teacherId=20&dryRun=false
+    //
+    // AUTH: SuperAdmin ONLY (roleOnly gate).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("reprorate-carried-anchors")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(CarriedAnchorReprorationReport), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ReprorateCarriedAnchors(
+        [FromQuery] long? teacherId = null,
+        [FromQuery] bool dryRun = true)
+    {
+        if (_currentUser.UserId is null)
+            return Unauthorized();
+
+        return ToResponse(await _paymentService.ReprorateCarriedAnchorsAsync(teacherId, dryRun));
+    }
 }

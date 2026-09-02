@@ -108,3 +108,80 @@ public sealed class OrphanedPeriodsStudentItem
     /// <summary>Owed total across the pending carry-forward months created (old amount, pre-reprice).</summary>
     public decimal PendingOwed { get; set; }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// REMEDIATION: RE-PRORATE NEVER-PAID FIRST-MONTH CARRIED ANCHORS
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Output of PaymentService.ReprorateCarriedAnchorsAsync. Repairs students whose genuine prorated FIRST
+// month was WIPED to full price when they were moved / reassigned between sessions before paying anything
+// (root cause fixed going-forward in ApplyCarryOverPlanAsync + the DB2a fold-in). For each AFFECTED
+// student the carried first-month period is re-priced to round(sessionOrCustom × first-attendance
+// fraction), its IsProRated / ProRatedFraction / IsProrationAnchorMonth restored, and its
+// StudentPaymentCounter resynced from records. A candidate that does not qualify (proration disabled,
+// already prorated, any cash paid, no first-attendance in the anchor month, or a full-price tier) is
+// reported under Skipped with a reason and left untouched. dryRun=true previews and writes NOTHING.
+
+/// <summary>Top-level report for the never-paid first-month carried-anchor re-proration remediation.</summary>
+public sealed class CarriedAnchorReprorationReport
+{
+    /// <summary>True when the run only PREVIEWED changes (wrote nothing).</summary>
+    public bool DryRun { get; set; }
+
+    /// <summary>Teacher the run was scoped to, or null for every teacher.</summary>
+    public long? TeacherId { get; set; }
+
+    /// <summary>Students whose carried first-month anchor was re-prorated (or that WOULD be).</summary>
+    public int StudentsAffected { get; set; }
+
+    /// <summary>Total AmountDue reduction across the re-prorated anchors (sum of old − new).</summary>
+    public decimal TotalAmountReduced { get; set; }
+
+    /// <summary>Candidate owners scanned but SKIPPED (did not qualify) — see each item's Reason.</summary>
+    public int CandidatesSkipped { get; set; }
+
+    /// <summary>Per-student breakdown of the anchors re-prorated.</summary>
+    public List<CarriedAnchorStudentItem> Students { get; set; } = new();
+
+    /// <summary>Per-candidate breakdown of the owners skipped, with the reason.</summary>
+    public List<CarriedAnchorSkippedItem> Skipped { get; set; } = new();
+}
+
+/// <summary>Per-student re-proration breakdown (one carried first-month anchor repaired).</summary>
+public sealed class CarriedAnchorStudentItem
+{
+    public long TeacherId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
+
+    /// <summary>The carried first-month PaymentPeriod re-prorated.</summary>
+    public long PeriodId { get; set; }
+
+    /// <summary>Month label of the anchor (e.g. "August 2026").</summary>
+    public string? MonthLabel { get; set; }
+
+    /// <summary>AmountDue before the fix (the wiped full price).</summary>
+    public decimal OldAmountDue { get; set; }
+
+    /// <summary>AmountDue after the fix (round(base × fraction)).</summary>
+    public decimal NewAmountDue { get; set; }
+
+    /// <summary>The restored proration fraction (from the first-attendance day's tier).</summary>
+    public decimal ProRatedFraction { get; set; }
+
+    /// <summary>The first-attendance date that anchored the fraction.</summary>
+    public DateTime FirstAttendanceDate { get; set; }
+}
+
+/// <summary>A candidate owner scanned but not re-prorated, with the reason.</summary>
+public sealed class CarriedAnchorSkippedItem
+{
+    public long TeacherId { get; set; }
+    public long TeacherStudentId { get; set; }
+    public string? StudentCode { get; set; }
+
+    /// <summary>Why the candidate did not qualify (e.g. "ProrationDisabled", "AlreadyProrated",
+    /// "HasPaidPeriods", "NoFirstAttendanceInAnchorMonth", "FullPriceTier", "NotEarliestPeriod").</summary>
+    public string Reason { get; set; } = string.Empty;
+}

@@ -483,12 +483,14 @@
         /// <inheritdoc />
         public async Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId)
         {
-            // TRACKED. Every still-owed proration-anchor month (a new enrollment's first month) for the
-            // teacher; transfers never carry the flag, so they're inherently excluded from the reconcile.
+            // TRACKED. Every still-owed proration-anchor month for the teacher. This INCLUDES a carried /
+            // moved anchor: the never-paid first-month-move preservation (PaymentService) keeps
+            // IsProrationAnchorMonth set on a student's genuine first month through a move/reassignment, so
+            // the config reconcile can still adjust it. A PLAIN transfer month never carries the flag, so it
+            // stays excluded. (Historically all carried rows were excluded — that hid preserved anchors.)
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
                     && p.IsProrationAnchorMonth
-                    && !p.IsCarriedForward && p.MovedFromSessionId == null // a moved/carried period is never an anchor
                     && (p.PaymentStatus == PaymentStatus.Unpaid
                         || p.PaymentStatus == PaymentStatus.PartiallyPaid))
                 .ToListAsync();
@@ -515,13 +517,15 @@
         public async Task<PaymentPeriod?> GetProrationAnchorPeriodAsync(
             long teacherId, long teacherStudentId, long sessionId)
         {
-            // TRACKED — the caller re-prices it. The single anchor month (a new enrollment's first
-            // month) for this student+session; null for a transfer (no anchor) or once cleared.
+            // TRACKED — the caller re-prices it. The single anchor month for this student+session. This
+            // INCLUDES a carried / moved anchor: the never-paid first-month-move preservation
+            // (PaymentService) keeps IsProrationAnchorMonth set on a student's genuine first month through a
+            // move/reassignment, so the first-attendance re-anchor can still find and adjust it. A PLAIN
+            // transfer month never carries the flag → still null. (Historically carried rows were excluded.)
             return await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId
                     && p.SessionId == sessionId && p.PeriodType == PeriodType.Monthly
-                    && p.IsProrationAnchorMonth
-                    && !p.IsCarriedForward && p.MovedFromSessionId == null) // a moved/carried period is never an anchor
+                    && p.IsProrationAnchorMonth)
                 .OrderBy(p => p.PeriodSequence)
                 .FirstOrDefaultAsync();
         }
@@ -663,6 +667,47 @@
                 .OrderBy(p => p.PeriodSequence)
                 .AsNoTracking()
                 .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<DateTime?> GetFirstAttendanceDateAnyAsync(
+            long teacherId, long teacherStudentId)
+        {
+            // Earliest date the student physically attended ANY session (Present or the linked-session
+            // CrossSessionPresent). Session-agnostic — used by the never-paid first-month-move re-proration
+            // remediation when a carried period's SessionId was nulled by a later session delete, so a
+            // per-session lookup (GetFirstAttendanceDateAsync) is impossible.
+            var attended = _context.AttendanceRecords
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId
+                    && (a.Status == AttendanceStatus.Present
+                        || a.Status == AttendanceStatus.CrossSessionPresent));
+            if (!await attended.AnyAsync()) return null;
+            return await attended.MinAsync(a => (DateTime?)a.OccurrenceDate);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<(long TeacherId, long TeacherStudentId)>>
+            GetNeverPaidCarriedAnchorCandidateOwnersAsync(long? teacherId)
+        {
+            // Candidates for the never-paid first-month-move re-proration remediation: (teacher, student)
+            // owners of a CARRIED / MOVED monthly period that is still fully UNPAID and currently NOT
+            // prorated (the bug re-priced a prorated first-month anchor to full price and dropped its flag).
+            // Over-selects cheaply; the service refines to the student's EARLIEST period + zero-paid history
+            // + a first-attendance day that lands in a discounted tier.
+            var q = _context.PaymentPeriods
+                .Where(p => p.TeacherStudentId != null
+                    && p.PeriodType == PeriodType.Monthly
+                    && (p.IsCarriedForward || p.MovedFromSessionId != null)
+                    && p.AmountPaid <= 0m
+                    && p.PaymentStatus != PaymentStatus.Paid
+                    && !p.IsProRated);
+            if (teacherId.HasValue)
+                q = q.Where(p => p.TeacherId == teacherId.Value);
+            var rows = await q
+                .Select(p => new { p.TeacherId, StudentId = p.TeacherStudentId!.Value })
+                .Distinct()
+                .ToListAsync();
+            return rows.Select(r => (r.TeacherId, r.StudentId)).ToList();
         }
 
         /// <inheritdoc />

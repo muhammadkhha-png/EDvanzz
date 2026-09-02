@@ -823,6 +823,19 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// CrossSessionPresent) — the anchor for attendance-based proration. Null if never attended.</summary>
     Task<DateTime?> GetFirstAttendanceDateAsync(long teacherId, long teacherStudentId, long sessionId);
 
+    /// <summary>Earliest date the student physically attended ANY session (Present or the linked
+    /// CrossSessionPresent) — the SESSION-AGNOSTIC first-attendance anchor used by the never-paid
+    /// first-month-move re-proration remediation when a carried period's SessionId was nulled by a later
+    /// session delete. Null if never attended.</summary>
+    Task<DateTime?> GetFirstAttendanceDateAnyAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>(teacher, student) owners of a CARRIED / MOVED, still fully-unpaid, NON-prorated monthly
+    /// period — the over-selected candidate population for the never-paid first-month-move re-proration
+    /// remediation. The service refines to the student's earliest period + zero-paid history + a
+    /// first-attendance day in a discounted tier. Optionally scoped to one teacher.</summary>
+    Task<List<(long TeacherId, long TeacherStudentId)>>
+        GetNeverPaidCarriedAnchorCandidateOwnersAsync(long? teacherId);
+
     /// <summary>
     /// Gets per-session breakdown of expected/collected/remaining.
     /// REQ-PAY-043: Filterable by session for drill-down.

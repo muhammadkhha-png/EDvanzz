@@ -2921,6 +2921,15 @@ public class PaymentService : IPaymentService
         {
             decimal newBase = counter.CustomPaymentAmount ?? session.SessionAmount;
             var startMonth = new DateTime(assignedAt.Year, assignedAt.Month, 1);
+            // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION (same defect as the session-move carry):
+            // a pending carry-forward month that is the student's first-month anchor kept its proration
+            // through the session teardown (VoidFutureAndConsolidateArrearsAsync preserves a lone never-paid
+            // anchor), so preserve it here on re-attach instead of dropping it to full price. Non-anchor
+            // arrears still re-price to the full new-session amount.
+            bool anyAnchorPending = pendingDebt.Any(p => p.IsProrationAnchorMonth);
+            var (preservePendingAnchor, pendingAnchorTiers) = anyAnchorPending
+                ? await ResolveFirstMonthAnchorPreservationAsync(teacherId, teacherStudentId)
+                : (false, (IReadOnlyList<TeacherProratedTier>)System.Array.Empty<TeacherProratedTier>());
             var pendingToDelete = new List<PaymentPeriod>();
             foreach (var p in pendingDebt)
             {
@@ -2933,11 +2942,12 @@ public class PaymentService : IPaymentService
                 {
                     p.SessionId = sessionId;
                     p.SessionName = sessionName;
-                    p.AmountDue = newBase; // re-priced to the new session's amount
-                    p.IsProRated = false;
-                    p.ProRatedFraction = 1.0m;
                     p.IsCarriedForward = true;
-                    p.IsProrationAnchorMonth = false; // a carried/re-priced period is never a proration anchor
+                    // Re-price to the new session's amount; a never-paid first-month anchor keeps its
+                    // proration (re-anchored to first-attendance when available) — see RepriceCarriedPeriodAsync.
+                    await RepriceCarriedPeriodAsync(
+                        p, newBase, teacherId, teacherStudentId, sessionId,
+                        preservePendingAnchor, pendingAnchorTiers);
                     await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
                 }
             }
@@ -3308,6 +3318,18 @@ public class PaymentService : IPaymentService
     {
         int destSequence = startDestSequence;
 
+        // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION (BUG: proration wiped when a never-paid
+        // student is moved within their first month). A carried month is normally re-priced to the FULL
+        // destination amount (a transfer is never prorated). The ONE exception is the student's genuine
+        // first-month proration ANCHOR when they have paid NOTHING: dropping its proration destroyed a
+        // real prorated first month (prod: student 8990 300×0.3333 → 300). Resolve the preserve context
+        // ONCE, only when an anchor is actually among the carried months, then let RepriceCarriedPeriodAsync
+        // keep/re-anchor it. Later carried arrears months (non-anchor) always re-price to full price.
+        bool anyAnchorCarried = plan.UnpaidDueToMove.Any(p => p.IsProrationAnchorMonth);
+        var (preserveAnchor, anchorTiers) = anyAnchorCarried
+            ? await ResolveFirstMonthAnchorPreservationAsync(teacherId, teacherStudentId)
+            : (false, (IReadOnlyList<TeacherProratedTier>)System.Array.Empty<TeacherProratedTier>());
+
         foreach (var p in plan.UnpaidDueToMove)
         {
             p.SessionId = toSessionId;
@@ -3318,13 +3340,11 @@ public class PaymentService : IPaymentService
             p.IsCarriedForward = true;
             p.PeriodSequence = destSequence++;
             // RE-PRICE the fully-unpaid carried month to the DESTINATION session's amount (agreed design:
-            // "unpaid July/August should be unpaid at the NEW session amount"). Proration is dropped — a
-            // transfer is never prorated. AmountPaid is 0 here (BuildCarryOverPlan gates UnpaidDueToMove on
-            // no cash), so the month becomes fully unpaid at the new rate.
-            p.AmountDue = destBaseAmount;
-            p.IsProRated = false;
-            p.ProRatedFraction = 1.0m;
-            p.IsProrationAnchorMonth = false; // a moved period is never a proration anchor in its new session
+            // "unpaid July/August should be unpaid at the NEW session amount"). Proration is dropped for a
+            // plain transfer — EXCEPT a never-paid first-month anchor, whose proration is preserved and
+            // re-anchored to the student's first-attendance day (see RepriceCarriedPeriodAsync).
+            await RepriceCarriedPeriodAsync(
+                p, destBaseAmount, teacherId, teacherStudentId, toSessionId, preserveAnchor, anchorTiers);
             await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
         }
 
@@ -3378,6 +3398,85 @@ public class PaymentService : IPaymentService
         }
 
         return destSequence;
+    }
+
+    /// <summary>
+    /// NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION. Decides whether a carried / folded-in
+    /// FIRST-MONTH proration anchor should keep its proration through a move / reassignment for this
+    /// student. It qualifies ONLY when the teacher currently has proration ENABLED and the student has
+    /// paid NOTHING (defensive — a student who has paid ANY month is a mid-term transfer and must stay
+    /// un-prorated, exactly as before). Returns the tiers to re-anchor with when preservation applies,
+    /// else <c>(false, empty)</c>. See <see cref="RepriceCarriedPeriodAsync"/> and the carry paths
+    /// (<c>ApplyCarryOverPlanAsync</c>, the DB2a pending-debt fold-in in <c>OnStudentAssignedToSessionAsync</c>).
+    /// </summary>
+    private async Task<(bool Preserve, IReadOnlyList<TeacherProratedTier> Tiers)>
+        ResolveFirstMonthAnchorPreservationAsync(long teacherId, long teacherStudentId)
+    {
+        var empty = (IReadOnlyList<TeacherProratedTier>)System.Array.Empty<TeacherProratedTier>();
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config?.IsProratedPaymentEnabled != true)
+            return (false, empty);
+
+        // Defensive: any collected cash anywhere in the student's history ⇒ NOT a fresh never-paid
+        // first-month enrollment ⇒ keep the plain "transfer is never prorated" behaviour.
+        var all = await _unitOfWork.PaymentsRepo
+            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+        bool zeroPaid = !all.Any(p => p.AmountPaid > 0m
+            || p.PaymentStatus == PaymentStatus.Paid
+            || p.PaymentStatus == PaymentStatus.Overpaid);
+        if (!zeroPaid) return (false, empty);
+
+        var tiers = await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id);
+        return (true, tiers);
+    }
+
+    /// <summary>
+    /// Re-prices a carried / folded-in UNPAID monthly period to <paramref name="destBaseAmount"/>.
+    /// A plain transfer month is set to the FULL destination amount with proration cleared (a transfer is
+    /// never prorated). The ONE exception — the NEVER-PAID FIRST-MONTH-MOVE preservation — applies when
+    /// <paramref name="preserveFirstMonthAnchor"/> is true (resolved by
+    /// <see cref="ResolveFirstMonthAnchorPreservationAsync"/>) AND this period is the student's first-month
+    /// proration anchor (<see cref="PaymentPeriod.IsProrationAnchorMonth"/>) held with no cash: its
+    /// first-month proration is KEPT — re-priced to <c>round(base × fraction)</c> and re-anchored to the
+    /// student's real first-attendance day in the anchor month when they have already attended the
+    /// destination session, else the source fraction is kept. The anchor flag is retained so the
+    /// first-attendance re-anchor (<c>ReapplyFirstAttendanceProrationAsync</c>) and the config reconcile
+    /// (<c>ReconcileProrationForExistingStudentsAsync</c>) can still find and adjust it afterwards.
+    /// Mutates <paramref name="p"/> only (no save; caller owns the update/commit).
+    /// </summary>
+    private async Task RepriceCarriedPeriodAsync(
+        PaymentPeriod p, decimal destBaseAmount, long teacherId, long teacherStudentId,
+        long? destSessionId, bool preserveFirstMonthAnchor, IReadOnlyList<TeacherProratedTier> tiers)
+    {
+        if (preserveFirstMonthAnchor && p.IsProrationAnchorMonth && p.AmountPaid <= 0m)
+        {
+            // Re-anchor to the first-attendance day IN the anchor month when the student has already
+            // attended the destination session; otherwise keep the fraction the anchor was created with
+            // (the later first-attendance / config-reconcile passes converge it — same helpers, same math).
+            decimal fraction = p.ProRatedFraction;
+            var anchorMonth = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+            if (destSessionId is long sid)
+            {
+                var firstAttendance = await _unitOfWork.PaymentsRepo
+                    .GetFirstAttendanceDateAsync(teacherId, teacherStudentId, sid);
+                if (firstAttendance is DateTime fa
+                    && new DateTime(fa.Year, fa.Month, 1) == anchorMonth)
+                    fraction = MatchProrationFraction(tiers, fa.Day);
+            }
+
+            bool prorate = fraction < 1.0m;
+            p.AmountDue = prorate ? Math.Round(destBaseAmount * fraction, 2) : destBaseAmount;
+            p.IsProRated = prorate;
+            p.ProRatedFraction = prorate ? fraction : 1.0m;
+            p.IsProrationAnchorMonth = true; // keep the anchor so re-anchor + reconcile can still touch it
+            return;
+        }
+
+        // Plain transfer / mid-term carry: full price, proration dropped, never an anchor in the new session.
+        p.AmountDue = destBaseAmount;
+        p.IsProRated = false;
+        p.ProRatedFraction = 1.0m;
+        p.IsProrationAnchorMonth = false;
     }
 
     /// <summary>
@@ -4345,6 +4444,152 @@ public class PaymentService : IPaymentService
             report, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<Result<CarriedAnchorReprorationReport>> ReprorateCarriedAnchorsAsync(
+        long? teacherId, bool dryRun)
+    {
+        // REMEDIATION for the never-paid FIRST-MONTH-MOVE proration WIPE (root cause fixed going-forward in
+        // ApplyCarryOverPlanAsync + the DB2a fold-in): a student moved / reassigned between sessions within
+        // their first month, before paying anything, had their genuine prorated first month re-priced to
+        // FULL price with its anchor flag dropped (prod: student 8990 in session 83 — 300×0.3333 → 300).
+        // The carried period keeps its SessionId; SessionId can also be null if that session was later
+        // deleted, and the base resolution below handles both. This restores it: for each AFFECTED student
+        // the carried first-month
+        // period is re-priced to round(sessionOrCustom × first-attendance fraction), its IsProRated /
+        // fraction / anchor flag restored, and its counter resynced from records. A candidate that does not
+        // qualify is reported (with a reason) and left untouched. dryRun=true previews and writes NOTHING.
+        var report = new CarriedAnchorReprorationReport { DryRun = dryRun, TeacherId = teacherId };
+
+        var owners = await _unitOfWork.PaymentsRepo
+            .GetNeverPaidCarriedAnchorCandidateOwnersAsync(teacherId);
+
+        // Proration config/tiers are per teacher — resolve once each across the candidate list.
+        var configCache = new Dictionary<long, (bool Enabled, IReadOnlyList<TeacherProratedTier> Tiers)>();
+
+        void AddSkip(long tId, long sId, string reason, PaymentPeriod? p)
+        {
+            report.CandidatesSkipped++;
+            report.Skipped.Add(new CarriedAnchorSkippedItem
+            {
+                TeacherId = tId,
+                TeacherStudentId = sId,
+                StudentCode = p?.StudentCode,
+                Reason = reason
+            });
+        }
+
+        foreach (var (ownerTeacherId, studentId) in owners)
+        {
+            if (!configCache.TryGetValue(ownerTeacherId, out var cfg))
+            {
+                var c = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(ownerTeacherId);
+                bool en = c?.IsProratedPaymentEnabled == true;
+                IReadOnlyList<TeacherProratedTier> t = en && c != null
+                    ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(c.Id)
+                    : System.Array.Empty<TeacherProratedTier>();
+                cfg = (en, t);
+                configCache[ownerTeacherId] = cfg;
+            }
+
+            if (!cfg.Enabled) { AddSkip(ownerTeacherId, studentId, "ProrationDisabled", null); continue; }
+
+            var all = (await _unitOfWork.PaymentsRepo
+                    .GetAllPaymentPeriodsByStudentAsync(ownerTeacherId, studentId))
+                .OrderBy(p => p.PeriodStart).ThenBy(p => p.PeriodSequence)
+                .ToList();
+            if (all.Count == 0) { AddSkip(ownerTeacherId, studentId, "NoPeriods", null); continue; }
+
+            // Defensive: any collected cash anywhere ⇒ NOT a fresh never-paid first-month enrollment ⇒ a
+            // mid-term transfer that must stay un-prorated (matches the go-forward preservation guard).
+            bool zeroPaid = !all.Any(p => p.AmountPaid > 0m
+                || p.PaymentStatus == PaymentStatus.Paid
+                || p.PaymentStatus == PaymentStatus.Overpaid);
+            if (!zeroPaid) { AddSkip(ownerTeacherId, studentId, "HasPaidPeriods", all[0]); continue; }
+
+            // ONLY the student's first-ever billed month qualifies as the anchor.
+            var anchor = all[0];
+            if (!(anchor.IsCarriedForward || anchor.MovedFromSessionId != null)
+                || anchor.PeriodType != PeriodType.Monthly
+                || anchor.AmountPaid > 0m
+                || anchor.PaymentStatus == PaymentStatus.Paid)
+            { AddSkip(ownerTeacherId, studentId, "NotEarliestCarriedAnchor", anchor); continue; }
+            if (anchor.IsProRated) { AddSkip(ownerTeacherId, studentId, "AlreadyProrated", anchor); continue; }
+
+            // Fraction from the student's real first-attendance day IN the anchor month. Session-agnostic:
+            // the carried period's SessionId is normally the destination session, but can be null if that
+            // session was later deleted — so match the student's earliest Present across any session.
+            var firstAttendance = await _unitOfWork.PaymentsRepo
+                .GetFirstAttendanceDateAnyAsync(ownerTeacherId, studentId);
+            var anchorMonth = new DateTime(anchor.PeriodStart.Year, anchor.PeriodStart.Month, 1);
+            if (firstAttendance is not DateTime fa
+                || new DateTime(fa.Year, fa.Month, 1) != anchorMonth)
+            { AddSkip(ownerTeacherId, studentId, "NoFirstAttendanceInAnchorMonth", anchor); continue; }
+
+            decimal fraction = MatchProrationFraction(cfg.Tiers, fa.Day);
+            if (fraction >= 1.0m) { AddSkip(ownerTeacherId, studentId, "FullPriceTier", anchor); continue; }
+
+            // Base = the student's custom override, else the session amount (normal case, SessionId set),
+            // else the current (wiped-to-full) AmountDue as a fallback when SessionId is null.
+            var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(ownerTeacherId, studentId);
+            decimal fullBase;
+            if (counter?.CustomPaymentAmount is decimal custom) fullBase = custom;
+            else if (anchor.SessionId is long sid)
+            {
+                var session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sid, ownerTeacherId);
+                fullBase = session?.SessionAmount ?? anchor.AmountDue;
+            }
+            else fullBase = anchor.AmountDue;
+
+            decimal newDue = Math.Round(fullBase * fraction, 2);
+
+            report.StudentsAffected++;
+            report.TotalAmountReduced += Math.Max(0m, anchor.AmountDue - newDue);
+            report.Students.Add(new CarriedAnchorStudentItem
+            {
+                TeacherId = ownerTeacherId,
+                TeacherStudentId = studentId,
+                StudentName = anchor.StudentName,
+                StudentCode = anchor.StudentCode,
+                PeriodId = anchor.Id,
+                MonthLabel = FormatPeriodLabel(anchor),
+                OldAmountDue = anchor.AmountDue,
+                NewAmountDue = newDue,
+                ProRatedFraction = fraction,
+                FirstAttendanceDate = fa
+            });
+
+            if (dryRun) continue;
+
+            // APPLY per student on its own transaction so one student's failure never aborts the batch.
+            bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+            if (ownsTransaction) await _unitOfWork.BeginTransactionAsync();
+            try
+            {
+                anchor.IsProRated = true;
+                anchor.ProRatedFraction = fraction;
+                anchor.IsProrationAnchorMonth = true; // restore so re-anchor + config reconcile can find it
+                anchor.AmountDue = newDue;
+                anchor.PaymentStatus = RecomputePeriodStatus(anchor);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(anchor);
+                await _unitOfWork.SaveChangesAsync();
+
+                if (counter is not null)
+                    await RecomputeStudentPaymentCounterAsync(ownerTeacherId, studentId, counter);
+                await _unitOfWork.SaveChangesAsync();
+
+                if (ownsTransaction) await _unitOfWork.CommitAsync();
+            }
+            catch
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                throw;
+            }
+        }
+
+        return Result<CarriedAnchorReprorationReport>.Success(
+            report, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>
     /// For ONE student in a session being torn down (deleted, or a per-session→monthly move source):
     /// VOID the future-unpaid periods (no cash) and collapse the UNPAID arrears through the current month
@@ -4384,7 +4629,17 @@ public class PaymentService : IPaymentService
             .GroupBy(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
             .Select(g =>
             {
-                string fromName = g.First().SessionName;
+                var members = g.ToList();
+                string fromName = members[0].SessionName;
+                // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION: when a month collapses to a SINGLE
+                // never-paid monthly proration anchor, carry its proration (fraction + anchor flag) onto the
+                // pending debt so a later reassignment (DB2a fold-in in OnStudentAssignedToSessionAsync) can
+                // re-price it prorated — consistent with the session-move carry path. Any other shape
+                // (per-session occurrences, a multi-period month, a non-anchor month) stays a plain
+                // full-price pending debt exactly as before.
+                var anchor = (members.Count == 1 && members[0].PeriodType == PeriodType.Monthly
+                    && members[0].IsProrationAnchorMonth && members[0].AmountPaid <= 0m)
+                    ? members[0] : null;
                 return new PaymentPeriod
                 {
                     TeacherId = teacherId,
@@ -4393,17 +4648,18 @@ public class PaymentService : IPaymentService
                     PeriodType = PeriodType.Monthly,
                     PeriodStart = g.Key,
                     PeriodEnd = g.Key.AddMonths(1).AddDays(-1),
-                    AmountDue = g.Sum(p => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)),
+                    AmountDue = members.Sum(p => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)),
                     AmountPaid = 0m,
                     PaymentStatus = PaymentStatus.Unpaid,
-                    IsProRated = false,
-                    ProRatedFraction = 1.0m,
+                    IsProRated = anchor?.IsProRated ?? false,
+                    ProRatedFraction = anchor?.ProRatedFraction ?? 1.0m,
+                    IsProrationAnchorMonth = anchor != null,
                     IsCarriedForward = true,
                     MovedFromSessionName = fromName,
                     OriginSessionName = fromName,
                     SessionName = fromName,
-                    StudentName = g.First().StudentName,
-                    StudentCode = g.First().StudentCode,
+                    StudentName = members[0].StudentName,
+                    StudentCode = members[0].StudentCode,
                     CreateAt = DateTime.UtcNow
                 };
             })
