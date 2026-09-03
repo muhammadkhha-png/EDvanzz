@@ -6,9 +6,10 @@ namespace Edvanz.Application.Dtos.ParentPortal;
 // ══════════════════════════════════════════════════════════════════════════
 // TEACHER SIDE of the parent portal (api/teacher/parent-portal)
 //
-// PRIVACY: phone numbers are ALWAYS masked here (010•••••678). The teacher needs to recognize a
-// parent they know, not to harvest a contact list — and an assistant with Student/Edit reaches
-// these endpoints too.
+// PHONE NUMBERS ARE RETURNED IN FULL (changed 2026-09-02, was masked). The teacher has to
+// recognize who is asking — "that's Ahmed's mum" — and be able to ring them back; a masked number
+// makes an approve/reject decision guesswork. These endpoints are [Authorize] + Student/Edit +
+// tenant-scoped, and the teacher normally has the same number on the roster already.
 // ══════════════════════════════════════════════════════════════════════════
 
 /// <summary>One row in the teacher's pending parent-request inbox.</summary>
@@ -26,8 +27,8 @@ public class ParentPortalRequestListItemDto
     /// <summary>Student's roster code, or null when the roster record has since been deleted.</summary>
     public string? StudentCode { get; set; }
 
-    /// <summary>The number the parent typed, MASKED (010•••••678). Null when they skipped it.</summary>
-    public string? ClaimedPhoneMasked { get; set; }
+    /// <summary>The full normalized number the parent typed (e.g. "01012345678"). Null when they skipped it.</summary>
+    public string? ClaimedPhone { get; set; }
 
     /// <summary>
     /// True when the typed number matches the student's parent phone on file. On a PENDING row it
@@ -50,20 +51,65 @@ public class ParentPortalFollowerListItemDto
     public string? StudentName { get; set; }
     public string? StudentCode { get; set; }
 
-    /// <summary>Masked (010•••••678) or null.</summary>
-    public string? ClaimedPhoneMasked { get; set; }
+    /// <summary>The full normalized number the parent typed (e.g. "01012345678"), or null.</summary>
+    public string? ClaimedPhone { get; set; }
 
     /// <summary>Serialized as a string: "Active" or "Pending".</summary>
     public ParentPortalAccessStatus Status { get; set; }
 
-    /// <summary>True when the grant skipped the inbox because the phone matched the roster.</summary>
+    /// <summary>True ONLY when the grant skipped the inbox because the phone matched the roster (i.e. <see cref="Origin"/> = RosterPhone).</summary>
     public bool AutoApproved { get; set; }
+
+    /// <summary>
+    /// WHY this follower has access, serialized as a string: "RosterPhone" | "TeacherApproved" |
+    /// "TrustedPhone". Null while Pending, and null on legacy rows created before this field
+    /// shipped — fall back to <see cref="AutoApproved"/> when it is null on an Active row.
+    /// "TrustedPhone" means the number already held an approved grant on this student, so a new
+    /// device of theirs got in without troubling the teacher.
+    /// </summary>
+    public ParentPortalAccessOrigin? Origin { get; set; }
 
     public DateTime RequestedAt { get; set; }
     public DateTime? RespondedAt { get; set; }
 
     /// <summary>Last time this follower opened the portal. Null if never since being approved.</summary>
     public DateTime? LastSeenAt { get; set; }
+}
+
+/// <summary>
+/// OPTIONAL body of <c>POST api/teacher/parent-portal/requests/{id}/approve</c>. Send no body at
+/// all for a plain approval.
+/// </summary>
+public class ParentPortalApproveRequestDto
+{
+    /// <summary>
+    /// When true, also write the approved parent's number onto the student's roster record —
+    /// turning each approval into roster data quality: next time that parent is auto-approved with
+    /// no teacher involvement, and the "students missing a parent number" count drops.
+    ///
+    /// NEVER overwrites an existing number. If the student already has one (same or different) the
+    /// flag is ignored and the response says why via <c>phoneSaveSkippedReason</c>.
+    /// </summary>
+    public bool SavePhoneToStudent { get; set; }
+}
+
+/// <summary>Result of an approval: the follower row plus what happened to the optional phone save.</summary>
+public class ParentPortalApproveResultDto
+{
+    /// <summary>The now-Active follower.</summary>
+    public ParentPortalFollowerListItemDto Follower { get; set; } = new();
+
+    /// <summary>True when the approved number was written onto the student's roster record by this call.</summary>
+    public bool PhoneSavedToStudent { get; set; }
+
+    /// <summary>
+    /// Why the phone was NOT saved, or null when it was saved (or never requested). Stable
+    /// literals — see <c>ParentPortalConstants.PhoneSaveSkipReasons</c>:
+    /// "NoPhoneOnRequest" (the parent left the number blank),
+    /// "AlreadySaved" (the student already has this exact number),
+    /// "StudentHasDifferentPhone" (a different number is on file and is never overwritten).
+    /// </summary>
+    public string? PhoneSaveSkippedReason { get; set; }
 }
 
 /// <summary>Body of <c>POST api/teacher/parent-portal/requests/bulk</c>.</summary>
@@ -96,6 +142,25 @@ public class ParentPortalBulkResultDto
 
     /// <summary>Ids that were skipped because they were not pending, not this teacher's, or their student has been removed.</summary>
     public List<long> SkippedIds { get; set; } = new();
+}
+
+/// <summary>
+/// Outcome of revoking a follower. Revocation is PHONE-WIDE, so it usually ends more than the one
+/// row the teacher tapped — every device that number had approved for this student.
+/// </summary>
+public class ParentPortalRevokeResultDto
+{
+    /// <summary>
+    /// How many grants were ended — i.e. how many devices lost access. Drives the "removed on 3
+    /// devices" confirmation. 1 for a device-only (no phone) grant.
+    /// </summary>
+    public int RevokedCount { get; set; }
+
+    /// <summary>The full number that was revoked, or null for a device-only grant that carried no phone.</summary>
+    public string? RevokedPhone { get; set; }
+
+    /// <summary>The student the access was for.</summary>
+    public long TeacherStudentId { get; set; }
 }
 
 /// <summary>Counters for the teacher's parent-portal settings screen.</summary>

@@ -120,19 +120,9 @@ public static class EgyptianPhoneNumber
         };
     }
 
-    /// <summary>
-    /// Masks a number for display to the teacher: <c>010•••••678</c>. Keeps the operator prefix
-    /// and the last three digits — enough for the teacher to recognize a parent they know, not
-    /// enough to harvest. Non-canonical or missing input returns null.
-    /// </summary>
-    public static string? Mask(string? raw)
-    {
-        string? canonical = Normalize(raw);
-        if (canonical is null)
-            return null;
-
-        return string.Concat(canonical.AsSpan(0, 3), "•••••", canonical.AsSpan(CanonicalLength - 3, 3));
-    }
+    // NOTE: a Mask("010•••••678") helper lived here until 2026-09-02. It was removed with its only
+    // caller when the teacher endpoints switched to returning the FULL number — a teacher deciding
+    // whether to approve a stranger needs to recognize and be able to ring the number.
 
     /// <summary>Maps Arabic-Indic and Extended Arabic-Indic digit code points onto their ASCII twin; leaves everything else alone.</summary>
     private static char FoldDigit(char c)

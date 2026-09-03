@@ -36,6 +36,41 @@ public interface IParentPortalAccessRepo : IGenericRepo<ParentPortalAccess, long
     /// </summary>
     Task<ParentPortalAccess?> GetLatestByDeviceAsync(string deviceHash);
 
+    /// <summary>
+    /// TRUSTED-PHONE RULE: does this student already have an ACTIVE grant whose stored
+    /// <c>ClaimedPhone</c> equals <paramref name="normalizedPhone"/>?
+    ///
+    /// True means a teacher has already vetted that number for that student, so a request arriving
+    /// from a NEW device with the same number is created Active instead of queued — which is what
+    /// makes access follow the phone rather than the browser. Compares the raw column, which is
+    /// safe because <c>ClaimedPhone</c> is only ever written normalized.
+    /// </summary>
+    Task<bool> HasActiveGrantWithPhoneAsync(long teacherStudentId, string normalizedPhone);
+
+    /// <summary>
+    /// The NEWEST grant, in ANY status, matching this student on EITHER the device OR the phone.
+    /// Drives the post-rejection cooldown, which keys on "what happened last", not "was there ever
+    /// a rejection" — a parent rejected yesterday but approved today must not be held back.
+    /// <paramref name="normalizedPhone"/> null → device only.
+    /// </summary>
+    Task<ParentPortalAccess?> GetNewestForStudentByDeviceOrPhoneAsync(
+        long teacherStudentId, string deviceHash, string? normalizedPhone);
+
+    /// <summary>
+    /// Revokes EVERY live (Active or Pending) grant for one (student, phone) pair in a single
+    /// atomic UPDATE, returning how many rows were cut off.
+    ///
+    /// THIS MUST STAY PHONE-WIDE. Because the trusted-phone rule grants Active status to any
+    /// device presenting a number that already holds an Active grant on the student, revoking only
+    /// the one row the teacher tapped would leave a sibling row alive — and the parent would be
+    /// let straight back in on their next submit. A per-row revoke is not a weaker revoke, it is
+    /// a revoke that silently does nothing.
+    ///
+    /// One statement, so no service-side loop and no partial state.
+    /// </summary>
+    Task<int> RevokeByStudentAndPhoneAsync(
+        long teacherId, long teacherStudentId, string normalizedPhone, long actingUserId, DateTime nowUtc);
+
     /// <summary>Tenant-scoped page of PENDING requests for a teacher's inbox, newest first.</summary>
     Task<IReadOnlyList<ParentPortalAccess>> GetPendingForTeacherPagedAsync(long teacherId, int page, int pageSize);
 

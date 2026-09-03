@@ -2658,4 +2658,7 @@
   <data name="ParentPortalNewRequestsNotification" xml:space="preserve">
     <value>{0} parents are waiting for your approval.</value>
   </data>
+  <data name="ParentPortalRevokeBlockedRosterPhone" xml:space="preserve">
+    <value>This is the number saved on the student's record, so it will keep working. Remove it from the student first.</value>
+  </data>
 </root>

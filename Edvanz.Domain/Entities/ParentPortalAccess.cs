@@ -12,8 +12,15 @@ namespace Edvanz.Domain.Entities;
 /// teacher's per-roster student code (and, optionally, their phone). Because
 /// <see cref="TeacherStudent.StudentCode"/> is a SEQUENTIAL counter (A1, A2 … Z999) and
 /// <see cref="Teacher.TeacherCode"/> is public, the codes alone are NOT a credential — access
-/// is always a grant the teacher approves. It is auto-approved (<see cref="AutoApproved"/>)
-/// only when the typed phone matches the roster record's parent phone.
+/// is always a grant the teacher approves.
+///
+/// THE UNIT OF TRUST IS THE PHONE, NOT THE ROW. A row is per (student, device), but a grant is
+/// created Active whenever the typed phone is already trusted for that student — either it
+/// matches the roster's parent phone (<see cref="AutoApproved"/>) or it already holds an Active
+/// grant a teacher vetted (<see cref="ParentPortalAccessOrigin.TrustedPhone"/>). So clearing
+/// cookies, switching browser or buying a new phone does NOT push an approved parent back into
+/// the inbox. The corollary is load-bearing: REVOKING must clear every live row sharing that
+/// (student, phone), or the parent walks straight back in through a surviving sibling row.
 ///
 /// TENANT INTEGRITY: <see cref="TeacherId"/> is denormalized from the roster record and
 /// participates in the composite FK <c>(TeacherStudentId, TeacherId)</c> →
@@ -51,17 +58,34 @@ public class ParentPortalAccess : BaseEntity
 
     /// <summary>
     /// The NORMALIZED Egyptian mobile number the parent typed (11 digits, leading 0), or null
-    /// when they skipped it. Kept for the teacher's inbox (shown MASKED) and for the
-    /// auto-approval audit trail — it is never used as an authentication credential on its own.
+    /// when they skipped it.
+    ///
+    /// ALWAYS STORED NORMALIZED — <c>EgyptianPhoneNumber.Normalize</c> is the only writer. The
+    /// trusted-phone grant rule and phone-wide revocation both compare this column with a plain
+    /// SQL equality, so a raw or differently-formatted value here would silently break BOTH: a
+    /// returning parent would be pushed back into the inbox, and a revocation would miss rows.
+    ///
+    /// It is never an authentication credential on its own — it only decides whether a request
+    /// skips the queue. Shown IN FULL to the teacher (the endpoints are Student/Edit + tenant
+    /// scoped, and the teacher usually has the number on the roster anyway).
     /// </summary>
     public string? ClaimedPhone { get; set; }
 
     /// <summary>
-    /// True when the grant skipped the approval queue because <see cref="ClaimedPhone"/> matched
-    /// the roster record's <see cref="TeacherStudent.ParentPhoneNumber"/>. Surfaced to the
-    /// teacher so an auto-approved follower is distinguishable from one they approved by hand.
+    /// True ONLY when the grant skipped the approval queue because <see cref="ClaimedPhone"/>
+    /// matched the roster record's <see cref="TeacherStudent.ParentPhoneNumber"/>. A grant let in
+    /// by the trusted-phone rule (<see cref="ParentPortalAccessOrigin.TrustedPhone"/>) is NOT
+    /// "auto-approved" — a teacher did approve that number once — so this stays false there. Read
+    /// <see cref="Origin"/> for the full story.
     /// </summary>
     public bool AutoApproved { get; set; }
+
+    /// <summary>
+    /// WHY this grant became Active — roster-phone match, an explicit teacher approval, or the
+    /// trusted-phone rule. Null while Pending, and null on LEGACY rows written before this column
+    /// shipped. See <see cref="ParentPortalAccessOrigin"/>.
+    /// </summary>
+    public ParentPortalAccessOrigin? Origin { get; set; }
 
     /// <summary>UTC timestamp the parent submitted the request.</summary>
     public DateTime RequestedAt { get; set; }

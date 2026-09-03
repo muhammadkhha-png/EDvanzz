@@ -4557,6 +4557,14 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasConversion<byte>()
                 .IsRequired();
 
+            // Nullable: null = "not Active (yet)" and also = a legacy row written before this
+            // column shipped. Deliberately NOT defaulted — there is no honest constant to give a
+            // pre-existing row, and backfilling in a migration is banned (BUG-10).
+            entity.Property(a => a.Origin)
+                .HasConversion<byte?>();
+
+            // Compared with a plain equality by the trusted-phone rule and by phone-wide
+            // revocation, and always written through EgyptianPhoneNumber.Normalize.
             entity.Property(a => a.ClaimedPhone).HasMaxLength(20);
             entity.Property(a => a.RequestIpHash).HasMaxLength(64);
             entity.Property(a => a.UserAgent).HasMaxLength(256);

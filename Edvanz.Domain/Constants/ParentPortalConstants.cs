@@ -47,4 +47,21 @@ public static class ParentPortalConstants
         /// <summary>The grant is fine but the roster record is gone (deleted from the teacher's list).</summary>
         public const string StudentRemoved = "studentRemoved";
     }
+
+    /// <summary>
+    /// Stable reasons the optional "save this parent's number onto the student" step was skipped
+    /// during an approval. Returned as <c>phoneSaveSkippedReason</c>; the teacher UI branches on
+    /// these literals, so they are part of the wire contract.
+    /// </summary>
+    public static class PhoneSaveSkipReasons
+    {
+        /// <summary>The parent submitted no phone number at all, so there is nothing to save.</summary>
+        public const string NoPhoneOnRequest = "NoPhoneOnRequest";
+
+        /// <summary>The student's record already carries this exact number — nothing to do.</summary>
+        public const string AlreadySaved = "AlreadySaved";
+
+        /// <summary>A DIFFERENT number is already on the student's record. Never overwritten silently.</summary>
+        public const string StudentHasDifferentPhone = "StudentHasDifferentPhone";
+    }
 }

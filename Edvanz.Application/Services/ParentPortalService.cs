@@ -29,6 +29,14 @@ public sealed class ParentPortalService : IParentPortalService
     /// <summary>A teacher gets at most ONE "parents are waiting" notification per this window.</summary>
     private static readonly TimeSpan NotificationBatchWindow = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// After a teacher rejects a request, further requests on the same (student, device) or
+    /// (student, phone) are silently discarded for this long. Without it a rejected parent can
+    /// re-submit immediately and keep repopulating the inbox — <c>Rejected</c> is a terminal
+    /// status, so the live-row unique index does not stop them.
+    /// </summary>
+    private static readonly TimeSpan RejectionCooldown = TimeSpan.FromHours(24);
+
     /// <summary>Teacher codes are fixed-width 8 digits.</summary>
     private const int TeacherCodeLength = 8;
 
@@ -188,6 +196,10 @@ public sealed class ParentPortalService : IParentPortalService
         //   message) turns the endpoint into a roster-enumeration oracle. A REAL pending request
         //   below withholds the student's name/code/id for the same reason; student details are
         //   only ever returned on an "active" (phone-verified) result.
+        //
+        //   THREE separate situations all funnel into that one identical pending payload, and they
+        //   must stay indistinguishable: the student code does not exist; a genuine new request was
+        //   just queued; and a request suppressed by the post-rejection cooldown (step 5b).
         // ══════════════════════════════════════════════════════════════════
         if (!eligible)
             return Result<ParentPortalAccessRequestResultDto>.Failure(
@@ -206,13 +218,46 @@ public sealed class ParentPortalService : IParentPortalService
                 : PendingResult(teacherName);
         }
 
-        // ── 6. Phone match decides auto-approval. Compared IN MEMORY on the already-loaded row:
-        //       roster phones are only Trim()-ed on write, so stored formats vary and only a
-        //       normalize-both-sides comparison is correct. ──
-        bool phoneMatches = EgyptianPhoneNumber.AreSameNumber(claimedPhone, student.ParentPhoneNumber);
+        // ── 5b. POST-REJECTION COOLDOWN ──────────────────────────────────────────────────
+        // Rejected is TERMINAL, so it does not occupy the live-row unique index and a rejected
+        // parent could otherwise re-submit straight away and keep reappearing in the inbox
+        // (bounded only by the hourly caps). Keyed on the NEWEST row across both axes, not "was
+        // there ever a rejection": someone rejected yesterday and approved today must not be held.
+        //
+        // It returns the SAME PendingResult as everything else and writes nothing — a distinct
+        // code or status here would re-open the enumeration oracle closed above.
+        if (await IsInRejectionCooldownAsync(student.Id, deviceHash, claimedPhone, now))
+            return PendingResult(teacherName);
+
+        // ── 6. Decide whether this request is already trusted. TWO independent rules. ──
+        //
+        // (a) ROSTER PHONE — the teacher wrote this number on the student's record themselves.
+        //     Compared IN MEMORY on the already-loaded row: roster phones are only Trim()-ed on
+        //     write, so stored formats vary and only a normalize-both-sides comparison is correct.
+        bool rosterPhoneMatches =
+            EgyptianPhoneNumber.AreSameNumber(claimedPhone, student.ParentPhoneNumber);
+
+        // (b) TRUSTED PHONE — this number already holds an ACTIVE grant on this student, so a
+        //     teacher vetted it before. This is what makes access follow the PHONE instead of the
+        //     browser: clearing cookies or moving to a new phone no longer re-queues an approved
+        //     parent. Compared in SQL against the always-normalized ClaimedPhone column.
+        bool trustedPhone = !rosterPhoneMatches
+            && claimedPhone is not null
+            && await _unitOfWork.ParentPortalAccesses
+                .HasActiveGrantWithPhoneAsync(student.Id, claimedPhone);
+
+        bool grantActive = rosterPhoneMatches || trustedPhone;
+
+        // AutoApproved stays honest: TRUE only for the roster-phone rule. A trusted-phone grant is
+        // not "the app let them in on its own" — a teacher approved that number once. Origin
+        // carries the full reason so the teacher UI can explain the difference.
+        ParentPortalAccessOrigin? origin =
+            rosterPhoneMatches ? ParentPortalAccessOrigin.RosterPhone
+            : trustedPhone ? ParentPortalAccessOrigin.TrustedPhone
+            : null;
 
         // Read BEFORE the insert so the batching decision is not confused by our own new row.
-        DateTime? newestPendingBefore = phoneMatches
+        DateTime? newestPendingBefore = grantActive
             ? null
             : await _unitOfWork.ParentPortalAccesses.GetNewestPendingRequestedAtAsync(teacher.Id);
 
@@ -221,11 +266,12 @@ public sealed class ParentPortalService : IParentPortalService
             TeacherId = teacher.Id,
             TeacherStudentId = student.Id,
             DeviceHash = deviceHash,
-            Status = phoneMatches ? ParentPortalAccessStatus.Active : ParentPortalAccessStatus.Pending,
+            Status = grantActive ? ParentPortalAccessStatus.Active : ParentPortalAccessStatus.Pending,
             ClaimedPhone = claimedPhone,
-            AutoApproved = phoneMatches,
+            AutoApproved = rosterPhoneMatches,
+            Origin = origin,
             RequestedAt = now,
-            RespondedAt = phoneMatches ? now : null,
+            RespondedAt = grantActive ? now : null,
             RequestIpHash = ParentPortalHash.Compute(clientIp),
             UserAgent = Truncate(userAgent, 256),
             CreateAt = now
@@ -249,10 +295,28 @@ public sealed class ParentPortalService : IParentPortalService
         }
 
         // ── 7. Post-commit, best-effort notification (§5.1 ordering) with hourly batching. ──
-        if (!phoneMatches)
+        if (!grantActive)
             await NotifyTeacherAsync(teacher.Id, student.StudentName, newestPendingBefore, now);
 
-        return phoneMatches ? ActiveResult(teacherName, student) : PendingResult(teacherName);
+        return grantActive ? ActiveResult(teacherName, student) : PendingResult(teacherName);
+    }
+
+    /// <summary>
+    /// True when the newest grant on either axis is a rejection inside
+    /// <see cref="RejectionCooldown"/>. Uses <c>RespondedAt</c> (when the teacher actually said no)
+    /// and falls back to <c>RequestedAt</c> for any row missing it.
+    /// </summary>
+    private async Task<bool> IsInRejectionCooldownAsync(
+        long teacherStudentId, string deviceHash, string? claimedPhone, DateTime nowUtc)
+    {
+        var newest = await _unitOfWork.ParentPortalAccesses
+            .GetNewestForStudentByDeviceOrPhoneAsync(teacherStudentId, deviceHash, claimedPhone);
+
+        if (newest is null || newest.Status != ParentPortalAccessStatus.Rejected)
+            return false;
+
+        DateTime rejectedAt = newest.RespondedAt ?? newest.RequestedAt;
+        return nowUtc - rejectedAt < RejectionCooldown;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -685,10 +749,11 @@ public sealed class ParentPortalService : IParentPortalService
         new() { Visible = source.Visible, Data = source.Visible ? source.Data : null };
 
     /// <summary>
-    /// The ONE pending payload, used for a freshly-created request, an already-pending one, and a
-    /// discarded one alike. It deliberately reuses <c>ParentPortalRequestSent</c> in every case:
-    /// answering "still waiting" only for a code that really exists would let an attacker probe
-    /// the roster by submitting the same code twice. Student fields stay null for the same reason.
+    /// The ONE pending payload — used for a freshly-queued request, an already-pending one, a
+    /// nonexistent student code, and a cooldown-suppressed re-request alike. It deliberately
+    /// reuses <c>ParentPortalRequestSent</c> in every case: answering "still waiting" only for a
+    /// code that really exists would let an attacker probe the roster by submitting the same code
+    /// twice. Student fields stay null for the same reason.
     /// </summary>
     private Result<ParentPortalAccessRequestResultDto> PendingResult(string teacherName) =>
         Result<ParentPortalAccessRequestResultDto>.Success(

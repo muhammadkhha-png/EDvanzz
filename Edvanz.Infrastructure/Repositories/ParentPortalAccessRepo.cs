@@ -59,6 +59,62 @@ public class ParentPortalAccessRepo : GenericRepo<ParentPortalAccess, long>, IPa
     }
 
     /// <inheritdoc />
+    public async Task<bool> HasActiveGrantWithPhoneAsync(long teacherStudentId, string normalizedPhone)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+            return false;
+
+        return await _context.Set<ParentPortalAccess>()
+            .AnyAsync(a =>
+                a.TeacherStudentId == teacherStudentId &&
+                a.Status == ParentPortalAccessStatus.Active &&
+                a.ClaimedPhone != null &&
+                a.ClaimedPhone == normalizedPhone);
+    }
+
+    /// <inheritdoc />
+    public async Task<ParentPortalAccess?> GetNewestForStudentByDeviceOrPhoneAsync(
+        long teacherStudentId, string deviceHash, string? normalizedPhone)
+    {
+        // A single OR'd predicate rather than two round-trips: "newest across BOTH axes" is the
+        // rule, so picking the newest of each separately and comparing in memory would be a
+        // different (and wrong) query.
+        bool hasPhone = !string.IsNullOrWhiteSpace(normalizedPhone);
+
+        return await _context.Set<ParentPortalAccess>()
+            .AsNoTracking()
+            .Where(a => a.TeacherStudentId == teacherStudentId &&
+                        (a.DeviceHash == deviceHash ||
+                         (hasPhone && a.ClaimedPhone != null && a.ClaimedPhone == normalizedPhone)))
+            .OrderByDescending(a => a.RequestedAt)
+            .ThenByDescending(a => a.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<int> RevokeByStudentAndPhoneAsync(
+        long teacherId, long teacherStudentId, string normalizedPhone, long actingUserId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+            return 0;
+
+        // ONE atomic UPDATE across every live sibling row — see the interface remarks for why a
+        // per-row revoke would silently do nothing. ExecuteUpdate bypasses the change tracker, so
+        // the caller must not hold and re-save a stale copy of any affected row.
+        return await _context.Set<ParentPortalAccess>()
+            .Where(a => a.TeacherId == teacherId &&
+                        a.TeacherStudentId == teacherStudentId &&
+                        a.ClaimedPhone != null &&
+                        a.ClaimedPhone == normalizedPhone &&
+                        (a.Status == ParentPortalAccessStatus.Active ||
+                         a.Status == ParentPortalAccessStatus.Pending))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Status, ParentPortalAccessStatus.Revoked)
+                .SetProperty(a => a.RespondedAt, nowUtc)
+                .SetProperty(a => a.RespondedByUserId, actingUserId));
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<ParentPortalAccess>> GetPendingForTeacherPagedAsync(
         long teacherId, int page, int pageSize)
     {

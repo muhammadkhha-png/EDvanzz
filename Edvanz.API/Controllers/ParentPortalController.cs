@@ -22,6 +22,13 @@ namespace Edvanz.API.Controllers;
 /// and never stored. <c>X-Portal-Client-IP</c> is forwarded by the portal and used ONLY for the
 /// hashed audit column and as a rate-limit partition fallback.</para>
 ///
+/// <para><b>TRUST FOLLOWS THE PHONE, NOT THE BROWSER.</b> A grant row is per (student, device),
+/// but a request is admitted immediately whenever the typed number is already trusted for that
+/// student — it matches the roster's parent phone, or it already holds an approved grant. So a
+/// parent who clears cookies, switches browser or buys a new handset does NOT land back in the
+/// teacher's inbox. The device header still identifies WHICH grant is calling on every read; it
+/// is simply no longer what earns access.</para>
+///
 /// <para><b>THE ROUTE'S <c>{rosterId}</c> IS NEVER TRUSTED.</b> Every read resolves the grant from
 /// the DEVICE header first and then requires the supplied <c>{rosterId}</c> to be exactly the one
 /// that grant names — otherwise 404. This is CLAUDE.md §3.3 ("never take an identity id from the
@@ -62,9 +69,14 @@ public class ParentPortalController : ApiBaseController
         => ToResponse(await _portalService.GetTeacherPreviewAsync(teacherCode, language));
 
     /// <summary>
-    /// Requests follow-up access for one student on this device. Auto-approved when the supplied
-    /// phone matches the student's parent phone on the teacher's roster; otherwise it waits in the
-    /// teacher's inbox.
+    /// Requests follow-up access for one student on this device. Admitted immediately when the
+    /// supplied phone is already trusted for that student — it matches the parent phone on the
+    /// teacher's roster, OR it already holds an approved grant from another device (so a returning
+    /// parent on a new browser/handset skips the queue). Otherwise it waits in the teacher's inbox.
+    ///
+    /// <para>A re-request within 24h of being REJECTED is silently discarded — it returns the same
+    /// pending payload and writes nothing, so a rejected parent cannot keep repopulating the
+    /// inbox.</para>
     ///
     /// <para><b>Do not read a "pending" response as "the codes were right".</b> A request for a
     /// student code that does not exist returns the byte-identical pending payload and writes

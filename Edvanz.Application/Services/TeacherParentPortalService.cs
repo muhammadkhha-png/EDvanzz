@@ -7,6 +7,7 @@ using Edvanz.Application.Common;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ParentPortal;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -60,10 +61,48 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
     }
 
     /// <inheritdoc />
-    public async Task<Result<ParentPortalFollowerListItemDto>> ApproveRequestAsync(
-        long teacherId, long requestId, long actingUserId) =>
-        await ResolveSingleAsync(teacherId, requestId, actingUserId,
-            ParentPortalAccessStatus.Active, "ParentPortalAccessGranted");
+    public async Task<Result<ParentPortalApproveResultDto>> ApproveRequestAsync(
+        long teacherId, long requestId, long actingUserId, ParentPortalApproveRequestDto? dto)
+    {
+        var grant = await _unitOfWork.ParentPortalAccesses.GetByIdForTeacherAsync(requestId, teacherId);
+        if (grant is null)
+            return Result<ParentPortalApproveResultDto>.Failure(
+                _localizer, "ParentPortalRequestNotFound", HttpStatusCode.NotFound);
+
+        // Approving an already-Active grant is a no-op success (double-tap / retry safe). The
+        // optional phone save is skipped too — it belongs to the act of approving.
+        if (grant.Status == ParentPortalAccessStatus.Active)
+            return Result<ParentPortalApproveResultDto>.Success(
+                new ParentPortalApproveResultDto { Follower = ToFollowerItem(grant, grant.TeacherStudent) },
+                _localizer, "ParentPortalAccessGranted", HttpStatusCode.OK);
+
+        if (grant.Status != ParentPortalAccessStatus.Pending)
+            return Result<ParentPortalApproveResultDto>.Failure(
+                _localizer, "ParentPortalRequestNotFound", HttpStatusCode.NotFound);
+
+        if (grant.TeacherStudent is null)
+            return Result<ParentPortalApproveResultDto>.Failure(
+                _localizer, "ParentPortalStudentRemoved", HttpStatusCode.NotFound);
+
+        var result = new ParentPortalApproveResultDto();
+
+        Apply(grant, ParentPortalAccessStatus.Active, actingUserId, DateTime.UtcNow);
+        await _unitOfWork.ParentPortalAccesses.UpdateAsync(grant);
+
+        // ── Optional: promote the approved number onto the student's roster record. ──
+        // grant.TeacherStudent is TRACKED (GetByIdForTeacherAsync does not AsNoTracking), so the
+        // roster write joins the SAME SaveChanges as the approval — one atomic unit, no partial
+        // "approved but phone lost" state. ParentPhoneNumber is deliberately non-unique (siblings
+        // share a parent), so this can never trip a unique violation.
+        if (dto?.SavePhoneToStudent == true)
+            (result.PhoneSavedToStudent, result.PhoneSaveSkippedReason) = SavePhoneToStudent(grant);
+
+        await _unitOfWork.SaveChangesAsync();
+
+        result.Follower = ToFollowerItem(grant, grant.TeacherStudent);
+        return Result<ParentPortalApproveResultDto>.Success(
+            result, _localizer, "ParentPortalAccessGranted", HttpStatusCode.OK);
+    }
 
     /// <inheritdoc />
     public async Task<Result<ParentPortalFollowerListItemDto>> RejectRequestAsync(
@@ -154,18 +193,60 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
     }
 
     /// <inheritdoc />
-    public async Task<Result<bool>> RevokeFollowerAsync(long teacherId, long accessId, long actingUserId)
+    public async Task<Result<ParentPortalRevokeResultDto>> RevokeFollowerAsync(
+        long teacherId, long accessId, long actingUserId)
     {
         var grant = await _unitOfWork.ParentPortalAccesses.GetByIdForTeacherAsync(accessId, teacherId);
         if (grant is null ||
             (grant.Status != ParentPortalAccessStatus.Active && grant.Status != ParentPortalAccessStatus.Pending))
-            return Result<bool>.Failure(_localizer, "ParentPortalRequestNotFound", HttpStatusCode.NotFound);
+            return Result<ParentPortalRevokeResultDto>.Failure(
+                _localizer, "ParentPortalRequestNotFound", HttpStatusCode.NotFound);
 
-        Apply(grant, ParentPortalAccessStatus.Revoked, actingUserId, DateTime.UtcNow);
-        await _unitOfWork.ParentPortalAccesses.UpdateAsync(grant);
-        await _unitOfWork.SaveChangesAsync();
+        var now = DateTime.UtcNow;
 
-        return Result<bool>.Success(true, _localizer, "ParentPortalAccessRevoked", HttpStatusCode.OK);
+        // ── Device-only grant (the parent left the phone blank): nothing to revoke phone-wide. ──
+        if (string.IsNullOrWhiteSpace(grant.ClaimedPhone))
+        {
+            Apply(grant, ParentPortalAccessStatus.Revoked, actingUserId, now);
+            await _unitOfWork.ParentPortalAccesses.UpdateAsync(grant);
+            await _unitOfWork.SaveChangesAsync();
+
+            return Result<ParentPortalRevokeResultDto>.Success(
+                new ParentPortalRevokeResultDto
+                {
+                    RevokedCount = 1,
+                    RevokedPhone = null,
+                    TeacherStudentId = grant.TeacherStudentId
+                },
+                _localizer, "ParentPortalAccessRevoked", HttpStatusCode.OK);
+        }
+
+        // ── REFUSE when the number is the student's ROSTER parent phone. ───────────────────
+        // Revoking it could not hold: the roster-phone rule would auto-approve them again on their
+        // very next submit, so the teacher would think they had removed someone who is still in.
+        // Refuse with an actionable message rather than silently editing the student's record from
+        // a revoke button — clearing roster data must be a deliberate act on the student screen.
+        if (EgyptianPhoneNumber.AreSameNumber(grant.ClaimedPhone, grant.TeacherStudent?.ParentPhoneNumber))
+            return Result<ParentPortalRevokeResultDto>.Failure(
+                _localizer, "ParentPortalRevokeBlockedRosterPhone", HttpStatusCode.Conflict);
+
+        // ── PHONE-WIDE revocation, one atomic UPDATE. ─────────────────────────────────────
+        // Revoking only the tapped row would be a revoke that does NOTHING: the trusted-phone rule
+        // would re-admit the parent through any surviving Active sibling row on their next submit.
+        int revoked = await _unitOfWork.ParentPortalAccesses.RevokeByStudentAndPhoneAsync(
+            teacherId, grant.TeacherStudentId, grant.ClaimedPhone, actingUserId, now);
+
+        // NOTE: RevokeByStudentAndPhoneAsync is an ExecuteUpdate — it bypasses the change tracker
+        // and has already hit the database. `grant` is now a stale in-memory copy; it is not
+        // mutated and no SaveChanges follows, so nothing can write those stale values back.
+        return Result<ParentPortalRevokeResultDto>.Success(
+            new ParentPortalRevokeResultDto
+            {
+                RevokedCount = revoked,
+                RevokedPhone = grant.ClaimedPhone,
+                TeacherStudentId = grant.TeacherStudentId
+            },
+            _localizer, "ParentPortalAccessRevoked", HttpStatusCode.OK);
     }
 
     /// <inheritdoc />
@@ -220,13 +301,51 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
             ToFollowerItem(grant, grant.TeacherStudent), _localizer, successKey, HttpStatusCode.OK);
     }
 
-    /// <summary>Single mutation point for a teacher-side decision, so the audit columns can never drift apart.</summary>
+    /// <summary>
+    /// Single mutation point for a teacher-side decision, so the audit columns can never drift
+    /// apart. A transition to Active stamps <see cref="ParentPortalAccessOrigin.TeacherApproved"/>
+    /// — this path is BY DEFINITION a human approval, never the roster-phone or trusted-phone rule
+    /// (both of those create the row Active in the first place and never come through here).
+    /// </summary>
     private static void Apply(
         ParentPortalAccess grant, ParentPortalAccessStatus target, long actingUserId, DateTime nowUtc)
     {
         grant.Status = target;
         grant.RespondedAt = nowUtc;
         grant.RespondedByUserId = actingUserId;
+
+        if (target == ParentPortalAccessStatus.Active)
+            grant.Origin = ParentPortalAccessOrigin.TeacherApproved;
+    }
+
+    /// <summary>
+    /// Copies the approved parent's number onto the student's roster record when — and only
+    /// when — the record has none. Mutates the TRACKED student so the write joins the caller's
+    /// SaveChanges. Returns (saved, skipReason).
+    ///
+    /// An existing number is NEVER overwritten, same or different: the roster is the teacher's own
+    /// data and a portal approval must not quietly rewrite it. The reason literals come from
+    /// <see cref="ParentPortalConstants.PhoneSaveSkipReasons"/> and are part of the wire contract.
+    /// </summary>
+    private static (bool Saved, string? SkipReason) SavePhoneToStudent(ParentPortalAccess grant)
+    {
+        if (string.IsNullOrWhiteSpace(grant.ClaimedPhone))
+            return (false, ParentPortalConstants.PhoneSaveSkipReasons.NoPhoneOnRequest);
+
+        var student = grant.TeacherStudent;
+        if (student is null)
+            return (false, ParentPortalConstants.PhoneSaveSkipReasons.NoPhoneOnRequest);
+
+        if (!string.IsNullOrWhiteSpace(student.ParentPhoneNumber))
+        {
+            return EgyptianPhoneNumber.AreSameNumber(grant.ClaimedPhone, student.ParentPhoneNumber)
+                ? (false, ParentPortalConstants.PhoneSaveSkipReasons.AlreadySaved)
+                : (false, ParentPortalConstants.PhoneSaveSkipReasons.StudentHasDifferentPhone);
+        }
+
+        // Stored in the canonical normalized shape, matching what the roster write paths produce.
+        student.ParentPhoneNumber = grant.ClaimedPhone;
+        return (true, null);
     }
 
     private static ParentPortalRequestListItemDto ToRequestItem(ParentPortalAccess grant) => new()
@@ -235,7 +354,7 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
         TeacherStudentId = grant.TeacherStudentId,
         StudentName = grant.TeacherStudent?.StudentName,
         StudentCode = grant.TeacherStudent?.StudentCode,
-        ClaimedPhoneMasked = EgyptianPhoneNumber.Mask(grant.ClaimedPhone),
+        ClaimedPhone = grant.ClaimedPhone,
         PhoneMatchesRoster = EgyptianPhoneNumber.AreSameNumber(
             grant.ClaimedPhone, grant.TeacherStudent?.ParentPhoneNumber),
         RequestedAt = grant.RequestedAt,
@@ -249,9 +368,10 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
         TeacherStudentId = grant.TeacherStudentId,
         StudentName = student?.StudentName,
         StudentCode = student?.StudentCode,
-        ClaimedPhoneMasked = EgyptianPhoneNumber.Mask(grant.ClaimedPhone),
+        ClaimedPhone = grant.ClaimedPhone,
         Status = grant.Status,
         AutoApproved = grant.AutoApproved,
+        Origin = grant.Origin,
         RequestedAt = grant.RequestedAt,
         RespondedAt = grant.RespondedAt,
         LastSeenAt = grant.LastSeenAt

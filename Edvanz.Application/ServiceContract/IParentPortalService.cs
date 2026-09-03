@@ -9,10 +9,15 @@ namespace Edvanz.Application.ServiceContract;
 /// PUBLIC parent-portal surface (parent.edvanz.io → this API, server-to-server). Read-only for the
 /// parent: one device follows ONE roster student under ONE teacher.
 ///
-/// THE CALLER IS THE DEVICE. Every method takes a <c>deviceHash</c> (SHA-256 of the portal's raw
-/// device id, computed by the controller) and resolves the grant from it. A roster id supplied on
-/// the route is NEVER trusted — it is only compared against the grant, exactly the rule
-/// CLAUDE.md §3.3 states for teacherId and BUG-12 generalized to every identity id.
+/// THE CALLER IS THE DEVICE, BUT THE TRUST IS THE PHONE. Every read takes a <c>deviceHash</c>
+/// (SHA-256 of the portal's raw device id) and resolves the grant from it, so the device says
+/// WHICH grant is calling. What EARNS a grant, though, is the phone number: a request is admitted
+/// immediately when that number matches the student's roster parent phone or already holds an
+/// approved grant on that student. A parent therefore keeps access across browsers and handsets —
+/// and revocation has to be phone-wide to mean anything (see <c>ITeacherParentPortalService</c>).
+///
+/// A roster id supplied on the route is NEVER trusted — it is only compared against the grant,
+/// exactly the rule CLAUDE.md §3.3 states for teacherId and BUG-12 generalized to every identity id.
 ///
 /// EVERY read re-validates the full chain LIVE: teacher active → portal enabled → subscription
 /// eligible → roster row still exists → grant still Active → the module's own parent-visibility
@@ -30,8 +35,13 @@ public interface IParentPortalService
 
     /// <summary>
     /// Creates (or resurfaces) a grant: resolves the teacher by code, checks eligibility, resolves
-    /// the roster student by code, compares the typed phone, and writes an Active row (phone
-    /// matched) or a Pending one.
+    /// the roster student by code, then decides whether the typed phone is already trusted for
+    /// that student — it matches the roster's parent phone (<c>Origin = RosterPhone</c>,
+    /// <c>AutoApproved = true</c>) or it already holds an Active grant a teacher vetted
+    /// (<c>Origin = TrustedPhone</c>). Either way the row is written Active; otherwise Pending.
+    ///
+    /// A re-request within 24h of a REJECTION on the same (student, device) or (student, phone) is
+    /// discarded through the uniform pending payload, writing nothing.
     ///
     /// <b>UNIFORM RESPONSE ON THE STUDENT AXIS — the load-bearing anti-enumeration rule.</b> A
     /// request for a student code that does NOT exist returns the EXACT SAME success payload as a

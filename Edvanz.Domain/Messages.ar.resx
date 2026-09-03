@@ -2646,4 +2646,7 @@
   <data name="ParentPortalNewRequestsNotification" xml:space="preserve">
     <value>{0} من أولياء الأمور مستنيين موافقتك.</value>
   </data>
+  <data name="ParentPortalRevokeBlockedRosterPhone" xml:space="preserve">
+    <value>ده الرقم المسجّل في بيانات الطالب، فهيفضل شغال. امسحه من بيانات الطالب الأول.</value>
+  </data>
 </root>
