@@ -1672,6 +1672,298 @@ public class PaymentService : IPaymentService
         return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
     }
 
+    /// <inheritdoc />
+    public async Task<BillingStartReconcileSummary> ReconcileBillingStartAsync(
+        long teacherId, DateTime billingStart, bool dryRun)
+    {
+        // The floor is a teacher-local FIRST-OF-MONTH by contract; normalize defensively.
+        var floor = new DateTime(billingStart.Year, billingStart.Month, 1);
+        var summary = new BillingStartReconcileSummary();
+        var affectedStudents = new HashSet<long>();
+        // (student, session) pairs whose first-month anchor was trimmed away — or that gained an
+        // EARLIER month via backfill — so the surviving first month must be re-anchored below.
+        var reanchorPairs = new HashSet<(long StudentId, long SessionId)>();
+
+        // ── 1. TRIM: obligations dated before the floor ─────────────────────────────────────────
+        // One cutoff covers both period types (Monthly rows are first-of-month dated, PerSession
+        // rows are class-dated). Keep rules mirror the proration reconcile: cash is ground truth,
+        // a human-set amount is sticky, and carried/moved rows are transferred DEBT (an agreed
+        // balance, not a generated month) — never the floor's business.
+        var candidates = await _unitOfWork.PaymentsRepo
+            .GetPeriodsStartingBeforeByTeacherAsync(teacherId, floor);
+        var toDelete = new List<PaymentPeriod>();
+        foreach (var p in candidates)
+        {
+            if (p.IsCarriedForward || p.MovedFromSessionId != null)
+                continue;
+            if (p.AmountPaid > 0m) { summary.KeptPaid++; continue; }
+            if (p.IsProrationManual) { summary.KeptManual++; continue; }
+            toDelete.Add(p);
+            affectedStudents.Add(p.TeacherStudentId!.Value);
+            if (p.IsProrationAnchorMonth && p.SessionId is long anchorSessionId)
+                reanchorPairs.Add((p.TeacherStudentId!.Value, anchorSessionId));
+        }
+        summary.RemovedPeriods = toDelete.Count;
+
+        // ── 2. BACKFILL: months/class dates the floor newly allows (floor moved EARLIER) ────────
+        // Currently-assigned students only (formerly-assigned history is never regenerated). The
+        // shared generation pipeline + skip-sets recreates exactly the missing rows at the right
+        // price; the result is bounded to the FRONT gap (before the student's earliest existing
+        // row for the session) — trailing gaps belong to the end-date backfill, not this floor.
+        var assignments = await _unitOfWork.PaymentsRepo
+            .GetActiveAssignmentRowsByTeacherAsync(teacherId);
+        var sessionCache = new Dictionary<long, Session?>();
+        foreach (var (studentId, sessionId, assignedAt) in assignments)
+        {
+            if (!sessionCache.TryGetValue(sessionId, out var session))
+            {
+                session = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+                sessionCache[sessionId] = session;
+            }
+            if (session is null)
+                continue;
+
+            var allPeriods = await _unitOfWork.PaymentsRepo
+                .GetAllPaymentPeriodsByStudentAsync(teacherId, studentId);
+            var sessionPeriods = allPeriods.Where(p => p.SessionId == sessionId).ToList();
+            var pendingDeleteIds = toDelete.Select(d => d.Id).ToHashSet();
+            // Rows being trimmed in this same pass must NOT block regeneration decisions — but they
+            // are all < floor while generation starts >= floor, so exclusion only matters for the
+            // front-gap bound below.
+            var survivingSession = sessionPeriods.Where(p => !pendingDeleteIds.Contains(p.Id)).ToList();
+            var earliestExisting = survivingSession.Count > 0
+                ? survivingSession.Min(p => p.PeriodStart)
+                : (DateTime?)null;
+
+            // Same skip-set recipe as OnStudentAssignedToSessionAsync: months/dates already paid
+            // anywhere + every month/date this session already covers.
+            var skipMonths = allPeriods
+                .Where(p => p.AmountPaid > 0m
+                    || p.PaymentStatus == PaymentStatus.Paid
+                    || p.PaymentStatus == PaymentStatus.Overpaid)
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+                .ToHashSet();
+            var skipDates = allPeriods
+                .Where(p => p.AmountPaid > 0m
+                    || p.PaymentStatus == PaymentStatus.Paid
+                    || p.PaymentStatus == PaymentStatus.Overpaid)
+                .Select(p => p.PeriodStart.Date)
+                .ToHashSet();
+            skipMonths.UnionWith(survivingSession
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
+            skipDates.UnionWith(survivingSession.Select(p => p.PeriodStart.Date));
+
+            var counter = await _unitOfWork.PaymentsRepo
+                .GetPaymentCounterAsync(teacherId, studentId);
+            var student = await _unitOfWork.Students
+                .GetActiveByIdAndTeacherAsync(studentId, teacherId);
+            if (counter is null || student is null)
+                continue; // data anomaly (assignment without counter/student) — not this tool's job
+
+            int sequence = await _unitOfWork.PaymentsRepo
+                .GetMaxPeriodSequenceAsync(teacherId, studentId, sessionId) + 1;
+            bool isNewEnrollment = allPeriods.Count == 0;
+            var built = await BuildSessionPeriodsAsync(
+                teacherId, studentId, session, session.SessionName, assignedAt, counter, student,
+                sequence, skipMonths, skipDates, isNewEnrollment, billingStartOverride: floor);
+            if (earliestExisting is DateTime bound)
+                built = built.Where(p => p.PeriodStart < bound).ToList();
+            if (built.Count == 0)
+                continue;
+
+            summary.BackfilledPeriods += built.Count;
+            affectedStudents.Add(studentId);
+
+            // An earlier month appeared before this session's cash-free, non-manual anchor → the
+            // anchor must move onto the new first month.
+            var existingAnchor = survivingSession.FirstOrDefault(p =>
+                p.IsProrationAnchorMonth && p.PeriodType == PeriodType.Monthly);
+            if (existingAnchor is not null
+                && existingAnchor.AmountPaid <= 0m && !existingAnchor.IsProrationManual
+                && built.Any(b => b.PeriodStart < existingAnchor.PeriodStart))
+            {
+                reanchorPairs.Add((studentId, sessionId));
+            }
+
+            if (!dryRun)
+                await _unitOfWork.PaymentsRepo.AddPaymentPeriodsRangeAsync(built);
+        }
+
+        summary.StudentsAffected = affectedStudents.Count;
+
+        if (dryRun)
+            return summary; // preview: nothing was added, deleted or updated
+
+        if (toDelete.Count > 0)
+            await _unitOfWork.GetRepository<PaymentPeriod, long>().DeleteRangeAsync(toDelete);
+
+        // Flush trims + backfills so the re-anchor and the counter recompute read the final ladder.
+        await _unitOfWork.SaveChangesAsync();
+
+        // ── 3. RE-ANCHOR: the surviving first month becomes the enrollment anchor ───────────────
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        var tiers = config?.IsProratedPaymentEnabled == true
+                && config.ProrationMethod == ProrationMethod.ByPercentage
+            ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id)
+            : (IReadOnlyList<TeacherProratedTier>)System.Array.Empty<TeacherProratedTier>();
+
+        foreach (var (studentId, sessionId) in reanchorPairs)
+        {
+            var rows = await _unitOfWork.PaymentsRepo
+                .GetMonthlyPeriodsByStudentAndSessionTrackedAsync(teacherId, studentId, sessionId);
+            if (rows.Count == 0)
+                continue;
+            // An anchor that carries cash or a hand-set amount anchors HISTORY — leave the ladder.
+            if (rows.Any(p => p.IsProrationAnchorMonth
+                && (p.AmountPaid > 0m || p.IsProrationManual)))
+                continue;
+
+            var earliest = rows.OrderBy(p => p.PeriodStart).First();
+            var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, studentId);
+            sessionCache.TryGetValue(sessionId, out var session);
+            session ??= await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(sessionId, teacherId);
+            decimal fullBase = counter?.CustomPaymentAmount
+                ?? session?.SessionAmount ?? earliest.AmountDue;
+
+            // Demote any later ex-anchor: clear the flag and (never-collected only — guaranteed by
+            // the guard above) restore its full price if the old joining discount still clings.
+            foreach (var p in rows.Where(p => p.IsProrationAnchorMonth && p.Id != earliest.Id))
+            {
+                p.IsProrationAnchorMonth = false;
+                p.ProrationClassesTotal = null;
+                p.ProrationClassesBilled = null;
+                if (p.IsProRated)
+                {
+                    p.IsProRated = false;
+                    p.ProRatedFraction = 1.0m;
+                    RepricePeriodToAmountInPlace(p, fullBase);
+                }
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
+            }
+
+            earliest.IsProrationAnchorMonth = true;
+            if (earliest.AmountPaid <= 0m && !earliest.IsProrationManual)
+            {
+                decimal fraction = 1.0m;
+                int? classesTotal = null, classesBilled = null;
+                if (config?.IsProratedPaymentEnabled == true)
+                {
+                    var monthStart = new DateTime(earliest.PeriodStart.Year, earliest.PeriodStart.Month, 1);
+                    var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+                    // Join day = enrollment day clamped into the anchor month; the anchor month is
+                    // already >= the floor, so the floor clamp is subsumed by the month clamp.
+                    var joinLocal = ResolveJoinDateInAnchorMonth(
+                        await _unitOfWork.PaymentsRepo.GetEarliestAssignmentDateAsync(teacherId, studentId),
+                        teacherId, monthStart, monthEnd);
+                    (fraction, classesTotal, classesBilled) = await ComputeMethodFractionAsync(
+                        config.ProrationMethod, tiers, sessionId, monthStart, monthEnd, joinLocal, null);
+                }
+                decimal target = fraction < 1.0m
+                    ? ClampJoiningAmount(SnapToNearest5(fullBase * fraction), fullBase)
+                    : fullBase;
+                earliest.IsProRated = target < fullBase;
+                earliest.ProRatedFraction = earliest.IsProRated && fullBase > 0m
+                    ? Math.Round(target / fullBase, 4, MidpointRounding.AwayFromZero)
+                    : 1.0m;
+                earliest.ProrationClassesTotal = classesTotal;
+                earliest.ProrationClassesBilled = classesBilled;
+                RepricePeriodToAmountInPlace(earliest, target);
+            }
+            await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(earliest);
+            affectedStudents.Add(studentId);
+        }
+
+        await _unitOfWork.SaveChangesAsync();
+
+        // ── 4. COUNTERS: full recompute per affected student (subsumes every delta above) ────────
+        foreach (var studentId in affectedStudents)
+        {
+            var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, studentId);
+            if (counter is null)
+                continue;
+            await RecomputeStudentPaymentCounterAsync(teacherId, studentId, counter);
+        }
+        await _unitOfWork.SaveChangesAsync();
+
+        summary.StudentsAffected = affectedStudents.Count;
+        return summary;
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<BillingStartAdminResult>> SetBillingStartForTeacherAsync(
+        long teacherId, DateTime billingStart, bool dryRun)
+    {
+        var floor = new DateTime(billingStart.Year, billingStart.Month, 1);
+        // Sanity window: a floor far in the past is meaningless (nothing to trim that old data
+        // model), one far in the future would silently unbill the whole tenant.
+        if (floor < new DateTime(2020, 1, 1) || floor > DateTime.UtcNow.AddYears(2))
+            return Result<BillingStartAdminResult>.Failure(
+                _localizer, PaymentConstants.Messages.BillingStartDateInvalid, HttpStatusCode.BadRequest);
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config is null)
+            return Result<BillingStartAdminResult>.Failure(
+                _localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
+
+        var result = new BillingStartAdminResult
+        {
+            TeacherId = teacherId,
+            BillingStartDate = floor,
+            PreviousBillingStartDate = config.BillingStartDate,
+            DryRun = dryRun
+        };
+
+        if (dryRun)
+        {
+            result.Reconcile = await ReconcileBillingStartAsync(teacherId, floor, dryRun: true);
+            return Result<BillingStartAdminResult>.Success(
+                result, _localizer, PaymentConstants.Messages.Success);
+        }
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            config.BillingStartDate = floor;
+            // An admin set re-LOCKS the teacher's one-time self-service change and consumes any
+            // outstanding re-grant — support now owns the value until it re-grants again.
+            config.BillingStartDateSetAt = DateTime.UtcNow;
+            config.BillingStartDateChangeAllowed = false;
+            config.UpdatedAt = DateTime.UtcNow;
+            await _unitOfWork.Users.UpdateConfigurationAsync(config);
+            await _unitOfWork.SaveChangesAsync();
+
+            result.Reconcile = await ReconcileBillingStartAsync(teacherId, floor, dryRun: false);
+
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        return Result<BillingStartAdminResult>.Success(
+            result, _localizer, PaymentConstants.Messages.Success);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> AllowBillingStartChangeAsync(long teacherId)
+    {
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        if (config is null)
+            return Result<bool>.Failure(_localizer, "ConfigurationNotFound", HttpStatusCode.NotFound);
+
+        config.BillingStartDateChangeAllowed = true;
+        config.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.Users.UpdateConfigurationAsync(config);
+        await _unitOfWork.SaveChangesAsync();
+        return Result<bool>.Success(true, _localizer, PaymentConstants.Messages.Success);
+    }
+
     /// <summary>
     /// Rewrites a still-owed period's <c>AmountDue</c> to the new base (re-applying its proration
     /// fraction), recomputes its status from what's already paid, and returns how the owning
@@ -3229,6 +3521,14 @@ public class PaymentService : IPaymentService
             // pending month that generation then never re-bills (silently lost debt).
             var assignedLocalMonth = _timeZoneService.ConvertUtcToLocal(assignedAt);
             var startMonth = new DateTime(assignedLocalMonth.Year, assignedLocalMonth.Month, 1);
+            // BILLING FLOOR (§7.4b): generation below starts at max(assignment month, floor), so a
+            // pending month in [assignment, floor) would be deleted here yet never re-billed —
+            // silently lost debt, the exact failure the local-month rule above guards against.
+            // Carried debt is AGREED money, not a generated month: only months generation will
+            // actually re-bill may be dropped; everything earlier re-attaches as carried arrears.
+            var floorConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+            if (floorConfig?.BillingStartDate is DateTime pendingFloor && pendingFloor > startMonth)
+                startMonth = new DateTime(pendingFloor.Year, pendingFloor.Month, 1);
             // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION (same defect as the session-move carry):
             // a pending carry-forward month that is the student's first-month anchor kept its proration
             // through the session teardown (VoidFutureAndConsolidateArrearsAsync preserves a lone never-paid
@@ -3798,10 +4098,17 @@ public class PaymentService : IPaymentService
         long teacherId, long teacherStudentId, Session session, string sessionName,
         DateTime assignedAt, StudentPaymentCounter counter, TeacherStudent student,
         int startSequence, IReadOnlySet<DateTime> skipMonths, IReadOnlySet<DateTime> skipDates,
-        bool isNewEnrollment)
+        bool isNewEnrollment, DateTime? billingStartOverride = null)
     {
         var periods = new List<PaymentPeriod>();
         int sequence = startSequence;
+
+        // Billing floor (§7.4b — onboarding): nothing before the teacher's BillingStartDate is ever
+        // billed, so generation starts at max(assignment date, floor) — for the ladder AND the
+        // proration join day. The override lets the billing-start reconcile generate against a floor
+        // that is not (yet) the stored config value (dry runs must not require a config write).
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        DateTime? billingFloor = (billingStartOverride ?? config?.BillingStartDate)?.Date;
 
         if (session.PaymentType == PaymentType.Monthly)
         {
@@ -3809,7 +4116,10 @@ public class PaymentService : IPaymentService
             // DAY below) come from the teacher-LOCAL assignment moment — a near-midnight Cairo
             // assignment must not land in the previous UTC day/month (rev 2 correctness fix).
             var assignedLocal = _timeZoneService.ConvertUtcToLocal(assignedAt);
-            var startMonth = new DateTime(assignedLocal.Year, assignedLocal.Month, 1);
+            var effectiveJoinLocal = assignedLocal.Date;
+            if (billingFloor is DateTime monthlyFloor && monthlyFloor > effectiveJoinLocal)
+                effectiveJoinLocal = monthlyFloor;
+            var startMonth = new DateTime(effectiveJoinLocal.Year, effectiveJoinLocal.Month, 1);
             var endMonth = new DateTime(session.EndDate.Year, session.EndDate.Month, 1);
 
             decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
@@ -3828,16 +4138,18 @@ public class PaymentService : IPaymentService
             int? anchorClassesTotal = null, anchorClassesBilled = null;
             if (isNewEnrollment)
             {
-                var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
                 if (config?.IsProratedPaymentEnabled == true)
                 {
                     var tiers = config.ProrationMethod == ProrationMethod.ByPercentage
                         ? await _unitOfWork.Users.GetProratedTiersByConfigIdAsync(config.Id)
                         : (IReadOnlyList<TeacherProratedTier>)System.Array.Empty<TeacherProratedTier>();
+                    // The join day is the FLOOR-CLAMPED enrollment day: a student entered in August
+                    // for a September billing floor joins (for pricing) on September 1st — day-1 tier
+                    // under By%, every scheduled class under ByClasses ⇒ a full first month.
                     var (fraction, total, billed) = await ComputeMethodFractionAsync(
                         config.ProrationMethod, tiers, session.Id,
                         startMonth, startMonth.AddMonths(1).AddDays(-1),
-                        assignedLocal.Date, null);
+                        effectiveJoinLocal, null);
                     anchorClassesTotal = total;
                     anchorClassesBilled = billed;
                     if (fraction < 1.0m)
@@ -3888,12 +4200,18 @@ public class PaymentService : IPaymentService
         }
         else // PerSession
         {
-            // Generate per-occurrence periods from assignment date
+            // Generate per-occurrence periods from assignment date — clamped to the billing floor
+            // (a class held before the teacher's BillingStartDate is never billed, same rule as the
+            // monthly ladder above).
             var occurrences = await _unitOfWork.AttendanceRepo
                 .GetOccurrencesBySessionAsync(session.Id);
             decimal baseAmount = counter.CustomPaymentAmount ?? session.SessionAmount;
 
-            foreach (var occ in occurrences.Where(o => o.OccurrenceDate >= assignedAt.Date))
+            var minOccurrenceDate = assignedAt.Date;
+            if (billingFloor is DateTime perSessionFloor && perSessionFloor > minOccurrenceDate)
+                minOccurrenceDate = perSessionFloor;
+
+            foreach (var occ in occurrences.Where(o => o.OccurrenceDate >= minOccurrenceDate))
             {
                 if (skipDates.Contains(occ.OccurrenceDate.Date))
                     continue; // already paid / existing — don't double-bill

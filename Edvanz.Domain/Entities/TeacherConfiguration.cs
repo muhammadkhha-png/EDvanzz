@@ -226,6 +226,32 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; } = true;
 
+    // ─── Billing Start (onboarding billing floor, REQ-PAY §7.4b) ───
+
+    /// <summary>
+    /// Tenant-wide billing floor (teacher-LOCAL, always normalized to the FIRST of a month).
+    /// When set, no payment obligation is generated — and existing never-paid obligations are
+    /// reconciled away — for any month (Monthly) or class date (PerSession) BEFORE this date:
+    /// period generation bills from max(assignment date, BillingStartDate). Null = off (billing
+    /// starts at the assignment month, the historical behavior). Built for onboarding: a teacher
+    /// enters the roster in August while classes/billing begin in September.
+    /// </summary>
+    public DateTime? BillingStartDate { get; set; }
+
+    /// <summary>
+    /// When the TEACHER last set <see cref="BillingStartDate"/> themselves. Non-null = the
+    /// one-time self-service set was used → further teacher changes are refused
+    /// (<c>BillingStartDateLocked</c>) unless support re-grants via
+    /// <see cref="BillingStartDateChangeAllowed"/>. Admin sets also stamp this (re-locking).
+    /// </summary>
+    public DateTime? BillingStartDateSetAt { get; set; }
+
+    /// <summary>
+    /// Support re-grant flag: true lets the teacher change <see cref="BillingStartDate"/> ONE more
+    /// time (consumed — reset to false — by that change). Default false.
+    /// </summary>
+    public bool BillingStartDateChangeAllowed { get; set; } = false;
+
     /// <summary>
     /// Timestamp of the last configuration update. Null if never modified after initial creation.
     /// </summary>

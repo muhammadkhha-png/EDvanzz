@@ -246,4 +246,62 @@ public class AdminPaymentController : ApiBaseController
 
         return ToResponse(await _paymentService.ReprorateCarriedAnchorsAsync(teacherId, dryRun));
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: SET A TEACHER'S BILLING START (onboarding billing floor, §7.4b)
+    //
+    // Sets the teacher's BillingStartDate from the support side (normalized to the first of the
+    // month) and runs the billing-start reconcile in ONE transaction: never-paid obligations dated
+    // before the floor are removed, months an earlier floor newly allows are backfilled, first-month
+    // anchors and counters are recomputed. Rows with cash or a hand-set amount are NEVER touched
+    // (reported as kept). Also RE-LOCKS the teacher's one-time self-service change.
+    //
+    // SAMPLE (preview — writes nothing, config keeps its stored value):
+    //   POST /api/admin/payments/billing-start?teacherId=123&date=2026-09-01
+    //   POST /api/admin/payments/billing-start?teacherId=123&date=2026-09-01&dryRun=true
+    //
+    // SAMPLE (apply):
+    //   POST /api/admin/payments/billing-start?teacherId=123&date=2026-09-01&dryRun=false
+    //
+    // AUTH: SuperAdmin ONLY (roleOnly gate).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("billing-start")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(BillingStartAdminResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> SetBillingStart(
+        [FromQuery] long teacherId,
+        [FromQuery] DateTime date,
+        [FromQuery] bool dryRun = true)
+    {
+        if (_currentUser.UserId is null)
+            return Unauthorized();
+
+        return ToResponse(await _paymentService.SetBillingStartForTeacherAsync(teacherId, date, dryRun));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT: RE-GRANT A TEACHER'S ONE-TIME BILLING-START CHANGE
+    //
+    // The teacher's self-service BillingStartDate set is ONE-TIME (further changes 403
+    // BillingStartDateLocked). This re-grants exactly one more change — the support flow for the
+    // yearly onboarding reset, or for a teacher who picked the wrong month on the first try.
+    // Consumed by the teacher's next successful change (or by an admin set).
+    //
+    // SAMPLE:
+    //   POST /api/admin/payments/billing-start/allow-change?teacherId=123
+    //
+    // AUTH: SuperAdmin ONLY (roleOnly gate).
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("billing-start/allow-change")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> AllowBillingStartChange([FromQuery] long teacherId)
+    {
+        if (_currentUser.UserId is null)
+            return Unauthorized();
+
+        return ToResponse(await _paymentService.AllowBillingStartChangeAsync(teacherId));
+    }
 }

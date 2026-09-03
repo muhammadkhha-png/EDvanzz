@@ -115,6 +115,12 @@ public static class PaymentConstants
         public const string ProrationAmountNegative = "ProrationAmountNegative";
         /// <summary>Audit reason stored on the proration-decision PaymentEditLog (suggested vs set).</summary>
         public const string ProrationManualEditReason = "ProrationManualEditReason";
+
+        // Billing start (onboarding billing floor, §7.4b)
+        /// <summary>The billing start month is outside the accepted window (sanity bounds).</summary>
+        public const string BillingStartDateInvalid = "BillingStartDateInvalid";
+        /// <summary>The teacher already used their one-time self-service set — support must re-grant.</summary>
+        public const string BillingStartDateLocked = "BillingStartDateLocked";
         public const string PaymentBatchRevertSuccess = "PaymentBatchRevertSuccess";   // NEW — batch-revert envelope (D1)
         // Pro-rating
         public const string PaymentProRatedApplied = "PaymentProRatedApplied";

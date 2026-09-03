@@ -480,6 +480,29 @@ public class TeacherService : ITeacherService
                 _localizer, SubscriptionConstants.Messages.CapacityChangeRequiresApproval, HttpStatusCode.BadRequest);
         }
 
+        // ── Billing start (onboarding billing floor, §7.4b) — validated BEFORE the transaction. ──
+        // Omitted/null leaves the stored value alone (a teacher can never clear the floor, and older
+        // app builds must not disturb it). Re-sending the identical value is an idempotent no-op that
+        // neither trips nor consumes the lock. A CHANGED value is one-time self-service: after the
+        // first set, further changes 403 until support re-grants (BillingStartDateChangeAllowed).
+        DateTime? newBillingStart = null;
+        if (dto.BillingStartDate.HasValue)
+        {
+            var requestedFloor = new DateTime(
+                dto.BillingStartDate.Value.Year, dto.BillingStartDate.Value.Month, 1);
+            if (config.BillingStartDate != requestedFloor)
+            {
+                if (config.BillingStartDateSetAt.HasValue && !config.BillingStartDateChangeAllowed)
+                    return Result<TeacherConfigurationDto>.Failure(
+                        _localizer, PaymentConstants.Messages.BillingStartDateLocked, HttpStatusCode.Forbidden);
+                if (requestedFloor < new DateTime(2020, 1, 1)
+                    || requestedFloor > DateTime.UtcNow.AddYears(2))
+                    return Result<TeacherConfigurationDto>.Failure(
+                        _localizer, PaymentConstants.Messages.BillingStartDateInvalid, HttpStatusCode.BadRequest);
+                newBillingStart = requestedFloor;
+            }
+        }
+
         // ── Transaction-safe ──
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -535,6 +558,14 @@ public class TeacherService : ITeacherService
             // does not know the field cannot silently switch a teacher's portal off.
             if (dto.ParentPortalEnabled.HasValue)
                 config.ParentPortalEnabled = dto.ParentPortalEnabled.Value;
+            // Billing start: only a CHANGED, validated value (see the pre-transaction block) is
+            // applied — and it consumes the one-time / support-re-granted change.
+            if (newBillingStart.HasValue)
+            {
+                config.BillingStartDate = newBillingStart.Value;
+                config.BillingStartDateSetAt = DateTime.UtcNow;
+                config.BillingStartDateChangeAllowed = false;
+            }
             config.UpdatedAt = DateTime.UtcNow;
 
             await _unitOfWork.Users.UpdateConfigurationAsync(config);
@@ -598,6 +629,15 @@ public class TeacherService : ITeacherService
             if (oldProrationSignature != newProrationSignature)
                 reconcileSummary = await _paymentService.ReconcileProrationForExistingStudentsAsync(teacherId);
 
+            // Billing-start reconcile (§7.4b): trims never-paid obligations dated before the new
+            // floor, backfills months an earlier floor newly allows, re-anchors + recomputes counters.
+            // Same transaction as the config save — the floor and its consequences commit atomically,
+            // and the summary is surfaced so the app reports the change instead of running silently.
+            BillingStartReconcileSummary? billingStartSummary = null;
+            if (newBillingStart.HasValue)
+                billingStartSummary = await _paymentService.ReconcileBillingStartAsync(
+                    teacherId, newBillingStart.Value, dryRun: false);
+
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
@@ -605,6 +645,7 @@ public class TeacherService : ITeacherService
             if (configResult.IsSuccess && configResult.Data is not null)
             {
                 configResult.Data.ProrationReconcile = reconcileSummary;
+                configResult.Data.BillingStartReconcile = billingStartSummary;
                 return Result<TeacherConfigurationDto>.Success(configResult.Data, _localizer, "ConfigurationSavedSuccess", HttpStatusCode.OK);
             }
 
@@ -654,6 +695,10 @@ public class TeacherService : ITeacherService
             ParentPortalEnabled = config.ParentPortalEnabled,
             ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
             ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
+            BillingStartDate = config.BillingStartDate,
+            // Locked = the one-time self-service set was used and support has not re-granted.
+            BillingStartLocked = config.BillingStartDateSetAt.HasValue
+                && !config.BillingStartDateChangeAllowed,
             UpdatedAt = config.UpdatedAt,
             ProratedTiers = tiers.OrderBy(t => t.TierNumber).Select(t => new ProratedTierDto
             {

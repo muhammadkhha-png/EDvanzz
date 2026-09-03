@@ -194,6 +194,52 @@ public class ProrationReconcileSummary
     public int Unchanged { get; set; }
 }
 
+/// <summary>
+/// What the billing-start reconcile did (or WOULD do, on a dry run) when a teacher's
+/// <c>BillingStartDate</c> is set or changed: obligations dated before the billing floor are removed
+/// (never-paid, no-cash, non-manual rows only), months the floor newly allows are backfilled, and each
+/// affected student's first-month anchor + counter are recomputed. Attached to the configuration-save
+/// response (sibling of <see cref="ProrationReconcileSummary"/>) and to the admin billing-start
+/// endpoint's result. Null on plain reads and on saves where the billing start did not change.
+/// </summary>
+public class BillingStartReconcileSummary
+{
+    /// <summary>Pre-billing-start periods deleted (Monthly months + PerSession class dates).</summary>
+    public int RemovedPeriods { get; set; }
+
+    /// <summary>Missing months/class dates (re)generated because the floor moved earlier.</summary>
+    public int BackfilledPeriods { get; set; }
+
+    /// <summary>Pre-billing-start rows kept because cash was already collected against them.</summary>
+    public int KeptPaid { get; set; }
+
+    /// <summary>Pre-billing-start rows kept because a person set the amount by hand (sticky).</summary>
+    public int KeptManual { get; set; }
+
+    /// <summary>Distinct students whose obligations changed (removed, backfilled or re-anchored).</summary>
+    public int StudentsAffected { get; set; }
+}
+
+/// <summary>
+/// Result of the SUPER-ADMIN billing-start set (<c>POST /api/admin/payments/billing-start</c>):
+/// the applied (or previewed) floor plus the reconcile summary. On a dry run nothing is written —
+/// the config keeps its stored value and the summary reports what WOULD happen.
+/// </summary>
+public class BillingStartAdminResult
+{
+    public long TeacherId { get; set; }
+
+    /// <summary>The normalized (first-of-month) billing start the call applied / previewed.</summary>
+    public DateTime BillingStartDate { get; set; }
+
+    /// <summary>The value stored BEFORE this call (null = was not set).</summary>
+    public DateTime? PreviousBillingStartDate { get; set; }
+
+    public bool DryRun { get; set; }
+
+    public BillingStartReconcileSummary Reconcile { get; set; } = new();
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // PAYMENT STATUS DTOs
 // ══════════════════════════════════════════════════════════════════════════

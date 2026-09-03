@@ -2658,4 +2658,10 @@
   <data name="ParentPortalRevokeBlockedRosterPhone" xml:space="preserve">
     <value>ده الرقم المسجّل في بيانات الطالب، فهيفضل شغال. امسحه من بيانات الطالب الأول.</value>
   </data>
+  <data name="BillingStartDateLocked" xml:space="preserve">
+    <value>شهر بداية الحساب بيتحدد مرة واحدة بس. كلم الدعم لو محتاج تغيّره.</value>
+  </data>
+  <data name="BillingStartDateInvalid" xml:space="preserve">
+    <value>شهر بداية الحساب ده مش مقبول. اختار شهر قريب من النهارده.</value>
+  </data>
 </root>

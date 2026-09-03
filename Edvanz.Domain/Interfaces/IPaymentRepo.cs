@@ -821,6 +821,25 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<Dictionary<long, DateTime>> GetEarliestAssignmentDatesForStudentsAsync(
         long teacherId, IReadOnlyCollection<long> teacherStudentIds);
 
+    /// <summary>TRACKED. Every payment period of the teacher whose <c>PeriodStart</c> is BEFORE the
+    /// given date (Monthly rows are first-of-month dated, PerSession rows are class-dated, so one
+    /// cutoff covers both) — the candidate set the billing-start reconcile trims. Includes rows of
+    /// deleted sessions and session-less rows; the service applies the keep rules (cash / manual /
+    /// carried debt). Orphaned rows (<c>TeacherStudentId</c> null) are excluded.</summary>
+    Task<List<PaymentPeriod>> GetPeriodsStartingBeforeByTeacherAsync(long teacherId, DateTime beforeDate);
+
+    /// <summary>The teacher's ACTIVE session assignments — (student, session, AssignedAt UTC) — the
+    /// population the billing-start reconcile backfills. Ghost rows whose student was purged
+    /// (BUG-8: TeacherStudent nulled but IsActive kept) are excluded.</summary>
+    Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
+        GetActiveAssignmentRowsByTeacherAsync(long teacherId);
+
+    /// <summary>TRACKED. One student's MONTHLY periods in one session, ordered by month — the
+    /// billing-start reconcile's re-anchor input (identity-mapped, so rows already tracked by the
+    /// same reconcile pass come back as the same instances, never attach-conflicting copies).</summary>
+    Task<List<PaymentPeriod>> GetMonthlyPeriodsByStudentAndSessionTrackedAsync(
+        long teacherId, long teacherStudentId, long sessionId);
+
     /// <summary>Latest proration-decision audit for ONE period (the <see cref="Edvanz.Domain.Entities.PaymentEditLog"/>
     /// with a null <c>PaymentTransactionId</c> linked by <c>PaymentPeriodId</c>): the suggested vs set
     /// amount, who set it and when — the "set by hand · by whom · when" transparency on the collect

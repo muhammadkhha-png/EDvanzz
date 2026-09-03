@@ -506,6 +506,47 @@
         }
 
         /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetPeriodsStartingBeforeByTeacherAsync(
+            long teacherId, DateTime beforeDate)
+        {
+            // TRACKED — the billing-start reconcile deletes/updates the survivors in place. One cutoff
+            // covers both period types: Monthly rows are first-of-month dated and the cutoff is itself
+            // a first-of-month, PerSession rows carry the class date.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
+                    && p.PeriodStart < beforeDate)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
+            GetActiveAssignmentRowsByTeacherAsync(long teacherId)
+        {
+            // BUG-8 guard: a purge SET-NULLs TeacherStudentId but leaves IsActive=1 — the null filter
+            // (which also hides soft-deleted students via the global filter on the navigation) keeps
+            // ghosts out of the backfill population.
+            var rows = await _context.StudentSessionAssignments
+                .Where(a => a.TeacherId == teacherId && a.IsActive
+                    && a.TeacherStudentId != null && a.TeacherStudent != null
+                    && a.SessionId != null)
+                .Select(a => new { StudentId = a.TeacherStudentId!.Value, SessionId = a.SessionId!.Value, a.AssignedAt })
+                .ToListAsync();
+            return rows.Select(r => (r.StudentId, r.SessionId, r.AssignedAt)).ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetMonthlyPeriodsByStudentAndSessionTrackedAsync(
+            long teacherId, long teacherStudentId, long sessionId)
+        {
+            // TRACKED on purpose (see interface doc) — the re-anchor mutates these in place.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId
+                    && p.SessionId == sessionId && p.PeriodType == PeriodType.Monthly)
+                .OrderBy(p => p.PeriodStart)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<(decimal SuggestedAmount, decimal SetAmount, long? SetByUserId, DateTime SetAt)?>
             GetLatestProrationEditForPeriodAsync(long teacherId, long periodId)
         {

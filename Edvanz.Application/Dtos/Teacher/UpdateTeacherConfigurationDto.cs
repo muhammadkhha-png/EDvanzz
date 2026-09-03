@@ -97,6 +97,20 @@ public class UpdateTeacherConfigurationDto
     /// true/false to change it.
     /// </summary>
     public bool? ParentPortalEnabled { get; set; }
+
+    // ─── Billing Start (onboarding billing floor) ───
+
+    /// <summary>
+    /// Sets the tenant-wide billing floor (normalized server-side to the first of its month): no
+    /// month/class date before it is ever billed, and existing never-paid pre-floor obligations are
+    /// reconciled away in this save (summary returned on the response).
+    ///
+    /// NULLABLE ON PURPOSE (same contract as <see cref="ParentPortalEnabled"/>): omitted or null =
+    /// LEAVE THE CURRENT VALUE ALONE — a teacher can never clear the floor themselves, and older
+    /// app builds must not disturb it on unrelated saves. ONE-TIME self-service: after the first
+    /// set, further changes return 403 <c>BillingStartDateLocked</c> until support re-grants.
+    /// </summary>
+    public DateTime? BillingStartDate { get; set; }
 }
 
 /// <summary>

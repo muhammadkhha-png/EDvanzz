@@ -2670,4 +2670,10 @@
   <data name="ParentPortalRevokeBlockedRosterPhone" xml:space="preserve">
     <value>This is the number saved on the student's record, so it will keep working. Remove it from the student first.</value>
   </data>
+  <data name="BillingStartDateLocked" xml:space="preserve">
+    <value>The billing start month can only be set once. Please contact support to change it.</value>
+  </data>
+  <data name="BillingStartDateInvalid" xml:space="preserve">
+    <value>This billing start month is not accepted. Pick a month close to today.</value>
+  </data>
 </root>

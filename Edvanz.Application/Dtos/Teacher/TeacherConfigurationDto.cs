@@ -84,4 +84,24 @@ public class TeacherConfigurationDto
     /// the proration config did not change. Additive — older clients ignore it.
     /// </summary>
     public Payment.ProrationReconcileSummary? ProrationReconcile { get; set; }
+
+    // ─── Billing Start (onboarding billing floor) ───
+
+    /// <summary>
+    /// Tenant-wide billing floor: no month/class date before this (teacher-local, first-of-month)
+    /// is ever billed. Null = not set (billing starts at each student's assignment month).
+    /// </summary>
+    public DateTime? BillingStartDate { get; set; }
+
+    /// <summary>
+    /// True when the teacher already used their ONE-TIME self-service set and support has not
+    /// re-granted a change — the app shows the value read-only with a "contact support" hint.
+    /// </summary>
+    public bool BillingStartLocked { get; set; }
+
+    /// <summary>
+    /// What the billing-start reconcile did during THIS save (removed / backfilled / kept counts).
+    /// Null on plain reads and on saves where the billing start did not change. Additive.
+    /// </summary>
+    public Payment.BillingStartReconcileSummary? BillingStartReconcile { get; set; }
 }

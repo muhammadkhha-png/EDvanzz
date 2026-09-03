@@ -671,6 +671,44 @@ aggregates also defensively exclude `TeacherStudentId == null` periods.
 **Aggregates exclude orphans.** Any period-summing query that feeds a total must ignore
 `TeacherStudentId == null` rows.
 
+### 7.4b Billing start date — tenant-wide billing floor (added 2026-09-03)
+
+`TeacherConfiguration.BillingStartDate` (nullable, teacher-local, always first-of-month) is an
+ONBOARDING billing floor: a teacher entering the roster in August while classes/billing begin in
+September sets September and NO pre-September obligation exists. Null = off = historical behavior
+byte-for-byte. Rules:
+
+- **Generation clamp** (`BuildSessionPeriodsAsync`, both branches): the ladder starts at
+  max(assignment date, floor) — the floor-clamped date is ALSO the proration join day (Aug 15 entry
+  + Sept floor ⇒ Sept-1 join ⇒ day-1 tier / all classes ⇒ full first month). PerSession skips
+  occurrences before the floor. The optional `billingStartOverride` parameter exists so the
+  reconcile can dry-run a floor that is not yet saved — do not remove it.
+- **Carried debt is NEVER the floor's business**: `IsCarriedForward`/`MovedFromSessionId` rows are
+  agreed money, not generated months — the reconcile skips them and the DB2a pending-debt fold-in
+  in `OnStudentAssignedToSessionAsync` clamps its delete cutoff to the floor so a pending month in
+  [assignment, floor) re-attaches as arrears instead of being deleted-but-never-rebilled.
+- **`ReconcileBillingStartAsync(teacherId, floor, dryRun)`** (runs on the caller's transaction):
+  TRIM deletes pre-floor rows with no cash, not manual, not carried (kept rows reported as
+  keptPaid/keptManual — cash and human decisions are ground truth); BACKFILL regenerates months an
+  EARLIER floor newly allows for currently-assigned students via the shared generation pipeline
+  (front-gap bounded — trailing gaps belong to the end-date backfill); RE-ANCHOR moves
+  `IsProrationAnchorMonth` to the surviving first month (cash-free, non-manual anchors only),
+  re-priced per the current method; counters fully recomputed per affected student. Summary
+  (`BillingStartReconcileSummary`) is surfaced on the config-save response
+  (`billingStartReconcile`, sibling of `prorationReconcile`) — never reconcile silently.
+- **One-time self-service**: the teacher's first set is free; after that
+  (`BillingStartDateSetAt != null`) changes 403 `BillingStartDateLocked` until support re-grants
+  ONE change via `BillingStartDateChangeAllowed` (consumed on use). On the wire the update DTO
+  field is NULLABLE ON PURPOSE (omitted/null = unchanged — teachers can never clear the floor;
+  old app builds must not disturb it); re-sending the identical value is an idempotent no-op that
+  neither trips nor consumes the lock. Config GET exposes `billingStartDate` +
+  `billingStartLocked`.
+- **Admin surface** (`AdminPaymentController`, SuperAdmin roleOnly):
+  `POST /api/admin/payments/billing-start?teacherId=&date=&dryRun=` sets + reconciles in one
+  transaction (dryRun default TRUE writes nothing; an admin set re-locks the teacher);
+  `POST /api/admin/payments/billing-start/allow-change?teacherId=` re-grants the one-time change.
+- Migration `20260903162852_AddBillingStartDateToTeacherConfigurations` (additive columns only).
+
 ### 7.5 Offline Exams (`/api/exams`) — during-session dates are PER SESSION (restored 2026-07-17)
 
 Create/update contract (v1.3 — `docs/exams-api-guide.md`, `docs/exams-openapi.{json,yaml}`):

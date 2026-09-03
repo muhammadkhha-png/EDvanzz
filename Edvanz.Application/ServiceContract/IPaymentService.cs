@@ -315,6 +315,40 @@ public interface IPaymentService
     Task<ProrationReconcileSummary> ReconcileProrationForExistingStudentsAsync(long teacherId);
 
     /// <summary>
+    /// Reconciles the teacher's existing obligations to a billing floor (<c>BillingStartDate</c>,
+    /// §7.4b — set during onboarding so data entered in August bills from September):
+    /// (1) TRIM — deletes every period dated before the floor that carries NO cash, is not
+    /// manually priced and is not carried/moved debt (kept rows are reported, never touched);
+    /// (2) BACKFILL — for currently-assigned students, (re)generates months/class dates the floor
+    /// newly allows (floor moved earlier), via the same generation pipeline as assignment so
+    /// pricing/sequencing never diverge; (3) RE-ANCHOR — when a student's enrollment first-month
+    /// anchor was trimmed (or an earlier month appeared), the first surviving never-paid month
+    /// becomes the anchor, re-priced per the current proration method with the floor-clamped join
+    /// day, and each affected student's counter is fully recomputed. Idempotent. With
+    /// <paramref name="dryRun"/> nothing is written — the summary reports what WOULD happen.
+    /// Runs on the caller's transaction (does not open/commit its own).
+    /// </summary>
+    Task<BillingStartReconcileSummary> ReconcileBillingStartAsync(
+        long teacherId, DateTime billingStart, bool dryRun);
+
+    /// <summary>
+    /// SUPER-ADMIN: sets (or previews, with <paramref name="dryRun"/>) a teacher's
+    /// <c>BillingStartDate</c> from the support side — normalizes to first-of-month, stamps
+    /// <c>BillingStartDateSetAt</c> (re-locking the teacher's one-time self-service change), clears
+    /// the re-grant flag, and runs <see cref="ReconcileBillingStartAsync"/> in one transaction.
+    /// Dry runs write NOTHING (config keeps its stored value).
+    /// </summary>
+    Task<Result<BillingStartAdminResult>> SetBillingStartForTeacherAsync(
+        long teacherId, DateTime billingStart, bool dryRun);
+
+    /// <summary>
+    /// SUPER-ADMIN: re-grants the teacher ONE more self-service change of their
+    /// <c>BillingStartDate</c> (sets <c>BillingStartDateChangeAllowed</c>; consumed by the next
+    /// teacher-side change). Support flow for the yearly onboarding reset or a mistaken first set.
+    /// </summary>
+    Task<Result<bool>> AllowBillingStartChangeAsync(long teacherId);
+
+    /// <summary>
     /// Computes the SYSTEM-SUGGESTED joining-month amount for a student in a session, per the teacher's
     /// chosen <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022 rev 2). Anchored to the
     /// student's ENROLLMENT (earliest assignment) date — attendance never prices the joining month.
