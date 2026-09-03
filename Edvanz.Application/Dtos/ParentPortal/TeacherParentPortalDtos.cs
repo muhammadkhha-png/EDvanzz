@@ -31,11 +31,31 @@ public class ParentPortalRequestListItemDto
     public string? ClaimedPhone { get; set; }
 
     /// <summary>
-    /// True when the typed number matches the student's parent phone on file. On a PENDING row it
-    /// is always false (a match would have auto-approved) — it is the teacher's cue that this
-    /// parent could not be verified automatically.
+    /// Does the number this parent TYPED equal the one saved on the student? On a PENDING row it
+    /// is normally false (a match would have auto-approved) — it is the teacher's cue that this
+    /// parent could not be verified automatically. It can turn true after the fact if the teacher
+    /// added the number to the student while the request was already waiting.
+    ///
+    /// NOT the same question as <see cref="StudentHasParentPhone"/> — read both together.
     /// </summary>
     public bool PhoneMatchesRoster { get; set; }
+
+    /// <summary>
+    /// Does the student have ANY parent number saved on their record right now?
+    ///
+    /// <para>Drives the default of the inline "save this number to the student" checkbox on the
+    /// approve card: tick it ON only when this is FALSE. Approval never overwrites an existing
+    /// number, so offering the option when one is already saved shows the teacher a choice that
+    /// was never real — the save would come back <c>AlreadySaved</c> or
+    /// <c>StudentHasDifferentPhone</c>.</para>
+    ///
+    /// <para>DISTINCT FROM <see cref="PhoneMatchesRoster"/>, and the two are easily confused:
+    /// that one asks "is the typed number the saved one?", this asks "is there a saved one at
+    /// all?". The combination <c>studentHasParentPhone: true</c> + <c>phoneMatchesRoster:
+    /// false</c> is the CONFLICT case — a different number is on file — where the checkbox must be
+    /// off AND the teacher warned before they approve a stranger.</para>
+    /// </summary>
+    public bool StudentHasParentPhone { get; set; }
 
     public DateTime RequestedAt { get; set; }
 
@@ -181,4 +201,23 @@ public class ParentPortalSummaryDto
 
     /// <summary>Whether the teacher currently accepts portal followers (<c>TeacherConfiguration.ParentPortalEnabled</c>).</summary>
     public bool PortalEnabled { get; set; }
+
+    /// <summary>
+    /// Whether THIS caller may actually manage parent requests for the resolved teacher — i.e.
+    /// whether they hold <c>Student / Edit</c>.
+    ///
+    /// <para>THIS FIELD EXISTS SO AN UNGATED READ CAN GATE A UI AFFORDANCE WHOSE REAL ENDPOINTS
+    /// ARE PERMISSION-GATED. <c>GET /summary</c> is deliberately ungated (a 403 here is read by the
+    /// app's <c>ActingTeacherUnavailableInterceptor</c> as "acting teacher gone" and ejects the
+    /// operator from the acting-as shell), but every route it links to — requests, approve,
+    /// reject, bulk, followers, revoke — still requires <c>Student / Edit</c>. Without this flag a
+    /// caller who lacks that permission would be shown a real pending badge, tap it, and hit a 403
+    /// on <c>GET /requests</c>. The client MUST hide the menu entry and the badge when this is
+    /// false, so nobody is ever offered a door that will slam.</para>
+    ///
+    /// <para>Computed through the SAME <c>PermissionRequirement(Student, Edit)</c> that the
+    /// <c>[ModulePermission]</c> attribute evaluates, so it cannot drift from the real gate.
+    /// False whenever no acting teacher resolves (counters are all zero in that case too).</para>
+    /// </summary>
+    public bool CanManage { get; set; }
 }

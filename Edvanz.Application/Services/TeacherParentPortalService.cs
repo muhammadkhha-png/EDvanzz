@@ -250,18 +250,32 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
     }
 
     /// <inheritdoc />
-    public async Task<Result<ParentPortalSummaryDto>> GetSummaryAsync(long teacherId)
+    public async Task<Result<ParentPortalSummaryDto>> GetSummaryAsync(long? teacherId, bool canManage)
     {
-        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        // No acting teacher → the EMPTY summary, never an error. This endpoint is polled in the
+        // background by the teacher drawer, and any 4xx it emits gets read by the app's
+        // ActingTeacherUnavailableInterceptor as "acting teacher gone" and ejects the operator
+        // from the acting-as shell. See TeacherParentPortalController.GetSummary.
+        // CanManage stays false here: with no teacher there is nothing to manage.
+        if (teacherId is null)
+            return Result<ParentPortalSummaryDto>.Success(
+                new ParentPortalSummaryDto(), _localizer, "Success", HttpStatusCode.OK);
+
+        long id = teacherId.Value;
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(id);
 
         var dto = new ParentPortalSummaryDto
         {
-            PendingCount = await _unitOfWork.ParentPortalAccesses.CountPendingForTeacherAsync(teacherId),
+            PendingCount = await _unitOfWork.ParentPortalAccesses.CountPendingForTeacherAsync(id),
             FollowedStudentsCount = await _unitOfWork.ParentPortalAccesses
-                .CountFollowedStudentsForTeacherAsync(teacherId),
+                .CountFollowedStudentsForTeacherAsync(id),
             StudentsMissingParentPhone = await _unitOfWork.Users
-                .CountStudentsMissingParentPhoneAsync(teacherId),
-            PortalEnabled = config?.ParentPortalEnabled ?? false
+                .CountStudentsMissingParentPhoneAsync(id),
+            PortalEnabled = config?.ParentPortalEnabled ?? false,
+            // Decided by the caller (the API layer owns authorization) using the very same
+            // PermissionRequirement the [ModulePermission] attribute evaluates — never re-derived
+            // here, so there is exactly one source of truth for "may this caller manage requests".
+            CanManage = canManage
         };
 
         return Result<ParentPortalSummaryDto>.Success(dto, _localizer, "Success", HttpStatusCode.OK);
@@ -355,8 +369,12 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
         StudentName = grant.TeacherStudent?.StudentName,
         StudentCode = grant.TeacherStudent?.StudentCode,
         ClaimedPhone = grant.ClaimedPhone,
+        // Both flags read the SAME already-materialized roster row that supplies StudentName /
+        // StudentCode above (GetPendingForTeacherPagedAsync Includes it), so this is pure
+        // projection — no extra query, no N+1.
         PhoneMatchesRoster = EgyptianPhoneNumber.AreSameNumber(
             grant.ClaimedPhone, grant.TeacherStudent?.ParentPhoneNumber),
+        StudentHasParentPhone = !string.IsNullOrWhiteSpace(grant.TeacherStudent?.ParentPhoneNumber),
         RequestedAt = grant.RequestedAt,
         Status = grant.Status
     };

@@ -10,7 +10,9 @@ namespace Edvanz.Application.ServiceContract;
 /// TENANCY: <c>teacherId</c> is always supplied by the controller from the JWT
 /// (<c>ResolveTeacherIdAsync</c>) and every repo call is tenant-scoped, so a grant id belonging to
 /// another teacher resolves to nothing — never to another tenant's row (CLAUDE.md §3.3 / BUG-12).
-/// Assistants holding <c>Student / Edit</c> reach these endpoints on their tutor's behalf.
+/// Assistants holding <c>Student / Edit</c> reach these endpoints on their tutor's behalf — with
+/// the single exception of <see cref="GetSummaryAsync"/>, which is ungated and always succeeds
+/// (see its own remarks for the reason).
 ///
 /// Parent phone numbers are returned IN FULL (changed 2026-09-02, was masked): a teacher deciding
 /// whether to let a stranger see a child's data has to recognize the number and be able to ring it
@@ -67,6 +69,22 @@ public interface ITeacherParentPortalService
     Task<Result<ParentPortalRevokeResultDto>> RevokeFollowerAsync(
         long teacherId, long accessId, long actingUserId);
 
-    /// <summary>Counters for the parent-portal settings screen.</summary>
-    Task<Result<ParentPortalSummaryDto>> GetSummaryAsync(long teacherId);
+    /// <summary>
+    /// Counters for the parent-portal settings screen and the teacher drawer's pending badge.
+    ///
+    /// ALWAYS SUCCEEDS. <paramref name="teacherId"/> is nullable and a null yields the all-zero
+    /// summary rather than an error, because the drawer polls this in the background and the app's
+    /// <c>ActingTeacherUnavailableInterceptor</c> reads any 4xx on an acting-as request as "this
+    /// teacher is gone" and ejects the operator from the shell. Degrade, never refuse — see the
+    /// long note on <c>TeacherParentPortalController.GetSummary</c>. This is also the one route in
+    /// this contract that is NOT behind <c>Student/Edit</c>.
+    /// </summary>
+    /// <param name="teacherId">Acting teacher, or null when none resolves (→ all-zero summary).</param>
+    /// <param name="canManage">
+    /// Whether the caller holds <c>Student / Edit</c> for that teacher, decided by the API layer
+    /// through the SAME <c>PermissionRequirement</c> the <c>[ModulePermission]</c> attribute uses.
+    /// Echoed onto the payload so the client can hide a badge whose destination would 403 — it is
+    /// never re-derived inside this service, so the two can never disagree.
+    /// </param>
+    Task<Result<ParentPortalSummaryDto>> GetSummaryAsync(long? teacherId, bool canManage);
 }

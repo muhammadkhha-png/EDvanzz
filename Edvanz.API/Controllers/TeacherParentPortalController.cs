@@ -2,6 +2,7 @@ using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ParentPortal;
 using Edvanz.Application.IservicesContract;
+using Edvanz.Application.Security;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Interfaces;
@@ -16,7 +17,10 @@ namespace Edvanz.API.Controllers;
 ///
 /// AUTH &amp; TENANCY: class-level <c>[Authorize]</c> plus a per-action
 /// <c>[ModulePermission(Student, Edit)]</c>, so an assistant already trusted to edit students can
-/// clear the inbox too. The acting <c>teacherId</c> comes ONLY from the JWT via
+/// clear the inbox too. ONE deliberate exception: <see cref="GetSummary"/> carries no permission
+/// gate, because the app polls it in the background and a 403 there ejects center operators from
+/// the acting-as shell — read the note on that action before "restoring consistency".
+/// The acting <c>teacherId</c> comes ONLY from the JWT via
 /// <c>ResolveTeacherIdAsync</c> (CLAUDE.md §3.3) — never from a route or body — and every service
 /// call is tenant-scoped, so a grant id from another teacher resolves to nothing.
 ///
@@ -36,14 +40,17 @@ namespace Edvanz.API.Controllers;
 public class TeacherParentPortalController : ModuleSixApiBaseController
 {
     private readonly ITeacherParentPortalService _portalService;
+    private readonly IAuthorizationService _authorizationService;
 
     public TeacherParentPortalController(
         ITeacherParentPortalService portalService,
+        IAuthorizationService authorizationService,
         ICurrentUserService currentUser,
         IUnitOfWork unitOfWork)
         : base(currentUser, unitOfWork)
     {
         _portalService = portalService;
+        _authorizationService = authorizationService;
     }
 
     /// <summary>Pages the PENDING parent requests for this teacher, newest first.</summary>
@@ -176,19 +183,70 @@ public class TeacherParentPortalController : ModuleSixApiBaseController
         return ToResponse(await _portalService.RevokeFollowerAsync(teacherId.Value, id, GetActingUserId()));
     }
 
-    /// <summary>Counters for the parent-portal settings screen: pending requests, followed students, students with no parent phone, and the current opt-in state.</summary>
-    /// <response code="200">Summary counters.</response>
+    /// <summary>
+    /// Counters for the parent-portal settings screen and the drawer's pending-count badge:
+    /// pending requests, followed students, students with no parent phone, and the opt-in state.
+    ///
+    /// <para><b>DELIBERATELY UNGATED — DO NOT ADD <c>[ModulePermission]</c> HERE. THIS IS NOT AN
+    /// OVERSIGHT, AND "RESTORING CONSISTENCY" WITH THE SIBLING ROUTES REINTRODUCES A SEVERE
+    /// CENTER-ACCOUNT REGRESSION.</b></para>
+    ///
+    /// <para>The Flutter app probes this endpoint AUTOMATICALLY every time the teacher drawer
+    /// opens, to render the badge — no user action is involved. It also registers an
+    /// <c>ActingTeacherUnavailableInterceptor</c> that treats ANY 403 on a request carrying
+    /// <c>X-Acting-Teacher-Id</c> as "this acting teacher is gone" and ejects the operator out of
+    /// the acting-as shell back to Center Home.</para>
+    ///
+    /// <para>So gating this route meant: a center assistant WITHOUT <c>Student/Edit</c> opens the
+    /// drawer → the background probe 403s → the interceptor throws them out of the shell entirely
+    /// and they cannot work as that teacher at all. An ambient read, not anything they did, killed
+    /// their session.</para>
+    ///
+    /// <para>The fix is to DEGRADE, never refuse: an unresolvable teacher returns 200 with
+    /// all-zero counters. A count of pending parent requests, for a teacher the caller is already
+    /// authenticated and acting as, is nowhere near sensitive enough to justify evicting them.
+    /// Every route that reveals a parent's identity or CHANGES anything — requests, approve,
+    /// reject, bulk, followers, revoke — keeps its <c>Student/Edit</c> gate.</para>
+    /// </summary>
+    /// <response code="200">Summary counters, or all-zero counters when no acting teacher resolves.</response>
     [HttpGet("summary")]
-    [ModulePermission(StudentConstants.ModuleName, StudentConstants.PermissionEdit)]
     [ProducesResponseType(typeof(Result<ParentPortalSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSummary()
     {
+        // Null teacherId is passed straight through: the service answers with the empty summary
+        // rather than an error, so this endpoint can never emit the 403/404 that trips the
+        // interceptor described above.
         long? teacherId = await ResolveTeacherIdAsync();
-        if (teacherId is null) return TeacherNotResolved();
 
-        return ToResponse(await _portalService.GetSummaryAsync(teacherId.Value));
+        return ToResponse(await _portalService.GetSummaryAsync(teacherId, await CanManageRequestsAsync(teacherId)));
+    }
+
+    /// <summary>
+    /// Evaluates, WITHOUT rejecting, the exact gate the sibling routes enforce: does this caller
+    /// hold <c>Student / Edit</c>?
+    ///
+    /// It runs the very same <see cref="PermissionRequirement"/> instance type that
+    /// <c>[ModulePermission(Student, Edit)]</c> builds, through the same
+    /// <see cref="IAuthorizationService"/> and the same <c>PermissionHandler</c> — so the answer is
+    /// correct by construction and cannot drift from the real gate. Do NOT reimplement this by
+    /// reading claims or querying permissions directly: the JWT deliberately carries no permission
+    /// claims (they were removed as stale), and the handler resolves against the live
+    /// <c>UserAuthSnapshot</c> that <c>SecurityStampValidationMiddleware</c> has ALREADY placed on
+    /// <c>HttpContext.Items</c> for this request — so this costs no extra query and no extra cache
+    /// hit.
+    ///
+    /// Returns false when no acting teacher resolved: there is nothing to manage.
+    /// </summary>
+    private async Task<bool> CanManageRequestsAsync(long? teacherId)
+    {
+        if (teacherId is null)
+            return false;
+
+        var requirement = new PermissionRequirement(
+            StudentConstants.ModuleName, StudentConstants.PermissionEdit);
+
+        var result = await _authorizationService.AuthorizeAsync(User, null, requirement);
+        return result.Succeeded;
     }
 }
