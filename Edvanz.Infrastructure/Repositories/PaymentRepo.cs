@@ -437,32 +437,14 @@
         }
 
         /// <inheritdoc />
-        public async Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
-            GetAssignmentDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds)
-        {
-            if (teacherStudentIds.Count == 0)
-                return new List<(long, long, DateTime)>();
-            // Generated PaymentPeriods do NOT store their StudentSessionAssignmentId, so the proration
-            // reconcile recovers each student's join DAY from the assignment for (student, session)
-            // directly. All assignments for these students are returned; the service picks the earliest
-            // per (student, session) = the original enrollment that generated the first month.
-            var rows = await _context.StudentSessionAssignments
-                .Where(a => a.TeacherId == teacherId
-                    && a.TeacherStudentId != null && a.SessionId != null
-                    && teacherStudentIds.Contains(a.TeacherStudentId.Value))
-                .Select(a => new { StudentId = a.TeacherStudentId!.Value, SessionId = a.SessionId!.Value, a.AssignedAt })
-                .ToListAsync();
-            return rows.Select(r => (r.StudentId, r.SessionId, r.AssignedAt)).ToList();
-        }
-
-        /// <inheritdoc />
-        public async Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated)>>
+        public async Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated, bool IsProrationManual, int? ClassesTotal, int? ClassesBilled)>>
             GetAnchorPeriodInfoByStudentIdsAsync(long teacherId, IReadOnlyCollection<long> studentIds)
         {
             if (studentIds.Count == 0)
-                return new List<(long, long?, DateTime, decimal, decimal, bool)>();
-            // The proration-anchor month per student (one each) — its amount, fraction and month drive
-            // the "prorated {amount} · {fraction}" + join-date transparency on the payment screens.
+                return new List<(long, long?, DateTime, decimal, decimal, bool, bool, int?, int?)>();
+            // The proration-anchor month per student (one each) — its amount, fraction, month, manual
+            // flag and frozen class-basis drive the "Joined {date} · {billed} of {total} classes →
+            // {amount} of {full}" + "set by hand" transparency on the payment screens.
             var rows = await _context.PaymentPeriods
                 .Where(p => p.TeacherId == teacherId && p.TeacherStudentId != null
                     && studentIds.Contains(p.TeacherStudentId.Value)
@@ -470,13 +452,15 @@
                 .Select(p => new
                 {
                     StudentId = p.TeacherStudentId!.Value,
-                    p.SessionId, p.PeriodStart, p.AmountDue, p.ProRatedFraction, p.IsProRated
+                    p.SessionId, p.PeriodStart, p.AmountDue, p.ProRatedFraction, p.IsProRated,
+                    p.IsProrationManual, p.ProrationClassesTotal, p.ProrationClassesBilled
                 })
                 .ToListAsync();
             return rows
                 .GroupBy(r => r.StudentId)
                 .Select(g => g.OrderBy(x => x.PeriodStart).First())
-                .Select(r => (r.StudentId, r.SessionId, r.PeriodStart, r.AmountDue, r.ProRatedFraction, r.IsProRated))
+                .Select(r => (r.StudentId, r.SessionId, r.PeriodStart, r.AmountDue, r.ProRatedFraction,
+                    r.IsProRated, r.IsProrationManual, r.ProrationClassesTotal, r.ProrationClassesBilled))
                 .ToList();
         }
 
@@ -497,20 +481,45 @@
         }
 
         /// <inheritdoc />
-        public async Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>
-            GetFirstAttendanceDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds)
+        public async Task<DateTime?> GetEarliestAssignmentDateAsync(long teacherId, long teacherStudentId)
+        {
+            // Min across ALL sessions — the original enrollment day survives moves/reassignments
+            // (the destination's assignment row carries the MOVE date, never the true join).
+            return await _context.StudentSessionAssignments
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId)
+                .MinAsync(a => (DateTime?)a.AssignedAt);
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, DateTime>> GetEarliestAssignmentDatesForStudentsAsync(
+            long teacherId, IReadOnlyCollection<long> teacherStudentIds)
         {
             if (teacherStudentIds.Count == 0)
-                return new List<(long, long, DateTime)>();
-            var rows = await _context.AttendanceRecords
-                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId != null && a.SessionId != null
-                    && teacherStudentIds.Contains(a.TeacherStudentId.Value)
-                    && (a.Status == AttendanceStatus.Present
-                        || a.Status == AttendanceStatus.CrossSessionPresent))
-                .GroupBy(a => new { StudentId = a.TeacherStudentId!.Value, SessionId = a.SessionId!.Value })
-                .Select(g => new { g.Key.StudentId, g.Key.SessionId, First = g.Min(x => x.OccurrenceDate) })
+                return new Dictionary<long, DateTime>();
+            var rows = await _context.StudentSessionAssignments
+                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId != null
+                    && teacherStudentIds.Contains(a.TeacherStudentId.Value))
+                .GroupBy(a => a.TeacherStudentId!.Value)
+                .Select(g => new { StudentId = g.Key, Earliest = g.Min(x => x.AssignedAt) })
                 .ToListAsync();
-            return rows.Select(r => (r.StudentId, r.SessionId, r.First)).ToList();
+            return rows.ToDictionary(r => r.StudentId, r => r.Earliest);
+        }
+
+        /// <inheritdoc />
+        public async Task<(decimal SuggestedAmount, decimal SetAmount, long? SetByUserId, DateTime SetAt)?>
+            GetLatestProrationEditForPeriodAsync(long teacherId, long periodId)
+        {
+            // Tenant-checked through the period row (the log itself carries no TeacherId).
+            var row = await (
+                from e in _context.PaymentEditLogs.AsNoTracking()
+                join p in _context.PaymentPeriods.AsNoTracking() on e.PaymentPeriodId equals p.Id
+                where e.PaymentTransactionId == null && e.PaymentPeriodId == periodId
+                    && p.TeacherId == teacherId
+                orderby e.EditedAt descending
+                select new { e.PreviousAmount, e.NewAmount, e.EditedByUserId, e.EditedAt })
+                .FirstOrDefaultAsync();
+            if (row is null) return null;
+            return (row.PreviousAmount, row.NewAmount, row.EditedByUserId, row.EditedAt);
         }
 
         /// <inheritdoc />
@@ -528,36 +537,6 @@
                     && p.IsProrationAnchorMonth)
                 .OrderBy(p => p.PeriodSequence)
                 .FirstOrDefaultAsync();
-        }
-
-        /// <inheritdoc />
-        public async Task<DateTime?> GetFirstAttendanceDateAsync(
-            long teacherId, long teacherStudentId, long sessionId)
-        {
-            // Earliest date the student physically attended this session (Present or the linked-session
-            // CrossSessionPresent) — the anchor for attendance-based proration.
-            var attended = _context.AttendanceRecords
-                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId
-                    && a.SessionId == sessionId
-                    && (a.Status == AttendanceStatus.Present
-                        || a.Status == AttendanceStatus.CrossSessionPresent));
-            if (!await attended.AnyAsync()) return null;
-            return await attended.MinAsync(a => (DateTime?)a.OccurrenceDate);
-        }
-
-        /// <inheritdoc />
-        public async Task<int> CountAttendedClassesInRangeAsync(
-            long teacherId, long teacherStudentId, long sessionId, DateTime start, DateTime end)
-        {
-            // Classes the student actually attended (Present or the linked-session CrossSessionPresent)
-            // in [start, end] — the informational "attended N so far" for the ByClasses suggestion.
-            return await _context.AttendanceRecords
-                .Where(a => a.TeacherId == teacherId && a.TeacherStudentId == teacherStudentId
-                    && a.SessionId == sessionId
-                    && a.OccurrenceDate >= start.Date && a.OccurrenceDate <= end.Date
-                    && (a.Status == AttendanceStatus.Present
-                        || a.Status == AttendanceStatus.CrossSessionPresent))
-                .CountAsync();
         }
 
         /// <inheritdoc />

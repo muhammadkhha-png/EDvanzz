@@ -776,13 +776,6 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<List<PaymentPeriod>> GetFirstMonthlyPeriodsForAssignedStudentsAsync(long teacherId);
 
-    /// <summary>All (student, session, AssignedAt) assignment rows for the given students — supplies the
-    /// join DAY that selects a proration tier when re-prorating existing students. Keyed by student+session
-    /// because generated PaymentPeriods don't carry their assignment id; the service picks the earliest per
-    /// (student, session) as the original enrollment.</summary>
-    Task<List<(long TeacherStudentId, long SessionId, DateTime AssignedAt)>>
-        GetAssignmentDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds);
-
     /// <summary>Batch-loads the (tracked) payment counters for a set of students — the proration
     /// reconcile reads each CustomPaymentAmount (the full base rate) and writes its deltas in place,
     /// so all affected counters are fetched in ONE query instead of per-student round-trips.</summary>
@@ -797,9 +790,10 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// first month) — the population the settings reconcile re-prices; transfers are excluded by design.</summary>
     Task<List<PaymentPeriod>> GetUnpaidAnchorMonthPeriodsAsync(long teacherId);
 
-    /// <summary>The proration-anchor month info (month, amount, fraction, prorated?) per student — feeds
-    /// the "prorated {amount} · {fraction}" + join-date transparency on the payment screens.</summary>
-    Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated)>>
+    /// <summary>The proration-anchor month info (month, amount, fraction, prorated?, manually set?,
+    /// frozen class-basis) per student — feeds the "Joined {date} · {billed} of {total} classes →
+    /// {amount} of {full}" + "set by hand" transparency on the payment screens, INCLUDING paid rows.</summary>
+    Task<List<(long StudentId, long? SessionId, DateTime PeriodStart, decimal AmountDue, decimal ProRatedFraction, bool IsProRated, bool IsProrationManual, int? ClassesTotal, int? ClassesBilled)>>
         GetAnchorPeriodInfoByStudentIdsAsync(long teacherId, IReadOnlyCollection<long> studentIds);
 
     /// <summary>Distinct student ids that have any payment period in the given session — the population
@@ -814,20 +808,25 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>A student's session-less, not-yet-carried periods (the orphan-cleanup input).</summary>
     Task<IReadOnlyList<PaymentPeriod>> GetOrphanedPeriodsByStudentAsync(long teacherId, long teacherStudentId);
 
-    /// <summary>Earliest Present/CrossSessionPresent date per (student, session) for the given students —
-    /// the reconcile's attendance anchor. One query for the whole set.</summary>
-    Task<List<(long TeacherStudentId, long SessionId, DateTime FirstPresentDate)>>
-        GetFirstAttendanceDatesForStudentsAsync(long teacherId, IReadOnlyCollection<long> teacherStudentIds);
+    /// <summary>Earliest AssignedAt (UTC) across ALL of a student's session assignments — the student's
+    /// ORIGINAL enrollment day, the single proration anchor under the enrollment-anchored model
+    /// (REQ-PAY-021/022 rev 2, 2026-09-03: attendance never moves the bill). Survives session moves
+    /// (a preserved first-month anchor keeps pricing from the original join, not the move date).
+    /// Null when the student has no assignment rows.</summary>
+    Task<DateTime?> GetEarliestAssignmentDateAsync(long teacherId, long teacherStudentId);
 
-    /// <summary>Earliest date the student physically attended this session (Present or the linked
-    /// CrossSessionPresent) — the anchor for attendance-based proration. Null if never attended.</summary>
-    Task<DateTime?> GetFirstAttendanceDateAsync(long teacherId, long teacherStudentId, long sessionId);
+    /// <summary>Earliest AssignedAt (UTC) per student (min across ALL their sessions) for a batch —
+    /// the reconcile / list-transparency companion of
+    /// <see cref="GetEarliestAssignmentDateAsync"/>. One query for the whole set.</summary>
+    Task<Dictionary<long, DateTime>> GetEarliestAssignmentDatesForStudentsAsync(
+        long teacherId, IReadOnlyCollection<long> teacherStudentIds);
 
-    /// <summary>Counts the classes a student has actually ATTENDED (Present or CrossSessionPresent) in a
-    /// session within [start, end] — the informational "attended N so far" for the ByClasses joining-month
-    /// suggestion (REQ-PAY-021/022). Dates are OccurrenceDate-bounded (date-only).</summary>
-    Task<int> CountAttendedClassesInRangeAsync(
-        long teacherId, long teacherStudentId, long sessionId, DateTime start, DateTime end);
+    /// <summary>Latest proration-decision audit for ONE period (the <see cref="Edvanz.Domain.Entities.PaymentEditLog"/>
+    /// with a null <c>PaymentTransactionId</c> linked by <c>PaymentPeriodId</c>): the suggested vs set
+    /// amount, who set it and when — the "set by hand · by whom · when" transparency on the collect
+    /// lookup. Null when the period was never manually priced.</summary>
+    Task<(decimal SuggestedAmount, decimal SetAmount, long? SetByUserId, DateTime SetAt)?>
+        GetLatestProrationEditForPeriodAsync(long teacherId, long periodId);
 
     /// <summary>Batch proration-audit for the collections ledger: for each collection transaction id that
     /// settled a manually-overridden joining month, returns the suggestion vs the set amount and who set it

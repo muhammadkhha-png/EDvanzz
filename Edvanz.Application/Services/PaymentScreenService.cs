@@ -127,17 +127,25 @@ public class PaymentScreenService : IPaymentScreenService
             // DATE-RANGE path (additive): an inclusive [from,to] day window, taking precedence over
             // month/year. Boundaries mirror the month path — startDate inclusive, endDate the
             // inclusive end-of-day for the paged query's `<=` filter, endExclusive for refunds.
-            var f = from.Value.Date;
-            var t = to.Value.Date;
+            //
+            // EXACT-INSTANT variant (2026-09-03, drawer scope): when EITHER bound carries a
+            // time-of-day, the range is treated as precise instants [from, to) instead of whole
+            // days — the merged wallet/ledger screen's "in drawer now" scope starts at the exact
+            // last hand-over moment, so the listed rows sum EXACTLY to the held balance (a day
+            // floor would leak same-day pre-hand-over rows in). Date-only callers (the existing
+            // day filter) are byte-identical to before.
+            var f = from.Value;
+            var t = to.Value;
             if (t < f) (f, t) = (t, f);               // tolerate a reversed range
-            startDate = f;
-            endExclusive = t.AddDays(1);
+            bool timed = f.TimeOfDay != TimeSpan.Zero || t.TimeOfDay != TimeSpan.Zero;
+            startDate = timed ? f : f.Date;
+            endExclusive = timed ? t : t.Date.AddDays(1);
             endDate = endExclusive.AddTicks(-1);
             resolvedYear = f.Year;
             resolvedMonth = f.Month;
             fromEcho = f;
             toEcho = t;
-            monthLabel = f == t
+            monthLabel = f.Date == t.Date
                 ? f.ToString("d MMM yyyy", CultureInfo.InvariantCulture)
                 : $"{f.ToString("d MMM", CultureInfo.InvariantCulture)} – {t.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
         }
@@ -465,15 +473,57 @@ public class PaymentScreenService : IPaymentScreenService
 
     /// <summary>
     /// §2b transparency (REQ-PAY-021/022): for the prorated-first-month collection rows on the page, fill
-    /// the SYSTEM-suggested amount and the NAME of whoever set the manual joining amount, from the
-    /// proration-decision audit logs (batch — one repo query + one name lookup, no N+1). Rows with no
-    /// override (auto-prorated) keep null suggested/setBy — the amount IS the suggestion.
+    /// (a) the joining-month STORY — the same facts the student cards show ("Joined {date} · {billed} of
+    /// {total} classes left · {amount} of {full}"), from the anchor period's frozen basis + the student's
+    /// enrollment date — and (b) the SYSTEM-suggested amount and the NAME of whoever set a manual joining
+    /// amount, from the proration-decision audit logs. All batched (three repo queries + one name lookup,
+    /// no N+1). Rows with no override (auto-prorated) keep null suggested/setBy — the amount IS the story.
     /// </summary>
     private async Task EnrichProrationTransparencyAsync(long teacherId, List<CollectionRow> rows)
     {
-        var txIds = rows
-            .Where(r => r.IsProratedFirstMonth && r.Status == "collected"
-                && long.TryParse(r.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+        var flagged = rows
+            .Where(r => r.IsProratedFirstMonth && r.Status == "collected")
+            .ToList();
+        if (flagged.Count == 0) return;
+
+        // ── (a) The joining-month story, keyed by student (the anchor month is per student). ──
+        var storyStudentIds = flagged
+            .Where(r => long.TryParse(r.StudentId, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+            .Select(r => long.Parse(r.StudentId!, CultureInfo.InvariantCulture))
+            .Distinct()
+            .ToList();
+        if (storyStudentIds.Count > 0)
+        {
+            var anchorInfo = (await _unitOfWork.PaymentsRepo
+                    .GetAnchorPeriodInfoByStudentIdsAsync(teacherId, storyStudentIds))
+                .Where(a => a.IsProRated)
+                .ToDictionary(a => a.StudentId);
+            var joinDates = anchorInfo.Count > 0
+                ? await _unitOfWork.PaymentsRepo
+                    .GetEarliestAssignmentDatesForStudentsAsync(teacherId, anchorInfo.Keys.ToList())
+                : new Dictionary<long, DateTime>();
+
+            foreach (var r in flagged)
+            {
+                if (!long.TryParse(r.StudentId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sid)
+                    || !anchorInfo.TryGetValue(sid, out var anc))
+                    continue;
+                r.ProrationJoinedAt = joinDates.TryGetValue(sid, out var jd) ? jd : anc.PeriodStart;
+                r.ProrationClassesTotal = anc.ClassesTotal;
+                r.ProrationClassesBilled = anc.ClassesBilled;
+                r.ProratedFirstMonthAmount = anc.AmountDue;
+                // Display-only reconstruction of the full month price: the stored fraction was
+                // round(amount ÷ base, 4), so base ≈ amount ÷ fraction rounded to whole currency.
+                r.ProrationFullMonthAmount = anc.ProRatedFraction > 0m
+                    ? Math.Round(anc.AmountDue / anc.ProRatedFraction, 0, MidpointRounding.AwayFromZero)
+                    : null;
+                r.IsProrationManual = anc.IsProrationManual;
+            }
+        }
+
+        // ── (b) Manual-override audit (system-suggested vs set · by whom). ──
+        var txIds = flagged
+            .Where(r => long.TryParse(r.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
             .Select(r => long.Parse(r.Id, CultureInfo.InvariantCulture))
             .Distinct()
             .ToList();
@@ -489,9 +539,8 @@ public class PaymentScreenService : IPaymentScreenService
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(setterIds)
             : new Dictionary<long, string>();
 
-        foreach (var r in rows)
+        foreach (var r in flagged)
         {
-            if (!r.IsProratedFirstMonth || r.Status != "collected") continue;
             if (!long.TryParse(r.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var txId)) continue;
             if (!byTx.TryGetValue(txId, out var a)) continue;
             r.SystemSuggestedProratedAmount = a.SuggestedAmount;
@@ -947,7 +996,10 @@ public class PaymentScreenService : IPaymentScreenService
                 ProRatedFraction = pe.Fraction,
                 ProratedAmount = pe.ProratedAmount,
                 JoinedAt = pe.JoinedAt,
-                JoinedAtIsFirstAttendance = pe.JoinedAtIsFirstAttendance
+                JoinedAtIsFirstAttendance = pe.JoinedAtIsFirstAttendance,
+                IsProrationManual = pe.IsProrationManual,
+                ProrationClassesTotal = pe.ClassesTotal,
+                ProrationClassesBilled = pe.ClassesBilled
             });
         }
 
@@ -965,18 +1017,21 @@ public class PaymentScreenService : IPaymentScreenService
             response, _localizer, PaymentConstants.Messages.Success);
     }
 
-    /// <summary>Per-student proration transparency computed by <see cref="BuildProrationEnrichmentAsync"/>.</summary>
+    /// <summary>Per-student proration transparency computed by <see cref="BuildProrationEnrichmentAsync"/>.
+    /// <c>JoinedAtIsFirstAttendance</c> is a retained wire flag, always false since rev 2 (2026-09-03) —
+    /// the anchor date is ALWAYS the enrollment (earliest assignment) date; attendance never prices the
+    /// joining month.</summary>
     private readonly record struct ProrationEnrichment(
         bool IsProrated, decimal? Fraction, decimal? ProratedAmount,
-        DateTime? JoinedAt, bool JoinedAtIsFirstAttendance);
+        DateTime? JoinedAt, bool JoinedAtIsFirstAttendance, bool IsProrationManual,
+        int? ClassesTotal, int? ClassesBilled);
 
     /// <summary>
     /// Batch-builds proration transparency for a set of students: the anchor month's prorated amount +
-    /// fraction and the anchor DATE, discriminating whether that date is a first-attendance date
-    /// (<c>JoinedAtIsFirstAttendance = true</c> → "first attended {date}") or the assignment date
-    /// (false → "joined {date}"). Only students with a PRORATED anchor appear in the result. This mirrors
-    /// the inline enrichment in <see cref="GetStudentsByStatusAsync"/> (kept intact for live-safety) so the
-    /// collect list and the status list agree on the same figures. One round of batch queries, no N+1.
+    /// fraction and the ENROLLMENT date ("joined {date}" — rev 2). Only students with a PRORATED anchor
+    /// appear in the result. This mirrors the inline enrichment in <see cref="GetStudentsByStatusAsync"/>
+    /// (kept intact for live-safety) so the collect list and the status list agree on the same figures.
+    /// One round of batch queries, no N+1.
     /// </summary>
     private async Task<Dictionary<long, ProrationEnrichment>> BuildProrationEnrichmentAsync(
         long teacherId, IReadOnlyList<long> studentIds)
@@ -990,45 +1045,17 @@ public class PaymentScreenService : IPaymentScreenService
             .ToDictionary(a => a.StudentId);
         if (anchorInfo.Count == 0) return result;
 
-        var anchorStudentIds = anchorInfo.Keys.ToList();
-        var anchorAssignDates = new Dictionary<(long, long), DateTime>();
-        var anchorFirstPresent = new Dictionary<(long, long), DateTime>();
-        foreach (var a in await _unitOfWork.PaymentsRepo
-            .GetAssignmentDatesForStudentsAsync(teacherId, anchorStudentIds))
-        {
-            var key = (a.TeacherStudentId, a.SessionId);
-            if (!anchorAssignDates.TryGetValue(key, out var ex) || a.AssignedAt < ex)
-                anchorAssignDates[key] = a.AssignedAt;
-        }
-        foreach (var a in await _unitOfWork.PaymentsRepo
-            .GetFirstAttendanceDatesForStudentsAsync(teacherId, anchorStudentIds))
-            anchorFirstPresent[(a.TeacherStudentId, a.SessionId)] = a.FirstPresentDate;
+        // Enrollment day per student = earliest assignment across ALL sessions (the original join).
+        var joinDates = await _unitOfWork.PaymentsRepo
+            .GetEarliestAssignmentDatesForStudentsAsync(teacherId, anchorInfo.Keys.ToList());
 
         foreach (var (studentId, anc) in anchorInfo)
         {
-            if (anc.SessionId is not long asid) continue;
-            DateTime joinedAt;
-            bool isFirstAttendance;
-            var anchorMonth = new DateTime(anc.PeriodStart.Year, anc.PeriodStart.Month, 1);
-            if (anchorFirstPresent.TryGetValue((studentId, asid), out var fp)
-                && new DateTime(fp.Year, fp.Month, 1) == anchorMonth)
-            {
-                joinedAt = fp;              // first-Present in the anchor month = the true anchor
-                isFirstAttendance = true;
-            }
-            else if (anchorAssignDates.TryGetValue((studentId, asid), out var ad))
-            {
-                joinedAt = ad;              // not yet attended / attended later → assignment day
-                isFirstAttendance = false;
-            }
-            else
-            {
-                joinedAt = anc.PeriodStart;
-                isFirstAttendance = false;
-            }
-
+            if (anc.SessionId is null) continue;
+            var joinedAt = joinDates.TryGetValue(studentId, out var ad) ? ad : anc.PeriodStart;
             result[studentId] = new ProrationEnrichment(
-                true, anc.ProRatedFraction, anc.AmountDue, joinedAt, isFirstAttendance);
+                true, anc.ProRatedFraction, anc.AmountDue, joinedAt, false, anc.IsProrationManual,
+                anc.ClassesTotal, anc.ClassesBilled);
         }
         return result;
     }
@@ -1079,29 +1106,18 @@ public class PaymentScreenService : IPaymentScreenService
             : (long?)null;
 
         // Proration transparency: batch the anchor-period info (prorated amount + fraction) and the
-        // anchor date (first-Present in the anchor month, else assignment date) so a prorated row can
-        // justify its reduced amount without an N+1. Only students with a PRORATED anchor are enriched.
+        // ENROLLMENT date (earliest assignment — rev 2: attendance never prices the joining month) so a
+        // prorated row can justify its reduced amount without an N+1. Only students with a PRORATED
+        // anchor are enriched.
         var anchorInfo = (await _unitOfWork.PaymentsRepo
                 .GetAnchorPeriodInfoByStudentIdsAsync(
                     teacherId, rows.Select(r => r.TeacherStudentId).Distinct().ToList()))
             .Where(a => a.IsProRated)
             .ToDictionary(a => a.StudentId);
-        var anchorAssignDates = new Dictionary<(long, long), DateTime>();
-        var anchorFirstPresent = new Dictionary<(long, long), DateTime>();
-        if (anchorInfo.Count > 0)
-        {
-            var anchorStudentIds = anchorInfo.Keys.ToList();
-            foreach (var a in await _unitOfWork.PaymentsRepo
-                .GetAssignmentDatesForStudentsAsync(teacherId, anchorStudentIds))
-            {
-                var key = (a.TeacherStudentId, a.SessionId);
-                if (!anchorAssignDates.TryGetValue(key, out var ex) || a.AssignedAt < ex)
-                    anchorAssignDates[key] = a.AssignedAt;
-            }
-            foreach (var a in await _unitOfWork.PaymentsRepo
-                .GetFirstAttendanceDatesForStudentsAsync(teacherId, anchorStudentIds))
-                anchorFirstPresent[(a.TeacherStudentId, a.SessionId)] = a.FirstPresentDate;
-        }
+        var anchorJoinDates = anchorInfo.Count > 0
+            ? await _unitOfWork.PaymentsRepo
+                .GetEarliestAssignmentDatesForStudentsAsync(teacherId, anchorInfo.Keys.ToList())
+            : new Dictionary<long, DateTime>();
 
         var students = new List<StudentByStatusDto>(rows.Count);
         foreach (var r in rows)
@@ -1115,25 +1131,23 @@ public class PaymentScreenService : IPaymentScreenService
             }
 
             bool isProrated = false;
+            bool isProrationManual = false;
             decimal? proratedFraction = null, proratedAmount = null;
+            int? prorationClassesTotal = null, prorationClassesBilled = null;
             DateTime? joinedAt = null;
+            // Retained wire flag, always false since rev 2 — the date shown is always the enrollment day.
             bool joinedAtIsFirstAttendance = false;
-            if (anchorInfo.TryGetValue(r.TeacherStudentId, out var anc) && anc.SessionId is long asid)
+            if (anchorInfo.TryGetValue(r.TeacherStudentId, out var anc) && anc.SessionId is not null)
             {
                 isProrated = true;
+                isProrationManual = anc.IsProrationManual;
                 proratedFraction = anc.ProRatedFraction;
                 proratedAmount = anc.AmountDue;
-                var anchorMonth = new DateTime(anc.PeriodStart.Year, anc.PeriodStart.Month, 1);
-                if (anchorFirstPresent.TryGetValue((r.TeacherStudentId, asid), out var fp)
-                    && new DateTime(fp.Year, fp.Month, 1) == anchorMonth)
-                {
-                    joinedAt = fp; // first-Present in the anchor month = the true anchor
-                    joinedAtIsFirstAttendance = true;
-                }
-                else if (anchorAssignDates.TryGetValue((r.TeacherStudentId, asid), out var ad))
-                    joinedAt = ad; // not yet attended / attended later → assignment day
-                else
-                    joinedAt = anc.PeriodStart;
+                prorationClassesTotal = anc.ClassesTotal;
+                prorationClassesBilled = anc.ClassesBilled;
+                joinedAt = anchorJoinDates.TryGetValue(r.TeacherStudentId, out var ad)
+                    ? ad
+                    : anc.PeriodStart;
             }
 
             students.Add(new StudentByStatusDto
@@ -1160,7 +1174,10 @@ public class PaymentScreenService : IPaymentScreenService
                 ProRatedFraction = proratedFraction,
                 ProratedAmount = proratedAmount,
                 JoinedAt = joinedAt,
-                JoinedAtIsFirstAttendance = joinedAtIsFirstAttendance
+                JoinedAtIsFirstAttendance = joinedAtIsFirstAttendance,
+                IsProrationManual = isProrationManual,
+                ProrationClassesTotal = prorationClassesTotal,
+                ProrationClassesBilled = prorationClassesBilled
             });
         }
 
@@ -1354,8 +1371,11 @@ public class PaymentScreenService : IPaymentScreenService
                     monthDto.ClassesTotalThisMonth = suggestion.ClassesTotalThisMonth;
                     monthDto.ClassesBilledThisMonth = suggestion.ClassesBilledThisMonth;
                     monthDto.FirstClassDate = suggestion.FirstClassDate;
+                    monthDto.JoinDate = suggestion.JoinDate;
                     monthDto.ProratedReason = suggestion.Reason;
                     monthDto.IsProrationManual = suggestion.IsManualOverride;
+                    monthDto.ProrationSetByName = suggestion.SetByName;
+                    monthDto.ProrationSetAt = suggestion.SetAt;
 
                     // Mirror onto the response root so the mobile collect popup reads it without
                     // walking the breakdown (the item above stays populated for other clients).
@@ -1365,8 +1385,11 @@ public class PaymentScreenService : IPaymentScreenService
                     response.ClassesTotalThisMonth = suggestion.ClassesTotalThisMonth;
                     response.ClassesBilledThisMonth = suggestion.ClassesBilledThisMonth;
                     response.FirstClassDate = suggestion.FirstClassDate;
+                    response.JoinDate = suggestion.JoinDate;
                     response.ProratedReason = suggestion.Reason;
                     response.IsProrationManual = suggestion.IsManualOverride;
+                    response.ProrationSetByName = suggestion.SetByName;
+                    response.ProrationSetAt = suggestion.SetAt;
                 }
             }
         }

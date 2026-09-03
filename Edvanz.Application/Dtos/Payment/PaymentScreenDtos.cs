@@ -180,6 +180,30 @@ public class CollectionRow
     /// <summary>Display name of the user who SET the manual joining amount (from the proration audit log).
     /// Null when the joining month was never manually overridden.</summary>
     public string? ProrationSetByName { get; set; }
+
+    // ── Joining-month STORY (rev 2 increment 2, 2026-09-03) — the same "why this price" facts the
+    // student cards show, so the collector-scoped ledgers explain a prorated first-month collection
+    // identically: "Joined {date} · {billed} of {total} classes left · {amount} of {full}".
+
+    /// <summary>The student's enrollment (earliest assignment) date. Null when unavailable.</summary>
+    public DateTime? ProrationJoinedAt { get; set; }
+
+    /// <summary>ByClasses basis frozen at pricing time (see PaymentPeriod). Null for percentage/manual.</summary>
+    public int? ProrationClassesTotal { get; set; }
+
+    /// <inheritdoc cref="ProrationClassesTotal"/>
+    public int? ProrationClassesBilled { get; set; }
+
+    /// <summary>The joining month's (reduced) billed amount — the "160" of "160 of 300".</summary>
+    public decimal? ProratedFirstMonthAmount { get; set; }
+
+    /// <summary>The full month price the reduction was taken from — the "300". Reconstructed from the
+    /// anchor's stored amount ÷ fraction (display-only).</summary>
+    public decimal? ProrationFullMonthAmount { get; set; }
+
+    /// <summary>True when the joining amount was set BY HAND (sticky override) — renders the
+    /// name-free "Set by hand" piece in the story line.</summary>
+    public bool IsProrationManual { get; set; }
 }
 
 /// <summary>One month a collection settled: the month key/label and how much of the cash landed on it.</summary>
@@ -416,13 +440,25 @@ public class CollectStudentDto
     /// <summary>The anchor month's prorated amount owed (e.g. 200.55). Null when not prorated.</summary>
     public decimal? ProratedAmount { get; set; }
 
-    /// <summary>The date the proration is anchored to — first-Present class date (or the assignment date
-    /// before they've attended). Null when not prorated.</summary>
+    /// <summary>The date the proration is anchored to — the ENROLLMENT (assignment) date since rev 2
+    /// (2026-09-03; attendance never prices the joining month). Null when not prorated.</summary>
     public DateTime? JoinedAt { get; set; }
 
-    /// <summary>True when <see cref="JoinedAt"/> is a first-attendance date ("first attended {date}");
-    /// false when it is the assignment date ("joined {date}"). Only meaningful when <see cref="IsProrated"/>.</summary>
+    /// <summary>LEGACY wire flag (rev 1) — always false since rev 2: <see cref="JoinedAt"/> is always
+    /// the enrollment date. Kept so older clients keep rendering "joined {date}".</summary>
     public bool JoinedAtIsFirstAttendance { get; set; }
+
+    /// <summary>True when the joining amount was set BY HAND (sticky override) — the row can badge
+    /// "set by hand" so an overridden price is visible before opening the editor.</summary>
+    public bool IsProrationManual { get; set; }
+
+    /// <summary>ByClasses basis FROZEN at pricing time: total classes in the joining month / classes
+    /// remaining from the join day. Lets the row say "7 of 13 classes → 160 of 300" forever —
+    /// including after the month is paid. Null for percentage/manual pricing.</summary>
+    public int? ProrationClassesTotal { get; set; }
+
+    /// <inheritdoc cref="ProrationClassesTotal"/>
+    public int? ProrationClassesBilled { get; set; }
 }
 
 // ── Screen: PaymentTracking (students by status) ───────────────────────────
@@ -502,18 +538,27 @@ public class StudentByStatusDto
     public decimal? ProratedAmount { get; set; }
 
     /// <summary>
-    /// The date the proration is anchored to — the student's FIRST-Present class date (or, before they've
-    /// attended, the assignment date). Justifies the prorated value on screen ("first attended {date}").
-    /// Null when not prorated.
+    /// The date the proration is anchored to — the ENROLLMENT (assignment) date since rev 2
+    /// (2026-09-03; attendance never prices the joining month). Justifies the prorated value on screen
+    /// ("joined {date}"). Null when not prorated.
     /// </summary>
     public DateTime? JoinedAt { get; set; }
 
-    /// <summary>
-    /// True when <see cref="JoinedAt"/> is the student's FIRST-ATTENDANCE date (render "first attended
-    /// {date}"); false when it is the ASSIGNMENT date (render "joined {date}") — i.e. the student hasn't
-    /// attended in the anchor month yet. Only meaningful when <see cref="IsProrated"/>.
-    /// </summary>
+    /// <summary>LEGACY wire flag (rev 1) — always false since rev 2: <see cref="JoinedAt"/> is always
+    /// the enrollment date. Kept so older clients keep rendering "joined {date}".</summary>
     public bool JoinedAtIsFirstAttendance { get; set; }
+
+    /// <summary>True when the joining amount was set BY HAND (sticky override) — the row can badge
+    /// "set by hand" so an overridden price is visible before opening the editor.</summary>
+    public bool IsProrationManual { get; set; }
+
+    /// <summary>ByClasses basis FROZEN at pricing time: total classes in the joining month / classes
+    /// remaining from the join day. Lets the row say "7 of 13 classes → 160 of 300" forever —
+    /// including after the month is paid. Null for percentage/manual pricing.</summary>
+    public int? ProrationClassesTotal { get; set; }
+
+    /// <inheritdoc cref="ProrationClassesTotal"/>
+    public int? ProrationClassesBilled { get; set; }
 }
 
 // ── Screen: SessionPaymentCollectedByYear ──────────────────────────────────
@@ -607,14 +652,20 @@ public class CollectLookupResponse
     public int? ClassesAttendedThisMonth { get; set; }
     /// <summary>ByClasses: total scheduled classes in the joining month (the "of 6").</summary>
     public int? ClassesTotalThisMonth { get; set; }
-    /// <summary>ByClasses: scheduled classes billed from the first class through month-end (the "4" of "4 of 6").</summary>
+    /// <summary>ByClasses: scheduled classes billed from the JOIN date through month-end (the "4" of "4 of 6").</summary>
     public int? ClassesBilledThisMonth { get; set; }
-    /// <summary>The student's first attended class date (drives the suggestion). Null until they attend.</summary>
+    /// <summary>LEGACY (rev 1 attendance anchor) — no longer populated; kept null for wire-compat.</summary>
     public DateTime? FirstClassDate { get; set; }
-    /// <summary>Plain reason string, e.g. "4 of 6 classes from first class 17 Sep".</summary>
+    /// <summary>The student's enrollment (assignment) date — the basis of the suggestion (rev 2).</summary>
+    public DateTime? JoinDate { get; set; }
+    /// <summary>Plain reason string, e.g. "7 of 13 classes billed from joining 14 Sep".</summary>
     public string? ProratedReason { get; set; }
     /// <summary>True when a person set a sticky manual joining amount (auto-suggest will not overwrite it).</summary>
     public bool IsProrationManual { get; set; }
+    /// <summary>When manually set: who set the joining amount (display name, from the audit log).</summary>
+    public string? ProrationSetByName { get; set; }
+    /// <summary>When manually set: when the joining amount was set (UTC).</summary>
+    public DateTime? ProrationSetAt { get; set; }
 
     // ── Same-day cross-collector soft-confirm (Issue 1, 2026-09-02) ──
     // When someone already collected from THIS student today, the mobile collect popup shows a soft
@@ -663,17 +714,26 @@ public class CollectLookupMonthDto
     /// <summary>ByClasses: total scheduled classes in the joining month (the "of 6").</summary>
     public int? ClassesTotalThisMonth { get; set; }
 
-    /// <summary>ByClasses: scheduled classes billed (from the first class through month-end) — the "4" in "4 of 6".</summary>
+    /// <summary>ByClasses: scheduled classes billed (from the JOIN date through month-end) — the "4" in "4 of 6".</summary>
     public int? ClassesBilledThisMonth { get; set; }
 
-    /// <summary>The student's first attended class date (drives the suggestion). Null until they attend.</summary>
+    /// <summary>LEGACY (rev 1 attendance anchor) — no longer populated; kept null for wire-compat.</summary>
     public DateTime? FirstClassDate { get; set; }
 
-    /// <summary>Plain reason string, e.g. "4 of 6 classes from first class 17 Sep". Null when not the joining month.</summary>
+    /// <summary>The student's enrollment (assignment) date — the basis of the suggestion (rev 2).</summary>
+    public DateTime? JoinDate { get; set; }
+
+    /// <summary>Plain reason string, e.g. "7 of 13 classes billed from joining 14 Sep". Null when not the joining month.</summary>
     public string? ProratedReason { get; set; }
 
     /// <summary>True when a person already set a sticky manual joining amount (auto-suggest will not overwrite it).</summary>
     public bool IsProrationManual { get; set; }
+
+    /// <summary>When manually set: who set the joining amount (display name, from the audit log).</summary>
+    public string? ProrationSetByName { get; set; }
+
+    /// <summary>When manually set: when the joining amount was set (UTC).</summary>
+    public DateTime? ProrationSetAt { get; set; }
 }
 
 public class CollectLookupStudentDto

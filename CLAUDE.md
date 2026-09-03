@@ -566,6 +566,47 @@ month use the teacher's **current local (Africa/Cairo) month** via `ITimeZoneSer
 `Unpaid` = any unpaid month ≤ that month; `Partial` = that month partly paid;
 `Prorated` = the prorated first month **only when the teacher has proration enabled**.
 
+**Proration rev 2 — ENROLLMENT-ANCHORED (2026-09-03; supersedes the 2026-09-02
+first-attendance-anchored model).** The joining (first) month of a genuinely NEW enrollment is
+priced ONCE, at assignment, from the teacher-LOCAL assignment day — **attendance never prices the
+joining month** (an absence is a missed obligation, not a discount; consistent with the auto-absent
+sweep treating assignment as the start of the attendance obligation). Methods
+(`TeacherConfiguration.ProrationMethod`): `ByPercentage` = join-day tier; `ByClasses` = scheduled
+classes from join day → month end ÷ total that month (0 remaining ⇒ 0-due anchor, born `Paid`);
+`Manual` = full until a human sets it. All joining amounts snap to the nearest 5
+(`SnapToNearest5`), clamped [0, full]. `ReapplyFirstAttendanceProrationAsync` and its
+AttendanceService hooks were **deleted — do not reintroduce an attendance-driven re-price.**
+`ComputeProrationSuggestionAsync` always recomputes from `GetEarliestAssignmentDateAsync` (min
+AssignedAt across ALL sessions — survives moves) + current settings, never from the stored
+fraction (the rev-1 echo made "reset to suggested" circular after a manual override — the
+confirmed x1 bug). A human-set amount (`PaymentPeriod.IsProrationManual`, sole writer
+`SetStudentProrationAmountAsync`) stays STICKY through every automatic path, is now ALWAYS
+audited (period-linked `PaymentEditLog`, actor + suggested + set), surfaced on the lookup
+(`prorationSetByName`/`prorationSetAt`) and lists (`isProrationManual`), and is cleared only by
+PUT proration with `amount: null`. A settings save whose proration signature changed runs
+`ReconcileProrationForExistingStudentsAsync` (idempotent, skips manual + any-cash anchors) and
+returns a `ProrationReconcileSummary` on the config DTO so the app reports "N re-priced · M kept"
+instead of recalculating silently. Carried never-paid anchors keep their stored fraction on a
+move (re-applied to the new base) — no attendance lookup. **The pricing story is FROZEN on the
+anchor row** (`PaymentPeriod.ProrationClassesTotal`/`ProrationClassesBilled`, migration
+`20260903121426_AddProrationClassBasisToPaymentPeriods`, nullable — ByClasses only): every list
+surface (by-status tabs incl. PAID rows, session hub rows, collect list) explains the price as
+"Joined {date} · {billed} of {total} classes left · {amount} of {full}" (percent form for By%,
+"Set by hand" for manual) via `GetAnchorPeriodInfoByStudentIdsAsync` + the FE
+`buildProrationStoryLine` helper — collection never erases the story, and schedule edits/method
+switches never rewrite history (display reads the frozen counts, not the live schedule). The
+COLLECTOR-scoped ledgers tell the same story (increment 3): `CollectionRow` carries
+`ProrationJoinedAt`/`ProrationClasses*`/`ProratedFirstMonthAmount`/`ProrationFullMonthAmount`
+(full base reconstructed as `round(AmountDue ÷ fraction)`) filled by
+`EnrichProrationTransparencyAsync`, rendered NAME-FREE (the ledger is already scoped to one
+person — per-row names are noise; the who-set-it audit stays in the collect editor). Related
+UX merge (2026-09-03): tapping an assistant on the collectors card opens ONE merged
+wallet+ledger screen (`TeacherPaymentSessionCollectionsView` wallet mode) — balance card +
+withdraw + hand-over history above the full ledger, opening on the "in hand now" scope (exact
+window since the last hand-over, so rows sum to the balance) with an "all months" chip; the
+collections endpoint's `from`/`to` accept EXACT instants when either carries a time-of-day
+(date-only callers unchanged), and the wallet response's `collections.sinceAt` anchors it.
+
 **Buckets are assigned-only and reconcile to `TotalStudents`.** The status headcounts
 (`statusBreakdown.paid/prorated/unpaid` on `/api/v1/payments/tracking`) and the per-status
 lists (`/api/v1/payments/students?status=…`) classify **only students currently assigned to

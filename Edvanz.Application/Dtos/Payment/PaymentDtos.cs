@@ -108,8 +108,11 @@ public class CollectPaymentResultDto
 
 /// <summary>
 /// The system-SUGGESTED joining-month (first-month) proration for a student, per the teacher's chosen
-/// <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022, 2026-09-02). Anchored to the
-/// student's FIRST ATTENDED CLASS date (never sign-up). Pure output — computed on demand, never persisted.
+/// <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022 rev 2, 2026-09-03). Anchored to
+/// the student's ENROLLMENT (earliest assignment) date — attendance never moves the bill: an absence is
+/// a missed obligation, not a discount. Deterministic — recomputed from the join date + the CURRENT
+/// settings on every call (never echoed from the stored period, so a manual override can always be
+/// reset to the true system price). Pure output — computed on demand, never persisted.
 /// Consumed by the collect-lookup enrichment and the per-student proration endpoint.
 /// </summary>
 public class ProrationSuggestionResult
@@ -135,16 +138,22 @@ public class ProrationSuggestionResult
     /// <summary>SuggestedAmount ÷ FullBase (display only).</summary>
     public decimal Fraction { get; set; }
 
-    /// <summary>The student's first attended class date (drives the suggestion). Null when they have not attended yet.</summary>
+    /// <summary>The student's enrollment (earliest assignment) date, teacher-local, clamped into the
+    /// anchor month — the single basis of the suggestion. Null only when no assignment row exists.</summary>
+    public DateTime? JoinDate { get; set; }
+
+    /// <summary>LEGACY (rev 1 attendance anchor). No longer populated — kept so older clients that bound
+    /// the field simply see null and hide their "first class" line.</summary>
     public DateTime? FirstClassDate { get; set; }
 
     /// <summary>ByClasses: total scheduled classes in the anchor month. Null for other methods / no session.</summary>
     public int? ClassesTotalThisMonth { get; set; }
 
-    /// <summary>ByClasses: scheduled classes from the first attended class through month-end (the billed numerator).</summary>
+    /// <summary>ByClasses: scheduled classes from the JOIN date through month-end (the billed numerator).</summary>
     public int? ClassesBilledThisMonth { get; set; }
 
-    /// <summary>Informational: classes the student has actually attended so far in the anchor month.</summary>
+    /// <summary>LEGACY (rev 1 "attended N so far"). No longer populated — attendance does not price the
+    /// joining month; kept null for wire-compat.</summary>
     public int? ClassesAttendedThisMonth { get; set; }
 
     /// <summary>The anchor's stored AmountDue right now (may already be a manual override).</summary>
@@ -153,8 +162,36 @@ public class ProrationSuggestionResult
     /// <summary>True when the anchor already carries a human-set (sticky) joining amount.</summary>
     public bool IsManualOverride { get; set; }
 
-    /// <summary>Plain, buildable reason string, e.g. "4 of 6 classes from first class 17 Sep". Null when not prorated.</summary>
+    /// <summary>When manually overridden: who set the amount (display name, from the proration audit
+    /// log). Null when not manual or the audit row predates attribution.</summary>
+    public string? SetByName { get; set; }
+
+    /// <summary>When manually overridden: when the amount was set (UTC). Null when not manual.</summary>
+    public DateTime? SetAt { get; set; }
+
+    /// <summary>Plain, buildable reason string, e.g. "7 of 13 classes from 14 Sep". Null when not prorated.</summary>
     public string? Reason { get; set; }
+}
+
+/// <summary>
+/// What the retroactive proration reconcile actually did after a settings save (REQ-PAY-021/022 rev 2 —
+/// the recalculation must be VISIBLE, not silent): how many still-owed first months were re-priced, and
+/// how many were deliberately kept (sticky manual override / cash already collected on the month).
+/// Attached to the configuration-save response; null when the proration config did not change.
+/// </summary>
+public class ProrationReconcileSummary
+{
+    /// <summary>First months whose amount actually changed under the new settings.</summary>
+    public int Repriced { get; set; }
+
+    /// <summary>First months skipped because a person set the amount by hand (sticky override).</summary>
+    public int KeptManual { get; set; }
+
+    /// <summary>First months skipped because cash was already collected against them.</summary>
+    public int KeptPaid { get; set; }
+
+    /// <summary>Eligible first months whose amount already matched the new settings (no-op).</summary>
+    public int Unchanged { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

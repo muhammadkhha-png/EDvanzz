@@ -58,7 +58,6 @@ public class AttendanceService : IAttendanceService
     private readonly ITimeZoneService _timeZoneService;
     private readonly ILogger<AttendanceService> _logger;
     private readonly IExamAttendanceSyncService _examAttendanceSync; // ← Exams: during-session sync
-    private readonly IPaymentService _paymentService;               // ← first-attendance proration
 
     public AttendanceService(
         IUnitOfWork unitOfWork,
@@ -68,8 +67,7 @@ public class AttendanceService : IAttendanceService
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService,
         ILogger<AttendanceService> logger,
-        IExamAttendanceSyncService examAttendanceSync,
-        IPaymentService paymentService)                            // ← first-attendance proration
+        IExamAttendanceSyncService examAttendanceSync)
     {
         _unitOfWork = unitOfWork;
         _occurrenceGenerator = occurrenceGenerator;
@@ -79,30 +77,10 @@ public class AttendanceService : IAttendanceService
         _timeZoneService = timeZoneService;
         _logger = logger;
         _examAttendanceSync = examAttendanceSync;
-        _paymentService = paymentService;                          // ← first-attendance proration
     }
 
-    /// <summary>
-    /// Best-effort re-anchor of the student's first-month proration to their first-Present date (agreed
-    /// design). Runs AFTER the attendance transaction commits, in its own transaction, and never throws
-    /// into the mark path — a proration tweak must not fail attendance. No-ops for transfers / paid /
-    /// disabled proration.
-    /// </summary>
-    private async Task TryReapplyFirstAttendanceProrationAsync(
-        long teacherId, long teacherStudentId, long sessionId)
-    {
-        try
-        {
-            await _paymentService.ReapplyFirstAttendanceProrationAsync(teacherId, teacherStudentId, sessionId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "First-attendance proration re-price failed for student {StudentId} session {SessionId} (non-fatal).",
-                teacherStudentId, sessionId);
-        }
-    }
-
+    // NOTE (rev 2, 2026-09-03): the first-attendance proration re-anchor hook was DELETED with the
+    // enrollment-anchored redesign — attendance never re-prices the joining month. Do not reintroduce.
 
     // ══════════════════════════════════════════════
     // SESSION OCCURRENCE MANAGEMENT
@@ -798,11 +776,6 @@ public class AttendanceService : IAttendanceService
                     await _attendanceNotifier.OnStudentAttendedAsync(
                         dto.TeacherId, dto.TeacherStudentId,
                         dto.SessionId, session.SessionName, date);
-
-                    // First-attendance proration: re-anchor a new student's first month to their first
-                    // Present date (agreed design). Best-effort — never fails the mark.
-                    await TryReapplyFirstAttendanceProrationAsync(
-                        dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
                 }
 
                 // Exams: reconcile any during-session exam on the occurrence the record LANDED on
@@ -1297,21 +1270,6 @@ public class AttendanceService : IAttendanceService
                              .Concat(reconciledOccurrenceIds).Distinct())
                     await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                         dto.TeacherId, affectedOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
-
-                // First-attendance proration: re-anchor each newly-present student's first month
-                // (best-effort, per distinct student). No-ops for transfers / paid / disabled.
-                // Check the teacher's proration setting ONCE up front — when it's off (the common
-                // case) skip the whole per-student loop instead of re-loading the config inside each
-                // call (avoids N identical config reads on a big bulk mark). Behaviour is unchanged:
-                // ReapplyFirstAttendanceProrationAsync also no-ops when proration is disabled.
-                var proConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(dto.TeacherId);
-                if (proConfig?.IsProratedPaymentEnabled == true)
-                    foreach (var sid in allRecords
-                                 .Where(r => (r.Status == AttendanceStatus.Present
-                                              || r.Status == AttendanceStatus.CrossSessionPresent)
-                                     && r.TeacherStudentId.HasValue)
-                                 .Select(r => r.TeacherStudentId!.Value).Distinct())
-                        await TryReapplyFirstAttendanceProrationAsync(dto.TeacherId, sid, dto.SessionId);
             }
 
             var resultDto = new BulkMarkAttendanceResultDto
@@ -1785,13 +1743,6 @@ public class AttendanceService : IAttendanceService
                 await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                     dto.TeacherId, record.SessionOccurrenceId.Value, dto.EditedByUserId ?? dto.TeacherId);
 
-            // First-attendance proration: an edit TO Present can establish/adjust the first-Present date.
-            if (ownsTransaction
-                && newStatus is AttendanceStatus.Present or AttendanceStatus.CrossSessionPresent
-                && record.TeacherStudentId.HasValue && record.SessionId.HasValue)
-                await TryReapplyFirstAttendanceProrationAsync(
-                    dto.TeacherId, record.TeacherStudentId.Value, record.SessionId.Value);
-
             var resultDto = MapToRecordDto(record,
                 record.StudentName ?? "Unknown",
                 record.StudentCode ?? "");
@@ -1932,12 +1883,6 @@ public class AttendanceService : IAttendanceService
             if (ownsTransaction)
                 await _examAttendanceSync.ReconcileExamsForSessionOccurrenceAsync(
                     dto.TeacherId, mt.RecordOccurrenceId, dto.RecordedByUserId ?? dto.TeacherId);
-
-            // First-attendance proration: an added Present (e.g. backfilling the first class) anchors it.
-            if (ownsTransaction
-                && addStatus is AttendanceStatus.Present or AttendanceStatus.CrossSessionPresent)
-                await TryReapplyFirstAttendanceProrationAsync(
-                    dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
 
             var resultDto = MapToRecordDto(record, student.StudentName, student.StudentCode);
             return Result<AttendanceRecordDto>.Success(

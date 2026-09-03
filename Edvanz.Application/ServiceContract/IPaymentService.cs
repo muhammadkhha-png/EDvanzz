@@ -305,28 +305,24 @@ public interface IPaymentService
     /// <summary>
     /// Retroactively reconciles EXISTING students' first month to the teacher's CURRENT proration config
     /// (req 3): prorates first months when proration is enabled, restores full price when disabled, and
-    /// re-applies changed tiers. Only still-owed first months are touched — already-paid months are left
-    /// untouched (no credit/debit). Runs on the caller's transaction (no own commit); call it from
-    /// <c>TeacherService.SaveConfigurationAsync</c> after the config + tiers are saved, when the proration
-    /// config actually changed.
+    /// re-applies changed tiers/method. Anchored to each student's ENROLLMENT (earliest assignment) date
+    /// (rev 2, 2026-09-03) — deterministic and idempotent. Only still-owed, never-collected, non-manual
+    /// first months are touched. Returns WHAT IT DID (re-priced / kept counts) so the settings screen can
+    /// report the recalculation instead of running silently. Runs on the caller's transaction (no own
+    /// commit); call it from <c>TeacherService.SaveConfigurationAsync</c> after the config + tiers are
+    /// saved, when the proration config actually changed.
     /// </summary>
-    Task ReconcileProrationForExistingStudentsAsync(long teacherId);
-
-    /// <summary>
-    /// Re-anchors a NEW student's first-month proration to their FIRST-Present-attendance date. Call it
-    /// (best-effort) when a Present is recorded for the student in the session; it no-ops for transfers,
-    /// already-paid first months, disabled proration, or a first class outside the assignment month.
-    /// Idempotent (always uses the earliest present date). Owns its transaction when none is active.
-    /// </summary>
-    Task ReapplyFirstAttendanceProrationAsync(long teacherId, long teacherStudentId, long sessionId);
+    Task<ProrationReconcileSummary> ReconcileProrationForExistingStudentsAsync(long teacherId);
 
     /// <summary>
     /// Computes the SYSTEM-SUGGESTED joining-month amount for a student in a session, per the teacher's
-    /// chosen <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022). Anchored to the first
-    /// attended class date. Rounded to the nearest 5, clamped to [0, full month]. Pure read — never
-    /// persists. Returns <c>Applicable == false</c> when there is nothing to prorate (proration off, no
-    /// still-owed anchor month, transfer, or already paid). Feeds the collect-lookup enrichment + the
-    /// per-student proration endpoint (no N+1 — one student per call).
+    /// chosen <see cref="Edvanz.Domain.Enums.ProrationMethod"/> (REQ-PAY-021/022 rev 2). Anchored to the
+    /// student's ENROLLMENT (earliest assignment) date — attendance never prices the joining month.
+    /// Recomputed from the join date + CURRENT settings on every call (never echoed from the stored
+    /// period). Rounded to the nearest 5, clamped to [0, full month]. Pure read — never persists.
+    /// Returns <c>Applicable == false</c> when there is nothing to prorate (proration off, no still-owed
+    /// anchor month, transfer, or already paid). Feeds the collect-lookup enrichment + the per-student
+    /// proration endpoint (no N+1 — one student per call).
     /// </summary>
     Task<ProrationSuggestionResult> ComputeProrationSuggestionAsync(
         long teacherId, long teacherStudentId, long sessionId);
@@ -335,10 +331,11 @@ public interface IPaymentService
     /// Sets (amount != null) or CLEARS (amount == null) a student's joining-month proration amount
     /// (REQ-PAY-021/022). Allowed for the teacher AND assistants — the acting user is recorded. The amount
     /// is snapped to the nearest 5 and must be in [0, full month]; setting marks the anchor
-    /// <c>IsProrationManual</c> (sticky — auto re-proration/price-change never overwrites it) and, when it
-    /// differs from the system suggestion, writes a proration-decision <see cref="Edvanz.Domain.Entities.PaymentEditLog"/>
-    /// (actor · suggested · set). Clearing reverts to the method's auto suggestion. Guard: only the still-unpaid
-    /// anchor month of a new enrollment. Reuses the reprice + counter-delta + consecutive-unpaid path.
+    /// <c>IsProrationManual</c> (sticky — auto re-proration/price-change never overwrites it) and ALWAYS
+    /// writes a proration-decision <see cref="Edvanz.Domain.Entities.PaymentEditLog"/> (actor · suggested
+    /// · set — rev 2: unconditional, so "set by hand · by whom · when" is always attributable). Clearing
+    /// reverts to the method's auto suggestion. Guard: only the still-unpaid anchor month of a new
+    /// enrollment. Reuses the reprice + counter-delta + consecutive-unpaid path.
     /// </summary>
     Task<Result<ProrationUpdateResultDto>> SetStudentProrationAmountAsync(
         long teacherId, long actingUserId, long teacherStudentId, decimal? amount);

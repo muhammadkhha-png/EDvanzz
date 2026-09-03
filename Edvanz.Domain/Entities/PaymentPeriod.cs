@@ -162,6 +162,19 @@ public class PaymentPeriod : BaseEntity
     /// </summary>
     public bool IsProrationManual { get; set; } = false;
 
+    /// <summary>
+    /// ByClasses transparency, FROZEN at pricing time (rev 2, 2026-09-03): total scheduled classes in
+    /// the joining month, and how many remained from the enrollment day (the billed numerator). Stored
+    /// on the period — not recomputed from the schedule — so a paid card can forever explain itself
+    /// ("7 of 13 classes → 160 of 300") even after the session's schedule is edited or the teacher
+    /// switches methods. Null for ByPercentage/Manual pricing and for non-anchor months. Additive
+    /// nullable columns.
+    /// </summary>
+    public int? ProrationClassesTotal { get; set; }
+
+    /// <inheritdoc cref="ProrationClassesTotal"/>
+    public int? ProrationClassesBilled { get; set; }
+
     // ══════════════════════════════════════════════
     // ORDERING
     // ══════════════════════════════════════════════

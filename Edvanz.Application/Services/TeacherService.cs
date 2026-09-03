@@ -1,4 +1,5 @@
 ﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -571,19 +572,25 @@ public class TeacherService : ITeacherService
             await _unitOfWork.SaveChangesAsync();
 
             // req 3: proration now applies to EXISTING students, not just new ones. When the proration
-            // config actually changed (enabled/disabled, or a tier edited), retroactively re-price every
-            // assigned student's first month — prorate on enable, restore full price on disable — leaving
-            // already-paid months untouched. Runs INSIDE this transaction (the service joins our boundary
-            // and only SaveChanges), so a failure rolls the whole config save back.
+            // config actually changed (enabled/disabled, method switched, or a tier edited),
+            // retroactively re-price every assigned student's first month — prorate on enable, restore
+            // full price on disable — leaving already-paid months untouched. Runs INSIDE this
+            // transaction (the service joins our boundary and only SaveChanges), so a failure rolls the
+            // whole config save back. The returned summary is surfaced on the response so the settings
+            // screen can report "N re-priced · M kept" instead of recalculating silently (rev 2).
+            ProrationReconcileSummary? reconcileSummary = null;
             if (oldProrationSignature != newProrationSignature)
-                await _paymentService.ReconcileProrationForExistingStudentsAsync(teacherId);
+                reconcileSummary = await _paymentService.ReconcileProrationForExistingStudentsAsync(teacherId);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
 
             var configResult = await GetConfigurationAsync(teacherId);
             if (configResult.IsSuccess && configResult.Data is not null)
+            {
+                configResult.Data.ProrationReconcile = reconcileSummary;
                 return Result<TeacherConfigurationDto>.Success(configResult.Data, _localizer, "ConfigurationSavedSuccess", HttpStatusCode.OK);
+            }
 
             return configResult;
         }

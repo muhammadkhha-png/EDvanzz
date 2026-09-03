@@ -77,4 +77,11 @@ public class TeacherConfigurationDto
     public DateTime? UpdatedAt { get; set; }
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }
     public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
+
+    /// <summary>
+    /// What the retroactive proration reconcile did during THIS save (REQ-PAY-021/022 rev 2 — the
+    /// recalculation must be visible): re-priced / kept counts. Null on plain reads and on saves where
+    /// the proration config did not change. Additive — older clients ignore it.
+    /// </summary>
+    public Payment.ProrationReconcileSummary? ProrationReconcile { get; set; }
 }
