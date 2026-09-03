@@ -86,6 +86,14 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             SubscriptionPlanType.Managerial, request.RemoveExistingLinks,
             SubscriptionConstants.Messages.SubscriptionManagerialActivated);
 
+    /// <inheritdoc />
+    public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialPlusAsync(
+        long adminUserId, AdminActivateManagerialRequest request)
+        => await ActivateCoreAsync(
+            adminUserId, request.TeacherId, request.StartDate, request.EndDate,
+            SubscriptionPlanType.ManagerialPlus, request.RemoveExistingLinks,
+            SubscriptionConstants.Messages.SubscriptionManagerialPlusActivated);
+
     /// <summary>
     /// Shared no-payment activation core for both Full and Managerial plans. Inserts a new
     /// IsCurrent = true TeacherSubscription (PaymentChannel = SuperAdminOverride, AmountPaidEGP = 0)
@@ -802,9 +810,13 @@ public class AdminSubscriptionService : IAdminSubscriptionService
 
     /// <inheritdoc />
     public async Task<Result<SubscriptionPricingDto>> UpdatePricingAsync(
-        long adminUserId, decimal pricePerStudentEGP)
+        long adminUserId, UpdateSubscriptionPricingRequest request)
     {
-        if (pricePerStudentEGP <= 0m)
+        // The flat plan prices are NULLABLE (omitted = unchanged) but never zero/negative:
+        // the same "> 0" rule as the per-student rate, checked only when a value was sent.
+        if (request.PricePerStudentEGP <= 0m
+            || request.ManagerialMonthlyPriceEGP is <= 0m
+            || request.ManagerialPlusMonthlyPriceEGP is <= 0m)
         {
             return Result<SubscriptionPricingDto>.Failure(
                 _localizer, SubscriptionConstants.Messages.PricePerStudentMustBePositive);
@@ -817,7 +829,11 @@ public class AdminSubscriptionService : IAdminSubscriptionService
                 _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured, HttpStatusCode.NotFound);
         }
 
-        setting.PricePerStudentEGP = pricePerStudentEGP;
+        setting.PricePerStudentEGP = request.PricePerStudentEGP;
+        if (request.ManagerialMonthlyPriceEGP is decimal managerial)
+            setting.ManagerialMonthlyPriceEGP = managerial;
+        if (request.ManagerialPlusMonthlyPriceEGP is decimal managerialPlus)
+            setting.ManagerialPlusMonthlyPriceEGP = managerialPlus;
         setting.UpdatedAt = DateTime.UtcNow;
         setting.UpdatedByUserId = adminUserId;
         await _unitOfWork.SaveChangesAsync();
@@ -974,6 +990,8 @@ public class AdminSubscriptionService : IAdminSubscriptionService
     private static SubscriptionPricingDto ToPricingDto(SubscriptionPricingSetting setting) => new()
     {
         PricePerStudentEGP = setting.PricePerStudentEGP,
+        ManagerialMonthlyPriceEGP = setting.ManagerialMonthlyPriceEGP,
+        ManagerialPlusMonthlyPriceEGP = setting.ManagerialPlusMonthlyPriceEGP,
         UpdatedAt = setting.UpdatedAt,
         UpdatedByUserId = setting.UpdatedByUserId
     };

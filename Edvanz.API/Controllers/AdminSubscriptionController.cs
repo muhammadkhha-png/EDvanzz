@@ -145,6 +145,33 @@ public class AdminSubscriptionController : ApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ENDPOINT 1c: ACTIVATE MANAGERIAL + PARENTS (ManagerialPlus)
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // Identical to activate-managerial (same request shape, same RemoveExistingLinks
+    // semantics — it severs student/parent-ACCOUNT links only, never parent-portal
+    // follow-up grants) but the row is stamped PlanType = ManagerialPlus: student
+    // accounts stay blocked while the public parent follow-up page remains available.
+    //
+    // SAMPLE: POST /api/admin/subscriptions/activate-managerial-plus
+    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false }
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("activate-managerial-plus")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Subscription.CurrentSubscriptionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ActivateManagerialPlus([FromBody] AdminActivateManagerialRequest request)
+    {
+        long? adminUserId = _currentUser.UserId;
+        if (adminUserId is null) return AdminNotResolved();
+
+        var result = await _adminService.ActivateManagerialPlusAsync(adminUserId.Value, request);
+        return ToResponse(result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 2: EXTEND (FR-SUB-061 / REQ-ADM-016)
     // ══════════════════════════════════════════════════════════════════════════
     //
@@ -463,8 +490,7 @@ public class AdminSubscriptionController : ApiBaseController
         long? adminUserId = _currentUser.UserId;
         if (adminUserId is null) return AdminNotResolved();
 
-        var result = await _adminService.UpdatePricingAsync(
-            adminUserId.Value, request.PricePerStudentEGP);
+        var result = await _adminService.UpdatePricingAsync(adminUserId.Value, request);
         return ToResponse(result);
     }
 

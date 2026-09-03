@@ -135,7 +135,7 @@ public class AdminCenterService : IAdminCenterService
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
 
-            return Result<CenterListItemDto>.Success(ToListItem(center, user, 0, 0, 0), _localizer, "CenterCreated");
+            return Result<CenterListItemDto>.Success(ToListItem(center, user, 0, 0, 0, 0), _localizer, "CenterCreated");
         }
         catch
         {
@@ -154,9 +154,10 @@ public class AdminCenterService : IAdminCenterService
         {
             var full = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(c.Id, SubscriptionPlanType.Full);
             var managerial = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(c.Id, SubscriptionPlanType.Managerial);
+            var managerialPlus = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(c.Id, SubscriptionPlanType.ManagerialPlus);
             // The login User carries the username + last-login/last-activity surfaced by the dashboard.
             var user = await _unitOfWork.Users.GetUserByIdAsync(c.UserId);
-            list.Add(ToListItem(c, user, full + managerial, full, managerial));
+            list.Add(ToListItem(c, user, full + managerial + managerialPlus, full, managerial, managerialPlus));
         }
 
         return Result<List<CenterListItemDto>>.Success(list, _localizer, "Success");
@@ -171,8 +172,11 @@ public class AdminCenterService : IAdminCenterService
 
         var full = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Full);
         var managerial = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Managerial);
+        var managerialPlus = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.ManagerialPlus);
         var user = await _unitOfWork.Users.GetUserByIdAsync(center.UserId);
-        return Result<CenterListItemDto>.Success(ToListItem(center, user, full + managerial, full, managerial), _localizer, "Success");
+        return Result<CenterListItemDto>.Success(
+            ToListItem(center, user, full + managerial + managerialPlus, full, managerial, managerialPlus),
+            _localizer, "Success");
     }
 
     /// <inheritdoc />
@@ -227,7 +231,8 @@ public class AdminCenterService : IAdminCenterService
         }
     }
 
-    private static CenterListItemDto ToListItem(Center c, User? user, int total, int full, int managerial) => new()
+    private static CenterListItemDto ToListItem(
+        Center c, User? user, int total, int full, int managerial, int managerialPlus) => new()
     {
         CenterId = c.Id,
         Name = c.Name,
@@ -237,6 +242,7 @@ public class AdminCenterService : IAdminCenterService
         TeacherCount = total,
         FullTeacherCount = full,
         ManagerialTeacherCount = managerial,
+        ManagerialPlusTeacherCount = managerialPlus,
         CreatedAt = c.CreateAt,
         UserId = c.UserId,
         Username = user?.Username,

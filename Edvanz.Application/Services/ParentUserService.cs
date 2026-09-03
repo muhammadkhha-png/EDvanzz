@@ -362,10 +362,14 @@ public class ParentUserService : IParentUserService
         if (teacher is null)
             return Result<ParentChildTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // A managerial subscription forbids linking any student OR parent account to the teacher.
-        if (await _subscriptionGate.IsManagerialAsync(teacher.Id))
+        // A plan without student accounts (Managerial / ManagerialPlus) forbids linking any student
+        // OR in-app parent account to the teacher — ManagerialPlus includes only the public
+        // follow-up page, never parent app accounts.
+        var planEntitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacher.Id);
+        if (!planEntitlements.StudentAccountsAllowed)
             return Result<ParentChildTeacherDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+                _localizer, SubscriptionConstants.StudentAccountsBlockedMessageKey(planEntitlements.PlanType),
+                HttpStatusCode.Forbidden);
 
         if (string.IsNullOrWhiteSpace(dto.StudentCode))
             return Result<ParentChildTeacherDto>.Failure(_localizer, "StudentCodeRequired", HttpStatusCode.BadRequest);

@@ -32,6 +32,7 @@ public class CenterListItemDto
     public int TeacherCount { get; set; }
     public int FullTeacherCount { get; set; }
     public int ManagerialTeacherCount { get; set; }
+    public int ManagerialPlusTeacherCount { get; set; }
     public DateTime CreatedAt { get; set; }
 
     /// <summary>The center's login <see cref="User"/> id — the SuperAdmin dashboard passes this to
@@ -105,7 +106,8 @@ public class CreateCenterTeacherDto
     public List<long> SubjectIds { get; set; } = new();
     public string? CustomSubject { get; set; }
     public string? LanguagePreference { get; set; }
-    /// <summary>Full (students/parents allowed) or Managerial (roster-only).</summary>
+    /// <summary>Full (students/parents allowed), Managerial (roster-only), or ManagerialPlus
+    /// (roster + the public parent follow-up page, no student accounts).</summary>
     public SubscriptionPlanType PlanType { get; set; } = SubscriptionPlanType.Full;
     public int StudentCapacity { get; set; } = 500;
     /// <summary>Optional per-teacher override of the center's default revenue-share %.</summary>
@@ -163,15 +165,18 @@ public class CenterOverviewDto
     public int TeacherCount { get; set; }
     public int FullTeacherCount { get; set; }
     public int ManagerialTeacherCount { get; set; }
+    public int ManagerialPlusTeacherCount { get; set; }
     public int StudentCount { get; set; }
 
     // Quota entitlement from the current center subscription (nulls when none active).
     public bool HasActiveSubscription { get; set; }
     public int? FullTeacherSlots { get; set; }
     public int? ManagerialTeacherSlots { get; set; }
+    public int? ManagerialPlusTeacherSlots { get; set; }
     public int? StudentCapacityTotal { get; set; }
     public int? StudentCapacityUnderFull { get; set; }
     public int? StudentCapacityUnderManagerial { get; set; }
+    public int? StudentCapacityUnderManagerialPlus { get; set; }
     public DateTime? SubscriptionEndDate { get; set; }
 }
 

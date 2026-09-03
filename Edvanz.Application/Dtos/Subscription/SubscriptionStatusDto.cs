@@ -46,4 +46,26 @@ public class SubscriptionStatusDto
 
     /// <summary>Support/team WhatsApp number for the "contact us" button (E.164 or local, as configured). Null/empty if not configured.</summary>
     public string? WhatsAppNumber { get; set; }
+
+    /// <summary>
+    /// The plan's live feature entitlements — the app's ONLY source for plan-based screen gating
+    /// (locked parent follow-up / student-links screens). Computed server-side from the single
+    /// plan → feature map so clients never hardcode plan semantics. Additive: absent on older
+    /// servers, in which case clients must fail OPEN (the server still enforces on action).
+    /// </summary>
+    public SubscriptionFeaturesDto Features { get; set; } = new();
+}
+
+/// <summary>
+/// Live plan entitlements for the signed-in teacher (see <see cref="SubscriptionStatusDto.Features"/>).
+/// Both default to true — no/expired subscription restricts nothing (free-tier behavior; module
+/// quotas gate creation separately).
+/// </summary>
+public class SubscriptionFeaturesDto
+{
+    /// <summary>May student app accounts (and in-app parent accounts) be linked? False under Managerial / ManagerialPlus.</summary>
+    public bool StudentAccountsAllowed { get; set; } = true;
+
+    /// <summary>May the public parent follow-up page be used? False under plain Managerial only.</summary>
+    public bool ParentFollowUpAllowed { get; set; } = true;
 }

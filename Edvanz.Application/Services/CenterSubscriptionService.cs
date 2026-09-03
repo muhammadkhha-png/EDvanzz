@@ -35,9 +35,11 @@ public class CenterSubscriptionService : ICenterSubscriptionService
         var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
         var usedFull = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Full);
         var usedManagerial = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Managerial);
+        var usedManagerialPlus = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.ManagerialPlus);
         var usedStudents = await _unitOfWork.Centers.CountCenterStudentsTotalAsync(centerId);
         var usedStudentsFull = await _unitOfWork.Centers.CountCenterStudentsUnderPlanAsync(centerId, SubscriptionPlanType.Full);
         var usedStudentsManagerial = await _unitOfWork.Centers.CountCenterStudentsUnderPlanAsync(centerId, SubscriptionPlanType.Managerial);
+        var usedStudentsManagerialPlus = await _unitOfWork.Centers.CountCenterStudentsUnderPlanAsync(centerId, SubscriptionPlanType.ManagerialPlus);
         var pending = await _unitOfWork.Centers.GetPendingRequestByCenterAsync(centerId);
 
         var dto = new CenterSubscriptionDto
@@ -45,9 +47,11 @@ public class CenterSubscriptionService : ICenterSubscriptionService
             HasSubscription = sub != null,
             UsedFullTeachers = usedFull,
             UsedManagerialTeachers = usedManagerial,
+            UsedManagerialPlusTeachers = usedManagerialPlus,
             UsedStudentsTotal = usedStudents,
             UsedStudentsUnderFull = usedStudentsFull,
             UsedStudentsUnderManagerial = usedStudentsManagerial,
+            UsedStudentsUnderManagerialPlus = usedStudentsManagerialPlus,
             HasPendingRequest = pending != null
         };
 
@@ -60,9 +64,11 @@ public class CenterSubscriptionService : ICenterSubscriptionService
             dto.DaysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(subForStatus, DateTime.UtcNow);
             dto.FullTeacherSlots = sub.FullTeacherSlots;
             dto.ManagerialTeacherSlots = sub.ManagerialTeacherSlots;
+            dto.ManagerialPlusTeacherSlots = sub.ManagerialPlusTeacherSlots;
             dto.StudentCapacityTotal = sub.StudentCapacityTotal;
             dto.StudentCapacityUnderFull = sub.StudentCapacityUnderFull;
             dto.StudentCapacityUnderManagerial = sub.StudentCapacityUnderManagerial;
+            dto.StudentCapacityUnderManagerialPlus = sub.StudentCapacityUnderManagerialPlus;
         }
 
         if (pending != null)
@@ -71,9 +77,11 @@ public class CenterSubscriptionService : ICenterSubscriptionService
             {
                 FullTeacherSlots = pending.FullTeacherSlots,
                 ManagerialTeacherSlots = pending.ManagerialTeacherSlots,
+                ManagerialPlusTeacherSlots = pending.ManagerialPlusTeacherSlots,
                 StudentCapacityTotal = pending.StudentCapacityTotal,
                 StudentCapacityUnderFull = pending.StudentCapacityUnderFull,
                 StudentCapacityUnderManagerial = pending.StudentCapacityUnderManagerial,
+                StudentCapacityUnderManagerialPlus = pending.StudentCapacityUnderManagerialPlus,
                 Note = pending.Note
             };
             dto.PendingRequestAmountEGP = pending.ComputedAmountEGP;
@@ -87,9 +95,11 @@ public class CenterSubscriptionService : ICenterSubscriptionService
                 Status = latest.Status.ToString(),
                 FullTeacherSlots = latest.FullTeacherSlots,
                 ManagerialTeacherSlots = latest.ManagerialTeacherSlots,
+                ManagerialPlusTeacherSlots = latest.ManagerialPlusTeacherSlots,
                 StudentCapacityTotal = latest.StudentCapacityTotal,
                 StudentCapacityUnderFull = latest.StudentCapacityUnderFull,
                 StudentCapacityUnderManagerial = latest.StudentCapacityUnderManagerial,
+                StudentCapacityUnderManagerialPlus = latest.StudentCapacityUnderManagerialPlus,
                 AmountEGP = latest.ComputedAmountEGP,
                 Note = latest.Note,
                 RequestedAt = latest.RequestedAt,
@@ -107,8 +117,9 @@ public class CenterSubscriptionService : ICenterSubscriptionService
         var center = await _unitOfWork.Centers.GetCenterByIdAsync(centerId);
         if (center == null)
             return Result<string>.Failure(_localizer, "CenterNotFound", HttpStatusCode.NotFound);
-        if (dto.FullTeacherSlots < 0 || dto.ManagerialTeacherSlots < 0 || dto.StudentCapacityTotal < 0
-            || dto.StudentCapacityUnderFull < 0 || dto.StudentCapacityUnderManagerial < 0)
+        if (dto.FullTeacherSlots < 0 || dto.ManagerialTeacherSlots < 0 || dto.ManagerialPlusTeacherSlots < 0
+            || dto.StudentCapacityTotal < 0 || dto.StudentCapacityUnderFull < 0
+            || dto.StudentCapacityUnderManagerial < 0 || dto.StudentCapacityUnderManagerialPlus < 0)
             return Result<string>.Failure(_localizer, "InvalidQuotaPackage", HttpStatusCode.BadRequest);
 
         var existing = await _unitOfWork.Centers.GetPendingRequestByCenterAsync(centerId);
@@ -117,16 +128,19 @@ public class CenterSubscriptionService : ICenterSubscriptionService
 
         var pricing = await _unitOfWork.GetRepository<CenterSubscriptionPricingSetting, long>().GetByIdAsync(1);
         var amount = dto.FullTeacherSlots * (pricing?.FullTeacherSlotPriceEGP ?? 0m)
-                   + dto.ManagerialTeacherSlots * (pricing?.ManagerialTeacherSlotPriceEGP ?? 0m);
+                   + dto.ManagerialTeacherSlots * (pricing?.ManagerialTeacherSlotPriceEGP ?? 0m)
+                   + dto.ManagerialPlusTeacherSlots * (pricing?.ManagerialPlusTeacherSlotPriceEGP ?? 0m);
 
         var request = new CenterSubscriptionRequest
         {
             CenterId = centerId,
             FullTeacherSlots = dto.FullTeacherSlots,
             ManagerialTeacherSlots = dto.ManagerialTeacherSlots,
+            ManagerialPlusTeacherSlots = dto.ManagerialPlusTeacherSlots,
             StudentCapacityTotal = dto.StudentCapacityTotal,
             StudentCapacityUnderFull = dto.StudentCapacityUnderFull,
             StudentCapacityUnderManagerial = dto.StudentCapacityUnderManagerial,
+            StudentCapacityUnderManagerialPlus = dto.StudentCapacityUnderManagerialPlus,
             ComputedAmountEGP = amount,
             Note = dto.Note,
             Status = SubscriptionRequestStatus.Pending,

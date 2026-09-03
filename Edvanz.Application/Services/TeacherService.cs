@@ -452,6 +452,22 @@ public class TeacherService : ITeacherService
             }
         }
 
+        // ── Parent follow-up page requires a plan that includes it (Full / ManagerialPlus). ──
+        // Gate ONLY the false→true FLIP: a config that already has the toggle on (e.g. set under a
+        // former Full plan) must keep saving unrelated settings — the read-time portal eligibility
+        // gate (ParentPortalService.IsPortalEligibleAsync) keeps the page closed regardless, so an
+        // already-true value grants nothing. The app surfaces this message verbatim as the toast.
+        if (dto.ParentPortalEnabled == true && !config.ParentPortalEnabled)
+        {
+            var planEntitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacherId);
+            if (!planEntitlements.ParentFollowUpAllowed)
+            {
+                return Result<TeacherConfigurationDto>.Failure(
+                    _localizer, SubscriptionConstants.Messages.ParentPortalRequiresSubscription,
+                    HttpStatusCode.Forbidden);
+            }
+        }
+
         // Capacity is admin-approved after onboarding (per-student pricing depends on it):
         // a configured teacher sending a DIFFERENT package id must use the capacity-increase
         // request flow. The same id (or none) is ignored — wire-compat for clients that

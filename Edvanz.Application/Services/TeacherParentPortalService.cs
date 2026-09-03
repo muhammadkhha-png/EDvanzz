@@ -26,13 +26,16 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
+    private readonly ISubscriptionGateService _subscriptionGate;
 
     public TeacherParentPortalService(
         IUnitOfWork unitOfWork,
-        IStringLocalizer<Domain.Resources.Messages> localizer)
+        IStringLocalizer<Domain.Resources.Messages> localizer,
+        ISubscriptionGateService subscriptionGate)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
+        _subscriptionGate = subscriptionGate;
     }
 
     /// <inheritdoc />
@@ -263,6 +266,7 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
 
         long id = teacherId.Value;
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(id);
+        var entitlements = await _subscriptionGate.GetPlanEntitlementsAsync(id);
 
         var dto = new ParentPortalSummaryDto
         {
@@ -275,7 +279,9 @@ public sealed class TeacherParentPortalService : ITeacherParentPortalService
             // Decided by the caller (the API layer owns authorization) using the very same
             // PermissionRequirement the [ModulePermission] attribute evaluates — never re-derived
             // here, so there is exactly one source of truth for "may this caller manage requests".
-            CanManage = canManage
+            CanManage = canManage,
+            // Plan half of the portal eligibility (the app locks the whole section on false).
+            PortalAllowed = entitlements.ParentFollowUpAllowed
         };
 
         return Result<ParentPortalSummaryDto>.Success(dto, _localizer, "Success", HttpStatusCode.OK);

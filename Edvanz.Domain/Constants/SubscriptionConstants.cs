@@ -114,14 +114,31 @@ public static class SubscriptionConstants
     // ══════════════════════════════════════════════
 
     /// <summary>
+    /// The localized failure key for a student/parent-ACCOUNT linking attempt blocked by the
+    /// teacher's plan. Plain Managerial keeps its historical message; ManagerialPlus gets a
+    /// plan-accurate one (that plan DOES include parent follow-up). Callers pass the plan from
+    /// <c>SubscriptionPlanEntitlements.PlanType</c> after seeing StudentAccountsAllowed == false.
+    /// </summary>
+    public static string StudentAccountsBlockedMessageKey(Enums.SubscriptionPlanType? planType) =>
+        planType == Enums.SubscriptionPlanType.ManagerialPlus
+            ? Messages.PlanNoStudentAccounts
+            : Messages.ManagerialSubscriptionNoStudents;
+
+    /// <summary>
     /// Localization message keys. Names match entries in Messages.en.resx / Messages.ar.resx.
     /// </summary>
     public static class Messages
     {
         public const string SubscriptionActivated = "SubscriptionActivated";
         public const string SubscriptionManagerialActivated = "SubscriptionManagerialActivated";
+        public const string SubscriptionManagerialPlusActivated = "SubscriptionManagerialPlusActivated";
         // Roster gate: a managerial subscription forbids linking any student/parent account.
         public const string ManagerialSubscriptionNoStudents = "ManagerialSubscriptionNoStudents";
+        // Same gate under a ManagerialPlus plan — worded around the plan's contents (the plan DOES
+        // include parent follow-up, so the plain managerial text would be wrong/confusing).
+        public const string PlanNoStudentAccounts = "PlanNoStudentAccounts";
+        // Settings gate: enabling the parent follow-up page requires a plan that includes it.
+        public const string ParentPortalRequiresSubscription = "ParentPortalRequiresSubscription";
         public const string SubscriptionExtended = "SubscriptionExtended";
         public const string SubscriptionCancelled = "SubscriptionCancelled";   // ← add
         public const string SubscriptionEndDateUpdated = "SubscriptionEndDateUpdated";

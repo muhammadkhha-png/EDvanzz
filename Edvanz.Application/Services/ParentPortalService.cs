@@ -579,9 +579,10 @@ public sealed class ParentPortalService : IParentPortalService
 
     /// <summary>
     /// Whether the teacher currently accepts portal followers: the per-teacher opt-in must be on,
-    /// AND the account must not be on a MANAGERIAL subscription (which forbids any parent or
-    /// student from being linked to the teacher at all — the portal is a parent-linking
-    /// chokepoint, so it honours the same gate as every other one).
+    /// AND the plan must include parent follow-up. Full and ManagerialPlus do; plain Managerial
+    /// does not (SubscriptionPlanCapabilities is the single plan → feature map). This is the
+    /// read-time chokepoint, so a plan downgrade closes the portal immediately without touching
+    /// the teacher's stored toggle — an upgrade back re-opens it just as automatically.
     /// </summary>
     private async Task<bool> IsPortalEligibleAsync(long teacherId, TeacherConfiguration? config)
     {
@@ -589,7 +590,8 @@ public sealed class ParentPortalService : IParentPortalService
         if (config is null || !config.ParentPortalEnabled)
             return false;
 
-        return !await _subscriptionGate.IsManagerialAsync(teacherId);
+        var entitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacherId);
+        return entitlements.ParentFollowUpAllowed;
     }
 
     /// <summary>Teacher display name + subject label (in the reader's language) + the configuration row, in one batch call.</summary>

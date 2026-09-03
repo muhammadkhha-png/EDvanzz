@@ -864,6 +864,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(p => p.ManagerialTeacherSlotPriceEGP)
                 .HasColumnType("decimal(10,2)");
 
+            // Managerial + Parents (ManagerialPlus) per-slot rate. Defaults to 65 so the single
+            // existing settings row is backfilled on migration (between the 50 managerial and
+            // 100 full placeholder rates — admin-editable like the others).
+            entity.Property(p => p.ManagerialPlusTeacherSlotPriceEGP)
+                .HasColumnType("decimal(10,2)")
+                .HasDefaultValue(65.00m);
+
             entity.HasOne(p => p.UpdatedByUser)
                 .WithMany()
                 .HasForeignKey(p => p.UpdatedByUserId)
@@ -875,6 +882,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 Id = 1,
                 FullTeacherSlotPriceEGP = 100.00m,
                 ManagerialTeacherSlotPriceEGP = 50.00m,
+                ManagerialPlusTeacherSlotPriceEGP = 65.00m,
                 CreateAt = new DateTime(2026, 8, 16, 0, 0, 0, DateTimeKind.Utc)
             });
         });
@@ -971,19 +979,26 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasColumnType("decimal(10,2)")
                 .HasDefaultValue(500.00m);
 
+            // Flat Managerial + Parents (ManagerialPlus) monthly price. decimal(10,2), defaults to
+            // 650 so the single existing settings row is backfilled on migration.
+            entity.Property(p => p.ManagerialPlusMonthlyPriceEGP)
+                .HasColumnType("decimal(10,2)")
+                .HasDefaultValue(650.00m);
+
             // UpdatedByUser is an audit FK — keep the row even if the admin user is removed.
             entity.HasOne(p => p.UpdatedByUser)
                 .WithMany()
                 .HasForeignKey(p => p.UpdatedByUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            // Seed the single settings row: 1 student = 2.50 EGP / month, managerial = 500 / month.
-            // Static values only (HasData requirement).
+            // Seed the single settings row: 1 student = 2.50 EGP / month, managerial = 500 / month,
+            // managerial + parents = 650 / month. Static values only (HasData requirement).
             entity.HasData(new SubscriptionPricingSetting
             {
                 Id = 1,
                 PricePerStudentEGP = 2.50m,
                 ManagerialMonthlyPriceEGP = 500.00m,
+                ManagerialPlusMonthlyPriceEGP = 650.00m,
                 CreateAt = new DateTime(2026, 7, 17, 0, 0, 0, DateTimeKind.Utc)
             });
         });

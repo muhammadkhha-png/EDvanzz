@@ -12,4 +12,7 @@ public class SubscriptionPlansDto
 
     /// <summary>Flat monthly price for a Managerial plan, in EGP (independent of student count).</summary>
     public decimal ManagerialMonthlyEGP { get; set; }
+
+    /// <summary>Flat monthly price for a Managerial + Parents (ManagerialPlus) plan, in EGP.</summary>
+    public decimal ManagerialPlusMonthlyEGP { get; set; }
 }

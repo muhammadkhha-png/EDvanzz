@@ -38,6 +38,16 @@ public interface IAdminSubscriptionService
         long adminUserId, AdminActivateManagerialRequest request);
 
     /// <summary>
+    /// Manual activation of a MANAGERIAL + PARENTS (ManagerialPlus) subscription. Identical to
+    /// <see cref="ActivateManagerialAsync"/> (same request shape, same link-severing semantics —
+    /// RemoveExistingLinks touches STUDENT/PARENT-ACCOUNT links only, never parent-portal
+    /// follow-up grants) except the new row is stamped PlanType = ManagerialPlus, so the public
+    /// parent follow-up page stays available while student accounts remain blocked.
+    /// </summary>
+    Task<Result<CurrentSubscriptionDto>> ActivateManagerialPlusAsync(
+        long adminUserId, AdminActivateManagerialRequest request);
+
+    /// <summary>
     /// Extends the teacher's current subscription EndDate by N days (FR-SUB-061 / REQ-ADM-016).
     /// Does NOT create a new row — mutates the current row's EndDate.
     /// Cache is invalidated synchronously after commit.
@@ -142,11 +152,13 @@ public interface IAdminSubscriptionService
     Task<Result<SubscriptionPricingDto>> GetPricingAsync();
 
     /// <summary>
-    /// Updates the per-student monthly rate (must be &gt; 0). BR-SUB-009: in-flight
-    /// pending payments retain their initiation-time amount snapshot.
+    /// Updates the per-student monthly rate (must be &gt; 0) and, when sent (nullable =
+    /// leave unchanged, wire-compat with older admin clients), the flat Managerial /
+    /// ManagerialPlus monthly prices (each must be &gt; 0 when present). BR-SUB-009:
+    /// in-flight pending payments retain their initiation-time amount snapshot.
     /// </summary>
     Task<Result<SubscriptionPricingDto>> UpdatePricingAsync(
-        long adminUserId, decimal pricePerStudentEGP);
+        long adminUserId, UpdateSubscriptionPricingRequest request);
 
     // ══════════════════════════════════════════════
     // MODULE QUOTAS (free-tier limits table)

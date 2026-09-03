@@ -220,4 +220,14 @@ public class ParentPortalSummaryDto
     /// False whenever no acting teacher resolves (counters are all zero in that case too).</para>
     /// </summary>
     public bool CanManage { get; set; }
+
+    /// <summary>
+    /// Whether the teacher's PLAN includes the parent follow-up page (Full / ManagerialPlus, or
+    /// no live subscription — free tier restricts nothing). False only under a live plain
+    /// Managerial plan. Distinct from <see cref="PortalEnabled"/> (the teacher's own opt-in):
+    /// the app renders the settings section as a LOCKED upsell when this is false, regardless of
+    /// the stored toggle. Mirrors <c>ParentPortalService.IsPortalEligibleAsync</c>'s plan half —
+    /// additive; older clients ignore it. Defaults TRUE so an older server response never locks.
+    /// </summary>
+    public bool PortalAllowed { get; set; } = true;
 }

@@ -1074,6 +1074,15 @@
   <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
     <value>This teacher has a managerial subscription, so no student account or parent can be linked to them</value>
   </data>
+  <data name="SubscriptionManagerialPlusActivated" xml:space="preserve">
+    <value>Managerial + Parents subscription activated successfully</value>
+  </data>
+  <data name="PlanNoStudentAccounts" xml:space="preserve">
+    <value>This teacher's plan doesn't include student app accounts, so no student account can be linked to them. Parents can still follow up through the parent follow-up page</value>
+  </data>
+  <data name="ParentPortalRequiresSubscription" xml:space="preserve">
+    <value>Parent follow-up isn't included in your current subscription. Upgrade to the Managerial + Parents or Full plan to share the follow-up page with parents</value>
+  </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>Subscription extended successfully</value>
   </data>

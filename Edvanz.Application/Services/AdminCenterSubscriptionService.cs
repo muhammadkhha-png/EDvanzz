@@ -63,9 +63,11 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
                 CenterCode = center?.CenterCode ?? string.Empty,
                 FullTeacherSlots = r.FullTeacherSlots,
                 ManagerialTeacherSlots = r.ManagerialTeacherSlots,
+                ManagerialPlusTeacherSlots = r.ManagerialPlusTeacherSlots,
                 StudentCapacityTotal = r.StudentCapacityTotal,
                 StudentCapacityUnderFull = r.StudentCapacityUnderFull,
                 StudentCapacityUnderManagerial = r.StudentCapacityUnderManagerial,
+                StudentCapacityUnderManagerialPlus = r.StudentCapacityUnderManagerialPlus,
                 ComputedAmountEGP = r.ComputedAmountEGP,
                 Note = r.Note,
                 RequestedAt = r.RequestedAt,
@@ -111,9 +113,11 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
                 EndDate = now.AddDays(dto.DurationDays) + carryOver,
                 FullTeacherSlots = dto.FullTeacherSlots,
                 ManagerialTeacherSlots = dto.ManagerialTeacherSlots,
+                ManagerialPlusTeacherSlots = dto.ManagerialPlusTeacherSlots,
                 StudentCapacityTotal = dto.StudentCapacityTotal,
                 StudentCapacityUnderFull = dto.StudentCapacityUnderFull,
                 StudentCapacityUnderManagerial = dto.StudentCapacityUnderManagerial,
+                StudentCapacityUnderManagerialPlus = dto.StudentCapacityUnderManagerialPlus,
                 AmountPaidEGP = amount,
                 PaymentConfirmedAt = now,
                 Note = dto.Note,
@@ -168,7 +172,8 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
         var dto = new CenterPricingDto
         {
             FullTeacherSlotPriceEGP = pricing?.FullTeacherSlotPriceEGP ?? 0m,
-            ManagerialTeacherSlotPriceEGP = pricing?.ManagerialTeacherSlotPriceEGP ?? 0m
+            ManagerialTeacherSlotPriceEGP = pricing?.ManagerialTeacherSlotPriceEGP ?? 0m,
+            ManagerialPlusTeacherSlotPriceEGP = pricing?.ManagerialPlusTeacherSlotPriceEGP ?? 0m
         };
         return Result<CenterPricingDto>.Success(dto, _localizer, "Success");
     }
@@ -186,11 +191,18 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
 
         pricing.FullTeacherSlotPriceEGP = dto.FullTeacherSlotPriceEGP;
         pricing.ManagerialTeacherSlotPriceEGP = dto.ManagerialTeacherSlotPriceEGP;
+        // Applied only when a positive value was sent: an older admin client that doesn't know the
+        // field yet deserializes it to 0 and must not silently wipe the stored rate (the rate is
+        // documented "> 0", so 0 is never a meaningful target).
+        if (dto.ManagerialPlusTeacherSlotPriceEGP > 0m)
+            pricing.ManagerialPlusTeacherSlotPriceEGP = dto.ManagerialPlusTeacherSlotPriceEGP;
         pricing.UpdatedAt = DateTime.UtcNow;
         pricing.UpdatedByUserId = adminUserId;
         await repo.UpdateAsync(pricing);
         await _unitOfWork.SaveChangesAsync();
 
+        // Echo what is actually stored (the plus rate may have been left unchanged above).
+        dto.ManagerialPlusTeacherSlotPriceEGP = pricing.ManagerialPlusTeacherSlotPriceEGP;
         return Result<CenterPricingDto>.Success(dto, _localizer, "CenterPricingUpdated");
     }
 
@@ -216,9 +228,11 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
                 EndDate = now.AddDays(durationDays <= 0 ? 30 : durationDays) + carryOver,
                 FullTeacherSlots = pkg.FullTeacherSlots,
                 ManagerialTeacherSlots = pkg.ManagerialTeacherSlots,
+                ManagerialPlusTeacherSlots = pkg.ManagerialPlusTeacherSlots,
                 StudentCapacityTotal = pkg.StudentCapacityTotal,
                 StudentCapacityUnderFull = pkg.StudentCapacityUnderFull,
                 StudentCapacityUnderManagerial = pkg.StudentCapacityUnderManagerial,
+                StudentCapacityUnderManagerialPlus = pkg.StudentCapacityUnderManagerialPlus,
                 AmountPaidEGP = amount,
                 PaymentConfirmedAt = now,
                 Note = note,
@@ -244,7 +258,10 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
         var pricing = await _unitOfWork.GetRepository<CenterSubscriptionPricingSetting, long>().GetByIdAsync(1);
         var fullRate = pricing?.FullTeacherSlotPriceEGP ?? 0m;
         var managerialRate = pricing?.ManagerialTeacherSlotPriceEGP ?? 0m;
-        return pkg.FullTeacherSlots * fullRate + pkg.ManagerialTeacherSlots * managerialRate;
+        var managerialPlusRate = pricing?.ManagerialPlusTeacherSlotPriceEGP ?? 0m;
+        return pkg.FullTeacherSlots * fullRate
+             + pkg.ManagerialTeacherSlots * managerialRate
+             + pkg.ManagerialPlusTeacherSlots * managerialPlusRate;
     }
 
     private async Task InvalidateCenterTeacherCacheAsync(long centerId)
@@ -258,6 +275,7 @@ public class AdminCenterSubscriptionService : IAdminCenterSubscriptionService
     }
 
     private static bool IsValidPackage(CenterQuotaPackage p) =>
-        p.FullTeacherSlots >= 0 && p.ManagerialTeacherSlots >= 0 &&
-        p.StudentCapacityTotal >= 0 && p.StudentCapacityUnderFull >= 0 && p.StudentCapacityUnderManagerial >= 0;
+        p.FullTeacherSlots >= 0 && p.ManagerialTeacherSlots >= 0 && p.ManagerialPlusTeacherSlots >= 0 &&
+        p.StudentCapacityTotal >= 0 && p.StudentCapacityUnderFull >= 0 &&
+        p.StudentCapacityUnderManagerial >= 0 && p.StudentCapacityUnderManagerialPlus >= 0;
 }

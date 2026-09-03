@@ -195,10 +195,12 @@ public class StudentUserService : IStudentUserService
         if (teacher is null)
             return Result<StudentDashboardTeacherDto>.Failure(_localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        // ── 2b. A managerial-subscription teacher does not accept student links ──
-        if (await _subscriptionGate.IsManagerialAsync(teacher.Id))
+        // ── 2b. A plan without student accounts (Managerial / ManagerialPlus) does not accept student links ──
+        var planEntitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacher.Id);
+        if (!planEntitlements.StudentAccountsAllowed)
             return Result<StudentDashboardTeacherDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+                _localizer, SubscriptionConstants.StudentAccountsBlockedMessageKey(planEntitlements.PlanType),
+                HttpStatusCode.Forbidden);
 
         // ── 3. Validate the student-typed name (the teacher identifies the request by it) ──
         if (string.IsNullOrWhiteSpace(dto.StudentName))

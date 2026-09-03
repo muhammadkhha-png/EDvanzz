@@ -689,6 +689,43 @@ planned design). Restored 2026-07-17 while keeping `2bc840b`'s keepers (groups r
 pagination/scope, `teacherStudentId` write keys). PUT `/api/exams/{examId}` mirrors create;
 structural edits still 409 once results exist (`ExamHasResultsCannotRestructure`).
 
+### 7.6 Subscription plans — ManagerialPlus ("Managerial + Parents", added 2026-09-03)
+
+Three plans: `Full=1`, `Managerial=2`, `ManagerialPlus=3` (display "Managerial + Parents" /
+«إداري + أولياء الأمور» — the enum identifier is the stable wire value, clients localize labels).
+ManagerialPlus = Managerial rules (no student app accounts, no in-app parent accounts) PLUS the
+public parent follow-up page. The plan → feature map lives in ONE place —
+`SubscriptionPlanCapabilities` (Domain.Helpers) — consumed via
+`ISubscriptionGateService.GetPlanEntitlementsAsync(teacherId)` → `{PlanType,
+StudentAccountsAllowed, ParentFollowUpAllowed}`. **Never compare plan values inline at a gate
+site**; a new plan is a change to the capabilities class + pricing only. Restrictions apply only
+while the plan is Active/ExpiringSoon; expired/none = unrestricted (free-tier quotas gate
+creation instead). `IsManagerialAsync` is kept as the legacy alias for
+`!StudentAccountsAllowed` (both managerial plans return true). Related invariants:
+- Settings gate: enabling `ParentPortalEnabled` false→true without the capability → 403
+  `ParentPortalRequiresSubscription`; an already-true stored value never fails unrelated saves
+  (the read-time gate `ParentPortalService.IsPortalEligibleAsync` keeps the portal closed, and
+  re-opens it automatically on upgrade — the stored toggle is never rewritten by plan changes).
+- Wire entitlements: `GET /api/subscription/status` carries `features
+  {studentAccountsAllowed, parentFollowUpAllowed}`; the parent-portal summary carries
+  `portalAllowed`. Clients gate screens ONLY off these (fail-open on absence) — the app never
+  hardcodes plan semantics. Blocked messages: `ManagerialSubscriptionNoStudents` (Managerial)
+  vs `PlanNoStudentAccounts` (ManagerialPlus) via
+  `SubscriptionConstants.StudentAccountsBlockedMessageKey`.
+- Pricing: flat `ManagerialPlusMonthlyPriceEGP` (seed 650) on `SubscriptionPricingSettings`;
+  admin PUT pricing accepts the flat prices as NULLABLE (omitted = unchanged — older admin
+  clients must not zero them). Renewal amount is plan-aware (flat for managerial plans).
+- Admin: `POST /api/admin/subscriptions/activate-managerial-plus` (same body as
+  activate-managerial; `RemoveExistingLinks` severs student/parent-ACCOUNT links only, NEVER
+  parent-portal follow-up grants).
+- Centers: symmetric third slot type — `ManagerialPlusTeacherSlots` +
+  `StudentCapacityUnderManagerialPlus` on CenterSubscriptions/-Requests,
+  `ManagerialPlusTeacherSlotPriceEGP` (seed 65) on center pricing,
+  `FreeTierManagerialPlusTeacherSlots = 0`; slot checks go through
+  `CenterService.SlotsForPlan` (the single three-way switch). `Teacher.CenterPlanType` may be
+  ManagerialPlus; the gate reads it through the same current-subscription projection.
+- Migration `20260903154829_AddManagerialPlusPlan` (additive columns + seeded-row updates).
+
 ---
 
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)

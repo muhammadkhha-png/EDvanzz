@@ -56,26 +56,43 @@ public sealed class SubscriptionGateService : ISubscriptionGateService
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Kept as the student/parent-ACCOUNT linking gate for its existing callers; since the
+    /// ManagerialPlus plan it answers the CAPABILITY question ("are student/parent accounts
+    /// blocked?"), not the literal plan name — both Managerial and ManagerialPlus return true.
+    /// The parent follow-up page has its own, looser gate: see <see cref="GetPlanEntitlementsAsync"/>.
+    /// </remarks>
     public async Task<bool> IsManagerialAsync(long teacherId)
+    {
+        var entitlements = await GetPlanEntitlementsAsync(teacherId);
+        return !entitlements.StudentAccountsAllowed;
+    }
+
+    /// <inheritdoc />
+    public async Task<SubscriptionPlanEntitlements> GetPlanEntitlementsAsync(long teacherId)
     {
         var projection = await _unitOfWork.Users.GetCurrentSubscriptionStatusAsync(teacherId);
         if (projection is null)
-            return false; // no current subscription → free tier, not managerial-blocked
+            return SubscriptionPlanEntitlements.Unrestricted(); // free tier — no plan restrictions
 
-        // Only a Managerial plan blocks; anything else (Full, or a legacy/zero value) is allowed.
-        if (projection.PlanType != SubscriptionPlanType.Managerial)
-            return false;
-
-        // The block applies only while the managerial subscription is actually active.
+        // Restrictions only apply while the restricting plan is actually active.
         var subForStatus = new TeacherSubscription
         {
             StartDate = projection.StartDate,
             EndDate = projection.EndDate,
             IsCurrent = true
         };
-
         var status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow);
-        return status == SubscriptionStatus.Active || status == SubscriptionStatus.ExpiringSoon;
+        bool isLive = status == SubscriptionStatus.Active || status == SubscriptionStatus.ExpiringSoon;
+        if (!isLive)
+            return SubscriptionPlanEntitlements.Unrestricted(projection.PlanType);
+
+        return new SubscriptionPlanEntitlements(
+            projection.PlanType,
+            StudentAccountsAllowed:
+                !SubscriptionPlanCapabilities.BlocksStudentAndParentAccounts(projection.PlanType),
+            ParentFollowUpAllowed:
+                !SubscriptionPlanCapabilities.BlocksParentFollowUp(projection.PlanType));
     }
 
     /// <inheritdoc />

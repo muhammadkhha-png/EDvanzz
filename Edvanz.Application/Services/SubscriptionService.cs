@@ -89,9 +89,10 @@ public class SubscriptionService : ISubscriptionService
                 _localizer, SubscriptionConstants.Messages.NoActiveSubscription, HttpStatusCode.NotFound);
         }
 
-        // Load the renewal price separately — it is Teacher.StudentCapacity × the
-        // per-student rate, not stored on the subscription row (BR-SUB-009).
-        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId);
+        // Load the renewal price separately — plan-aware: Full = Teacher.StudentCapacity × the
+        // per-student rate; the managerial plans = their flat price. Not stored on the
+        // subscription row (BR-SUB-009).
+        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId, projection.PlanType);
 
         // SubscriptionStatusCalculator.Derive expects a TeacherSubscription instance.
         // Build a transient one from the projection's two dates — IsCurrent = true so
@@ -153,7 +154,7 @@ public class SubscriptionService : ISubscriptionService
         };
         var status = SubscriptionStatusCalculator.Derive(subForStatus, DateTime.UtcNow);
         int daysRemaining = SubscriptionStatusCalculator.DeriveDaysRemaining(subForStatus, DateTime.UtcNow);
-        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId);
+        decimal renewalAmount = await ComputeRenewalPriceAsync(teacherId, projection.PlanType);
 
         // ALL presentation logic decided here so the client renders it verbatim.
         string attention;
@@ -182,6 +183,18 @@ public class SubscriptionService : ISubscriptionService
             message = _localizer[SubscriptionConstants.Messages.SubscriptionStatusActive];
         }
 
+        // Plan restrictions only bite while the plan is live — an expired plan restricts nothing
+        // (free-tier behavior). Same derivation as SubscriptionGateService.GetPlanEntitlementsAsync,
+        // computed off the already-loaded projection to avoid a second query.
+        bool planIsLive = status == SubscriptionStatus.Active || status == SubscriptionStatus.ExpiringSoon;
+        var features = new SubscriptionFeaturesDto
+        {
+            StudentAccountsAllowed = !planIsLive
+                || !SubscriptionPlanCapabilities.BlocksStudentAndParentAccounts(projection.PlanType),
+            ParentFollowUpAllowed = !planIsLive
+                || !SubscriptionPlanCapabilities.BlocksParentFollowUp(projection.PlanType)
+        };
+
         return Result<SubscriptionStatusDto>.Success(new SubscriptionStatusDto
         {
             HasSubscription = true,
@@ -194,7 +207,8 @@ public class SubscriptionService : ISubscriptionService
             CtaType = cta,
             Message = message,
             HasPendingRequest = hasPending,
-            WhatsAppNumber = whatsApp
+            WhatsAppNumber = whatsApp,
+            Features = features
         }, _localizer);
     }
 
@@ -209,7 +223,8 @@ public class SubscriptionService : ISubscriptionService
         return Result<SubscriptionPlansDto>.Success(new SubscriptionPlansDto
         {
             PerStudentMonthlyEGP = setting?.PricePerStudentEGP ?? 0m,
-            ManagerialMonthlyEGP = setting?.ManagerialMonthlyPriceEGP ?? 0m
+            ManagerialMonthlyEGP = setting?.ManagerialMonthlyPriceEGP ?? 0m,
+            ManagerialPlusMonthlyEGP = setting?.ManagerialPlusMonthlyPriceEGP ?? 0m
         }, _localizer);
     }
 
@@ -242,13 +257,18 @@ public class SubscriptionService : ISubscriptionService
                 _localizer, SubscriptionConstants.Messages.PerStudentRateNotConfigured);
         }
 
-        // ── Server-authoritative fee: Full = students × rate; Managerial = flat monthly. ──
+        // ── Server-authoritative fee: Full = students × rate; the two managerial plans are flat. ──
         int students;
         decimal amount;
         if (request.PlanType == SubscriptionPlanType.Managerial)
         {
             students = 0;
             amount = setting.ManagerialMonthlyPriceEGP;
+        }
+        else if (request.PlanType == SubscriptionPlanType.ManagerialPlus)
+        {
+            students = 0;
+            amount = setting.ManagerialPlusMonthlyPriceEGP;
         }
         else
         {
@@ -909,8 +929,19 @@ public class SubscriptionService : ISubscriptionService
     /// rate not configured) — same "0 when unpriceable" semantics the package-price
     /// resolver had, so the CurrentSubscriptionDto wire contract is unchanged.
     /// </summary>
-    private async Task<decimal> ComputeRenewalPriceAsync(long teacherId)
+    private async Task<decimal> ComputeRenewalPriceAsync(long teacherId, SubscriptionPlanType? planType)
     {
+        // The two managerial plans renew at their FLAT monthly price — capacity × rate is a
+        // Full-plan formula only (it used to be applied to every plan, which showed a Managerial
+        // teacher a per-student renewal figure they would never be charged).
+        if (planType is SubscriptionPlanType.Managerial or SubscriptionPlanType.ManagerialPlus)
+        {
+            var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
+            return planType == SubscriptionPlanType.Managerial
+                ? setting?.ManagerialMonthlyPriceEGP ?? 0m
+                : setting?.ManagerialPlusMonthlyPriceEGP ?? 0m;
+        }
+
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
         if (teacher is null) return 0m;
 

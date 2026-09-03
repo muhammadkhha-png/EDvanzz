@@ -1074,6 +1074,15 @@
   <data name="ManagerialSubscriptionNoStudents" xml:space="preserve">
     <value>المدرس ده عنده اشتراك إداري، فمش ممكن يتربط بيه أي حساب طالب أو ولي أمر</value>
   </data>
+  <data name="SubscriptionManagerialPlusActivated" xml:space="preserve">
+    <value>تم تفعيل اشتراك إداري + أولياء الأمور بنجاح</value>
+  </data>
+  <data name="PlanNoStudentAccounts" xml:space="preserve">
+    <value>باقة المدرس ده مش شاملة حسابات الطلاب في التطبيق، فمش ممكن يتربط بيه أي حساب طالب. أولياء الأمور يقدروا يتابعوا عادي من صفحة متابعة أولياء الأمور</value>
+  </data>
+  <data name="ParentPortalRequiresSubscription" xml:space="preserve">
+    <value>متابعة أولياء الأمور مش متاحة في اشتراكك الحالي. رقّي اشتراكك لباقة إداري + أولياء الأمور أو الباقة الكاملة عشان تشارك صفحة المتابعة مع أولياء الأمور</value>
+  </data>
   <data name="SubscriptionExtended" xml:space="preserve">
     <value>تم تمديد الاشتراك بنجاح</value>
   </data>

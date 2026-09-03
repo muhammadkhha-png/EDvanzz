@@ -25,9 +25,11 @@ public class CenterSubscriptionRequest : BaseEntity
     // ── Requested quota package ─────────────────────────────────
     public int FullTeacherSlots { get; set; }
     public int ManagerialTeacherSlots { get; set; }
+    public int ManagerialPlusTeacherSlots { get; set; }
     public int StudentCapacityTotal { get; set; }
     public int StudentCapacityUnderFull { get; set; }
     public int StudentCapacityUnderManagerial { get; set; }
+    public int StudentCapacityUnderManagerialPlus { get; set; }
 
     /// <summary>
     /// Fee computed server-side at submission time from the admin-editable per-slot rates

@@ -102,9 +102,12 @@ public class TeacherStudentService : ITeacherStudentService
         var total = await _unitOfWork.Centers.CountCenterStudentsTotalAsync(centerId);
         var plan = teacher.CenterPlanType ?? Domain.Enums.SubscriptionPlanType.Full;
         var pool = await _unitOfWork.Centers.CountCenterStudentsByPlanAsync(centerId, plan);
-        var poolCap = plan == Domain.Enums.SubscriptionPlanType.Managerial
-            ? sub.StudentCapacityUnderManagerial
-            : sub.StudentCapacityUnderFull;
+        var poolCap = plan switch
+        {
+            Domain.Enums.SubscriptionPlanType.Managerial => sub.StudentCapacityUnderManagerial,
+            Domain.Enums.SubscriptionPlanType.ManagerialPlus => sub.StudentCapacityUnderManagerialPlus,
+            _ => sub.StudentCapacityUnderFull
+        };
 
         var remainingTotal = sub.StudentCapacityTotal - total;
         var remainingPool = poolCap - pool;

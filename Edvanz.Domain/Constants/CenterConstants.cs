@@ -23,4 +23,7 @@ public static class CenterConstants
 
     /// <summary>Managerial-plan teacher slots a center may create with NO active subscription.</summary>
     public const int FreeTierManagerialTeacherSlots = 0;
+
+    /// <summary>Managerial + Parents (ManagerialPlus) teacher slots a center may create with NO active subscription.</summary>
+    public const int FreeTierManagerialPlusTeacherSlots = 0;
 }

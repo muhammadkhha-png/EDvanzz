@@ -20,6 +20,9 @@ public class CenterSubscriptionPricingSetting : BaseEntity
     /// <summary>Monthly price per MANAGERIAL teacher slot, in EGP (decimal(10,2) via Fluent). Must be &gt; 0.</summary>
     public decimal ManagerialTeacherSlotPriceEGP { get; set; }
 
+    /// <summary>Monthly price per MANAGERIAL + PARENTS (ManagerialPlus) teacher slot, in EGP (decimal(10,2) via Fluent). Must be &gt; 0.</summary>
+    public decimal ManagerialPlusTeacherSlotPriceEGP { get; set; }
+
     /// <summary>When the rates were last changed via the admin endpoint (UTC). Null = never edited since seeding.</summary>
     public DateTime? UpdatedAt { get; set; }
 

@@ -133,10 +133,13 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         if (link.LinkStatus != LinkStatus.Pending)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkRequestAlreadyResolved", HttpStatusCode.Conflict);
 
-        // A managerial subscription forbids connecting any student account to the teacher.
-        if (await _subscriptionGate.IsManagerialAsync(teacherId))
+        // A plan without student accounts (Managerial / ManagerialPlus) forbids connecting any
+        // student account to the teacher.
+        var acceptEntitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacherId);
+        if (!acceptEntitlements.StudentAccountsAllowed)
             return Result<LinkedStudentListItemDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+                _localizer, SubscriptionConstants.StudentAccountsBlockedMessageKey(acceptEntitlements.PlanType),
+                HttpStatusCode.Forbidden);
 
         // ── Accept CONNECTS the account (Active); binding it to a student record is
         // a SEPARATE step (BindStudentLinkAsync). TeacherStudentId or StudentCode is
@@ -217,10 +220,13 @@ public class TeacherStudentLinkService : ITeacherStudentLinkService
         if (link.LinkStatus != LinkStatus.Active)
             return Result<LinkedStudentListItemDto>.Failure(_localizer, "LinkNotActive", HttpStatusCode.Conflict);
 
-        // A managerial subscription forbids binding a student to the teacher's roster.
-        if (await _subscriptionGate.IsManagerialAsync(teacherId))
+        // A plan without student accounts (Managerial / ManagerialPlus) forbids binding a student
+        // to the teacher's roster.
+        var bindEntitlements = await _subscriptionGate.GetPlanEntitlementsAsync(teacherId);
+        if (!bindEntitlements.StudentAccountsAllowed)
             return Result<LinkedStudentListItemDto>.Failure(
-                _localizer, SubscriptionConstants.Messages.ManagerialSubscriptionNoStudents, HttpStatusCode.Forbidden);
+                _localizer, SubscriptionConstants.StudentAccountsBlockedMessageKey(bindEntitlements.PlanType),
+                HttpStatusCode.Forbidden);
 
         // ── Resolve the target student record: explicit id wins, else by code ──
         var (rosterStudent, resolveFailure) =

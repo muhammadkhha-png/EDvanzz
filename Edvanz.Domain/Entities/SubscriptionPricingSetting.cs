@@ -25,6 +25,13 @@ public class SubscriptionPricingSetting : BaseEntity
     /// </summary>
     public decimal ManagerialMonthlyPriceEGP { get; set; }
 
+    /// <summary>
+    /// Flat monthly price for a MANAGERIAL + PARENTS (<see cref="Enums.SubscriptionPlanType.ManagerialPlus"/>)
+    /// subscription, in EGP (decimal(10,2) via Fluent). Like Managerial it has no per-student
+    /// component. Seeded @ 650.00; edited through the admin pricing endpoint. Must be &gt; 0.
+    /// </summary>
+    public decimal ManagerialPlusMonthlyPriceEGP { get; set; }
+
     /// <summary>When the rate was last changed via the admin endpoint (UTC). Null = never edited since seeding.</summary>
     public DateTime? UpdatedAt { get; set; }
 

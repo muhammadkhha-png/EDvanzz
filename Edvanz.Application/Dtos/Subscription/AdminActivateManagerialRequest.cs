@@ -1,13 +1,15 @@
 namespace Edvanz.Application.Dtos.Subscription;
 
 /// <summary>
-/// Input DTO for POST /api/admin/subscriptions/activate-managerial.
+/// Input DTO for POST /api/admin/subscriptions/activate-managerial AND
+/// /api/admin/subscriptions/activate-managerial-plus (same shape for both).
 ///
 /// Mirrors <see cref="AdminActivateRequest"/> (same no-payment SuperAdminOverride row,
 /// same period defaults) but stamps the new subscription as
-/// <see cref="Domain.Enums.SubscriptionPlanType.Managerial"/>: while this subscription is
-/// the teacher's current active one, no student or parent account may be linked to them and
-/// no roster student may be added.
+/// <see cref="Domain.Enums.SubscriptionPlanType.Managerial"/> (or
+/// <see cref="Domain.Enums.SubscriptionPlanType.ManagerialPlus"/> on the -plus route): while
+/// this subscription is the teacher's current active one, no student or parent account may be
+/// linked to them; ManagerialPlus additionally keeps the public parent follow-up page open.
 /// </summary>
 public class AdminActivateManagerialRequest
 {

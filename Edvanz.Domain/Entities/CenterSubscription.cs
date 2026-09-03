@@ -45,6 +45,9 @@ public class CenterSubscription : BaseEntity
     /// <summary>Number of Managerial-plan teacher slots the center may have active.</summary>
     public int ManagerialTeacherSlots { get; set; }
 
+    /// <summary>Number of Managerial + Parents (ManagerialPlus) teacher slots the center may have active.</summary>
+    public int ManagerialPlusTeacherSlots { get; set; }
+
     /// <summary>Overall student capacity across ALL of the center's teachers.</summary>
     public int StudentCapacityTotal { get; set; }
 
@@ -53,6 +56,9 @@ public class CenterSubscription : BaseEntity
 
     /// <summary>Student capacity pooled across the center's Managerial-plan teachers.</summary>
     public int StudentCapacityUnderManagerial { get; set; }
+
+    /// <summary>Student capacity pooled across the center's Managerial + Parents teachers.</summary>
+    public int StudentCapacityUnderManagerialPlus { get; set; }
 
     // ── Payment / audit ─────────────────────────────────────────
     /// <summary>Amount paid in EGP (decimal(10,2) via Fluent). Zero for a super-admin manual activation.</summary>

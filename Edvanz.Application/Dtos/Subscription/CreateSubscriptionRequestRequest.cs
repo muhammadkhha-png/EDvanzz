@@ -13,13 +13,13 @@ namespace Edvanz.Application.Dtos.Subscription;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class CreateSubscriptionRequestRequest
 {
-    /// <summary>The requested plan: Full or Managerial.</summary>
+    /// <summary>The requested plan: Full, Managerial, or ManagerialPlus (Managerial + Parents).</summary>
     [Required]
     public SubscriptionPlanType PlanType { get; set; }
 
     /// <summary>
     /// Number of students to cover. Required and must be &gt; 0 for <see cref="SubscriptionPlanType.Full"/>
-    /// (drives the fee and granted capacity); ignored for Managerial.
+    /// (drives the fee and granted capacity); ignored for the flat-priced managerial plans.
     /// </summary>
     public int RequestedStudents { get; set; }
 

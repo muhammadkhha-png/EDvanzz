@@ -49,6 +49,20 @@ public class CenterService : ICenterService
         _timeZone = timeZone;
     }
 
+    /// <summary>
+    /// The teacher-slot entitlement for one plan: the current subscription's slot count, else the
+    /// free-tier trial constants. THE three-way plan switch for slot quotas — create and plan-flip
+    /// both go through it so a new plan type can never be enforced in one path and missed in the other.
+    /// </summary>
+    private static int SlotsForPlan(CenterSubscription? sub, SubscriptionPlanType plan) => plan switch
+    {
+        SubscriptionPlanType.Managerial =>
+            sub?.ManagerialTeacherSlots ?? CenterConstants.FreeTierManagerialTeacherSlots,
+        SubscriptionPlanType.ManagerialPlus =>
+            sub?.ManagerialPlusTeacherSlots ?? CenterConstants.FreeTierManagerialPlusTeacherSlots,
+        _ => sub?.FullTeacherSlots ?? CenterConstants.FreeTierFullTeacherSlots
+    };
+
     /// <inheritdoc />
     public async Task<Result<CenterOverviewDto>> GetOverviewAsync(long centerId)
     {
@@ -58,6 +72,7 @@ public class CenterService : ICenterService
 
         var full = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Full);
         var managerial = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.Managerial);
+        var managerialPlus = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, SubscriptionPlanType.ManagerialPlus);
         var students = await _unitOfWork.Centers.CountCenterStudentsTotalAsync(centerId);
         var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
 
@@ -67,16 +82,19 @@ public class CenterService : ICenterService
             Name = center.Name,
             CenterCode = center.CenterCode,
             DefaultRevenueSharePercent = center.DefaultRevenueSharePercent,
-            TeacherCount = full + managerial,
+            TeacherCount = full + managerial + managerialPlus,
             FullTeacherCount = full,
             ManagerialTeacherCount = managerial,
+            ManagerialPlusTeacherCount = managerialPlus,
             StudentCount = students,
             HasActiveSubscription = sub != null && sub.EndDate > DateTime.UtcNow,
             FullTeacherSlots = sub?.FullTeacherSlots,
             ManagerialTeacherSlots = sub?.ManagerialTeacherSlots,
+            ManagerialPlusTeacherSlots = sub?.ManagerialPlusTeacherSlots,
             StudentCapacityTotal = sub?.StudentCapacityTotal,
             StudentCapacityUnderFull = sub?.StudentCapacityUnderFull,
             StudentCapacityUnderManagerial = sub?.StudentCapacityUnderManagerial,
+            StudentCapacityUnderManagerialPlus = sub?.StudentCapacityUnderManagerialPlus,
             SubscriptionEndDate = sub?.EndDate
         };
         return Result<CenterOverviewDto>.Success(dto, _localizer, "Success");
@@ -416,9 +434,7 @@ public class CenterService : ICenterService
         // free-tier limit automatically (they have no active subscription).
         var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
         var used = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, dto.PlanType);
-        var slots = dto.PlanType == SubscriptionPlanType.Managerial
-            ? (sub?.ManagerialTeacherSlots ?? CenterConstants.FreeTierManagerialTeacherSlots)
-            : (sub?.FullTeacherSlots ?? CenterConstants.FreeTierFullTeacherSlots);
+        var slots = SlotsForPlan(sub, dto.PlanType);
         if (used >= slots)
             return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherSlotExhausted", HttpStatusCode.Conflict);
 
@@ -500,9 +516,7 @@ public class CenterService : ICenterService
         {
             var sub = await _unitOfWork.Centers.GetCurrentCenterSubscriptionAsync(centerId);
             var used = await _unitOfWork.Centers.CountActiveTeachersByPlanAsync(centerId, dto.PlanType.Value);
-            var slots = dto.PlanType.Value == SubscriptionPlanType.Managerial
-                ? (sub?.ManagerialTeacherSlots ?? CenterConstants.FreeTierManagerialTeacherSlots)
-                : (sub?.FullTeacherSlots ?? CenterConstants.FreeTierFullTeacherSlots);
+            var slots = SlotsForPlan(sub, dto.PlanType.Value);
             if (used >= slots)
                 return Result<CenterTeacherListItemDto>.Failure(_localizer, "CenterTeacherSlotExhausted", HttpStatusCode.Conflict);
         }

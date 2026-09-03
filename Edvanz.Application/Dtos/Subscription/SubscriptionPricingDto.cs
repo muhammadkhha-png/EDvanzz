@@ -9,6 +9,12 @@ public class SubscriptionPricingDto
     /// <summary>Monthly price per student, in EGP.</summary>
     public decimal PricePerStudentEGP { get; set; }
 
+    /// <summary>Flat monthly price for a Managerial plan, in EGP.</summary>
+    public decimal ManagerialMonthlyPriceEGP { get; set; }
+
+    /// <summary>Flat monthly price for a Managerial + Parents (ManagerialPlus) plan, in EGP.</summary>
+    public decimal ManagerialPlusMonthlyPriceEGP { get; set; }
+
     /// <summary>When the rate was last changed; null if never edited since seeding.</summary>
     public DateTime? UpdatedAt { get; set; }
 

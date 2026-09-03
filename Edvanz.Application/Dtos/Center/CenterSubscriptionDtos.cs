@@ -2,15 +2,18 @@ using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.Dtos.Center;
 
-/// <summary>The 5 quota numbers that make up a center subscription package. Reused across request,
-/// activation, and read shapes.</summary>
+/// <summary>The 7 quota numbers that make up a center subscription package. Reused across request,
+/// activation, and read shapes. The ManagerialPlus pair is additive (defaults 0) so older center
+/// clients that never send it keep working — 0 slots of the new type.</summary>
 public class CenterQuotaPackage
 {
     public int FullTeacherSlots { get; set; }
     public int ManagerialTeacherSlots { get; set; }
+    public int ManagerialPlusTeacherSlots { get; set; }
     public int StudentCapacityTotal { get; set; }
     public int StudentCapacityUnderFull { get; set; }
     public int StudentCapacityUnderManagerial { get; set; }
+    public int StudentCapacityUnderManagerialPlus { get; set; }
 }
 
 // ── Center-side ───────────────────────────────────────────────────────────────
@@ -34,16 +37,20 @@ public class CenterSubscriptionDto
     // Entitlement (the quota package)
     public int FullTeacherSlots { get; set; }
     public int ManagerialTeacherSlots { get; set; }
+    public int ManagerialPlusTeacherSlots { get; set; }
     public int StudentCapacityTotal { get; set; }
     public int StudentCapacityUnderFull { get; set; }
     public int StudentCapacityUnderManagerial { get; set; }
+    public int StudentCapacityUnderManagerialPlus { get; set; }
 
     // Live usage
     public int UsedFullTeachers { get; set; }
     public int UsedManagerialTeachers { get; set; }
+    public int UsedManagerialPlusTeachers { get; set; }
     public int UsedStudentsTotal { get; set; }
     public int UsedStudentsUnderFull { get; set; }
     public int UsedStudentsUnderManagerial { get; set; }
+    public int UsedStudentsUnderManagerialPlus { get; set; }
 
     // A pending request, if any
     public bool HasPendingRequest { get; set; }
@@ -101,9 +108,11 @@ public class CenterSubscriptionRequestQueueItemDto
     public string CenterCode { get; set; } = null!;
     public int FullTeacherSlots { get; set; }
     public int ManagerialTeacherSlots { get; set; }
+    public int ManagerialPlusTeacherSlots { get; set; }
     public int StudentCapacityTotal { get; set; }
     public int StudentCapacityUnderFull { get; set; }
     public int StudentCapacityUnderManagerial { get; set; }
+    public int StudentCapacityUnderManagerialPlus { get; set; }
     public decimal ComputedAmountEGP { get; set; }
     public string? Note { get; set; }
     public DateTime RequestedAt { get; set; }
@@ -115,4 +124,5 @@ public class CenterPricingDto
 {
     public decimal FullTeacherSlotPriceEGP { get; set; }
     public decimal ManagerialTeacherSlotPriceEGP { get; set; }
+    public decimal ManagerialPlusTeacherSlotPriceEGP { get; set; }
 }
