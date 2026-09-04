@@ -578,12 +578,18 @@ public class TeacherService : ITeacherService
             // The suggestion METHOD is part of the signature: switching By%/ByClasses/Manual changes how
             // existing students' still-owed first month should be re-priced, so it must also trigger the
             // retroactive reconcile below.
+            // The fraction must be compared at the DB's decimal(5,4) scale: the stored value reads back
+            // as 0.5000m while the request carries 0.5m, and their default ToString() forms differ —
+            // which made the signatures mismatch on EVERY save, running the reconcile (and surfacing its
+            // toast) for unrelated settings changes.
             static string ProrationSignature(
                 bool enabled, ProrationMethod method,
                 IEnumerable<(int Start, int End, decimal Frac)> tiers) =>
                 enabled
                     ? $"ON:{method}:" + string.Join(";", tiers.OrderBy(t => t.Start).ThenBy(t => t.End)
-                        .Select(t => $"{t.Start}-{t.End}@{t.Frac}"))
+                        .Select(t => $"{t.Start}-{t.End}@" + decimal
+                            .Round(t.Frac, 4, MidpointRounding.AwayFromZero)
+                            .ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture)))
                     : "OFF";
             string oldProrationSignature = ProrationSignature(
                 wasProrationEnabled, wasProrationMethod,

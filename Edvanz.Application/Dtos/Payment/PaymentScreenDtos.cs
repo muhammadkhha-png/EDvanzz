@@ -323,9 +323,21 @@ public class AssistantWalletCollectionsDto
     public int Limit { get; set; }
     /// <summary>
     /// Start of the window below -- the last handover, or null if there has never been one
-    /// (in which case this is the assistant's full lifetime history).
+    /// (in which case this is the assistant's full lifetime history). NOTE: when the balance
+    /// was just fully handed over, this falls back to the PREVIOUS handover so the listed
+    /// window (the just-closed period) is not blank -- legacy display contract, keep as-is.
     /// </summary>
     public DateTime? SinceAt { get; set; }
+
+    /// <summary>
+    /// STRICT anchor of the current holdings: the instant of the last full hand-over
+    /// (running-balance zero crossing), with NO just-closed-period fallback. Everything
+    /// strictly after this sums exactly to <c>walletBalance</c> -- so right after a full
+    /// withdrawal the window is honestly empty. Null = the balance never crossed zero
+    /// (nothing ever handed over). The merged wallet/ledger screen anchors its
+    /// "in hand now" scope on this, never on <see cref="SinceAt"/>.
+    /// </summary>
+    public DateTime? HeldSinceAt { get; set; }
     public List<AssistantWalletCollectionItemDto> Items { get; set; } = new();
 }
 

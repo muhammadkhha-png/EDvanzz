@@ -918,6 +918,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Page = page,
                 Limit = limit,
                 SinceAt = sinceAt,
+                // Strict last zero-crossing, independent of the just-closed-period display
+                // fallback above -- the "in hand now" anchor (empty window after a full withdrawal).
+                HeldSinceAt = lastZeroIdx >= 0 ? ledger[lastZeroIdx].CollectedAt : null,
                 Items = items
             }
         };
