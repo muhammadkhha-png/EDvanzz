@@ -113,7 +113,8 @@ public class PaymentScreenService : IPaymentScreenService
         long? collectedByUserId = null,
         DateTime? from = null, DateTime? to = null,
         string? search = null,
-        bool includeAdjustments = true)
+        bool includeAdjustments = true,
+        bool? exactRange = null)
     {
         (page, limit) = NormalizePaging(page, limit);
 
@@ -128,16 +129,21 @@ public class PaymentScreenService : IPaymentScreenService
             // month/year. Boundaries mirror the month path — startDate inclusive, endDate the
             // inclusive end-of-day for the paged query's `<=` filter, endExclusive for refunds.
             //
-            // EXACT-INSTANT variant (2026-09-03, drawer scope): when EITHER bound carries a
-            // time-of-day, the range is treated as precise instants [from, to) instead of whole
-            // days — the merged wallet/ledger screen's "in drawer now" scope starts at the exact
-            // last hand-over moment, so the listed rows sum EXACTLY to the held balance (a day
-            // floor would leak same-day pre-hand-over rows in). Date-only callers (the existing
-            // day filter) are byte-identical to before.
+            // EXACT-INSTANT variant (2026-09-03, drawer scope): precise instants [from, to)
+            // instead of whole days — the merged wallet/ledger screen's "in drawer now" scope
+            // starts at the exact last hand-over moment, so the listed rows sum EXACTLY to the
+            // held balance (a day floor would leak same-day pre-hand-over rows in). Date-only
+            // callers (the existing day filter) are byte-identical to before.
+            //
+            // The intent comes from `exactRange` (controller reads the RAW query text): the old
+            // TimeOfDay inference below misread a midnight-to-midnight exact window (the wallet
+            // day filter, "…T00:00:00" → next-day "…T00:00:00") as a date-only range and served
+            // the whole next day inclusively. Kept only as a null-fallback.
             var f = from.Value;
             var t = to.Value;
             if (t < f) (f, t) = (t, f);               // tolerate a reversed range
-            bool timed = f.TimeOfDay != TimeSpan.Zero || t.TimeOfDay != TimeSpan.Zero;
+            bool timed = exactRange
+                ?? (f.TimeOfDay != TimeSpan.Zero || t.TimeOfDay != TimeSpan.Zero);
             startDate = timed ? f : f.Date;
             endExclusive = timed ? t : t.Date.AddDays(1);
             endDate = endExclusive.AddTicks(-1);

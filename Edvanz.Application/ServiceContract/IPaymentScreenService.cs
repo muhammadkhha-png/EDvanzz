@@ -39,13 +39,21 @@ public interface IPaymentScreenService
     /// <para><paramref name="includeAdjustments"/> (additive; default <c>true</c>): when <c>false</c>
     /// the negative refund/withdrawal lines are omitted entirely ("collections only" view), so the list
     /// and its pagination cover collections alone. No effect on the amount tiers (already collections-only).</para>
+    ///
+    /// <para><paramref name="exactRange"/> (drawer scope): <c>true</c> ⇒ <paramref name="from"/>/
+    /// <paramref name="to"/> are precise instants bounding <c>[from, to)</c>; <c>false</c> ⇒ an
+    /// inclusive whole-day range. The caller (controller) decides from the RAW query text — a
+    /// midnight-to-midnight exact window parses to the same <see cref="DateTime"/>s as a date-only
+    /// one, so the values alone cannot carry the intent. <c>null</c> falls back to inferring from
+    /// <c>TimeOfDay</c> (legacy behaviour, kept for callers without access to the raw text).</para>
     /// </summary>
     Task<Result<CollectionsByMonthResponse>> GetCollectionsByMonthAsync(
         long teacherId, string? month, int? year, int page, int limit,
         long? collectedByUserId = null,
         DateTime? from = null, DateTime? to = null,
         string? search = null,
-        bool includeAdjustments = true);
+        bool includeAdjustments = true,
+        bool? exactRange = null);
 
     /// <summary>
     /// Screen: Collections date-filtered SUMMARY. Period overview for the payment/collections

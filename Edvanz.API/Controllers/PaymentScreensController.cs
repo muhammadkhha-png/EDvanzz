@@ -63,8 +63,9 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         // Optional: restrict to one collector's own collections (e.g. the teacher tapping their own
         // dashboard card to see just what THEY collected). Scoped within the resolved teacher.
         [FromQuery] long? collectedByUserId = null,
-        // Optional date-range filter (inclusive). When BOTH are supplied they take precedence over
-        // month/year; the response echoes them on FromDate/ToDate. Omitted → the month/year path.
+        // Optional date-range filter. Date-only values ⇒ inclusive whole days; a time component in
+        // the raw value ⇒ precise instants [from, to) (see exactRange below). When BOTH are supplied
+        // they take precedence over month/year; echoed on FromDate/ToDate. Omitted → month/year path.
         [FromQuery(Name = "from")] DateTime? fromDate = null,
         [FromQuery(Name = "to")] DateTime? toDate = null,
         // Optional filter over the ledger (collections + refund/edit lines) by student name/code.
@@ -76,9 +77,21 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
 
+        // Exact-range detection must read the RAW query text: a midnight-to-midnight exact
+        // window ("…T00:00:00" → "…T00:00:00", the wallet day filter) parses to the very same
+        // DateTimes as a date-only day filter ("2026-09-01"), so TimeOfDay on the bound values
+        // cannot tell them apart — that ambiguity leaked the whole next day into a one-day
+        // wallet filter. A time component (':') in either raw value ⇒ precise instants [from, to).
+        bool? exactRange = null;
+        if (fromDate.HasValue && toDate.HasValue)
+        {
+            exactRange = Request.Query["from"].ToString().Contains(':')
+                || Request.Query["to"].ToString().Contains(':');
+        }
+
         var result = await _screenService.GetCollectionsByMonthAsync(
             teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate, search,
-            includeAdjustments);
+            includeAdjustments, exactRange);
         return ToResponse(result);
     }
 
