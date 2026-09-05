@@ -380,9 +380,26 @@ string? appInsightsConnectionString =
 
 if (!string.IsNullOrWhiteSpace(appInsightsConnectionString))
 {
+    // Cost control (2026-09-05): trace spans (AppRequests + AppDependencies) were
+    // ~71% of all ingested telemetry, dominated by one SqlClient span per EF query.
+    // The Log Analytics workspace has a 5 GB/month free grant and unsampled
+    // ingestion was trending to ~7.5 GB/month, which bills per-GB overage; the
+    // workspace also now carries a 0.16 GB/day hard cap that blackholes ingestion
+    // for the rest of the UTC day once tripped. Sampling spans keeps ingestion
+    // inside the grant (~2.6 GB/month) and comfortably under that cap.
+    // ILogger output (AppTraces) and exceptions are log records, NOT spans, so
+    // they are unaffected by SamplingRatio and still arrive in full — error
+    // diagnostics keep working at 100%.
+    // Override with the "ApplicationInsights:SamplingRatio" App Service app
+    // setting (e.g. 1.0 to capture everything while debugging); it applies on
+    // restart, no redeploy needed.
+    float samplingRatio = builder.Configuration.GetValue<float?>("ApplicationInsights:SamplingRatio") ?? 0.15f;
+    samplingRatio = Math.Clamp(samplingRatio, 0.01f, 1.0f);
+
     builder.Services.AddOpenTelemetry().UseAzureMonitor(options =>
     {
         options.ConnectionString = appInsightsConnectionString;
+        options.SamplingRatio = samplingRatio;
     });
 }
 // ── Rate limiting (built-in, no Redis needed for single instance) ─────────
