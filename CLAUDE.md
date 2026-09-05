@@ -521,6 +521,24 @@ credential flow on the student side (the PARENT Method B flow still uses it —
 - **Visibility concept unchanged**: `TeacherConfiguration.StudentVisibility*`
   flags are still returned per dashboard entry and still gate the per-module
   student endpoints (attendance/videos today; payments/exams/homework when built).
+- **THIRD axis — session assignment (added 2026-09-05).** Connected → Linked →
+  **Assigned** are three SEPARATE gates and only the first two were ever surfaced.
+  Videos and online exams are targeted by session ONLY (`VideoScopeType` /
+  `OnlineExamScopeType` are Session|SessionGroup — there is NO per-student scope), so a
+  linked, bound student with `TeacherStudent.SessionId = null` gets an empty list with a
+  **successful 200** on both, and the app could not tell that apart from "the teacher
+  published nothing". `GET me/teachers/{teacherId}/home` now returns `sessionId` +
+  `sessionName` (null = unassigned), resolved through the named repo method
+  `ITeacherStudentRepo.GetAssignedSessionAsync(teacherStudentId, teacherId)` — tenant-scoped
+  by matching `TeacherId` on BOTH the student row and the session row. Additive, no
+  migration. The student app renders it as a "Session" row plus, when null, a note telling
+  the student to ask their teacher; the note is suppressed when the teacher has hidden BOTH
+  Videos and Online exams (it names those two modules, so promising them would be false).
+  DELIBERATELY NOT guarded against a missing field on the client (product decision) — a
+  rollback past this change would show the note to every student. Only the home aggregate
+  carries it; `me/teachers` / `me/dashboard` were left alone on purpose (no consumer, and it
+  would add a batch join to a hot list endpoint). Student-facing copy says **"Session" /
+  «المجموعة»** — never "roster", which users do not understand.
 - **Notifications**: `IStudentLinkNotifier` (inbox `UserNotification` +
   FCM push, localized to the RECIPIENT's language) fires post-commit,
   best-effort, on request-received / accepted / rejected / removed-by-teacher.
@@ -604,8 +622,16 @@ UX merge (2026-09-03): tapping an assistant on the collectors card opens ONE mer
 wallet+ledger screen (`TeacherPaymentSessionCollectionsView` wallet mode) — balance card +
 withdraw + hand-over history above the full ledger, opening on the "in hand now" scope (exact
 window since the last hand-over, so rows sum to the balance) with an "all months" chip; the
-collections endpoint's `from`/`to` accept EXACT instants when either carries a time-of-day
-(date-only callers unchanged), and the wallet response's `collections.sinceAt` anchors it.
+collections endpoint's `from`/`to` accept EXACT instants bounding [from, to) when the RAW query
+value carries a time component (the controller passes `exactRange` into
+`GetCollectionsByMonthAsync`; date-only callers unchanged — inclusive whole days), and the wallet
+response's `collections.sinceAt` anchors it (strict `heldSinceAt` for scoping). Fixed 2026-09-04:
+the old `TimeOfDay != 0` inference misread the wallet day filter's midnight-to-midnight window as
+date-only and served the whole NEXT day inclusively — never reintroduce value-based inference,
+the raw text is the only carrier of that intent. The mobile cubit sends drawer/day bounds as UTC
+instants ('Z' suffix): `CollectedAt` is UTC, day boundaries must cut on the backend's raw-UTC
+`dayKey` that the day headers/nets/insights bucket by, and the earlier local-wall-clock echo
+anchored "in hand now" ~3h late for Egypt devices (dropping post-hand-over rows from the sum).
 
 **Buckets are assigned-only and reconcile to `TotalStudents`.** The status headcounts
 (`statusBreakdown.paid/prorated/unpaid` on `/api/v1/payments/tracking`) and the per-status

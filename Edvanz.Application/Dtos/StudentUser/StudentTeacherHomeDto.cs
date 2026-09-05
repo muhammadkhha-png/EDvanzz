@@ -1,4 +1,4 @@
-namespace Edvanz.Application.Dtos.StudentUser;
+﻿namespace Edvanz.Application.Dtos.StudentUser;
 
 /// <summary>
 /// Aggregated "teacher home" screen for a student who has selected one linked
@@ -35,6 +35,31 @@ public class StudentTeacherHomeDto
 
     /// <summary>Whether the connection is bound to a roster record (Active + bound).</summary>
     public bool IsLinked { get; set; }
+
+    /// <summary>
+    /// The session (class group) this student is currently assigned to under this teacher,
+    /// or <c>null</c> when the teacher has not assigned them to one yet
+    /// (<c>TeacherStudent.SessionId</c> is null). REQ-STU-004 / BR-SES-002 — assignment is
+    /// optional, and a student sits in at most one session at a time.
+    ///
+    /// WHY THE STUDENT NEEDS THIS: videos and online exams are BOTH scoped by session only
+    /// (<c>VideoScope</c> and <c>OnlineExamScope</c> target Session or SessionGroup — there
+    /// is no per-student scope), so an unassigned student's video and exam lists come back
+    /// empty with a perfectly successful 200. Without this field the app cannot tell
+    /// "your teacher published nothing yet" apart from "you are not in a session yet", and
+    /// the student is left staring at an empty screen with no way to act. The client shows
+    /// an explanatory note pointing them at their teacher when this is null.
+    ///
+    /// Distinct from <see cref="IsLinked"/>: linking binds the ACCOUNT to the teacher's
+    /// student record; assignment places that record in a session. A student can be linked
+    /// and still unassigned — that is exactly the case this field exposes.
+    /// </summary>
+    public long? SessionId { get; set; }
+
+    /// <summary>
+    /// Display name of <see cref="SessionId"/>'s session; null whenever that is null.
+    /// </summary>
+    public string? SessionName { get; set; }
 
     /// <summary>
     /// Whether the student may view their scannable QR/barcode inside the app. Mirrors the

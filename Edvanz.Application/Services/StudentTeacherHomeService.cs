@@ -128,6 +128,14 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
         int scopeYear = explicitMonth ? year!.Value : localToday.Year;
         int scopeMonth = explicitMonth ? month!.Value : localToday.Month;
 
+        // ── Assigned session (REQ-STU-004 / BR-SES-002): null when the teacher hasn't put this
+        // student in a session yet. Videos AND online exams are session-scoped only, so this is
+        // what lets the app explain an empty list instead of showing a bare empty state.
+        // One indexed seek, tenant-scoped inside the repo — not fail-soft on purpose: a silent
+        // null here would read as "unassigned" and show the student a wrong, alarming note.
+        var assignedSession = await _unitOfWork.Students
+            .GetAssignedSessionAsync(teacherStudentId, teacherId);
+
         var home = new StudentTeacherHomeDto
         {
             TeacherId = teacherId,
@@ -136,6 +144,8 @@ public sealed class StudentTeacherHomeService : IStudentTeacherHomeService
             TeacherCode = teacher?.TeacherCode ?? string.Empty,
             LinkStatus = link.LinkStatus.ToString(),
             IsLinked = true, // guaranteed by the gate above (Active + bound)
+            SessionId = assignedSession?.Id,
+            SessionName = assignedSession?.SessionName,
             // Fail-open to InApp (soft QR visible) when the config row is missing, same as the
             // visibility toggles above. HardCopyOnly means the teacher hands out printed cards.
             IsBarcodeInAppEnabled =

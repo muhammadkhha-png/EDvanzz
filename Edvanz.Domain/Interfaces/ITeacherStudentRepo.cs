@@ -178,6 +178,22 @@ public interface ITeacherStudentRepo : IGenericRepo<TeacherStudent, long>
     /// left-joins them onto the full session catalog.
     /// </summary>
     Task<StudentAssignmentCounts> GetAssignmentCountsAsync(long teacherId, string? search = null);
+
+    /// <summary>
+    /// Returns the session a student is currently assigned to (Id + name), or null when
+    /// the student has no assigned session (<c>TeacherStudent.SessionId</c> is null) or
+    /// the session row is gone (REQ-SES-042 nulls the FK on session delete).
+    ///
+    /// Backs the student-facing "which session am I in?" surface: videos and online exams
+    /// are BOTH scoped by session only (<c>VideoScope</c> / <c>OnlineExamScope</c> target
+    /// Session or SessionGroup), so an unassigned student gets an empty — but successful —
+    /// list on both. The student home aggregate reads this to explain that silence instead
+    /// of leaving the student staring at an empty screen. REQ-STU-004 / BR-SES-002.
+    ///
+    /// Tenant-scoped: <paramref name="teacherId"/> is matched on BOTH the student row and
+    /// the session row, so a student id from another tenant resolves to null.
+    /// </summary>
+    Task<SessionNameRow?> GetAssignedSessionAsync(long teacherStudentId, long teacherId);
     /// <summary>
     /// Builds a filtered, searchable, sortable IQueryable for the teacher's active students.
     /// The caller (service layer) uses this with GetPagedAsync for pagination.

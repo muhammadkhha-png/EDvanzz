@@ -334,5 +334,30 @@ public class TeacherStudentRepo : GenericRepo<TeacherStudent, long>, ITeacherStu
         };
     }
 
+    /// <inheritdoc />
+    public async Task<SessionNameRow?> GetAssignedSessionAsync(long teacherStudentId, long teacherId)
+    {
+        // Global soft-delete query filter excludes deleted students automatically.
+        // The join is an inner join by construction (Select off ts.Session with a
+        // != null guard), so a session hard-deleted out from under the student —
+        // REQ-SES-042 nulls SessionId — yields null, same as never being assigned.
+        //
+        // TeacherId is matched on the session too: the tenant column is denormalized
+        // on both rows, so a cross-tenant pairing can never project a name.
+        return await _context.TeacherStudents
+            .AsNoTracking()
+            .Where(ts => ts.Id == teacherStudentId
+                      && ts.TeacherId == teacherId
+                      && ts.SessionId != null
+                      && ts.Session != null
+                      && ts.Session.TeacherId == teacherId)
+            .Select(ts => new SessionNameRow
+            {
+                Id = ts.Session!.Id,
+                SessionName = ts.Session.SessionName
+            })
+            .FirstOrDefaultAsync();
+    }
+
 
 }
