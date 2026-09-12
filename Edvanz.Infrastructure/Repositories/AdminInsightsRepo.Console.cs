@@ -1,4 +1,4 @@
-using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
@@ -335,6 +335,72 @@ public partial class AdminInsightsRepo
             .OrderBy(l => l.CreateAt)
             .Select(l => (DateTime?)l.CreateAt)
             .FirstOrDefaultAsync(ct);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConsoleModuleUsage>> GetModuleUsageAsync(
+        long teacherId, DateOnly from30, CancellationToken ct = default)
+    {
+        // The day rows for this teacher, projected to just the ten module columns. Pulled rather
+        // than aggregated in SQL because there are ten separate columns and no bitwise or dynamic
+        // aggregate to fold them with — and a teacher's day rows are one per ACTIVE day, so even a
+        // year of daily use is a few hundred tiny rows.
+        var days = await _context.TeacherUsageDays
+            .AsNoTracking()
+            .Where(d => d.TeacherId == teacherId)
+            .Select(d => new
+            {
+                d.ActivityDate,
+                d.StudentWrites,
+                d.SessionWrites,
+                d.AttendanceWrites,
+                d.PaymentWrites,
+                d.VideoWrites,
+                d.OnlineExamWrites,
+                d.ExamHomeworkWrites,
+                d.MessagingWrites,
+                d.ParentPortalWrites,
+                d.EventPaymentWrites,
+            })
+            .ToListAsync(ct);
+
+        // Name → how to read that module's count off a day row. One list, so a module cannot be
+        // measured in one place and forgotten in another.
+        var readers = new (string Module, Func<dynamic, int> Count)[]
+        {
+            (nameof(UsageModules.Students), d => d.StudentWrites),
+            (nameof(UsageModules.Sessions), d => d.SessionWrites),
+            (nameof(UsageModules.Attendance), d => d.AttendanceWrites),
+            (nameof(UsageModules.Payments), d => d.PaymentWrites),
+            (nameof(UsageModules.Videos), d => d.VideoWrites),
+            (nameof(UsageModules.OnlineExams), d => d.OnlineExamWrites),
+            (nameof(UsageModules.ExamsHomework), d => d.ExamHomeworkWrites),
+            (nameof(UsageModules.Messaging), d => d.MessagingWrites),
+            (nameof(UsageModules.ParentPortal), d => d.ParentPortalWrites),
+            (nameof(UsageModules.EventPayments), d => d.EventPaymentWrites),
+        };
+
+        var result = new List<ConsoleModuleUsage>(readers.Length);
+        foreach (var (module, count) in readers)
+        {
+            DateOnly? lastUsed = null;
+            int writes30 = 0, writesAll = 0, daysUsed = 0;
+
+            foreach (var d in days)
+            {
+                int n = count(d);
+                if (n <= 0) continue;
+
+                writesAll += n;
+                daysUsed++;
+                if (d.ActivityDate >= from30) writes30 += n;
+                if (lastUsed is null || d.ActivityDate > lastUsed) lastUsed = d.ActivityDate;
+            }
+
+            result.Add(new ConsoleModuleUsage(module, lastUsed, writes30, writesAll, daysUsed));
+        }
+
+        return result;
+    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ConsoleClassRow>> GetClassesForTeacherAsync(
