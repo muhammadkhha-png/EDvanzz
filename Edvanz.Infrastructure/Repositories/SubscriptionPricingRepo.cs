@@ -39,4 +39,19 @@ public class SubscriptionPricingRepo : ISubscriptionPricingRepo
             .OrderBy(s => s.Id)
             .FirstOrDefaultAsync();
     }
+
+    /// <inheritdoc />
+    public async Task<SubscriptionRates> GetRatesAsync()
+    {
+        var rates = await _context.Set<SubscriptionPricingSetting>()
+            .AsNoTracking()
+            .OrderBy(s => s.Id)
+            .Select(s => new SubscriptionRates(
+                s.PricePerStudentEGP, s.ManagerialMonthlyPriceEGP, s.ManagerialPlusMonthlyPriceEGP))
+            .FirstOrDefaultAsync();
+
+        // Zeros rather than null: the pricing helper already treats a zero rate as "cannot be
+        // priced", so every caller gets the same fail-closed answer without a null check.
+        return rates ?? new SubscriptionRates(0m, 0m, 0m);
+    }
 }

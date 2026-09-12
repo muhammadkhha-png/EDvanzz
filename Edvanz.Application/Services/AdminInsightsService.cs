@@ -18,7 +18,7 @@ namespace Edvanz.Application.Services;
 /// This service MAPS and COMPOSES; it does not aggregate. Every number it returns was computed by the
 /// nightly rollup and filtered in SQL by <see cref="IAdminInsightsRepo"/>.
 /// </summary>
-public class AdminInsightsService : IAdminInsightsService
+public partial class AdminInsightsService : IAdminInsightsService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ITeacherUsageRollupService _rollup;
@@ -195,7 +195,10 @@ public class AdminInsightsService : IAdminInsightsService
 
         if (only is not null)
             ordered = ordered.Where(i => i.ReasonKey == only.Value.ToString()).ToList();
-        var page = ordered.Take(Math.Clamp(take <= 0 ? CallListDefaultTake : take, 1, 200)).ToList();
+        var page = ordered
+            .Take(Math.Clamp(take <= 0 ? CallListDefaultTake : take,
+                             1, AdminInsightsConstants.CallListMaxTake))
+            .ToList();
 
         // Note counts only for what is actually shown, so the badge costs one query per screen.
         var noteStats = await repo.GetNoteStatsAsync(page.Select(i => i.TeacherId).ToList());

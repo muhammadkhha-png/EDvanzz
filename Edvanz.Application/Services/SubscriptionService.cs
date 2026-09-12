@@ -1004,29 +1004,22 @@ public class SubscriptionService : ISubscriptionService
     /// </summary>
     private async Task<decimal> ComputeRenewalPriceAsync(Teacher? teacher, SubscriptionPlanType? planType)
     {
-        // The two managerial plans renew at their FLAT monthly price — capacity × rate is a
-        // Full-plan formula only (it used to be applied to every plan, which showed a Managerial
-        // teacher a per-student renewal figure they would never be charged).
-        if (planType is SubscriptionPlanType.Managerial or SubscriptionPlanType.ManagerialPlus)
-        {
-            var setting = await _unitOfWork.SubscriptionPricingRepo.GetSettingAsync();
-            return planType == SubscriptionPlanType.Managerial
-                ? setting?.ManagerialMonthlyPriceEGP ?? 0m
-                : setting?.ManagerialPlusMonthlyPriceEGP ?? 0m;
-        }
-
+        // The formula itself lives in SubscriptionPricing (Domain.Helpers) because the admin
+        // console sums the same value across every active subscription; a second copy of a money
+        // formula is a copy that drifts. This method keeps the I/O — the pricing row — and the
+        // "0 when unpriceable" contract the CurrentSubscriptionDto wire shape depends on.
+        //
         // The teacher is passed in, never re-fetched: both callers already hold the row (they
         // report LinkedStudentCapacity alongside the price), and GET /status is hit on every app
         // launch — loading it twice there was a needless extra round-trip on a hot path.
-        if (teacher is null) return 0m;
+        var rates = await _unitOfWork.SubscriptionPricingRepo.GetRatesAsync();
 
-        if (teacher.LinkedStudentCapacity <= 0 || teacher.LinkedStudentCapacity > SubscriptionConstants.MaxStudentCapacity)
-            return 0m;
-
-        decimal? ratePerStudent = await _unitOfWork.SubscriptionPricingRepo.GetPricePerStudentAsync();
-        if (ratePerStudent is null || ratePerStudent.Value <= 0m) return 0m;
-
-        return teacher.LinkedStudentCapacity * ratePerStudent.Value;
+        return SubscriptionPricing.MonthlyValueEGP(
+            planType,
+            teacher?.LinkedStudentCapacity ?? 0,
+            rates.PerStudentEGP,
+            rates.ManagerialMonthlyEGP,
+            rates.ManagerialPlusMonthlyEGP);
     }
 
     private static RenewStatusDto ToRenewStatusDto(PendingSubscriptionPayment pending) => new()

@@ -66,6 +66,50 @@ public interface IAdminInsightsService
     /// </summary>
     Task<Result<byte[]>> ExportTeachersCsvAsync(TeacherUsageQueryRequest request);
 
+    // ── The console ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// THE DASHBOARD — one call behind the whole landing page: what changed yesterday (with names),
+    /// how the business is moving, whether subscribers are using it, feature by feature, the money,
+    /// and the platform footer.
+    ///
+    /// Everything is scoped to INDEPENDENT teachers; centre-owned teachers get their own card and
+    /// their money stays on the Centres page. <paramref name="windowDays"/> (7 / 30 / 90) governs
+    /// every "newly" figure and every delta.
+    /// </summary>
+    Task<Result<AdminDashboardDto>> GetDashboardAsync(int windowDays);
+
+    /// <summary>Registrations, new subscriptions and live subscribers per period — 12 weeks or 12 months.</summary>
+    Task<Result<AdminTrendsDto>> GetTrendsAsync(string? granularity);
+
+    /// <summary>
+    /// The named people behind ANY dashboard number, paged. One endpoint for every card, because a
+    /// count someone cannot open is a number to study rather than one to work.
+    ///
+    /// <paramref name="key"/> is a <c>AdminSegmentKey</c> name; the two parameterised families carry
+    /// their argument after a colon (<c>ModuleUsing:Videos</c>, <c>Renewed:2026-08</c>).
+    /// </summary>
+    Task<Result<PaginatedResponse<List<AdminSegmentTeacherDto>>>> GetSegmentAsync(
+        string key, int windowDays, int page, int pageSize);
+
+    /// <summary>Renewed vs churned per month, plus the trial-conversion split.</summary>
+    Task<Result<AdminRenewalsDto>> GetRenewalsAsync(int months);
+
+    /// <summary>
+    /// Global search across teachers, roster students, student app accounts and assistants.
+    /// Grouped top-few per kind; Arabic variants folded on every group.
+    /// </summary>
+    Task<Result<AdminSearchDto>> SearchAsync(string? query, int takePerGroup);
+
+    /// <summary>
+    /// Sign-in history for everyone on a teacher's account. Teachers carry only a last-login —
+    /// the platform has never recorded a per-login row for them — and the response says so.
+    /// </summary>
+    Task<Result<AdminTeacherLoginsDto>> GetTeacherLoginsAsync(long teacherId);
+
+    /// <summary>What the teacher's account contains, read-only: classes, content, accounts.</summary>
+    Task<Result<AdminTeacherSnapshotDto>> GetTeacherSnapshotAsync(long teacherId);
+
     // ── Sales attribution ──────────────────────────────────────────────────────
 
     /// <summary>Every sales rep with their book of accounts rolled up by outcome.</summary>

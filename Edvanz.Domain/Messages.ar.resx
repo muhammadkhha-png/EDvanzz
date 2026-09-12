@@ -2961,4 +2961,49 @@
   <data name="CallDoNeverSetUp" xml:space="preserve">
     <value>احجز معاه مكالمة تظبيط وحدّدوا أول حصة.</value>
   </data>
+  <data name="AdminSegmentUnknown" xml:space="preserve">
+    <value>القائمة دي مش موجودة. راجع الكارت اللي دوست عليه.</value>
+  </data>
+  <data name="ConsoleEvidenceNoStudents" xml:space="preserve">
+    <value>لسه مفيش طلبة</value>
+  </data>
+  <data name="ConsoleEvidenceStudentsInClasses" xml:space="preserve">
+    <value>{0} طالب · {1} في مجموعات</value>
+  </data>
+  <data name="ConsoleEvidenceRegistered" xml:space="preserve">
+    <value>سجّل {0}</value>
+  </data>
+  <data name="ConsoleEvidenceSubscribed" xml:space="preserve">
+    <value>اشترك {0}</value>
+  </data>
+  <data name="ConsoleEvidenceEnded" xml:space="preserve">
+    <value>الاشتراك خلص {0}</value>
+  </data>
+  <data name="ConsoleEvidenceEndingIn" xml:space="preserve">
+    <value>الاشتراك هيخلص خلال {0} يوم</value>
+  </data>
+  <data name="ConsoleEvidenceRenewed" xml:space="preserve">
+    <value>اشترك {0} مرة لحد دلوقتي</value>
+  </data>
+  <data name="ConsoleEvidenceFirstSubscription" xml:space="preserve">
+    <value>لسه على أول اشتراك، بدأ {0}</value>
+  </data>
+  <data name="ConsoleEvidenceStartedUsing" xml:space="preserve">
+    <value>أول مرة يستخدم التطبيق</value>
+  </data>
+  <data name="ConsoleEvidenceActiveDays" xml:space="preserve">
+    <value>اشتغل {0} يوم من آخر {1} يوم</value>
+  </data>
+  <data name="ConsoleEvidenceNothingSince" xml:space="preserve">
+    <value>مفيش أي حاجة من {0} يوم</value>
+  </data>
+  <data name="ConsoleEvidenceNeverUsed" xml:space="preserve">
+    <value>عمره ما استخدمه</value>
+  </data>
+  <data name="ConsoleEvidenceNeverOpenedActive" xml:space="preserve">
+    <value>شغّال ({0} يوم نشاط) بس عمره ما فتح دي</value>
+  </data>
+  <data name="ConsoleEvidenceNeverOpenedQuiet" xml:space="preserve">
+    <value>عمره ما فتحها، ومش بيستخدم الباقي كمان</value>
+  </data>
 </root>

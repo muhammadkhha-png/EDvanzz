@@ -2973,4 +2973,49 @@
   <data name="CallDoNeverSetUp" xml:space="preserve">
     <value>Book a setup call and get their first class scheduled.</value>
   </data>
+  <data name="AdminSegmentUnknown" xml:space="preserve">
+    <value>That list does not exist. Check the card you clicked.</value>
+  </data>
+  <data name="ConsoleEvidenceNoStudents" xml:space="preserve">
+    <value>no students yet</value>
+  </data>
+  <data name="ConsoleEvidenceStudentsInClasses" xml:space="preserve">
+    <value>{0} students · {1} in classes</value>
+  </data>
+  <data name="ConsoleEvidenceRegistered" xml:space="preserve">
+    <value>registered {0}</value>
+  </data>
+  <data name="ConsoleEvidenceSubscribed" xml:space="preserve">
+    <value>subscribed {0}</value>
+  </data>
+  <data name="ConsoleEvidenceEnded" xml:space="preserve">
+    <value>subscription ended {0}</value>
+  </data>
+  <data name="ConsoleEvidenceEndingIn" xml:space="preserve">
+    <value>subscription ends in {0} days</value>
+  </data>
+  <data name="ConsoleEvidenceRenewed" xml:space="preserve">
+    <value>subscribed {0} times so far</value>
+  </data>
+  <data name="ConsoleEvidenceFirstSubscription" xml:space="preserve">
+    <value>still on their first subscription, started {0}</value>
+  </data>
+  <data name="ConsoleEvidenceStartedUsing" xml:space="preserve">
+    <value>first time they have used it</value>
+  </data>
+  <data name="ConsoleEvidenceActiveDays" xml:space="preserve">
+    <value>active {0} of the last {1} days</value>
+  </data>
+  <data name="ConsoleEvidenceNothingSince" xml:space="preserve">
+    <value>nothing in {0} days</value>
+  </data>
+  <data name="ConsoleEvidenceNeverUsed" xml:space="preserve">
+    <value>has never used it</value>
+  </data>
+  <data name="ConsoleEvidenceNeverOpenedActive" xml:space="preserve">
+    <value>working ({0} active days) but has never opened this one</value>
+  </data>
+  <data name="ConsoleEvidenceNeverOpenedQuiet" xml:space="preserve">
+    <value>has never opened it, and is not using the rest either</value>
+  </data>
 </root>

@@ -98,7 +98,7 @@ public class AdminInsightsController : ApiBaseController
     //   have been stuck for weeks and will keep; a teacher who paid on Tuesday will not.
     //
     // SAMPLE: GET /api/admin/insights/call-list
-    //         GET /api/admin/insights/call-list?reason=PaidNotStarted&take=50
+    //         GET /api/admin/insights/call-list?reason=SubscribedNotStarted&take=50
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpGet("call-list")]
@@ -273,6 +273,150 @@ public class AdminInsightsController : ApiBaseController
     {
         if (_currentUser.UserId is null) return UserNotResolved();
         return ToResponse(await _insights.RecomputeTeacherUsageAsync(teacherId, days));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // THE CONSOLE
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHY THESE EXIST: the screens above answer "how is adoption doing" in a vocabulary someone has
+    // to be taught — cadence, depth, operator mix. The console answers the two questions actually
+    // asked every morning — "what's new since yesterday" and "how is the business doing" — in plain
+    // sentences, and every number on it opens the people inside it with a phone number attached.
+    //
+    // THE CONTRACT ALL FIVE SHARE: a card's count and the list behind it are the same predicate
+    // over the same population, so they can never disagree; centre-owned teachers are excluded
+    // from every subscriber figure and carry their own card, so independent + centre always equals
+    // every teacher; and "yesterday" is Africa/Cairo's yesterday, never UTC's.
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// THE DASHBOARD — the landing page in one call.
+    ///
+    /// Returns: yesterday's five named lists, growth with deltas, whether subscribers are using it,
+    /// the per-feature table, the money, and the platform footer. <c>window</c> (7 / 30 / 90, default
+    /// 7) governs every "newly" figure; an unrecognised value falls back to 7 rather than 400 — a
+    /// dashboard is not the place to answer a typo with an error screen.
+    ///
+    /// The usage half is complete through <c>computedThrough</c> (yesterday), because the rollup
+    /// runs overnight. The response says so instead of implying live numbers.
+    ///
+    /// SAMPLE: GET /api/admin/insights/dashboard?window=30
+    /// </summary>
+    [HttpGet("dashboard")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<AdminDashboardDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetDashboard([FromQuery] int window = 7)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetDashboardAsync(window));
+    }
+
+    /// <summary>
+    /// The trend chart: registrations, new subscriptions, and live subscribers at each period end.
+    /// Twelve buckets either way — weeks start on SATURDAY, matching the Egyptian week the class
+    /// schedule already uses. Zero-filled, so a quiet week reads as flat rather than missing.
+    ///
+    /// SAMPLE: GET /api/admin/insights/trends?granularity=Monthly
+    /// </summary>
+    [HttpGet("trends")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<AdminTrendsDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetTrends([FromQuery] string? granularity = "Weekly")
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetTrendsAsync(granularity));
+    }
+
+    /// <summary>
+    /// THE PEOPLE INSIDE ANY NUMBER. One endpoint behind every card on the dashboard — a count
+    /// nobody can open is a report to study, and this console exists to be worked.
+    ///
+    /// <c>key</c> is an AdminSegmentKey name. Two families carry an argument after a colon:
+    /// per feature (<c>ModuleUsing:Videos</c>, <c>ModuleNeverOpened:Attendance</c>) and per month
+    /// (<c>Renewed:2026-08</c>, <c>NotRenewed:2026-08</c>). An unreadable key is a 400 — returning
+    /// an empty page would read as "nobody is in this card", which is a very different answer.
+    ///
+    /// Rows are the grid row plus one <c>evidence</c> line saying why this teacher is in THIS list.
+    /// <c>pageSize</c> is clamped, never rejected.
+    ///
+    /// SAMPLE: GET /api/admin/insights/segments/NotUsing30?window=7&amp;page=1&amp;pageSize=20
+    ///         GET /api/admin/insights/segments/ModuleNeverOpened:Videos
+    /// </summary>
+    [HttpGet("segments/{key}")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<PaginatedResponse<List<AdminSegmentTeacherDto>>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetSegment(
+        [FromRoute] string key,
+        [FromQuery] int window = 7,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetSegmentAsync(key, window, page, pageSize));
+    }
+
+    /// <summary>
+    /// Did subscriptions that ended actually come back? Per month: how many ended, how many renewed,
+    /// how many did not, and the rate — plus the trial-conversion split (still on their first
+    /// subscription vs subscribed more than once).
+    ///
+    /// A renewal is a NEW subscription row starting within 30 days of an earlier one's end.
+    /// Extending a subscription mutates the existing row and is deliberately NOT a renewal.
+    ///
+    /// SAMPLE: GET /api/admin/insights/renewals?months=6
+    /// </summary>
+    [HttpGet("renewals")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<AdminRenewalsDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetRenewals([FromQuery] int months = 6)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetRenewalsAsync(months));
+    }
+
+    /// <summary>
+    /// Everyone who signed in to a teacher's account and when — the first question on a support call.
+    ///
+    /// READ THE <c>teacherHistoryRecorded</c> FLAG. It is false, and that is a fact about the
+    /// platform rather than about this teacher: no per-login row has ever been written for a TEACHER
+    /// account — only assistants get one — so the teacher's block carries a last-login and last-seen
+    /// and an empty event list. A screen that renders that list without the flag says "never signed
+    /// in" about someone who signs in daily.
+    ///
+    /// SAMPLE: GET /api/admin/insights/teachers/42/logins
+    /// </summary>
+    [HttpGet("teachers/{teacherId:long}/logins")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<AdminTeacherLoginsDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTeacherLogins([FromRoute] long teacherId)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetTeacherLoginsAsync(teacherId));
+    }
+
+    /// <summary>
+    /// What the teacher's account CONTAINS, read-only: classes with their schedule, class days and
+    /// per-class student counts; the video, online-exam and homework libraries; and the student app
+    /// accounts. This is "see what they see" — the tab that settles a support call about a
+    /// misconfiguration without anyone guessing.
+    ///
+    /// Counted LIVE, not from the nightly snapshot: a figure up to a day stale is exactly what sends
+    /// someone hunting a bug that was fixed this morning.
+    ///
+    /// SAMPLE: GET /api/admin/insights/teachers/42/snapshot
+    /// </summary>
+    [HttpGet("teachers/{teacherId:long}/snapshot")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<AdminTeacherSnapshotDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetTeacherSnapshot([FromRoute] long teacherId)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetTeacherSnapshotAsync(teacherId));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

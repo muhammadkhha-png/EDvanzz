@@ -18,7 +18,7 @@ namespace Edvanz.Infrastructure.Repositories;
 /// the rules (documented on the helper, authoritative) are spelled out in the projection below. If
 /// the helper ever grows that expression, collapse this onto it.
 /// </summary>
-public class AdminInsightsRepo : IAdminInsightsRepo
+public partial class AdminInsightsRepo : IAdminInsightsRepo
 {
     private readonly EdvanzDbContext _context;
 
@@ -56,6 +56,7 @@ public class AdminInsightsRepo : IAdminInsightsRepo
                    Email = t.User.Email,
                    RegisteredAt = t.CreateAt,
                    AccountStatus = t.AccountStatus,
+                   IsCenterOwned = t.CenterId != null,
 
                    // The helper's documented rules, as a translatable CASE.
                    SubscriptionStatus =

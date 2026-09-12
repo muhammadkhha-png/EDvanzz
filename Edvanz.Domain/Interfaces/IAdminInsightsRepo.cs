@@ -80,6 +80,105 @@ public interface IAdminInsightsRepo
     /// <summary>Every sales rep with their teachers' usage outcomes rolled up. One GROUP BY.</summary>
     Task<IReadOnlyList<SalesRepPerformanceRow>> GetSalesRepPerformanceAsync(
         bool includeInactive, CancellationToken ct = default);
+
+    // ════════════════════════════════════════════════════════════════════════
+    // THE CONSOLE — dashboard, trends, drill-downs, search, support lookups
+    // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Every teacher on the platform, reduced to what the dashboard counts. ONE query; see
+    /// <see cref="ConsoleTeacherRow"/> for why the dashboard materialises a population rather than
+    /// issuing an aggregate per card.
+    /// </summary>
+    Task<IReadOnlyList<ConsoleTeacherRow>> GetConsoleTeacherRowsAsync(
+        DateTime nowUtc, CancellationToken ct = default);
+
+    /// <summary>
+    /// Teachers who did something real on one teacher-local calendar day. Backs both "used the app
+    /// yesterday" and the 7/30-day activity windows when they must agree with a named list.
+    /// </summary>
+    Task<IReadOnlySet<long>> GetTeacherIdsActiveOnAsync(
+        DateOnly activityDate, CancellationToken ct = default);
+
+    /// <summary>The platform footer: students, linked student accounts, assistants, centres.</summary>
+    Task<ConsolePlatformTotals> GetPlatformTotalsAsync(CancellationToken ct = default);
+
+    /// <summary>Everything waiting for an admin decision, with the money each queue represents.</summary>
+    Task<ConsolePendingApprovals> GetPendingApprovalsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Subscription periods for INDEPENDENT teachers that overlap or start on/after
+    /// <paramref name="fromUtc"/>, oldest first. The trend chart and the renewal maths are both
+    /// reconstructed from these spans rather than from stored daily counters.
+    /// </summary>
+    Task<IReadOnlyList<ConsoleSubscriptionSpan>> GetSubscriptionSpansAsync(
+        DateTime fromUtc, CancellationToken ct = default);
+
+    // ── Global search. Every group folds Arabic variants through dbo.ArabicNormalize, so
+    //    مصطفي finds مصطفى in a student list exactly as it already does on the teacher grid. ──
+
+    /// <summary>Teachers matching name, username, teacher code or phone.</summary>
+    Task<IReadOnlyList<ConsoleSearchHit>> SearchTeachersAsync(
+        string normalizedTerm, int take, CancellationToken ct = default);
+
+    /// <summary>Roster students (TeacherStudents) matching name, student code or either phone.</summary>
+    Task<IReadOnlyList<ConsoleSearchHit>> SearchStudentsAsync(
+        string normalizedTerm, int take, CancellationToken ct = default);
+
+    /// <summary>Student APP accounts matching name, username, account code or phone.</summary>
+    Task<IReadOnlyList<ConsoleSearchHit>> SearchStudentAccountsAsync(
+        string normalizedTerm, int take, CancellationToken ct = default);
+
+    /// <summary>Assistants matching name, username or phone, with the teacher they work for.</summary>
+    Task<IReadOnlyList<ConsoleSearchHit>> SearchAssistantsAsync(
+        string normalizedTerm, int take, CancellationToken ct = default);
+
+    // ── Support lookups for the teacher page ──
+
+    /// <summary>
+    /// Recorded sign-ins per assistant user for one teacher's account, newest first.
+    ///
+    /// TEACHERS ARE ABSENT ON PURPOSE, and it is not an oversight in this query: the platform has
+    /// never written a per-login row for a teacher account. <c>LoginActivityAssistantLog</c> is
+    /// keyed on <c>AssistantId</c> and written only by the assistant sign-in path, so a teacher's
+    /// history is exactly <c>User.LastLoginAt</c>. The read endpoint says so rather than rendering
+    /// an empty list that reads as "never logged in".
+    /// </summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<ConsoleLoginEvent>>> GetAssistantLoginEventsAsync(
+        long teacherId, int takePerAssistant, CancellationToken ct = default);
+
+    /// <summary>
+    /// Grid rows for an explicit set of teachers — the page of a drill-down, hydrated through the
+    /// SAME join the grid uses so a card's list and the table it links to describe one population.
+    /// Order is not guaranteed; the caller re-imposes the segment's own relevance ordering.
+    /// </summary>
+    Task<IReadOnlyList<TeacherUsageRow>> GetUsageRowsByIdsAsync(
+        IReadOnlyCollection<long> teacherIds, CancellationToken ct = default);
+
+    /// <summary>The teacher's classes with schedule and per-class counts, for the data snapshot.</summary>
+    Task<IReadOnlyList<ConsoleClassRow>> GetClassesForTeacherAsync(
+        long teacherId, CancellationToken ct = default);
+
+    /// <summary>
+    /// LIVE roster and account counts for the data snapshot. Deliberately not the nightly
+    /// snapshot's copies: this tab answers "what is in their account right now" during a support
+    /// call, and a figure up to a day stale is exactly the kind of answer that sends someone
+    /// looking for a bug that was fixed this morning.
+    /// </summary>
+    Task<(int Students, int StudentsInClasses, int ActiveLinks, int BoundLinks)> GetSnapshotCountsAsync(
+        long teacherId, CancellationToken ct = default);
+
+    /// <summary>Video library size and the most recent few titles.</summary>
+    Task<ConsoleContentSummary> GetVideoSummaryAsync(
+        long teacherId, int takeTitles, CancellationToken ct = default);
+
+    /// <summary>Online-exam count and the most recent few titles.</summary>
+    Task<ConsoleContentSummary> GetOnlineExamSummaryAsync(
+        long teacherId, int takeTitles, CancellationToken ct = default);
+
+    /// <summary>Offline exam/homework template count and the most recent few names.</summary>
+    Task<ConsoleContentSummary> GetAssignmentSummaryAsync(
+        long teacherId, int takeTitles, CancellationToken ct = default);
 }
 
 /// <summary>The named insight lists on the overview. Each is a question someone can act on today.</summary>
@@ -189,6 +288,13 @@ public sealed class TeacherUsageRow
 
     public DateTime RegisteredAt { get; set; }
     public AccountStatus AccountStatus { get; set; }
+
+    /// <summary>
+    /// True when the teacher belongs to a centre. The console excludes them from every subscriber
+    /// figure — their money is the centre's, counted once on the Centres page — and gives them
+    /// their own card, so "independent + centre-owned = every teacher" always holds.
+    /// </summary>
+    public bool IsCenterOwned { get; set; }
 
     public SubscriptionStatus? SubscriptionStatus { get; set; }
 

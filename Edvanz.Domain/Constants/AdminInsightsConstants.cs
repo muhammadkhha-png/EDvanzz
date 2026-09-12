@@ -88,4 +88,58 @@ public static class AdminInsightsConstants
     /// a small App Service plan.
     /// </summary>
     public const int CsvExportMaxRows = 5000;
+
+    // ── The console ────────────────────────────────────────────────────────────
+
+    /// <summary>The windows the dashboard's "newly" figures may be asked for.</summary>
+    public static readonly int[] ConsoleWindowDays = { 7, 30, 90 };
+
+    /// <summary>Default window. A week is the question someone actually asks each morning.</summary>
+    public const int ConsoleDefaultWindowDays = 7;
+
+    /// <summary>
+    /// "Ending soon" on the console means SEVEN days, computed off the end date — deliberately not
+    /// the subscription module's own five-day ExpiringSoon band. One definition, used everywhere on
+    /// these screens, so two "expiring" numbers can never sit side by side disagreeing.
+    /// </summary>
+    public const int ConsoleEndingSoonDays = 7;
+
+    /// <summary>How many names each "since yesterday" card carries inline before "+N more".</summary>
+    public const int ConsoleYesterdayPreviewSize = 8;
+
+    /// <summary>Buckets on the trend chart — 12 weeks or 12 months.</summary>
+    public const int ConsoleTrendBuckets = 12;
+
+    /// <summary>Months of renewal history the money section reports by default.</summary>
+    public const int ConsoleRenewalMonths = 6;
+
+    /// <summary>
+    /// How long after a subscription ends a NEW subscription row still counts as a renewal. A row
+    /// is the unit: <c>activate</c> inserts one, while <c>extend</c> and <c>set-end-date</c> mutate
+    /// the existing row in place and are correctly not renewals.
+    /// </summary>
+    public const int ConsoleRenewalWindowDays = 30;
+
+    /// <summary>Results per group in the global search dropdown.</summary>
+    public const int ConsoleSearchTakePerGroup = 5;
+
+    /// <summary>Ceiling on results per group when a caller asks for more.</summary>
+    public const int ConsoleSearchMaxTakePerGroup = 25;
+
+    /// <summary>Shortest query the global search will run. One letter matches the platform.</summary>
+    public const int ConsoleSearchMinLength = 2;
+
+    /// <summary>Recorded sign-ins kept per assistant on the teacher page.</summary>
+    public const int ConsoleLoginEventsPerPerson = 25;
+
+    /// <summary>Newest titles carried per content library on the data-snapshot tab.</summary>
+    public const int ConsoleSnapshotTitles = 5;
+
+    /// <summary>
+    /// Ceiling on the call list. It used to be 200, which was fine while the list was only ever a
+    /// screen someone worked from the top; the "needs a call" drill-down pages through the WHOLE
+    /// list, and a card claiming 240 that can only open 200 of them is the same count-vs-list
+    /// mismatch as BUG-17.
+    /// </summary>
+    public const int CallListMaxTake = 500;
 }
