@@ -1,4 +1,4 @@
-using Edvanz.API.Attributes;
+﻿using Edvanz.API.Attributes;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.AdminInsights;
 using Edvanz.Application.IservicesContract;
@@ -352,10 +352,42 @@ public class AdminInsightsController : ApiBaseController
         [FromRoute] string key,
         [FromQuery] int window = 7,
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null)
     {
         if (_currentUser.UserId is null) return UserNotResolved();
-        return ToResponse(await _insights.GetSegmentAsync(key, window, page, pageSize));
+        return ToResponse(await _insights.GetSegmentAsync(key, window, page, pageSize, search));
+    }
+
+    /// <summary>
+    /// The same segment, whole, as a CSV — what someone hands a rep before a morning of calls.
+    ///
+    /// Takes the SAME key and the SAME search the screen is showing, and exports every row rather
+    /// than the page in view: an export truncated at the visible fifteen is worse than none. UTF-8
+    /// with a BOM so Excel renders Arabic names rather than mojibake.
+    ///
+    /// SAMPLE: GET /api/admin/insights/segments/NotUsing30/export?window=7
+    ///         GET /api/admin/insights/segments/ModuleNeverOpened:Videos/export
+    /// </summary>
+    [HttpGet("segments/{key}/export")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(FileResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ExportSegment(
+        [FromRoute] string key,
+        [FromQuery] int window = 7,
+        [FromQuery] string? search = null)
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+
+        var result = await _insights.ExportSegmentCsvAsync(key, window, search);
+        if (!result.IsSuccess) return ToResponse(result);
+
+        // Stamped in the tenant's local time, never the server's (Azure runs UTC), and named after
+        // the list so three exports in a morning are still tellable apart in a downloads folder.
+        var localNow = _timeZone.ConvertUtcToLocal(DateTime.UtcNow);
+        string safeKey = key.Replace(':', '-');
+        return File(result.Data!, "text/csv", $"edvanz-{safeKey}_{localNow:yyyyMMdd_HHmm}.csv");
     }
 
     /// <summary>

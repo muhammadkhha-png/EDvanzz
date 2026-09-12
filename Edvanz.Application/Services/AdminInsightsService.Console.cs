@@ -278,7 +278,7 @@ public partial class AdminInsightsService
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<AdminSegmentTeacherDto>>>> GetSegmentAsync(
-        string key, int windowDays, int page, int pageSize)
+        string key, int windowDays, int page, int pageSize, string? search)
     {
         var parsed = AdminSegmentKeyParser.Parse(key);
         if (parsed is null)
@@ -295,10 +295,11 @@ public partial class AdminInsightsService
             needCallList: parsed.Key == AdminSegmentKey.NeedsCall,
             needRenewals: parsed.Key is AdminSegmentKey.Renewed or AdminSegmentKey.NotRenewed);
 
-        var ordered = ResolveSegment(ctx, parsed);
+        var ordered = ApplySearch(ResolveSegment(ctx, parsed), ctx, search);
 
         // The count is taken on the ordered id list the page is cut from — the same population,
-        // one statement apart, so the tile and its list cannot disagree (BUG-17).
+        // one statement apart, so the tile and its list cannot disagree (BUG-17). With a search
+        // term the count describes the FILTERED list, which is what the reader is looking at.
         int total = ordered.Count;
         var pageIds = ordered.Skip((page - 1) * pageSize).Take(pageSize).Select(r => r.TeacherId).ToList();
 
@@ -333,6 +334,114 @@ public partial class AdminInsightsService
         };
 
         return Result<PaginatedResponse<List<AdminSegmentTeacherDto>>>.Success(response, _localizer);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<byte[]>> ExportSegmentCsvAsync(string key, int windowDays, string? search)
+    {
+        var parsed = AdminSegmentKeyParser.Parse(key);
+        if (parsed is null)
+            return Result<byte[]>.Failure(_localizer, "AdminSegmentUnknown", HttpStatusCode.BadRequest);
+
+        var ctx = await BuildContextAsync(
+            NormalizeWindow(windowDays),
+            needCallList: parsed.Key == AdminSegmentKey.NeedsCall,
+            needRenewals: parsed.Key is AdminSegmentKey.Renewed or AdminSegmentKey.NotRenewed);
+
+        // The SAME resolution and the SAME search the screen is showing — an export that quietly
+        // applies different filters is worse than no export.
+        var ordered = ApplySearch(ResolveSegment(ctx, parsed), ctx, search)
+            .Take(AdminInsightsConstants.CsvExportMaxRows)
+            .ToList();
+
+        var ids = ordered.Select(m => m.TeacherId).ToList();
+        var rows = await _unitOfWork.AdminInsightsRepo.GetUsageRowsByIdsAsync(ids);
+        var byId = rows.ToDictionary(r => r.TeacherId);
+
+        var headers = new[]
+        {
+            "Teacher ID", "Name", "Teacher code", "Phone", "Email",
+            "Why they are on this list",
+            "Subscription", "Plan", "Subscribed on", "Ends on", "Days left",
+            "Students", "Students in a class", "Classes", "Assistants",
+            "Active days (7)", "Active days (30)", "Last activity",
+            "Features used", "Features they pay for", "Never opened",
+            "Sales rep", "Registered on",
+        };
+
+        var csvRows = ordered
+            .Where(m => byId.ContainsKey(m.TeacherId))
+            .Select(m =>
+            {
+                var r = byId[m.TeacherId];
+                int? daysLeft = r.SubscriptionEndDate is null
+                    ? null
+                    : (int)Math.Ceiling((r.SubscriptionEndDate.Value - ctx.NowUtc).TotalDays);
+
+                return (IReadOnlyList<string?>)new List<string?>
+                {
+                    r.TeacherId.ToString(),
+                    r.FullName,
+                    r.TeacherCode,
+                    r.PhoneNumber,
+                    r.Email,
+                    m.Evidence,
+
+                    r.SubscriptionStatus?.ToString(),
+                    r.PlanType?.ToString(),
+                    AdminInsightsCsv.Date(r.SubscriptionStartDate),
+                    AdminInsightsCsv.Date(r.SubscriptionEndDate),
+                    daysLeft?.ToString(),
+
+                    r.StudentCount.ToString(),
+                    r.StudentsAssignedToSession.ToString(),
+                    r.SessionCount.ToString(),
+                    r.ActiveAssistantCount.ToString(),
+
+                    r.ActiveDays7.ToString(),
+                    r.ActiveDays30.ToString(),
+                    AdminInsightsCsv.Date(r.LastActivityAt),
+
+                    UsageModuleEntitlement.Count(
+                        UsageModuleEntitlement.Adopted(r.EntitledModulesMask, r.ModulesUsedAllTimeMask)).ToString(),
+                    UsageModuleEntitlement.Count(r.EntitledModulesMask).ToString(),
+                    string.Join(" | ", ModuleNames(
+                        UsageModuleEntitlement.NeverUsed(r.EntitledModulesMask, r.ModulesUsedAllTimeMask))),
+
+                    r.SalesRepName,
+                    AdminInsightsCsv.Date(r.RegisteredAt),
+                };
+            });
+
+        return Result<byte[]>.Success(AdminInsightsCsv.Build(headers, csvRows), _localizer);
+    }
+
+    /// <summary>
+    /// Narrows a resolved segment by name, teacher code, username or phone.
+    ///
+    /// Folded through <c>ArabicTextNormalizer</c> on BOTH sides so مصطفي finds مصطفى. Filtering in
+    /// memory is correct HERE and nowhere else: the population is already materialised for the
+    /// counting, so this is a pass over a list that is in hand — not a query dragged out of SQL.
+    /// </summary>
+    private static List<SegmentMember> ApplySearch(
+        List<SegmentMember> members, ConsoleContext ctx, string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return members;
+
+        string term = ArabicTextNormalizer.Normalize(search.Trim());
+        if (term.Length == 0) return members;
+
+        var byId = ctx.Rows.ToDictionary(r => r.TeacherId);
+
+        return members
+            .Where(m =>
+            {
+                if (!byId.TryGetValue(m.TeacherId, out var r)) return false;
+                return ArabicTextNormalizer.Normalize(r.FullName).Contains(term)
+                    || ArabicTextNormalizer.Normalize(r.TeacherCode).Contains(term)
+                    || (r.PhoneNumber is not null && r.PhoneNumber.Contains(term));
+            })
+            .ToList();
     }
 
     // ════════════════════════════════════════════════════════════════════════

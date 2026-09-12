@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.AdminInsights;
 
 namespace Edvanz.Application.ServiceContract;
@@ -89,8 +89,22 @@ public interface IAdminInsightsService
     /// <paramref name="key"/> is a <c>AdminSegmentKey</c> name; the two parameterised families carry
     /// their argument after a colon (<c>ModuleUsing:Videos</c>, <c>Renewed:2026-08</c>).
     /// </summary>
+    /// <param name="search">
+    /// Optional. Narrows the list to matching name, teacher code, username or phone, Arabic
+    /// variants folded. A drill-down can run to hundreds of people — someone looking for one of
+    /// them should not have to page through the rest.
+    /// </param>
     Task<Result<PaginatedResponse<List<AdminSegmentTeacherDto>>>> GetSegmentAsync(
-        string key, int windowDays, int page, int pageSize);
+        string key, int windowDays, int page, int pageSize, string? search);
+
+    /// <summary>
+    /// The WHOLE segment as a CSV — the same people, the same order, the same filter, with the
+    /// contact details and account state a rep needs on the phone.
+    ///
+    /// Exports everything rather than the page on screen: the point of an export is to hand
+    /// someone their call list, and a list cut off at fifteen rows is worse than none.
+    /// </summary>
+    Task<Result<byte[]>> ExportSegmentCsvAsync(string key, int windowDays, string? search);
 
     /// <summary>Renewed vs churned per month, plus the trial-conversion split.</summary>
     Task<Result<AdminRenewalsDto>> GetRenewalsAsync(int months);
