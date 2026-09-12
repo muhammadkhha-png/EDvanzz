@@ -391,6 +391,20 @@ public class AdminInsightsController : ApiBaseController
     }
 
     /// <summary>
+    /// Approval counts on their own — what the sidebar badges read on every page.
+    ///
+    /// SAMPLE: GET /api/admin/insights/pending
+    /// </summary>
+    [HttpGet("pending")]
+    [ModulePermission(roles: new[] { "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Result<DashboardPendingDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingCounts()
+    {
+        if (_currentUser.UserId is null) return UserNotResolved();
+        return ToResponse(await _insights.GetPendingCountsAsync());
+    }
+
+    /// <summary>
     /// Did subscriptions that ended actually come back? Per month: how many ended, how many renewed,
     /// how many did not, and the rate — plus the trial-conversion split (still on their first
     /// subscription vs subscribed more than once).

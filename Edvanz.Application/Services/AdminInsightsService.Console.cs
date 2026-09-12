@@ -108,22 +108,7 @@ public partial class AdminInsightsService
                 LatestRenewals = ctx.Renewals.Months.LastOrDefault(),
                 RenewedAtLeastOnce = Stat(ctx, AdminSegmentKey.RenewedAtLeastOnce),
                 FirstSubscriptionOnly = Stat(ctx, AdminSegmentKey.FirstSubOnly),
-                Pending = new DashboardPendingDto
-                {
-                    SubscriptionPayments = pending.SubscriptionPayments,
-                    SubscriptionPaymentsEGP = pending.SubscriptionPaymentsEGP,
-                    SubscriptionRequests = pending.SubscriptionRequests,
-                    SubscriptionRequestsEGP = pending.SubscriptionRequestsEGP,
-                    CapacityRequests = pending.CapacityRequests,
-                    CenterSubscriptionRequests = pending.CenterSubscriptionRequests,
-                    CenterSubscriptionRequestsEGP = pending.CenterSubscriptionRequestsEGP,
-                    TeacherIndependenceRequests = pending.TeacherIndependenceRequests,
-                    Total = pending.SubscriptionPayments + pending.SubscriptionRequests
-                          + pending.CapacityRequests + pending.CenterSubscriptionRequests
-                          + pending.TeacherIndependenceRequests,
-                    TotalEGP = pending.SubscriptionPaymentsEGP + pending.SubscriptionRequestsEGP
-                             + pending.CenterSubscriptionRequestsEGP
-                }
+                Pending = ToPending(pending)
             },
 
             Platform = new DashboardPlatformDto
@@ -438,6 +423,31 @@ public partial class AdminInsightsService
             })
             .ToList();
     }
+
+    /// <inheritdoc />
+    public async Task<Result<DashboardPendingDto>> GetPendingCountsAsync()
+    {
+        var p = await _unitOfWork.AdminInsightsRepo.GetPendingApprovalsAsync();
+        return Result<DashboardPendingDto>.Success(ToPending(p), _localizer);
+    }
+
+    /// <summary>One mapping, used by the dashboard and by the badge endpoint — two copies of a
+    /// total is two chances for the badge and the card to disagree.</summary>
+    private static DashboardPendingDto ToPending(ConsolePendingApprovals p) => new()
+    {
+        SubscriptionPayments = p.SubscriptionPayments,
+        SubscriptionPaymentsEGP = p.SubscriptionPaymentsEGP,
+        SubscriptionRequests = p.SubscriptionRequests,
+        SubscriptionRequestsEGP = p.SubscriptionRequestsEGP,
+        CapacityRequests = p.CapacityRequests,
+        CenterSubscriptionRequests = p.CenterSubscriptionRequests,
+        CenterSubscriptionRequestsEGP = p.CenterSubscriptionRequestsEGP,
+        TeacherIndependenceRequests = p.TeacherIndependenceRequests,
+        Total = p.SubscriptionPayments + p.SubscriptionRequests + p.CapacityRequests
+              + p.CenterSubscriptionRequests + p.TeacherIndependenceRequests,
+        TotalEGP = p.SubscriptionPaymentsEGP + p.SubscriptionRequestsEGP
+                 + p.CenterSubscriptionRequestsEGP,
+    };
 
     // ════════════════════════════════════════════════════════════════════════
     // RENEWALS

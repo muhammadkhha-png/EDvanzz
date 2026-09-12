@@ -106,6 +106,15 @@ public interface IAdminInsightsService
     /// </summary>
     Task<Result<byte[]>> ExportSegmentCsvAsync(string key, int windowDays, string? search);
 
+    /// <summary>
+    /// Just the approval counts — what the sidebar badges read.
+    ///
+    /// Its own endpoint rather than a slice of the dashboard: the sidebar is on screen on EVERY
+    /// page, and rebuilding the whole dashboard to colour a badge would make the cheapest thing on
+    /// the console the most expensive thing it does.
+    /// </summary>
+    Task<Result<DashboardPendingDto>> GetPendingCountsAsync();
+
     /// <summary>Renewed vs churned per month, plus the trial-conversion split.</summary>
     Task<Result<AdminRenewalsDto>> GetRenewalsAsync(int months);
 
