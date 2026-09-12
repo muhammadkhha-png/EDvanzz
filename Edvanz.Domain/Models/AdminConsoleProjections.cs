@@ -98,7 +98,17 @@ public sealed record ConsolePendingApprovals(
 public sealed record ConsoleSubscriptionSpan(
     long TeacherId,
     DateTime StartDate,
-    DateTime EndDate);
+    DateTime EndDate,
+
+    /// <summary>
+    /// Whether this is the teacher's current row RIGHT NOW. Historical liveness has to be
+    /// reconstructed from the dates — the flag only describes today — but at today it is exact, and
+    /// the platform gates on it: an admin can pre-date a subscription to start tomorrow, which
+    /// expires the teacher immediately even though the period it replaced is still running.
+    /// Reconstructing from dates alone counts that teacher as a subscriber on a morning they cannot
+    /// open the app.
+    /// </summary>
+    bool IsCurrent);
 
 /// <summary>One hit from the global search. Kind-agnostic so four searches share one row shape.</summary>
 public sealed record ConsoleSearchHit(

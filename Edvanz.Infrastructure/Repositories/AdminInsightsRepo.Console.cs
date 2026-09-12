@@ -164,7 +164,7 @@ public partial class AdminInsightsRepo
             .AsNoTracking()
             .Where(s => s.EndDate >= fromUtc && s.Teacher.CenterId == null)
             .OrderBy(s => s.StartDate)
-            .Select(s => new ConsoleSubscriptionSpan(s.TeacherId, s.StartDate, s.EndDate))
+            .Select(s => new ConsoleSubscriptionSpan(s.TeacherId, s.StartDate, s.EndDate, s.IsCurrent))
             .ToListAsync(ct);
 
     // ════════════════════════════════════════════════════════════════════════

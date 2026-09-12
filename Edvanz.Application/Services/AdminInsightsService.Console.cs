@@ -206,18 +206,27 @@ public partial class AdminInsightsService
                 // the spans rather than stored daily — a stored counter would need a job, and a job
                 // that stops leaves a chart that lies rather than one that stops.
                 //
-                // Reconstructed the way the PLATFORM judges liveness, not as a union of periods:
-                // per teacher, the newest row that had started by then, live only if it had not yet
-                // expired. The gate the app itself enforces reads one row — the current one — so a
-                // superseded row whose end date still lies ahead grants nobody anything. Taking any
-                // overlapping period instead put two extra teachers on the chart's current column
-                // who could not open the app that morning.
+                // Judged the way the PLATFORM judges liveness, not as a union of periods: the gate
+                // the app enforces reads ONE row, so a superseded row whose end date still lies
+                // ahead grants nobody anything.
+                //
+                // For the bucket ending now that row is known exactly — it is the one flagged
+                // current — and this point therefore equals the dashboard's "subscribed now" by
+                // construction rather than by luck. For past buckets the flag only describes today,
+                // so liveness is reconstructed as the newest row that had started by then. Using
+                // the exact answer where one exists and the reconstruction where none does is not
+                // an inconsistency; pretending we know less about today than we do would be.
                 SubscribersAtEnd = spansByTeacher.Count(g =>
                 {
-                    var currentThen = g.Where(s => s.StartDate <= measureAtUtc)
-                                       .OrderByDescending(s => s.StartDate)
-                                       .FirstOrDefault();
-                    return currentThen is not null && measureAtUtc < currentThen.EndDate;
+                    var currentThen = measureAtUtc == nowUtc
+                        ? g.FirstOrDefault(s => s.IsCurrent)
+                        : g.Where(s => s.StartDate <= measureAtUtc)
+                           .OrderByDescending(s => s.StartDate)
+                           .FirstOrDefault();
+
+                    return currentThen is not null
+                        && currentThen.StartDate <= measureAtUtc
+                        && measureAtUtc < currentThen.EndDate;
                 })
             });
         }
