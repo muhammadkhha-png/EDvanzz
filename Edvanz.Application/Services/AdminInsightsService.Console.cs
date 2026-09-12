@@ -1168,8 +1168,18 @@ public partial class AdminInsightsService
                 ? _localizer["ConsoleEvidenceNeverUsed"]
                 : _localizer["ConsoleEvidenceNothingSince", DaysSince(r.LastActivityAt.Value)],
 
-            AdminSegmentKey.NoStudents or AdminSegmentKey.UploadedStudents
-                or AdminSegmentKey.StudentsNotInClasses or AdminSegmentKey.CenterTeachers =>
+            // NOT the student line: the row already prints the student counts, and an
+            // evidence line that restates them is noise where an explanation should be.
+            // What the row CANNOT show is how long it has been like this.
+            AdminSegmentKey.NoStudents => r.SubscriptionStartDate is null
+                ? _localizer["ConsoleEvidenceNoStudents"]
+                : _localizer["ConsoleEvidenceNoStudentsSince", Ago(DaysSince(r.SubscriptionStartDate.Value))],
+
+            AdminSegmentKey.StudentsNotInClasses => r.SubscriptionStartDate is null
+                ? _localizer["ConsoleEvidenceNobodyInAClass"]
+                : _localizer["ConsoleEvidenceNobodyInAClassSince", Ago(DaysSince(r.SubscriptionStartDate.Value))],
+
+            AdminSegmentKey.UploadedStudents or AdminSegmentKey.CenterTeachers =>
                 StudentsLine(),
 
             AdminSegmentKey.ModuleUsing or AdminSegmentKey.ModuleHaveIt =>

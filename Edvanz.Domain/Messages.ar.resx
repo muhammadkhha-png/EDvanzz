@@ -3006,4 +3006,13 @@
   <data name="ConsoleEvidenceNeverOpenedQuiet" xml:space="preserve">
     <value>عمره ما فتحها، ومش بيستخدم الباقي كمان</value>
   </data>
+  <data name="ConsoleEvidenceNoStudentsSince" xml:space="preserve">
+    <value>اشترك {0} ولسه ما رفعش ولا طالب واحد.</value>
+  </data>
+  <data name="ConsoleEvidenceNobodyInAClassSince" xml:space="preserve">
+    <value>اشترك {0}. عنده طلبة بس ولا واحد فيهم في مجموعة — كلهم بيفتحوا تطبيق فاضي.</value>
+  </data>
+  <data name="ConsoleEvidenceNobodyInAClass" xml:space="preserve">
+    <value>عنده طلبة بس ولا واحد فيهم في مجموعة — كلهم بيفتحوا تطبيق فاضي.</value>
+  </data>
 </root>

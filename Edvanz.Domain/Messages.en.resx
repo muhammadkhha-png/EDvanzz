@@ -3018,4 +3018,13 @@
   <data name="ConsoleEvidenceNeverOpenedQuiet" xml:space="preserve">
     <value>has never opened it, and is not using the rest either</value>
   </data>
+  <data name="ConsoleEvidenceNoStudentsSince" xml:space="preserve">
+    <value>Subscribed {0} and has still not uploaded a single student.</value>
+  </data>
+  <data name="ConsoleEvidenceNobodyInAClassSince" xml:space="preserve">
+    <value>Subscribed {0}. Has students, but not one of them is in a class — every one of them opens an empty app.</value>
+  </data>
+  <data name="ConsoleEvidenceNobodyInAClass" xml:space="preserve">
+    <value>Has students, but not one of them is in a class — every one of them opens an empty app.</value>
+  </data>
 </root>
