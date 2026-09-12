@@ -1,4 +1,4 @@
-using Edvanz.Domain.Constants;
+﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
@@ -86,6 +86,9 @@ public partial class AdminInsightsRepo : IAdminInsightsRepo
                    EntitledModulesMask = sn == null ? 0 : sn.EntitledModulesMask,
                    FirstActivityAt = sn == null ? null : sn.FirstActivityAt,
                    LastActivityAt = sn == null ? null : sn.LastActivityAt,
+                   // Straight off the user row, not the snapshot: a login is not a rollup fact,
+                   // and it must not go stale for a day behind the nightly job.
+                   LastLoginAt = t.User.LastLoginAt,
                    LastTeacherActivityAt = sn == null ? null : sn.LastTeacherActivityAt,
                    LastAssistantActivityAt = sn == null ? null : sn.LastAssistantActivityAt,
                    ActiveAssistantCount = sn == null ? 0 : sn.ActiveAssistantCount,
@@ -127,6 +130,9 @@ public partial class AdminInsightsRepo : IAdminInsightsRepo
         if (filter.UnassignedSalesRep == true) query = query.Where(r => r.SalesRepId == null);
         if (filter.SubscriptionStatus is not null)
             query = query.Where(r => r.SubscriptionStatus == filter.SubscriptionStatus);
+
+        if (filter.PlanType is not null)
+            query = query.Where(r => r.PlanType == filter.PlanType);
 
         if (filter.IsActive is not null)
             query = filter.IsActive.Value
@@ -174,9 +180,11 @@ public partial class AdminInsightsRepo : IAdminInsightsRepo
         // The newly-subscribed filter carries its own ordering, exactly as the legacy teacher list
         // does — asking for "who just subscribed" and getting them in last-activity order would
         // bury the newest signups, which are the whole point of the question.
-        query = filter.SubscribedWithinDays is > 0
-            ? query.OrderByDescending(r => r.SubscriptionStartDate).ThenByDescending(r => r.TeacherId)
-            : ApplySort(query, filter.SortBy, filter.Descending);
+        // The newly-subscribed filter carries its own ordering; otherwise the reader's sort applies.
+        // "Incomplete first" is layered on as the PRIMARY key with the chosen order surviving
+        // underneath as the tiebreak, so switching it on reorders the list rather than replacing
+        // the order with something unrecognisable.
+        query = ApplySort(query, filter);
 
         var rows = await query
             .Skip((filter.Page - 1) * filter.PageSize)
@@ -192,21 +200,98 @@ public partial class AdminInsightsRepo : IAdminInsightsRepo
     /// not at all while paging.
     /// </summary>
     private static IQueryable<TeacherUsageRow> ApplySort(
-        IQueryable<TeacherUsageRow> query, string sortBy, bool descending) => (sortBy, descending) switch
+        IQueryable<TeacherUsageRow> query, AdminUsageFilter filter)
+    {
+        // "Something is missing here." Every clause is a real column comparison — nothing folds to
+        // a compile-time constant, so no branch can collapse into an untyped SQL literal
+        // (BUG-7's untyped NULL, BUG-16's COUNT(NULL)).
+        DateTime endingSoonCutoff = DateTime.UtcNow.AddDays(filter.EndingSoonDays);
+
+        IOrderedQueryable<TeacherUsageRow> ordered = filter.IncompleteFirst
+            ? query.OrderBy(r => r.StudentCount == 0
+                              || r.StudentsAssignedToSession == 0
+                              || !r.HasEverMarkedAttendance
+                              || (r.SubscriptionEndDate != null && r.SubscriptionEndDate <= endingSoonCutoff)
+                ? 0
+                : 1)
+            : null!;
+
+        // Asking "who just subscribed" and getting them in last-activity order would bury the
+        // newest signups, which are the whole point of the question.
+        if (filter.SubscribedWithinDays is > 0)
+            return Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.SubscriptionStartDate).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.SubscriptionStartDate).ThenByDescending(r => r.TeacherId));
+
+        // Every branch ends on TeacherId. Without a unique last key SQL Server may order ties
+        // differently between pages, and a row can then appear twice or not at all while paging.
+        return (filter.SortBy, filter.Descending) switch
         {
-            ("ActiveDays30", true) => query.OrderByDescending(r => r.ActiveDays30).ThenByDescending(r => r.TeacherId),
-            ("ActiveDays30", false) => query.OrderBy(r => r.ActiveDays30).ThenBy(r => r.TeacherId),
-            ("TotalWrites30", true) => query.OrderByDescending(r => r.TotalWrites30).ThenByDescending(r => r.TeacherId),
-            ("TotalWrites30", false) => query.OrderBy(r => r.TotalWrites30).ThenBy(r => r.TeacherId),
-            ("StudentCount", true) => query.OrderByDescending(r => r.StudentCount).ThenByDescending(r => r.TeacherId),
-            ("StudentCount", false) => query.OrderBy(r => r.StudentCount).ThenBy(r => r.TeacherId),
-            ("RegisteredAt", true) => query.OrderByDescending(r => r.RegisteredAt).ThenByDescending(r => r.TeacherId),
-            ("RegisteredAt", false) => query.OrderBy(r => r.RegisteredAt).ThenBy(r => r.TeacherId),
-            ("Name", true) => query.OrderByDescending(r => r.FullName).ThenByDescending(r => r.TeacherId),
-            ("Name", false) => query.OrderBy(r => r.FullName).ThenBy(r => r.TeacherId),
-            (_, false) => query.OrderBy(r => r.LastActivityAt).ThenBy(r => r.TeacherId),
-            _ => query.OrderByDescending(r => r.LastActivityAt).ThenByDescending(r => r.TeacherId)
+            ("ActiveDays30", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.ActiveDays30).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.ActiveDays30).ThenByDescending(r => r.TeacherId)),
+            ("ActiveDays30", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.ActiveDays30).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.ActiveDays30).ThenBy(r => r.TeacherId)),
+
+            ("TotalWrites30", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.TotalWrites30).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.TotalWrites30).ThenByDescending(r => r.TeacherId)),
+            ("TotalWrites30", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.TotalWrites30).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.TotalWrites30).ThenBy(r => r.TeacherId)),
+
+            ("StudentCount", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.StudentCount).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.StudentCount).ThenByDescending(r => r.TeacherId)),
+            ("StudentCount", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.StudentCount).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.StudentCount).ThenBy(r => r.TeacherId)),
+
+            ("RegisteredAt", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.RegisteredAt).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.RegisteredAt).ThenByDescending(r => r.TeacherId)),
+            ("RegisteredAt", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.RegisteredAt).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.RegisteredAt).ThenBy(r => r.TeacherId)),
+
+            ("SubscribedAt", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.SubscriptionStartDate).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.SubscriptionStartDate).ThenByDescending(r => r.TeacherId)),
+            ("SubscribedAt", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.SubscriptionStartDate).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.SubscriptionStartDate).ThenBy(r => r.TeacherId)),
+
+            ("Name", true) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.FullName).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.FullName).ThenByDescending(r => r.TeacherId)),
+            ("Name", false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.FullName).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.FullName).ThenBy(r => r.TeacherId)),
+
+            (_, false) => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderBy(r => r.LastActivityAt).ThenBy(r => r.TeacherId),
+                o => o.ThenBy(r => r.LastActivityAt).ThenBy(r => r.TeacherId)),
+            _ => Then(ordered, query, filter.IncompleteFirst,
+                q => q.OrderByDescending(r => r.LastActivityAt).ThenByDescending(r => r.TeacherId),
+                o => o.ThenByDescending(r => r.LastActivityAt).ThenByDescending(r => r.TeacherId)),
         };
+    }
+
+    /// <summary>
+    /// Picks between starting a fresh ORDER BY and appending to the incomplete-first key.
+    ///
+    /// The two shapes cannot be unified: <c>OrderBy</c> and <c>ThenBy</c> are different calls, and
+    /// the incomplete key has to come FIRST in the SQL for the toggle to mean anything. This keeps
+    /// that choice in one place rather than as an if/else around every branch above.
+    /// </summary>
+    private static IQueryable<TeacherUsageRow> Then(
+        IOrderedQueryable<TeacherUsageRow> ordered,
+        IQueryable<TeacherUsageRow> query,
+        bool incompleteFirst,
+        Func<IQueryable<TeacherUsageRow>, IOrderedQueryable<TeacherUsageRow>> fresh,
+        Func<IOrderedQueryable<TeacherUsageRow>, IOrderedQueryable<TeacherUsageRow>> append)
+        => incompleteFirst ? append(ordered) : fresh(query);
 
     /// <inheritdoc />
     public async Task<TeacherUsageRow?> GetUsageRowAsync(long teacherId, CancellationToken ct = default)

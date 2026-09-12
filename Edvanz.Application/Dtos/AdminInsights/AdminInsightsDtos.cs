@@ -1,4 +1,4 @@
-using Edvanz.Domain.Enums;
+﻿using Edvanz.Domain.Enums;
 using System.ComponentModel.DataAnnotations;
 
 namespace Edvanz.Application.Dtos.AdminInsights;
@@ -95,6 +95,24 @@ public class TeacherUsageListItemDto
     public DateTime? FirstActivityAt { get; set; }
     public DateTime? LastActivityAt { get; set; }
 
+    /// <summary>
+    /// Last real sign-in by the TEACHER's own account. Distinct from
+    /// <see cref="LastActivityAt"/>, which is the last thing anyone on the account DID —
+    /// a teacher who logs in daily and marks nothing is a different conversation from one
+    /// whose assistant runs everything.
+    /// </summary>
+    public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// Whole days until the subscription ends; negative once it has, null when there is none.
+    ///
+    /// RENDER THIS rather than <see cref="SubscriptionStatus"/> wherever a screen talks about
+    /// expiry. The status enum bands at five days, the console counts seven, so a row can read
+    /// "Active" while sitting inside the ending-soon card — two true statements that look like a
+    /// contradiction. A day count cannot contradict anything.
+    /// </summary>
+    public int? SubscriptionEndsInDays { get; set; }
+
     // ── Setup health (each pair: total, then the part that actually works) ──────
     public int StudentCount { get; set; }
     public int StudentsAssignedToSession { get; set; }
@@ -150,6 +168,10 @@ public class TeacherUsageQueryRequest
     public bool? UnassignedSalesRep { get; set; }
 
     public string? SubscriptionStatus { get; set; }
+
+    /// <summary>Full / Managerial / ManagerialPlus on the current subscription.</summary>
+    public string? PlanType { get; set; }
+
     public DateTime? RegisteredFrom { get; set; }
     public DateTime? RegisteredTo { get; set; }
 
@@ -168,6 +190,13 @@ public class TeacherUsageQueryRequest
     /// <summary>Entitled to this feature and never opened it — the adoption gap as a filter.</summary>
     public UsageModules? NeverUsedFeature { get; set; }
 
+    /// <summary>
+    /// Floats accounts with something missing to the top — no students, students who are in no
+    /// class, attendance never once marked, or a subscription about to run out. It is an ORDERING,
+    /// not a filter: the rest of the list stays where it is, so nobody is hidden by a toggle.
+    /// </summary>
+    public bool IncompleteFirst { get; set; }
+
     public TeacherUsageSortBy SortBy { get; set; } = TeacherUsageSortBy.LastActivity;
     public SortDirection SortDirection { get; set; } = SortDirection.Desc;
 }
@@ -180,7 +209,11 @@ public enum TeacherUsageSortBy
     TotalWrites30 = 2,
     StudentCount = 3,
     RegisteredAt = 4,
-    Name = 5
+    Name = 5,
+
+    /// <summary>When the current subscription started — "who just signed up", as a sort
+    /// rather than only as a side effect of the newly-subscribed filter.</summary>
+    SubscribedAt = 6
 }
 
 // ════════════════════════════════════════════════════════════════════════════

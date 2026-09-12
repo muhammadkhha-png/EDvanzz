@@ -1,4 +1,4 @@
-namespace Edvanz.Application.Dtos.AdminInsights;
+﻿namespace Edvanz.Application.Dtos.AdminInsights;
 
 // ════════════════════════════════════════════════════════════════════════════
 // ADMIN CONSOLE — WIRE CONTRACTS
@@ -336,18 +336,6 @@ public class AdminSegmentTeacherDto : TeacherUsageListItemDto
     /// <summary>Why they are here, in the segment's own terms.</summary>
     public string? Evidence { get; set; }
 
-    /// <summary>
-    /// Whole days until the subscription ends — negative once it has. Null when there is no
-    /// subscription at all.
-    ///
-    /// RENDER THIS, NOT <c>subscriptionStatus</c>, wherever the screen talks about expiry. The
-    /// status enum carries the subscription module's own five-day ExpiringSoon band, while this
-    /// console counts "ending soon" at seven (<c>endingSoonThresholdDays</c> on the dashboard). A
-    /// row ending in six days is "Active" by the enum and inside the console's card at the same
-    /// time — two true statements that read as a contradiction side by side. A plain day count
-    /// cannot contradict anything.
-    /// </summary>
-    public int? SubscriptionEndsInDays { get; set; }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.AdminInsights;
 using Edvanz.Application.ServiceContract;
 using Edvanz.Domain.Constants;
@@ -522,6 +522,9 @@ public partial class AdminInsightsService : IAdminInsightsService
             SubscriptionStatus = Enum.TryParse<SubscriptionStatus>(request.SubscriptionStatus, true, out var st)
                 ? st
                 : null,
+            PlanType = Enum.TryParse<SubscriptionPlanType>(request.PlanType, true, out var plan)
+                ? plan
+                : null,
             RegisteredFrom = request.RegisteredFrom,
             // Inclusive of the whole `to` day, via an exclusive next-day bound — same convention as
             // the existing teacher-list filter, so "20 Aug → 25 Aug" catches all of the 25th.
@@ -532,6 +535,10 @@ public partial class AdminInsightsService : IAdminInsightsService
             NeverUsedFeatureMask = request.NeverUsedFeature is null or UsageModules.None
                 ? null
                 : (int)request.NeverUsedFeature.Value,
+            IncompleteFirst = request.IncompleteFirst,
+            // ONE definition of "ending soon" across the console — the ordering must not invent
+            // its own threshold beside the dashboard card's.
+            EndingSoonDays = AdminInsightsConstants.ConsoleEndingSoonDays,
             SortBy = request.SortBy.ToString(),
             Descending = request.SortDirection == SortDirection.Desc
         };
@@ -659,6 +666,12 @@ public partial class AdminInsightsService : IAdminInsightsService
         ActiveAssistantCount = r.ActiveAssistantCount,
         FirstActivityAt = r.FirstActivityAt,
         LastActivityAt = r.LastActivityAt,
+        LastLoginAt = r.LastLoginAt,
+        // Rendered instead of the status band wherever a screen talks about expiry — the two use
+        // different thresholds and would read as a contradiction side by side.
+        SubscriptionEndsInDays = r.SubscriptionEndDate is null
+            ? null
+            : (int)Math.Ceiling((r.SubscriptionEndDate.Value - DateTime.UtcNow).TotalDays),
         StudentCount = r.StudentCount,
         StudentsAssignedToSession = r.StudentsAssignedToSession,
         SessionCount = r.SessionCount,

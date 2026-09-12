@@ -316,11 +316,6 @@ public partial class AdminInsightsService
         {
             var dto = CopyToSegmentItem(item);
             dto.Evidence = evidenceById.GetValueOrDefault(item.TeacherId);
-            // One plain number the screen can render instead of the status band — see
-            // SubscriptionEndsInDays for why the two must never appear together.
-            dto.SubscriptionEndsInDays = item.SubscriptionEndDate is null
-                ? null
-                : (int)Math.Ceiling((item.SubscriptionEndDate.Value - ctx.NowUtc).TotalDays);
             return dto;
         }).ToList();
 
@@ -1228,6 +1223,8 @@ public partial class AdminInsightsService
         ActiveAssistantCount = s.ActiveAssistantCount,
         FirstActivityAt = s.FirstActivityAt,
         LastActivityAt = s.LastActivityAt,
+        LastLoginAt = s.LastLoginAt,
+        SubscriptionEndsInDays = s.SubscriptionEndsInDays,
         StudentCount = s.StudentCount,
         StudentsAssignedToSession = s.StudentsAssignedToSession,
         SessionCount = s.SessionCount,

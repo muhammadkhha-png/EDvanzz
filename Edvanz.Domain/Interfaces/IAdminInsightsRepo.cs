@@ -1,4 +1,4 @@
-using Edvanz.Domain.Entities;
+﻿using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 
 namespace Edvanz.Domain.Interfaces;
@@ -262,6 +262,10 @@ public sealed class AdminUsageFilter
     public long? SalesRepId { get; set; }
     public bool? UnassignedSalesRep { get; set; }
     public SubscriptionStatus? SubscriptionStatus { get; set; }
+
+    /// <summary>Full / Managerial / ManagerialPlus on the current subscription.</summary>
+    public SubscriptionPlanType? PlanType { get; set; }
+
     public DateTime? RegisteredFrom { get; set; }
     public DateTime? RegisteredToExclusive { get; set; }
 
@@ -283,6 +287,16 @@ public sealed class AdminUsageFilter
     /// what every number on the Numbers page links to.
     /// </summary>
     public int? NeverUsedFeatureMask { get; set; }
+
+    /// <summary>
+    /// Floats accounts with something missing to the top. An ORDERING, not a filter — nobody
+    /// disappears when it is switched on, which is what makes it safe to leave on.
+    /// </summary>
+    public bool IncompleteFirst { get; set; }
+
+    /// <summary>Days-until-expiry that counts as "ending soon" for the incomplete ordering.
+    /// Passed in rather than read here so the console has ONE definition of it.</summary>
+    public int EndingSoonDays { get; set; } = 7;
 
     /// <summary>Column to order by, as a stable token the repo maps to an expression.</summary>
     public string SortBy { get; set; } = "LastActivity";
@@ -346,6 +360,10 @@ public sealed class TeacherUsageRow
 
     public DateTime? FirstActivityAt { get; set; }
     public DateTime? LastActivityAt { get; set; }
+
+    /// <summary>Last real sign-in by the teacher's own account — not the last thing anyone DID.</summary>
+    public DateTime? LastLoginAt { get; set; }
+
     public DateTime? LastTeacherActivityAt { get; set; }
     public DateTime? LastAssistantActivityAt { get; set; }
     public int ActiveAssistantCount { get; set; }
