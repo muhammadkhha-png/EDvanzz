@@ -156,14 +156,22 @@ public partial class AdminInsightsService
         DateTime fromUtc = LocalDayStartUtc(buckets[0].Start);
 
         var rows = await _unitOfWork.AdminInsightsRepo.GetConsoleTeacherRowsAsync(DateTime.UtcNow);
-        var spans = await _unitOfWork.AdminInsightsRepo.GetSubscriptionSpansAsync(fromUtc);
+        var independent = rows.Where(r => !r.IsCenterOwned).ToList();
 
         // Registrations are counted over INDEPENDENT teachers only, matching every other figure on
         // the console — a centre onboarding twelve teachers at once would otherwise read as a
         // twelve-teacher week that no sales rep produced.
-        var registrations = rows
-            .Where(r => !r.IsCenterOwned)
+        var registrations = independent
             .Select(r => DateOnly.FromDateTime(_timeZone.ConvertUtcToLocal(r.RegisteredAt)))
+            .ToList();
+
+        // Narrowed to the SAME teachers the dashboard counts. Subscription rows outlive their
+        // teacher — a deleted account keeps its periods — so the raw spans described a slightly
+        // larger platform than the cards do, and the chart's current column read 56 beside a card
+        // saying 54. Two numbers for one thing on one screen is the defect, whichever is righter.
+        var known = independent.Select(r => r.TeacherId).ToHashSet();
+        var spans = (await _unitOfWork.AdminInsightsRepo.GetSubscriptionSpansAsync(fromUtc))
+            .Where(s => known.Contains(s.TeacherId))
             .ToList();
 
         DateTime nowUtc = DateTime.UtcNow;
@@ -573,7 +581,8 @@ public partial class AdminInsightsService
 
         int months = renewalMonths ?? AdminInsightsConstants.ConsoleRenewalMonths;
         var renewals = needRenewals
-            ? await BuildRenewalsAsync(today, nowUtc, months)
+            ? await BuildRenewalsAsync(today, nowUtc, months,
+                rows.Where(r => !r.IsCenterOwned).Select(r => r.TeacherId).ToHashSet())
             : new RenewalAnalysis(
                 Array.Empty<RenewalMonthDto>(),
                 new Dictionary<string, IReadOnlyList<long>>(),
@@ -604,12 +613,21 @@ public partial class AdminInsightsService
     /// <c>extend</c> and <c>set-end-date</c> mutate the row that is already there. Only the first
     /// is a renewal, and this is the query that depends on that being true.
     /// </summary>
-    private async Task<RenewalAnalysis> BuildRenewalsAsync(DateOnly today, DateTime nowUtc, int months)
+    /// <param name="knownTeacherIds">
+    /// The teachers the rest of the console counts. Subscription rows outlive their teacher, so
+    /// without this a deleted account's last period would be reported as churn — a customer lost
+    /// who no longer exists, and one nobody can call.
+    /// </param>
+    private async Task<RenewalAnalysis> BuildRenewalsAsync(
+        DateOnly today, DateTime nowUtc, int months, IReadOnlySet<long> knownTeacherIds)
     {
         var firstMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-(months - 1));
         DateTime fromUtc = LocalDayStartUtc(firstMonth);
 
-        var spans = await _unitOfWork.AdminInsightsRepo.GetSubscriptionSpansAsync(fromUtc);
+        var spans = (await _unitOfWork.AdminInsightsRepo.GetSubscriptionSpansAsync(fromUtc))
+            .Where(s => knownTeacherIds.Contains(s.TeacherId))
+            .ToList();
+
         var byTeacher = spans.GroupBy(s => s.TeacherId)
             .ToDictionary(g => g.Key, g => g.OrderBy(s => s.StartDate).ToList());
 
