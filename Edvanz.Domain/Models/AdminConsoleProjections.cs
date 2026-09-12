@@ -110,6 +110,16 @@ public sealed record ConsoleSubscriptionSpan(
     /// </summary>
     bool IsCurrent);
 
+/// <summary>
+/// One admin extension: days added to a period that was already running. Counted as a renewal in
+/// the month it was GRANTED, because that is when the decision to keep the teacher was made.
+/// </summary>
+public sealed record ConsoleExtension(
+    long TeacherId,
+    DateTime GrantedAt,
+    int DaysAdded,
+    decimal? AmountPaidEGP);
+
 /// <summary>One hit from the global search. Kind-agnostic so four searches share one row shape.</summary>
 public sealed record ConsoleSearchHit(
     string Kind,
@@ -121,8 +131,9 @@ public sealed record ConsoleSearchHit(
     long? TeacherId,
     string? TeacherName);
 
-/// <summary>One recorded sign-in. Only assistants have these — see <c>ConsoleLoginPerson</c>.</summary>
+/// <summary>One recorded sign-in or sign-out, for any account type.</summary>
 public sealed record ConsoleLoginEvent(
+    long Id,
     string Action,
     DateTime OccurredAt,
     string? DeviceOrBrowser,

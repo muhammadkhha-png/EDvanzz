@@ -124,6 +124,21 @@ public class AdminSubscriptionService : IAdminSubscriptionService
                 _localizer, SubscriptionConstants.Messages.EndDateMustBeAfterStart);
         }
 
+        // What this period is worth at the prices in force TODAY, priced through the same
+        // plan-aware calculator the teacher's own renewal screen uses.
+        //
+        // It used to be hardcoded to 0. Payment for an admin activation is arranged outside the
+        // app, so nothing here ever knew a transaction had happened — but writing 0 did not record
+        // that, it recorded "this cost nothing", and the platform has no other memory of the price.
+        // The teacher's own subscription history read the column straight out and showed 0 EGP
+        // against every month they had paid for, and no revenue figure could be reconstructed from
+        // the rows at all. A snapshot of the price at activation is the honest record: it is what
+        // was owed, it cannot be rewritten by a later price change, and it is recoverable.
+        var rates = await _unitOfWork.SubscriptionPricingRepo.GetRatesAsync();
+        decimal amountEGP = SubscriptionPricing.MonthlyValueEGP(
+            planType, teacher.LinkedStudentCapacity,
+            rates.PerStudentEGP, rates.ManagerialMonthlyEGP, rates.ManagerialPlusMonthlyEGP);
+
         // ── Build the override row ──
         var newSubscription = new TeacherSubscription
         {
@@ -134,7 +149,7 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             PlanType = planType,
             PaymentMethod = PaymentMethod.SuperAdminManual,
             PaymentChannel = PaymentChannel.SuperAdminOverride,
-            AmountPaidEGP = 0m,
+            AmountPaidEGP = amountEGP,
             TransactionReference = null,
             EncryptedPaymentDetails = null,
             PaymentConfirmedAt = now,
@@ -207,9 +222,32 @@ public class AdminSubscriptionService : IAdminSubscriptionService
                     _localizer, SubscriptionConstants.Messages.NoActiveSubscription, HttpStatusCode.NotFound);
             }
 
+            DateTime previousEnd = currentSub.EndDate;
             currentSub.EndDate = currentSub.EndDate.AddDays(request.ExtensionDays);
             // Audit: stamp the admin user as the most recent modifier.
             currentSub.CreatedByUserId = adminUserId;
+
+            // The audit row, written INSIDE the same transaction as the date it describes — a
+            // record of an extension that did not happen is worse than no record.
+            //
+            // Extending is the second way an admin keeps a paying teacher going, sitting right
+            // beside Activate in the panel, and it used to leave nothing behind but a moved date
+            // and an overwritten CreatedByUserId. A teacher renewed this way looked, to every
+            // report, like someone whose subscription simply never ended: renewals under-counted,
+            // the money was nowhere, and a goodwill week could not be told from a paid month.
+            await _unitOfWork.GetRepository<SubscriptionExtension, long>().AddAsync(
+                new SubscriptionExtension
+                {
+                    TeacherId = request.TeacherId,
+                    TeacherSubscriptionId = currentSub.Id,
+                    DaysAdded = request.ExtensionDays,
+                    PreviousEndDate = previousEnd,
+                    NewEndDate = currentSub.EndDate,
+                    AmountPaidEGP = request.AmountPaidEGP,
+                    Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
+                    ExtendedByUserId = adminUserId,
+                    CreateAt = DateTime.UtcNow
+                });
 
             await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
@@ -563,7 +601,10 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             PlanType = request.PlanType,
             PaymentMethod = PaymentMethod.SuperAdminManual,
             PaymentChannel = PaymentChannel.SuperAdminOverride,
-            AmountPaidEGP = 0m,
+            // The amount the teacher was QUOTED on the request they submitted — the closest thing
+            // to a price anyone agreed to, and better than the 0 this used to store. See
+            // ActivateCoreAsync for why a zero here was a lie rather than an absence.
+            AmountPaidEGP = request.ComputedAmountEGP,
             TransactionReference = null,
             EncryptedPaymentDetails = null,
             PaymentConfirmedAt = now,

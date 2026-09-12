@@ -182,6 +182,10 @@ namespace Edvanz.Application.Services
             // Stamp last login (SuperAdmin dashboard column) on the tracked user.
             user.LastLoginAt = DateTime.UtcNow;
 
+            // Admin sessions are logged like every other account — this surface reaches every
+            // tenant on the platform, so it is the last one that should be missing a record.
+            await StageLoginActivityAsync(user.Id, LoginAcitvityActionType.login);
+
             var saveResult = await _unitOfWork.SaveChangesAsync();
             if (saveResult <= 0)
             {
@@ -195,6 +199,28 @@ namespace Edvanz.Application.Services
                 userAccountData = userDto
             }, _localizer, "successlogin");
         }
+        /// <summary>
+        /// Stages one sign-in/sign-out row on the CALLER'S unit of work, without saving — the caller
+        /// owns the commit boundary (CLAUDE.md §5.2), so on the login path this row joins the same
+        /// SaveChanges as <c>LastLoginAt</c> and the refresh token and cannot drift from them.
+        ///
+        /// Device and address are read from the live request. Both are nullable on purpose: a
+        /// missing User-Agent is not a reason to lose the fact that someone signed in.
+        /// </summary>
+        private async Task StageLoginActivityAsync(long userId, LoginAcitvityActionType action)
+        {
+            var http = _httpContextAccessor.HttpContext;
+
+            await _unitOfWork.GetRepository<UserLoginActivity, long>().AddAsync(new UserLoginActivity
+            {
+                UserId = userId,
+                ActionType = action,
+                CreateAt = DateTime.UtcNow,
+                DeviceOrBrowser = http?.Request.Headers["User-Agent"].ToString(),
+                IpAddress = http?.Connection.RemoteIpAddress?.ToString()
+            });
+        }
+
         public async Task<Result<AuthResponse>> Login(LoginDto req)
         {
             var user = await _unitOfWork.Users.GetByUserName(req.userName);
@@ -221,18 +247,13 @@ namespace Edvanz.Application.Services
 
             // Login-activity log (REQ-USR-028) is a login-flow concern, not a token-building
             // one, so it stays here — NOT in BuildUserTokenData, which Refresh also calls
-            // (a refresh is not a login). Separate fetch mirrors the existing Logout() pattern.
-            if (user.UserType == UserType.Assistant)
-            {
-                var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
-                if (assistant != null)
-                {
-                    await assistantService.RecordLoginActivityAsync(
-                        assistant.Id,
-                        LoginAcitvityActionType.login,
-                        _httpContextAccessor.HttpContext!);
-                }
-            }
+            // (a refresh is not a login).
+            //
+            // RECORDED FOR EVERY ACCOUNT TYPE, not just assistants. It used to run only on the
+            // Assistant branch, so teachers — the accounts that pay — had no sign-in history at
+            // all, just a LastLoginAt that the next sign-in overwrites. "They say they could not
+            // get in on Tuesday" had no answer for exactly the people who ask it.
+            await StageLoginActivityAsync(user.Id, LoginAcitvityActionType.login);
 
             var refreshToken = await IssueAndStageRefreshTokenAsync(user);
 
@@ -698,18 +719,10 @@ namespace Edvanz.Application.Services
             // surface as a 500 on an otherwise-successful logout.
             try
             {
-                var user = await _unitOfWork.Users.GetByIdAsync(userId);
-                if (user != null && user.UserType == UserType.Assistant)
-                {
-                    var assistant = await _unitOfWork.AssistantRepo.GetAssistantWithUserIdAsync(user.Id);
-                    if (assistant != null)
-                    {
-                        await assistantService.RecordLoginActivityAsync(
-                            assistant.Id,
-                            LoginAcitvityActionType.logOut,
-                            _httpContextAccessor.HttpContext!);
-                    }
-                }
+                // Every account type, same as the login side — a history with sign-ins and no
+                // sign-outs answers half the question it was built for.
+                await StageLoginActivityAsync(userId, LoginAcitvityActionType.logOut);
+                await _unitOfWork.SaveChangesAsync();
             }
             catch
             {

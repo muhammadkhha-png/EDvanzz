@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.AdminInsights;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Enums;
@@ -49,6 +49,7 @@ public partial class AdminInsightsService
             ComputedThrough = ctx.Yesterday,
             OldestSnapshotAt = rows.Where(r => r.ComputedAt is not null).Min(r => r.ComputedAt),
             TeachersNotYetComputed = rows.Count(r => r.ComputedAt is null),
+            EndingSoonThresholdDays = AdminInsightsConstants.ConsoleEndingSoonDays,
 
             Yesterday = new DashboardYesterdayDto
             {
@@ -314,6 +315,11 @@ public partial class AdminInsightsService
         {
             var dto = CopyToSegmentItem(item);
             dto.Evidence = evidenceById.GetValueOrDefault(item.TeacherId);
+            // One plain number the screen can render instead of the status band — see
+            // SubscriptionEndsInDays for why the two must never appear together.
+            dto.SubscriptionEndsInDays = item.SubscriptionEndDate is null
+                ? null
+                : (int)Math.Ceiling((item.SubscriptionEndDate.Value - ctx.NowUtc).TotalDays);
             return dto;
         }).ToList();
 
@@ -422,8 +428,11 @@ public partial class AdminInsightsService
             return Result<AdminTeacherLoginsDto>.Failure(
                 _localizer, "TeacherNotFound", HttpStatusCode.NotFound);
 
-        var events = await repo.GetAssistantLoginEventsAsync(
-            teacherId, AdminInsightsConstants.ConsoleLoginEventsPerPerson);
+        // One query for everyone on the account — the teacher and every assistant, from the same
+        // table. Teachers used to be absent from this entirely.
+        var events = await repo.GetLoginEventsAsync(
+            operators.Select(o => o.UserId).ToList(),
+            AdminInsightsConstants.ConsoleLoginEventsPerPerson);
 
         AdminLoginPersonDto ToPerson(TeacherOperatorRow o) => new()
         {
@@ -450,10 +459,11 @@ public partial class AdminInsightsService
             TeacherId = teacherId,
             Teacher = ToPerson(operators.First(o => o.Role == "Teacher")),
             Assistants = operators.Where(o => o.Role != "Teacher").Select(ToPerson).ToList(),
-            // Stated, not implied. There is no teacher login log on this platform — only assistants
-            // get a row — so the teacher's block carries a last-login and nothing else, and the
-            // screen must not render an empty list that reads as "never signed in".
-            TeacherHistoryRecorded = false
+            // Teacher sign-ins ARE recorded now. The flag stays on the wire because history only
+            // starts at the deploy that began writing it: an account that has not signed in since
+            // shows an empty list, and "no record yet" must not render as "never signed in".
+            TeacherHistoryRecorded = true,
+            RecordedSince = await repo.GetLoginHistoryStartAsync()
         };
 
         return Result<AdminTeacherLoginsDto>.Success(dto, _localizer);
@@ -630,9 +640,14 @@ public partial class AdminInsightsService
     /// <summary>
     /// Renewed vs churned, month by month.
     ///
-    /// A RENEWAL IS A NEW ROW. <c>activate</c> inserts one and flips the previous to non-current;
-    /// <c>extend</c> and <c>set-end-date</c> mutate the row that is already there. Only the first
-    /// is a renewal, and this is the query that depends on that being true.
+    /// A RENEWAL IS EITHER A NEW ROW OR AN EXTENSION. <c>activate</c> inserts a row and flips the
+    /// previous to non-current, which is the obvious shape. <c>extend</c> moves the running row's
+    /// end date instead — and it sits directly beside Activate in the admin panel, so it is used
+    /// for exactly the same purpose. Counting only the first under-reports every teacher kept on
+    /// by the second, which is why extensions are now audited and folded in here.
+    ///
+    /// <c>set-end-date</c> is still NOT a renewal: it is a correction to a date, not a decision to
+    /// keep someone, and it carries no record of one.
     /// </summary>
     /// <param name="knownTeacherIds">
     /// The teachers the rest of the console counts. Subscription rows outlive their teacher, so
@@ -647,6 +662,13 @@ public partial class AdminInsightsService
 
         var spans = (await _unitOfWork.AdminInsightsRepo.GetSubscriptionSpansAsync(fromUtc))
             .Where(s => knownTeacherIds.Contains(s.TeacherId))
+            .ToList();
+
+        // Extensions are the OTHER way a teacher is kept on. They move the running period's end
+        // date instead of inserting a row, so without them a teacher renewed by extension reads as
+        // one whose subscription never ended, and the renewal figures quietly under-report.
+        var extensions = (await _unitOfWork.AdminInsightsRepo.GetSubscriptionExtensionsAsync(fromUtc))
+            .Where(e => knownTeacherIds.Contains(e.TeacherId))
             .ToList();
 
         var byTeacher = spans.GroupBy(s => s.TeacherId)
@@ -680,16 +702,35 @@ public partial class AdminInsightsService
 
             foreach (var group in endedByTeacher)
             {
-                // Renewed if ANY period that ended this month was followed by a new row. Judged per
-                // teacher so someone who let one class lapse and renewed another is not counted in
-                // both lists, which would make the two halves sum to more than the whole.
-                bool anyRenewed = group.Any(span => byTeacher[group.Key].Any(later =>
-                    later.StartDate > span.StartDate &&
-                    later.StartDate >= span.EndDate.AddDays(-1) &&
-                    later.StartDate <= span.EndDate.AddDays(AdminInsightsConstants.ConsoleRenewalWindowDays)));
+                // Renewed if ANY period that ended this month was followed by a new row OR kept
+                // alive by an extension granted around the same time. Judged per teacher so someone
+                // who let one class lapse and renewed another is not counted in both lists, which
+                // would make the two halves sum to more than the whole.
+                bool anyRenewed = group.Any(span =>
+                    byTeacher[group.Key].Any(later =>
+                        later.StartDate > span.StartDate &&
+                        later.StartDate >= span.EndDate.AddDays(-1) &&
+                        later.StartDate <= span.EndDate.AddDays(AdminInsightsConstants.ConsoleRenewalWindowDays))
+                    || extensions.Any(e =>
+                        e.TeacherId == group.Key &&
+                        e.GrantedAt >= span.EndDate.AddDays(-AdminInsightsConstants.ConsoleRenewalWindowDays) &&
+                        e.GrantedAt <= span.EndDate.AddDays(AdminInsightsConstants.ConsoleRenewalWindowDays)));
 
                 if (anyRenewed) renewed.Add(group.Key);
                 else churned.Add(group.Key);
+            }
+
+            // Extensions that kept a teacher going WITHOUT any period ending in this month never
+            // reach the loop above — the period was extended before it could expire, which is the
+            // whole point of extending early. They are renewals all the same, so they are added
+            // here rather than left invisible.
+            foreach (long teacherId in extensions
+                .Where(e => e.GrantedAt >= startUtc && e.GrantedAt < endUtc)
+                .Select(e => e.TeacherId)
+                .Distinct())
+            {
+                if (!renewed.Contains(teacherId) && !churned.Contains(teacherId))
+                    renewed.Add(teacherId);
             }
 
             int ended = renewed.Count + churned.Count;

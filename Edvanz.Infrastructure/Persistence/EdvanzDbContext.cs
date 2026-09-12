@@ -261,6 +261,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     /// <summary>Internal admin notes about a teacher. Never exposed to the teacher.</summary>
     public DbSet<AdminNote> AdminNotes => Set<AdminNote>();
 
+    /// <summary>Sign-in history for every account type. See <see cref="UserLoginActivity"/> for why
+    /// this is keyed on UserId and why the assistant-only table is no longer written to.</summary>
+    public DbSet<UserLoginActivity> UserLoginActivity => Set<UserLoginActivity>();
+
+    /// <summary>Audit of admin "Extend by days" — the renewal path that used to leave no trace.</summary>
+    public DbSet<SubscriptionExtension> SubscriptionExtensions => Set<SubscriptionExtension>();
+
     /// <summary>Per-teacher-per-day activity facts, written only by the nightly usage rollup.</summary>
     public DbSet<TeacherUsageDay> TeacherUsageDays => Set<TeacherUsageDay>();
 
@@ -4212,6 +4219,51 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                   .HasFilter("[FollowUpDate] IS NOT NULL AND [IsDeleted] = 0");
 
             entity.HasQueryFilter(n => !n.IsDeleted);
+        });
+        #endregion
+
+        #region UserLoginActivity (sign-in history for EVERY account type)
+        modelBuilder.Entity<UserLoginActivity>(entity =>
+        {
+            entity.ToTable("UserLoginActivity");
+            entity.HasKey(l => l.Id);
+            entity.Property(l => l.DeviceOrBrowser).HasMaxLength(512);
+            entity.Property(l => l.IpAddress).HasMaxLength(64);
+
+            // NoAction, like every other FK here: deleting a user must not silently erase the
+            // record of them signing in (CLAUDE.md §4.2).
+            entity.HasOne(l => l.User)
+                  .WithMany()
+                  .HasForeignKey(l => l.UserId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            // The only read there is: one account's history, newest first.
+            entity.HasIndex(l => new { l.UserId, l.CreateAt })
+                  .HasDatabaseName("IX_UserLoginActivity_UserId_CreateAt");
+        });
+        #endregion
+
+        #region SubscriptionExtension (audit of "Extend by days")
+        modelBuilder.Entity<SubscriptionExtension>(entity =>
+        {
+            entity.ToTable("SubscriptionExtensions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Note).HasMaxLength(500);
+            entity.Property(e => e.AmountPaidEGP).HasColumnType("decimal(10,2)");
+
+            entity.HasOne(e => e.Teacher)
+                  .WithMany()
+                  .HasForeignKey(e => e.TeacherId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.TeacherSubscription)
+                  .WithMany()
+                  .HasForeignKey(e => e.TeacherSubscriptionId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            // The renewal report's read: extensions for a teacher, in a month.
+            entity.HasIndex(e => new { e.TeacherId, e.CreateAt })
+                  .HasDatabaseName("IX_SubscriptionExtensions_TeacherId_CreateAt");
         });
         #endregion
 

@@ -114,6 +114,17 @@ public interface IAdminInsightsRepo
     Task<IReadOnlyList<ConsoleSubscriptionSpan>> GetSubscriptionSpansAsync(
         DateTime fromUtc, CancellationToken ct = default);
 
+    /// <summary>
+    /// Admin extensions granted on/after <paramref name="fromUtc"/>, for independent teachers.
+    ///
+    /// These are renewals too. Extending moves the end date of the period already running instead
+    /// of inserting a row, so a teacher kept going this way looks to a span-based query like
+    /// someone whose subscription never ended — and every one of them was missing from the renewal
+    /// figures.
+    /// </summary>
+    Task<IReadOnlyList<ConsoleExtension>> GetSubscriptionExtensionsAsync(
+        DateTime fromUtc, CancellationToken ct = default);
+
     // ── Global search. Every group folds Arabic variants through dbo.ArabicNormalize, so
     //    مصطفي finds مصطفى in a student list exactly as it already does on the teacher grid. ──
 
@@ -136,16 +147,25 @@ public interface IAdminInsightsRepo
     // ── Support lookups for the teacher page ──
 
     /// <summary>
-    /// Recorded sign-ins per assistant user for one teacher's account, newest first.
+    /// Recorded sign-ins for a set of USER ids, newest first, grouped by user.
     ///
-    /// TEACHERS ARE ABSENT ON PURPOSE, and it is not an oversight in this query: the platform has
-    /// never written a per-login row for a teacher account. <c>LoginActivityAssistantLog</c> is
-    /// keyed on <c>AssistantId</c> and written only by the assistant sign-in path, so a teacher's
-    /// history is exactly <c>User.LastLoginAt</c>. The read endpoint says so rather than rendering
-    /// an empty list that reads as "never logged in".
+    /// Keyed on the user rather than on a role-specific id because <c>UserLoginActivity</c> is:
+    /// teachers, assistants, students, parents and admins all sign in through the same Users row,
+    /// so one query answers for any of them. <paramref name="takePerUser"/> caps each person's
+    /// list; pass 0 for no cap.
     /// </summary>
-    Task<IReadOnlyDictionary<long, IReadOnlyList<ConsoleLoginEvent>>> GetAssistantLoginEventsAsync(
-        long teacherId, int takePerAssistant, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<long, IReadOnlyList<ConsoleLoginEvent>>> GetLoginEventsAsync(
+        IReadOnlyCollection<long> userIds, int takePerUser, CancellationToken ct = default);
+
+    /// <summary>
+    /// The oldest sign-in the platform has on record, or null when nothing has been recorded yet.
+    ///
+    /// Read from the data rather than configured, because it answers a question the data alone can
+    /// answer honestly: history begins when the recording began, and an empty list for an account
+    /// that predates it means "no record yet", not "never signed in". A configured date would drift
+    /// from the truth the first time someone restored a database or re-ran a deploy.
+    /// </summary>
+    Task<DateTime?> GetLoginHistoryStartAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Grid rows for an explicit set of teachers — the page of a drill-down, hydrated through the

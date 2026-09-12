@@ -167,6 +167,16 @@ public partial class AdminInsightsRepo
             .Select(s => new ConsoleSubscriptionSpan(s.TeacherId, s.StartDate, s.EndDate, s.IsCurrent))
             .ToListAsync(ct);
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConsoleExtension>> GetSubscriptionExtensionsAsync(
+        DateTime fromUtc, CancellationToken ct = default)
+        => await _context.SubscriptionExtensions
+            .AsNoTracking()
+            .Where(e => e.CreateAt >= fromUtc && e.Teacher.CenterId == null)
+            .OrderBy(e => e.CreateAt)
+            .Select(e => new ConsoleExtension(e.TeacherId, e.CreateAt, e.DaysAdded, e.AmountPaidEGP))
+            .ToListAsync(ct);
+
     // ════════════════════════════════════════════════════════════════════════
     // GLOBAL SEARCH
     // ════════════════════════════════════════════════════════════════════════
@@ -252,38 +262,29 @@ public partial class AdminInsightsRepo
     // ════════════════════════════════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<IReadOnlyDictionary<long, IReadOnlyList<ConsoleLoginEvent>>> GetAssistantLoginEventsAsync(
-        long teacherId, int takePerAssistant, CancellationToken ct = default)
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<ConsoleLoginEvent>>> GetLoginEventsAsync(
+        IReadOnlyCollection<long> userIds, int takePerUser, CancellationToken ct = default)
     {
-        // ONE query for every assistant on the account; the per-assistant cap is applied in memory
-        // because a per-group TOP-N is the kind of SQL that silently falls back to client
-        // evaluation. An account's log is small — these rows are written on sign-in only.
-        var rows = await _context.AssistantLoginActivity
+        if (userIds.Count == 0)
+            return new Dictionary<long, IReadOnlyList<ConsoleLoginEvent>>();
+
+        // ONE query for everyone on the account; the per-person cap is applied in memory because a
+        // per-group TOP-N is the kind of SQL that silently falls back to client evaluation. These
+        // rows are written on sign-in and sign-out only, so a person's log is small.
+        var rows = await _context.UserLoginActivity
             .AsNoTracking()
-            .Where(l => _context.Assistants
-                .Any(a => a.Id == l.AssistantId && a.TeacherAccountId == teacherId))
+            .Where(l => userIds.Contains(l.UserId))
             .OrderByDescending(l => l.CreateAt)
-            .Select(l => new
-            {
-                UserId = _context.Assistants
-                    .Where(a => a.Id == l.AssistantId)
-                    .Select(a => a.UserId)
-                    .FirstOrDefault(),
-                l.ActionType,
-                l.CreateAt,
-                l.DeviceOrBrowser,
-                l.IpAddress
-            })
+            .Select(l => new { l.Id, l.UserId, l.ActionType, l.CreateAt, l.DeviceOrBrowser, l.IpAddress })
             .ToListAsync(ct);
 
         return rows
             .GroupBy(r => r.UserId)
             .ToDictionary(
                 g => g.Key,
-                g => (IReadOnlyList<ConsoleLoginEvent>)g
-                    .Take(takePerAssistant)
+                g => (IReadOnlyList<ConsoleLoginEvent>)(takePerUser > 0 ? g.Take(takePerUser) : g)
                     .Select(r => new ConsoleLoginEvent(
-                        r.ActionType.ToString(), r.CreateAt, r.DeviceOrBrowser, r.IpAddress))
+                        r.Id, r.ActionType.ToString(), r.CreateAt, r.DeviceOrBrowser, r.IpAddress))
                     .ToList());
     }
 
@@ -326,6 +327,14 @@ public partial class AdminInsightsRepo
 
         return (roster?.Students ?? 0, roster?.InClasses ?? 0, links?.Active ?? 0, links?.Bound ?? 0);
     }
+
+    /// <inheritdoc />
+    public async Task<DateTime?> GetLoginHistoryStartAsync(CancellationToken ct = default)
+        => await _context.UserLoginActivity
+            .AsNoTracking()
+            .OrderBy(l => l.CreateAt)
+            .Select(l => (DateTime?)l.CreateAt)
+            .FirstOrDefaultAsync(ct);
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<ConsoleClassRow>> GetClassesForTeacherAsync(

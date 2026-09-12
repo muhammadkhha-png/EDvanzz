@@ -732,13 +732,21 @@ namespace Edvanz.Application.Services
             if (!await CallerOwnsAssistantAsync(assistant))
                 return Result<List<LoginActivityDto>>.Failure(localizer, "AssistantNotFound", HttpStatusCode.NotFound);
 
-            // -- 3. Fetch logs --------------------------------------------------------
-            var logs = await _unitOfWork.GetRepository<LoginActivityAssistantLog, long>()
+            // -- 3. Fetch logs from BOTH tables ---------------------------------------
+            // Sign-ins are now recorded once per USER, for every account type, in
+            // UserLoginActivity — so this assistant's history continues there. The old
+            // assistant-keyed table is no longer written to but still holds everything from
+            // before that change, and dropping it here would silently shorten a history the
+            // teacher can already see. Read both; there is no overlap, because the old table
+            // stopped receiving writes the moment the new one started.
+            var legacyLogs = await _unitOfWork.GetRepository<LoginActivityAssistantLog, long>()
                 .GetAsync(l => l.AssistantId == assistantId);
 
+            var userLogs = await _unitOfWork.AdminInsightsRepo
+                .GetLoginEventsAsync(new[] { assistant.UserId }, takePerUser: 0);
+
             // -- 4. Map ---------------------------------------------------------------
-            var result = logs
-                .OrderByDescending(l => l.CreateAt)
+            var result = legacyLogs
                 .Select(l => new LoginActivityDto
                 {
                     id = l.Id,
@@ -748,30 +756,39 @@ namespace Edvanz.Application.Services
                     deviceOrBrowser = l.DeviceOrBrowser,
                     ipAddress = l.IpAddress,
                 })
+                .Concat(userLogs.GetValueOrDefault(assistant.UserId)?
+                    .Select(e => new LoginActivityDto
+                    {
+                        // Ids come from a different table, so they are not unique across the two.
+                        // The client uses this list for display only — it never addresses a row
+                        // by id — and inventing a synthetic key would be a bigger lie than a
+                        // repeated one.
+                        id = e.Id,
+                        assistantName = assistant.User.FullName,
+                        action = e.Action,
+                        occurredAt = e.OccurredAt,
+                        deviceOrBrowser = e.DeviceOrBrowser,
+                        ipAddress = e.IpAddress,
+                    }) ?? Enumerable.Empty<LoginActivityDto>())
+                .OrderByDescending(l => l.occurredAt)
                 .ToList();
 
             return Result<List<LoginActivityDto>>.Success(result, localizer, "Success");
         }
 
-        public async Task RecordLoginActivityAsync(
-    long assistantId,
-    LoginAcitvityActionType actionType,
-    HttpContext httpContext)
-        {
-            var log = new LoginActivityAssistantLog
-            {
-                AssistantId = assistantId,
-                ActionType = actionType,
-                CreateAt = DateTime.UtcNow,
-                DeviceOrBrowser = httpContext.Request.Headers["User-Agent"].ToString(),
-                IpAddress = httpContext.Connection.RemoteIpAddress?.ToString(),
-            };
-
-            await _unitOfWork.GetRepository<LoginActivityAssistantLog, long>()
-                .AddAsync(log);
-
-            await _unitOfWork.SaveChangesAsync();
-        }
+        /// <summary>
+        /// RETIRED as a writer, kept so the interface and any remaining caller still compile.
+        ///
+        /// Sign-ins are recorded once per USER in <c>UserLoginActivity</c> by the shared auth path,
+        /// which covers every account type instead of assistants alone. Writing here as well would
+        /// duplicate every assistant's history wherever the two tables are read together — which
+        /// <see cref="GetLoginActivityAsync"/> now does, precisely so the rows written before the
+        /// change are not lost.
+        /// </summary>
+        public Task RecordLoginActivityAsync(
+            long assistantId,
+            LoginAcitvityActionType actionType,
+            HttpContext httpContext) => Task.CompletedTask;
 
 
 
