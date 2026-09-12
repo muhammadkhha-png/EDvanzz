@@ -619,17 +619,30 @@ public partial class AdminInsightsService
             var renewed = new List<long>();
             var churned = new List<long>();
 
+            // COUNTED PER TEACHER, NOT PER PERIOD. Both are defensible readings of "how many
+            // renewed", but only one of them lets the card and the list behind it agree: a teacher
+            // with two periods ending in one month is two subscriptions and one person to call, and
+            // the drill-down can only show the person. Counting people keeps the tile honest about
+            // what clicking it opens, and it is the question being asked anyway.
+            //
             // Only periods that have ACTUALLY ended. A subscription running into next week has not
             // failed to renew; counting it as churn would report every healthy customer as lost.
-            foreach (var span in spans.Where(s => s.EndDate >= startUtc && s.EndDate < endUtc
-                                               && s.EndDate <= nowUtc))
-            {
-                var later = byTeacher[span.TeacherId].FirstOrDefault(s =>
-                    s.StartDate >= span.EndDate.AddDays(-1) &&
-                    s.StartDate <= span.EndDate.AddDays(AdminInsightsConstants.ConsoleRenewalWindowDays));
+            var endedByTeacher = spans
+                .Where(s => s.EndDate >= startUtc && s.EndDate < endUtc && s.EndDate <= nowUtc)
+                .GroupBy(s => s.TeacherId);
 
-                if (later is not null) renewed.Add(span.TeacherId);
-                else churned.Add(span.TeacherId);
+            foreach (var group in endedByTeacher)
+            {
+                // Renewed if ANY period that ended this month was followed by a new row. Judged per
+                // teacher so someone who let one class lapse and renewed another is not counted in
+                // both lists, which would make the two halves sum to more than the whole.
+                bool anyRenewed = group.Any(span => byTeacher[group.Key].Any(later =>
+                    later.StartDate > span.StartDate &&
+                    later.StartDate >= span.EndDate.AddDays(-1) &&
+                    later.StartDate <= span.EndDate.AddDays(AdminInsightsConstants.ConsoleRenewalWindowDays)));
+
+                if (anyRenewed) renewed.Add(group.Key);
+                else churned.Add(group.Key);
             }
 
             int ended = renewed.Count + churned.Count;
@@ -645,10 +658,9 @@ public partial class AdminInsightsService
                 ChurnedSegmentKey = $"{AdminSegmentKey.NotRenewed}:{monthKey}"
             });
 
-            // Distinct: a teacher with two periods ending in one month is one person to call, even
-            // though two subscriptions ended.
-            renewedByMonth[monthKey] = renewed.Distinct().ToList();
-            churnedByMonth[monthKey] = churned.Distinct().ToList();
+            // Already one entry per teacher — these ARE the lists the two counts above describe.
+            renewedByMonth[monthKey] = renewed;
+            churnedByMonth[monthKey] = churned;
         }
 
         return new RenewalAnalysis(rows, renewedByMonth, churnedByMonth);

@@ -357,10 +357,16 @@ public class RenewalMonthDto
     /// <summary>"August 2026".</summary>
     public string Label { get; set; } = null!;
 
-    /// <summary>Subscriptions that ended in this month.</summary>
+    /// <summary>
+    /// TEACHERS whose subscription ended in this month — people, not periods. A teacher with two
+    /// periods ending in one month is one person to call, and one row in the list this number
+    /// opens; counting periods here would make the tile disagree with its own drill-down.
+    /// </summary>
     public int Ended { get; set; }
 
+    /// <summary>Of those, how many took out a new subscription. Always sums with Churned to Ended.</summary>
     public int Renewed { get; set; }
+
     public int Churned { get; set; }
 
     /// <summary>Renewed ÷ ended, 0-100. Zero when nothing ended.</summary>
