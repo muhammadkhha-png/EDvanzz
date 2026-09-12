@@ -1,4 +1,4 @@
-using Edvanz.Domain.Enums;
+﻿using Edvanz.Domain.Enums;
 
 namespace Edvanz.Domain.Interfaces;
 
@@ -109,6 +109,20 @@ public sealed record ConsoleSubscriptionSpan(
     /// open the app.
     /// </summary>
     bool IsCurrent);
+
+/// <summary>
+/// When each module was LAST actually written to, and how much, over all stored history.
+///
+/// "Does he really use it" is not answered by a tick. A teacher who opened Payments once in June
+/// and a teacher who collects money every week both read as "has used Payments" — the date and the
+/// count are what separate them, and they are the two things a yes/no mask cannot carry.
+/// </summary>
+public sealed record ConsoleModuleUsage(
+    string Module,
+    DateOnly? LastUsedOn,
+    int Writes30,
+    int WritesAllTime,
+    int DaysUsedAllTime);
 
 /// <summary>
 /// One admin extension: days added to a period that was already running. Counted as a renewal in

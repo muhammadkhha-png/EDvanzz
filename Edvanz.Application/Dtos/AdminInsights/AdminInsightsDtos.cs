@@ -321,6 +321,44 @@ public class TeacherUsageDetailDto
     /// <summary>The people on the account and when each was last seen. This is the operator axis
     /// made concrete: a name to call, not just a band.</summary>
     public IReadOnlyList<TeacherOperatorDto> Operators { get; set; } = Array.Empty<TeacherOperatorDto>();
+
+    /// <summary>
+    /// EVERY module, one row each — the ones they pay for and use, the ones they pay for and have
+    /// never opened, and the ones they do not have. Listed rather than counted because "4 of 10"
+    /// does not say WHICH four, and because a tick does not separate a teacher who opened Payments
+    /// once from one who collects money every week. Each row carries the date and the volume that
+    /// do separate them.
+    /// </summary>
+    public IReadOnlyList<TeacherModuleUsageDto> ModuleUsage { get; set; } = Array.Empty<TeacherModuleUsageDto>();
+}
+
+/// <summary>One module, and the evidence for whether this teacher actually uses it.</summary>
+public class TeacherModuleUsageDto
+{
+    /// <summary>Stable module key; the client turns it into a label.</summary>
+    public string Module { get; set; } = null!;
+
+    /// <summary>Do they pay for it / is it granted? A module they do not have is not a gap.</summary>
+    public bool HasIt { get; set; }
+
+    /// <summary>The last day anything was written in it. Null = never, ever.</summary>
+    public DateOnly? LastUsedOn { get; set; }
+
+    /// <summary>How much they did in it over the last 30 days.</summary>
+    public int Writes30 { get; set; }
+
+    /// <summary>How much they have ever done in it.</summary>
+    public int WritesAllTime { get; set; }
+
+    /// <summary>On how many separate days. One busy afternoon and a daily habit can share a
+    /// write count; they do not share this.</summary>
+    public int DaysUsedAllTime { get; set; }
+
+    /// <summary>
+    /// Live | Lapsed | NeverOpened | NotOnTheirPlan — the four states the row can be in, decided
+    /// on the server so two screens cannot disagree about what counts as "using it".
+    /// </summary>
+    public string State { get; set; } = null!;
 }
 
 /// <summary>One day on the activity chart.</summary>

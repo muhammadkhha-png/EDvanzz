@@ -711,6 +711,7 @@ public partial class AdminInsightsService : IAdminInsightsService
 
         var days = await repo.GetDaysAsync(teacherId, from90, today);
         var operators = await repo.GetOperatorsAsync(teacherId);
+        var moduleUsage = await repo.GetModuleUsageAsync(teacherId, from30);
 
         var summary = (await EnrichRowsAsync(new[] { row })).Single();
 
@@ -761,10 +762,66 @@ public partial class AdminInsightsService : IAdminInsightsService
                 IsActive = o.IsActive,
                 LastLoginAt = o.LastLoginAt,
                 LastActivityAt = o.LastActivityAt
-            }).ToList()
+            }).ToList(),
+            ModuleUsage = BuildModuleUsage(row, moduleUsage)
         };
 
         return Result<TeacherUsageDetailDto>.Success(dto, _localizer);
+    }
+
+    /// <summary>
+    /// Every module as one row, in a deliberate order: what they are failing to use comes before
+    /// what they are using, because the first is the reason anyone opened this screen.
+    ///
+    /// The four states are decided HERE rather than on each client, so "using it" cannot come to
+    /// mean one thing on the teacher page and another on the list that links to it.
+    /// </summary>
+    private static IReadOnlyList<TeacherModuleUsageDto> BuildModuleUsage(
+        TeacherUsageRow row, IReadOnlyList<ConsoleModuleUsage> usage)
+    {
+        var byModule = usage.ToDictionary(u => u.Module, StringComparer.OrdinalIgnoreCase);
+
+        var rows = new List<TeacherModuleUsageDto>();
+        foreach (var module in Enum.GetValues<UsageModules>())
+        {
+            if (module == UsageModules.None) continue;
+
+            int bit = (int)module;
+            bool hasIt = (row.EntitledModulesMask & bit) != 0;
+            bool usedRecently = (row.ModulesUsedMask & bit) != 0;
+            bool everUsed = (row.ModulesUsedAllTimeMask & bit) != 0;
+            byModule.TryGetValue(module.ToString(), out var u);
+
+            rows.Add(new TeacherModuleUsageDto
+            {
+                Module = module.ToString(),
+                HasIt = hasIt,
+                LastUsedOn = u?.LastUsedOn,
+                Writes30 = u?.Writes30 ?? 0,
+                WritesAllTime = u?.WritesAllTime ?? 0,
+                DaysUsedAllTime = u?.DaysUsedAllTime ?? 0,
+                State = !hasIt ? "NotOnTheirPlan"
+                      : usedRecently ? "Live"
+                      : everUsed ? "Lapsed"
+                      : "NeverOpened",
+            });
+        }
+
+        // Never opened, then given up on, then live, then the ones they do not have at all —
+        // and within each, the busiest first.
+        static int Rank(string state) => state switch
+        {
+            "NeverOpened" => 0,
+            "Lapsed" => 1,
+            "Live" => 2,
+            _ => 3,
+        };
+
+        return rows
+            .OrderBy(r => Rank(r.State))
+            .ThenByDescending(r => r.Writes30)
+            .ThenByDescending(r => r.WritesAllTime)
+            .ToList();
     }
 
     /// <inheritdoc />

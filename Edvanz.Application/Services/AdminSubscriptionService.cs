@@ -77,7 +77,8 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         => await ActivateCoreAsync(
             adminUserId, request.TeacherId, request.StartDate, request.EndDate,
             SubscriptionPlanType.Full, removeExistingLinks: false,
-            SubscriptionConstants.Messages.SubscriptionActivated);
+            SubscriptionConstants.Messages.SubscriptionActivated,
+            request.StudentCapacity, request.LinkedStudentCapacity);
 
     /// <inheritdoc />
     public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialAsync(
@@ -85,7 +86,9 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         => await ActivateCoreAsync(
             adminUserId, request.TeacherId, request.StartDate, request.EndDate,
             SubscriptionPlanType.Managerial, request.RemoveExistingLinks,
-            SubscriptionConstants.Messages.SubscriptionManagerialActivated);
+            SubscriptionConstants.Messages.SubscriptionManagerialActivated,
+            // One number: a managerial plan has no student app accounts to limit.
+            request.StudentCapacity, linkedStudentCapacity: null);
 
     /// <inheritdoc />
     public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialPlusAsync(
@@ -93,7 +96,8 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         => await ActivateCoreAsync(
             adminUserId, request.TeacherId, request.StartDate, request.EndDate,
             SubscriptionPlanType.ManagerialPlus, request.RemoveExistingLinks,
-            SubscriptionConstants.Messages.SubscriptionManagerialPlusActivated);
+            SubscriptionConstants.Messages.SubscriptionManagerialPlusActivated,
+            request.StudentCapacity, linkedStudentCapacity: null);
 
     /// <summary>
     /// Shared no-payment activation core for both Full and Managerial plans. Inserts a new
@@ -102,9 +106,17 @@ public class AdminSubscriptionService : IAdminSubscriptionService
     /// transaction. When <paramref name="removeExistingLinks"/> is true (managerial only), it also
     /// severs every live student link and active parent link for the teacher in the SAME transaction.
     /// </summary>
+    /// <param name="studentCapacity">
+    /// New account-student limit, or null to leave it alone. Applied BEFORE the price is computed.
+    /// </param>
+    /// <param name="linkedStudentCapacity">
+    /// New student-app-account limit, or null to leave it alone. Full plan only — it is what the
+    /// Full price is computed from, which is precisely why it cannot be applied afterwards.
+    /// </param>
     private async Task<Result<CurrentSubscriptionDto>> ActivateCoreAsync(
         long adminUserId, long teacherId, DateTime? startDateOpt, DateTime? endDateOpt,
-        SubscriptionPlanType planType, bool removeExistingLinks, string successMessageKey)
+        SubscriptionPlanType planType, bool removeExistingLinks, string successMessageKey,
+        int? studentCapacity = null, int? linkedStudentCapacity = null)
     {
         // ── Validation ──
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
@@ -123,6 +135,32 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             return Result<CurrentSubscriptionDto>.Failure(
                 _localizer, SubscriptionConstants.Messages.EndDateMustBeAfterStart);
         }
+
+        // ── Capacity, applied BEFORE the price is read off it ──
+        // The limits and the subscription are ONE decision: an admin agreeing a plan is agreeing
+        // the numbers it covers. Applying them after the row was built would snapshot the price of
+        // the limit the teacher used to have.
+        if (studentCapacity is not null &&
+            (studentCapacity < 1 || studentCapacity > SubscriptionConstants.MaxStudentCapacity))
+        {
+            return Result<CurrentSubscriptionDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedCapacityTooLarge);
+        }
+
+        if (linkedStudentCapacity is not null &&
+            (linkedStudentCapacity < 1 || linkedStudentCapacity > SubscriptionConstants.MaxStudentCapacity))
+        {
+            return Result<CurrentSubscriptionDto>.Failure(
+                _localizer, SubscriptionConstants.Messages.RequestedLinkedStudentsTooLarge);
+        }
+
+        bool capacityChanged = studentCapacity is not null || linkedStudentCapacity is not null;
+        if (studentCapacity is not null) teacher.StudentCapacity = studentCapacity.Value;
+        if (linkedStudentCapacity is not null) teacher.LinkedStudentCapacity = linkedStudentCapacity.Value;
+
+        // The one rule tying the two together — a linked app account always needs a student record
+        // behind it, so this raises the student limit rather than rejecting the admin's numbers.
+        if (capacityChanged) EnforceCapacityInvariant(teacher);
 
         // What this period is worth at the prices in force TODAY, priced through the same
         // plan-aware calculator the teacher's own renewal screen uses.
@@ -161,6 +199,10 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         await _unitOfWork.BeginTransactionAsync();
         try
         {
+            // Same transaction as the subscription row: a plan that activated at a limit the
+            // teacher does not actually have would be priced for one thing and enforce another.
+            if (capacityChanged) await _unitOfWork.Users.UpdateTeacherAsync(teacher);
+
             var previousCurrent = await _unitOfWork.Users
                 .GetCurrentSubscriptionForUpdateAsync(teacherId);
 

@@ -1,4 +1,4 @@
-namespace Edvanz.Application.Dtos.Subscription;
+﻿namespace Edvanz.Application.Dtos.Subscription;
 
 /// <summary>
 /// Input DTO for POST /api/admin/subscriptions/activate-managerial AND
@@ -28,6 +28,15 @@ public class AdminActivateManagerialRequest
     /// Optional explicit end date (UTC). Null defaults to StartDate + 30 days.
     /// </summary>
     public DateTime? EndDate { get; set; }
+
+    /// <summary>
+    /// How many students this teacher may hold on the account. NULL LEAVES IT UNCHANGED.
+    ///
+    /// ONE number, not two: neither managerial plan allows student app accounts at all, so the
+    /// linked-account limit has nothing to govern and both plans are priced flat regardless of it.
+    /// Offering a second box here would ask an admin to decide something that cannot matter.
+    /// </summary>
+    public int? StudentCapacity { get; set; }
 
     /// <summary>
     /// When true, atomically severs EVERY existing live student link and active parent link

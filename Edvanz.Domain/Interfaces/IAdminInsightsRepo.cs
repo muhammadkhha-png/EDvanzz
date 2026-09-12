@@ -175,6 +175,14 @@ public interface IAdminInsightsRepo
     Task<IReadOnlyList<TeacherUsageRow>> GetUsageRowsByIdsAsync(
         IReadOnlyCollection<long> teacherIds, CancellationToken ct = default);
 
+    /// <summary>
+    /// Per-module: when it was last written to, how much in the last 30 days, and how much ever.
+    /// Read over the teacher's WHOLE stored history rather than a rolling window — a module last
+    /// touched four months ago is exactly the case the answer needs to cover.
+    /// </summary>
+    Task<IReadOnlyList<ConsoleModuleUsage>> GetModuleUsageAsync(
+        long teacherId, DateOnly from30, CancellationToken ct = default);
+
     /// <summary>The teacher's classes with schedule and per-class counts, for the data snapshot.</summary>
     Task<IReadOnlyList<ConsoleClassRow>> GetClassesForTeacherAsync(
         long teacherId, CancellationToken ct = default);
