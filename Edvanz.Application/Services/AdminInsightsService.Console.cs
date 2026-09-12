@@ -177,6 +177,9 @@ public partial class AdminInsightsService
         DateTime nowUtc = DateTime.UtcNow;
         var points = new List<TrendPointDto>(buckets.Count);
 
+        // Grouped once, walked twelve times.
+        var spansByTeacher = spans.GroupBy(s => s.TeacherId).ToList();
+
         foreach (var (start, endExclusive) in buckets)
         {
             // CLAMPED TO NOW for the bucket still in progress. Its end is a FUTURE instant, and
@@ -202,11 +205,20 @@ public partial class AdminInsightsService
                 // Who held a live subscription at the last moment of the bucket. Reconstructed from
                 // the spans rather than stored daily — a stored counter would need a job, and a job
                 // that stops leaves a chart that lies rather than one that stops.
-                SubscribersAtEnd = spans
-                    .Where(s => s.StartDate < measureAtUtc && s.EndDate >= measureAtUtc)
-                    .Select(s => s.TeacherId)
-                    .Distinct()
-                    .Count()
+                //
+                // Reconstructed the way the PLATFORM judges liveness, not as a union of periods:
+                // per teacher, the newest row that had started by then, live only if it had not yet
+                // expired. The gate the app itself enforces reads one row — the current one — so a
+                // superseded row whose end date still lies ahead grants nobody anything. Taking any
+                // overlapping period instead put two extra teachers on the chart's current column
+                // who could not open the app that morning.
+                SubscribersAtEnd = spansByTeacher.Count(g =>
+                {
+                    var currentThen = g.Where(s => s.StartDate <= measureAtUtc)
+                                       .OrderByDescending(s => s.StartDate)
+                                       .FirstOrDefault();
+                    return currentThen is not null && measureAtUtc < currentThen.EndDate;
+                })
             });
         }
 
