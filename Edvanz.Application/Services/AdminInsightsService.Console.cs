@@ -166,10 +166,18 @@ public partial class AdminInsightsService
             .Select(r => DateOnly.FromDateTime(_timeZone.ConvertUtcToLocal(r.RegisteredAt)))
             .ToList();
 
+        DateTime nowUtc = DateTime.UtcNow;
         var points = new List<TrendPointDto>(buckets.Count);
+
         foreach (var (start, endExclusive) in buckets)
         {
+            // CLAMPED TO NOW for the bucket still in progress. Its end is a FUTURE instant, and
+            // subscriptions run 30 days — so measuring "who held one at period end" there counts
+            // how many survive until October rather than how many exist today, and the last column
+            // of a growing chart slumps. September read 27 against August's 41 for exactly that
+            // reason, on a platform that had just gained subscribers.
             DateTime endUtc = LocalDayStartUtc(endExclusive);
+            DateTime measureAtUtc = endUtc > nowUtc ? nowUtc : endUtc;
 
             points.Add(new TrendPointDto
             {
@@ -183,11 +191,11 @@ public partial class AdminInsightsService
                     var local = DateOnly.FromDateTime(_timeZone.ConvertUtcToLocal(s.StartDate));
                     return local >= start && local < endExclusive;
                 }),
-                // Who held a live subscription at the LAST MOMENT of the bucket. Reconstructed from
+                // Who held a live subscription at the last moment of the bucket. Reconstructed from
                 // the spans rather than stored daily — a stored counter would need a job, and a job
                 // that stops leaves a chart that lies rather than one that stops.
                 SubscribersAtEnd = spans
-                    .Where(s => s.StartDate < endUtc && s.EndDate >= endUtc)
+                    .Where(s => s.StartDate < measureAtUtc && s.EndDate >= measureAtUtc)
                     .Select(s => s.TeacherId)
                     .Distinct()
                     .Count()

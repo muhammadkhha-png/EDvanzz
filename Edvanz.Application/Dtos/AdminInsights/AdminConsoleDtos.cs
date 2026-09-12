@@ -307,6 +307,10 @@ public class TrendPointDto
     /// <summary>
     /// How many independent teachers held a live subscription at the END of the bucket,
     /// reconstructed from subscription spans rather than from a stored daily counter.
+    ///
+    /// For the bucket still in progress this is measured at NOW, not at its future end — otherwise
+    /// it reports how many subscriptions will survive past next month rather than how many exist
+    /// today, and a growing platform draws a chart that falls off at its right-hand edge.
     /// </summary>
     public int SubscribersAtEnd { get; set; }
 }
