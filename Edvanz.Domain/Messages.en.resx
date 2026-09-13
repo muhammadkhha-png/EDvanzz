@@ -1616,6 +1616,21 @@
   <data name="FileAlreadyInUse" xml:space="preserve">
     <value>This file is already attached to another item.</value>
   </data>
+  <data name="ExamTooManyAttachments" xml:space="preserve">
+    <value>An exam can hold at most {0} files.</value>
+  </data>
+  <data name="ExamAttachmentNotFound" xml:space="preserve">
+    <value>This file is not attached to this exam.</value>
+  </data>
+  <data name="ExamAttachmentsUpdated" xml:space="preserve">
+    <value>Exam files updated</value>
+  </data>
+  <data name="ExamAttachmentRemoved" xml:space="preserve">
+    <value>File removed</value>
+  </data>
+  <data name="ExamAttachmentReleaseUpdated" xml:space="preserve">
+    <value>Updated when students can see the exam paper</value>
+  </data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->
   <!-- ═══════════════════════════════════════════════════════════════ -->

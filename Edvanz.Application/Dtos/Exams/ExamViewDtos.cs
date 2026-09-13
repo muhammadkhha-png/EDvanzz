@@ -40,6 +40,12 @@ public class ExamHomeCardDto
 
     public bool IsPast { get; set; }
 
+    /// <summary>
+    /// How many papers (PDF / photos) are attached to this exam, so the card can show a
+    /// paper-clip without a second request. 0 when none have been uploaded.
+    /// </summary>
+    public int AttachmentsCount { get; set; }
+
     /// <summary>How the exam was assigned to its recipients: "Sessions" or "Groups".</summary>
     public string SelectionMode { get; set; } = "Sessions";
 
@@ -74,6 +80,13 @@ public class ExamViewDto
 {
     public long ExamId { get; set; }
     public string Name { get; set; } = null!;
+
+    /// <summary>
+    /// The exam's description / notes. Returned so the EDIT form can hydrate it — without
+    /// this the form opened the field blank, and a structural save then wrote that blank
+    /// back over the teacher's text.
+    /// </summary>
+    public string? Notes { get; set; }
     public ExamDeliveryType? DeliveryType { get; set; }
     public decimal? MaxGrade { get; set; }
     public decimal? SuccessScore { get; set; }
@@ -89,6 +102,65 @@ public class ExamViewDto
     public int DistinctStudentCount { get; set; }
 
     public List<ExamSessionViewDto> Sessions { get; set; } = new();
+
+    /// <summary>
+    /// The exam's papers (PDF / photos) students review afterwards. Empty until the teacher
+    /// uploads one.
+    /// </summary>
+    public List<ExamAttachmentDto> Attachments { get; set; } = new();
+
+    /// <summary>When and whether those papers are visible to students.</summary>
+    public ExamAttachmentReleaseDto AttachmentRelease { get; set; } = new();
+}
+
+/// <summary>
+/// One paper attached to an offline exam. Shape mirrors <c>VideoAttachmentDto</c> so both
+/// file lists render through the same client widget.
+/// </summary>
+public class ExamAttachmentDto
+{
+    /// <summary>The registry id (<c>FileObject.PublicId</c>) — the token in the gated URL.</summary>
+    public Guid Id { get; set; }
+    public string FileName { get; set; } = null!;
+    public string ContentType { get; set; } = null!;
+    public long FileSizeBytes { get; set; }
+
+    /// <summary>Stable gated URL (<c>/api/files/{id}</c>) — re-checks access on every fetch.</summary>
+    public string ReadUrl { get; set; } = null!;
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>
+/// The state of an exam's paper-release gate, for the teacher's switch.
+/// </summary>
+public class ExamAttachmentReleaseDto
+{
+    /// <summary>
+    /// When the paper opens to students on its own: the last class to sit the exam, plus the
+    /// teacher's configured delay. Null while the exam has no occurrences.
+    /// </summary>
+    public DateTime? ReleaseAt { get; set; }
+
+    /// <summary>
+    /// The teacher's override — <c>true</c> released early, <c>false</c> held back,
+    /// <c>null</c> following the schedule.
+    /// </summary>
+    public bool? Override { get; set; }
+
+    /// <summary>
+    /// What students see RIGHT NOW: <c>Override ?? (utcNow &gt;= ReleaseAt)</c>. The single
+    /// value the switch should render, so the client never re-derives the rule.
+    /// </summary>
+    public bool VisibleToStudents { get; set; }
+
+    /// <summary>The teacher's configured delay, so the UI can explain the date it shows.</summary>
+    public int ReleaseDelayHours { get; set; }
+
+    /// <summary>
+    /// Names of the exam's classes that have NOT sat it yet. Populated so releasing early can
+    /// warn by name instead of in the abstract; empty once every class has sat the exam.
+    /// </summary>
+    public List<string> SessionsYetToSit { get; set; } = new();
 }
 
 /// <summary>Grade + attendance statistics. Averages/high/low are over students with a grade entered.</summary>

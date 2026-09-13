@@ -213,7 +213,10 @@ public sealed class ParentSectionComposer : IParentSectionComposer
         try
         {
             var result = await _examHomeworkService.GetMyOfflineExamsAsync(
-                teacherId, teacherStudentId, language, page: 1, pageSize: OfflineExamFetchPageSize);
+                teacherId, teacherStudentId, language, page: 1, pageSize: OfflineExamFetchPageSize,
+                // Portal parents hold no JWT, so a gated file URL would be unusable to them —
+                // loading the papers here would be cost with no consumer.
+                includeAttachments: false);
             if (result.IsSuccess && result.Data?.data is { } rows)
             {
                 foreach (var row in rows)

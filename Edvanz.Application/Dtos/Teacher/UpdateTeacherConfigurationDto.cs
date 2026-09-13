@@ -56,6 +56,17 @@ public class UpdateTeacherConfigurationDto
     public bool StudentVisibilityExamDefault { get; set; } = true;
     public bool StudentVisibilityVideo { get; set; } = true;
 
+    /// <summary>
+    /// Hours after the LAST class sits an offline exam before its paper opens to students.
+    /// <para>
+    /// NULLABLE ON PURPOSE: omitted or null means UNCHANGED. A non-nullable field with a
+    /// default would let any older app build — which knows nothing about this setting and so
+    /// never sends it — silently reset a teacher's chosen delay on every unrelated settings
+    /// save. Same reasoning as <c>BillingStartDate</c>.
+    /// </para>
+    /// </summary>
+    public int? ExamAttachmentReleaseDelayHours { get; set; }
+
     // ─── AAM-FR-04.9: Parent Visibility ───
 
     public bool ParentVisibilityAttendance { get; set; } = true;

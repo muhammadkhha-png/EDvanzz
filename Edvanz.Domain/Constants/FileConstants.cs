@@ -20,6 +20,7 @@ public static class FileConstants
         FileCategory.VideoAttachment,
         FileCategory.OnlineExamQuestionImage,
         FileCategory.VideoExamQuestionImage,
+        FileCategory.ExamAttachment,
     };
 
     /// <summary>

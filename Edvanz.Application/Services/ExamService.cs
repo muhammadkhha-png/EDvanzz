@@ -3,6 +3,7 @@ using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Exams;
 using Edvanz.Application.Dtos.ExamHomework;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -34,6 +35,7 @@ public class ExamService : IExamService
     private readonly IExamAttendanceSyncService _examAttendanceSync;
     private readonly IExamHomeworkService _examHomework;
     private readonly ISubscriptionGateService _subscriptionGate;
+    private readonly IFileAccessService _fileAccess;
 
     public ExamService(
         IUnitOfWork unitOfWork,
@@ -41,7 +43,8 @@ public class ExamService : IExamService
         ITimeZoneService timeZoneService,
         IExamAttendanceSyncService examAttendanceSync,
         IExamHomeworkService examHomework,
-        ISubscriptionGateService subscriptionGate)
+        ISubscriptionGateService subscriptionGate,
+        IFileAccessService fileAccess)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
@@ -49,6 +52,7 @@ public class ExamService : IExamService
         _examAttendanceSync = examAttendanceSync;
         _examHomework = examHomework;
         _subscriptionGate = subscriptionGate;
+        _fileAccess = fileAccess;
     }
 
     /// <inheritdoc />
@@ -195,6 +199,30 @@ public class ExamService : IExamService
                         await _examAttendanceSync.BackfillExamOccurrenceAsync(
                             teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
 
+            // The paper's release is anchored to the LAST class to sit the exam, so it can
+            // only be computed once the occurrences exist.
+            await RecomputeAttachmentReleaseBaseAsync(template);
+
+            // Papers supplied at creation. Same guards as the dedicated endpoint — a
+            // rejected file rolls the whole exam back rather than creating one with a
+            // half-attached paper.
+            if (dto.AttachmentFileIds is { Count: > 0 })
+            {
+                foreach (var fileId in dto.AttachmentFileIds.Distinct()
+                             .Take(ExamAttachmentConstants.MaxAttachmentsPerExam))
+                {
+                    var resolved = await _fileAccess.ResolveForAttachAsync(
+                        fileId, FileCategory.ExamAttachment, actingUserId, teacherId);
+                    if (!resolved.IsSuccess)
+                    {
+                        await _unitOfWork.RollbackAsync();
+                        return Result<ExamCreatedDto>.Failure(resolved);
+                    }
+                    resolved.Data!.AssignmentTemplateId = template.Id;
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync();
             await _unitOfWork.CommitAsync();
         }
         catch (DbUpdateException)
@@ -305,7 +333,14 @@ public class ExamService : IExamService
             // Rebuild the graph IN PLACE (exam is result-free): update template scalars, purge the
             // old occurrences/obligations/scopes, and re-materialize from the new plan.
             template.Name = dto.Name.Trim();
-            template.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+            // OMITTED (null) = leave the description alone; an empty STRING = clear it.
+            // This branch used to assign unconditionally, so any structural edit — moving the
+            // date, changing the sessions — silently wiped the notes of every exam saved by a
+            // client that did not send the field. The metadata-only branch below
+            // (ExamHomeworkService.UpdateTemplateAsync) has always had this guard; the two
+            // disagreeing is what made the loss look random.
+            if (dto.Notes is not null)
+                template.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
             template.MaxGrade = dto.MaxGrade;
             template.PassingThreshold = dto.SuccessScore;
             template.ExamDeliveryType = dto.DeliveryType;
@@ -367,6 +402,13 @@ public class ExamService : IExamService
                     foreach (var p in plans)
                         if (p.SessionOccurrenceId.HasValue)
                             await _examAttendanceSync.BackfillExamOccurrenceAsync(teacherId, p.Occurrence!.Id, p.SessionOccurrenceId.Value, actingUserId);
+
+                // The class days just moved, so the paper's release moves with them —
+                // rescheduling a class to next week must not leave the paper opening on
+                // the old date. The attachments themselves live on the template and are
+                // untouched by the rebuild.
+                await RecomputeAttachmentReleaseBaseAsync(template);
+                await _unitOfWork.SaveChangesAsync();
 
                 await _unitOfWork.CommitAsync();
             }
@@ -480,6 +522,11 @@ public class ExamService : IExamService
             g => g.Key,
             g => g.Select(x => new SessionRefDto { Id = x.Id, Name = x.SessionName }).ToList());
 
+        // Paper-clip counts for the page's exams, in ONE grouped query — the card shows
+        // whether a paper is attached without opening the exam.
+        var attachmentCounts = await _unitOfWork.ExamHomeworkRepo
+            .GetExamAttachmentCountsAsync(templateIds, teacherId);
+
         ExamHomeCardDto BuildCard(ExamHomeOccurrenceRow o)
         {
             var s = summaries.GetValueOrDefault(o.OccurrenceId);
@@ -516,6 +563,7 @@ public class ExamService : IExamService
                 MissedCount = s?.NotDoneOrAbsent ?? 0,
                 PendingCount = s?.Pending ?? 0,
                 IsPast = o.DueDate.Date < today,
+                AttachmentsCount = attachmentCounts.GetValueOrDefault(o.TemplateId),
                 SelectionMode = byGroups ? "Groups" : "Sessions",
                 AssignedSessions = assignedSessions,
                 AssignedGroups = assignedGroups,
@@ -579,6 +627,7 @@ public class ExamService : IExamService
         {
             ExamId = template.Id,
             Name = template.Name,
+            Notes = template.Notes,
             DeliveryType = template.ExamDeliveryType,
             MaxGrade = template.MaxGrade,
             SuccessScore = template.PassingThreshold,
@@ -587,6 +636,8 @@ public class ExamService : IExamService
             // counts once here, but twice in GlobalStats.TotalStudents which counts obligation rows).
             DistinctStudentCount = roster.Select(r => r.TeacherStudentId).Distinct().Count(),
             Sessions = sessions,
+            Attachments = await BuildExamAttachmentsAsync(examId, teacherId),
+            AttachmentRelease = await BuildReleaseStateAsync(template),
         };
         return Result<ExamViewDto>.Success(view, _localizer);
     }
@@ -1010,6 +1061,191 @@ public class ExamService : IExamService
     private Result<ExamCreatedDto> Fail(string key, HttpStatusCode status = HttpStatusCode.BadRequest, object?[]? args = null) =>
         args is null ? Result<ExamCreatedDto>.Failure(_localizer, key, status)
                      : Result<ExamCreatedDto>.Failure(_localizer, key, args, status);
+
+    // ══════════════════════════════════════════════════════════════════════════════════
+    // OFFLINE EXAM PAPER (ATTACHMENTS)
+    // ══════════════════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<List<ExamAttachmentDto>>> AddExamAttachmentsAsync(
+        long teacherId, long actingUserId, long examId, AddExamAttachmentsDto dto)
+    {
+        var template = await _unitOfWork.ExamHomeworkRepo
+            .GetTemplateByIdAndTeacherAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<List<ExamAttachmentDto>>.Failure(
+                _localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        var fileIds = dto.FileIds?.Distinct().ToList() ?? new List<Guid>();
+        if (fileIds.Count == 0)
+            return Result<List<ExamAttachmentDto>>.Failure(
+                _localizer, UploadConstants.Messages.NoFiles, HttpStatusCode.BadRequest);
+
+        var existing = await _unitOfWork.ExamHomeworkRepo
+            .GetExamAttachmentsAsync(examId, teacherId);
+        if (existing.Count + fileIds.Count > ExamAttachmentConstants.MaxAttachmentsPerExam)
+            return Result<List<ExamAttachmentDto>>.Failure(
+                _localizer, ExamAttachmentConstants.Messages.TooManyAttachments,
+                new object?[] { ExamAttachmentConstants.MaxAttachmentsPerExam },
+                HttpStatusCode.UnprocessableEntity);
+
+        await _unitOfWork.BeginTransactionAsync();
+        try
+        {
+            foreach (var fileId in fileIds)
+            {
+                // Ownership, tenant, category and the 409 claim-stealing guard all live in
+                // ResolveForAttachAsync — the one place that decides a file may be claimed.
+                var resolved = await _fileAccess.ResolveForAttachAsync(
+                    fileId, FileCategory.ExamAttachment, actingUserId, teacherId);
+                if (!resolved.IsSuccess)
+                {
+                    await _unitOfWork.RollbackAsync();
+                    return Result<List<ExamAttachmentDto>>.Failure(resolved);
+                }
+
+                resolved.Data!.AssignmentTemplateId = template.Id;
+            }
+
+            // Every exam that existed before this feature shipped has a NULL release base,
+            // and so would stay hidden forever no matter how long ago it was sat. Computing
+            // it here (as well as on create/restructure) means attaching a paper is always
+            // enough to give it a release date.
+            if (template.AttachmentsReleaseBaseAt is null)
+                await RecomputeAttachmentReleaseBaseAsync(template);
+
+            await _unitOfWork.SaveChangesAsync();
+            await _unitOfWork.CommitAsync();
+        }
+        catch
+        {
+            await _unitOfWork.RollbackAsync();
+            throw;
+        }
+
+        return Result<List<ExamAttachmentDto>>.Success(
+            await BuildExamAttachmentsAsync(examId, teacherId),
+            _localizer, ExamAttachmentConstants.Messages.AttachmentsUpdated);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<List<ExamAttachmentDto>>> RemoveExamAttachmentAsync(
+        long teacherId, long examId, Guid fileId)
+    {
+        var template = await _unitOfWork.ExamHomeworkRepo
+            .GetTemplateByIdAndTeacherAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<List<ExamAttachmentDto>>.Failure(
+                _localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        var file = await _unitOfWork.FileObjectsRepo.GetByPublicIdAsync(fileId, tracked: true);
+        // Tenant AND ownership by THIS exam: a file id from another exam must read as
+        // "not found here", never detach something it does not belong to.
+        if (file is null
+            || file.TeacherId != teacherId
+            || file.AssignmentTemplateId != template.Id)
+            return Result<List<ExamAttachmentDto>>.Failure(
+                _localizer, ExamAttachmentConstants.Messages.AttachmentNotFound,
+                HttpStatusCode.NotFound);
+
+        // DETACH, never delete: only registry-backed blobs are GC-visible, so deleting the
+        // row inline would orphan the blob in storage forever (CLAUDE.md §5.5).
+        await _fileAccess.DetachAsync(file.Id);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<List<ExamAttachmentDto>>.Success(
+            await BuildExamAttachmentsAsync(examId, teacherId),
+            _localizer, ExamAttachmentConstants.Messages.AttachmentRemoved);
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<ExamAttachmentReleaseDto>> SetExamAttachmentReleaseAsync(
+        long teacherId, long examId, SetExamAttachmentReleaseDto dto)
+    {
+        var template = await _unitOfWork.ExamHomeworkRepo
+            .GetTemplateByIdAndTeacherAsync(examId, teacherId);
+        if (template is null || template.AssignmentType != AssignmentType.Exam)
+            return Result<ExamAttachmentReleaseDto>.Failure(
+                _localizer, "ExamNotFound", HttpStatusCode.NotFound);
+
+        template.AttachmentsReleaseOverride = dto.Override;
+        template.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.ExamHomeworkRepo.UpdateTemplateAsync(template);
+        await _unitOfWork.SaveChangesAsync();
+
+        return Result<ExamAttachmentReleaseDto>.Success(
+            await BuildReleaseStateAsync(template),
+            _localizer, ExamAttachmentConstants.Messages.ReleaseUpdated);
+    }
+
+    /// <summary>
+    /// Recomputes <see cref="AssignmentTemplate.AttachmentsReleaseBaseAt"/> from the exam's
+    /// occurrences: the UTC instant of teacher-local midnight following the LAST class to sit
+    /// it. Call after ANY change to the occurrence set — create, structural edit, reschedule —
+    /// so moving a class pushes the release later on its own.
+    /// <para>
+    /// Does NOT save; the caller owns the commit boundary (§5.2).
+    /// </para>
+    /// </summary>
+    private async Task RecomputeAttachmentReleaseBaseAsync(AssignmentTemplate template)
+    {
+        var lastDate = await _unitOfWork.ExamHomeworkRepo
+            .GetLatestOccurrenceDateAsync(template.Id);
+
+        template.AttachmentsReleaseBaseAt = lastDate is null
+            ? null
+            // The class DAY ends at local midnight; the delay is counted from there, not from
+            // 00:00 of the exam day itself, or a 48h delay on a Monday exam would expire
+            // Tuesday night instead of Wednesday night.
+            : _timeZoneService.ConvertLocalToUtc(lastDate.Value.Date.AddDays(1));
+    }
+
+    /// <summary>
+    /// The release gate as the teacher's switch should render it. Pure read — the effective
+    /// visibility is computed, never stored, so nothing has to run at the moment a release
+    /// falls due.
+    /// </summary>
+    private async Task<ExamAttachmentReleaseDto> BuildReleaseStateAsync(AssignmentTemplate template)
+    {
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(template.TeacherId);
+        int delayHours = config?.ExamAttachmentReleaseDelayHours
+                         ?? ExamAttachmentConstants.DefaultReleaseDelayHours;
+
+        DateTime? releaseAt = template.AttachmentsReleaseBaseAt?.AddHours(delayHours);
+
+        bool visible = template.AttachmentsReleaseOverride
+                       ?? (releaseAt is not null && DateTime.UtcNow >= releaseAt.Value);
+
+        var yetToSit = await _unitOfWork.ExamHomeworkRepo.GetSessionsYetToSitAsync(
+            template.Id, _timeZoneService.GetTeacherLocalDate(template.TeacherId));
+
+        return new ExamAttachmentReleaseDto
+        {
+            ReleaseAt = releaseAt,
+            Override = template.AttachmentsReleaseOverride,
+            VisibleToStudents = visible,
+            ReleaseDelayHours = delayHours,
+            SessionsYetToSit = yetToSit.ToList(),
+        };
+    }
+
+    /// <summary>Maps an exam's registry rows to the wire shape, with their gated URLs.</summary>
+    private async Task<List<ExamAttachmentDto>> BuildExamAttachmentsAsync(
+        long examId, long teacherId)
+    {
+        var files = await _unitOfWork.ExamHomeworkRepo
+            .GetExamAttachmentsAsync(examId, teacherId);
+
+        return files.Select(f => new ExamAttachmentDto
+        {
+            Id = f.PublicId,
+            FileName = f.OriginalName,
+            ContentType = f.ContentType,
+            FileSizeBytes = f.SizeBytes,
+            ReadUrl = _fileAccess.BuildGatedUrl(f.PublicId),
+            CreatedAt = f.CreateAt,
+        }).ToList();
+    }
 
     private Result<ExamViewDto> FailView(string key, HttpStatusCode status = HttpStatusCode.BadRequest, object?[]? args = null) =>
         args is null ? Result<ExamViewDto>.Failure(_localizer, key, status)

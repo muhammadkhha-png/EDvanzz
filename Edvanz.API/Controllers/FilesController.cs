@@ -41,4 +41,27 @@ public sealed class FilesController : ApiBaseController
 
         return Redirect(result.Data!);
     }
+
+    /// <summary>
+    /// The same authorization, but returns the short-lived SAS URL as JSON instead of
+    /// redirecting to it.
+    /// <para>
+    /// This exists because a mobile client cannot USE the redirect. Opening
+    /// <c>/api/files/{id}</c> in the system browser or a PDF viewer sends no Authorization
+    /// header, so the gated endpoint answers 401 and the file never opens — and following
+    /// the 302 in-process would forward our JWT to the storage host. The app resolves the
+    /// SAS here with its bearer, then hands the SAS (which needs no header) to the viewer.
+    /// </para>
+    /// <para>
+    /// Same policy, same failures as <see cref="Get"/>: 401 (no JWT), 404 (unknown file),
+    /// 403 (not authorized). Nothing is disclosed that a redirect would not already give.
+    /// </para>
+    /// </summary>
+    [HttpGet("{fileId:guid}/url")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<string>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetUrl([FromRoute] Guid fileId)
+        => ToResponse(await _fileAccess.TryGetReadUrlAsync(fileId));
 }

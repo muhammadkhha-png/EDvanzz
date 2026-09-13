@@ -48,6 +48,39 @@ public interface IExamService
     /// </summary>
     Task<Result<ExamViewDto>> GetExamViewAsync(long teacherId, long examId);
 
+    // ══════════════════════════════════════════════════════════════════════════════════
+    // OFFLINE EXAM PAPER (ATTACHMENTS)
+    // ══════════════════════════════════════════════════════════════════════════════════
+    //
+    // These live OUTSIDE the create/update surface on purpose. PUT /api/exams/{id} rejects
+    // structural edits once any result exists (ExamHasResultsCannotRestructure), and the
+    // whole point of the paper is that the teacher uploads it AFTER the exam — so it must
+    // never inherit that guard.
+
+    /// <summary>
+    /// Attaches already-uploaded papers (<c>fileId</c>s from <c>POST /api/upload</c>,
+    /// category <c>ExamAttachment</c>) to an exam. Ownership, tenant, category match and the
+    /// claim-stealing guard are enforced per file inside one transaction — a rejected file
+    /// rolls the whole call back rather than half-attaching. Returns the exam's full list.
+    /// </summary>
+    Task<Result<List<ExamAttachmentDto>>> AddExamAttachmentsAsync(
+        long teacherId, long actingUserId, long examId, AddExamAttachmentsDto dto);
+
+    /// <summary>
+    /// Removes one paper from an exam by DETACHING it (never a hard delete — only
+    /// registry-backed blobs are GC-visible). Returns the remaining list.
+    /// </summary>
+    Task<Result<List<ExamAttachmentDto>>> RemoveExamAttachmentAsync(
+        long teacherId, long examId, Guid fileId);
+
+    /// <summary>
+    /// Sets (or clears) the teacher's override of the automatic paper release:
+    /// <c>true</c> show now, <c>false</c> hold back, <c>null</c> follow the schedule.
+    /// Returns the recomputed gate state.
+    /// </summary>
+    Task<Result<ExamAttachmentReleaseDto>> SetExamAttachmentReleaseAsync(
+        long teacherId, long examId, SetExamAttachmentReleaseDto dto);
+
     /// <summary>
     /// Paged student roster for a single session within an exam (drill-in / large-session view).
     /// <paramref name="graded"/> narrows to students who already have a grade (true) or are

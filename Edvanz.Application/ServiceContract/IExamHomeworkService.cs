@@ -207,6 +207,12 @@ public interface IExamHomeworkService
     /// </summary>
     /// <param name="studentLanguage">The calling student's language preference ("ar"/"en") for the
     /// language-aware subject name; resolved from the JWT in the controller.</param>
+    /// <param name="includeAttachments">
+    /// Whether to load each exam's released paper (one batched query for the page). The
+    /// parent-portal composer passes FALSE: portal parents hold no JWT, so they could never
+    /// fetch a gated file, and the query would be pure cost on that path.
+    /// </param>
     Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
-        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize);
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize,
+        bool includeAttachments = true);
 }

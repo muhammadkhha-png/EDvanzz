@@ -20,4 +20,12 @@ public enum FileCategory : byte
 
     /// <summary>The national-ID image captured at sign-up. Owner + SuperAdmin only (no resource policy).</summary>
     NationalIdImage = 5,
+
+    /// <summary>
+    /// The paper (PDF or photos) of an OFFLINE exam, so students can review the questions
+    /// afterwards. Teacher/assistant tenant at any time; a student only once the exam's
+    /// release gate has opened — see
+    /// <c>IExamHomeworkRepo.IsExamAttachmentVisibleToStudentAsync</c>.
+    /// </summary>
+    ExamAttachment = 6,
 }

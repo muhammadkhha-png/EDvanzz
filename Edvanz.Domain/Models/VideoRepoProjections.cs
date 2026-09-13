@@ -280,7 +280,15 @@ public sealed class VideoAnalyticsReportRow
     /// </summary>
     public long? SessionId { get; set; }
 
+    /// <summary>They pressed play at least once — an analytics row exists.</summary>
     public bool HasOpened { get; set; }
+
+    /// <summary>
+    /// They actually watched it: <c>TotalWatchSeconds</c> cleared
+    /// <c>VideoConstants.WatchedMinSeconds</c> for this video's duration.
+    /// <see cref="HasOpened"/> without this is "opened and left".
+    /// </summary>
+    public bool HasWatched { get; set; }
     public int OpenCount { get; set; }
     public long TotalWatchSeconds { get; set; }
     public int VideoDurationSeconds { get; set; }
@@ -312,6 +320,13 @@ public sealed class VideoAnalyticsAggregates
     public int UnseenCount { get; set; }
 
     /// <summary>
+    /// The part of <see cref="UnseenCount"/> that DID open the video but never cleared
+    /// the watch bar. Lets a client split "opened and left" from "never opened" without
+    /// a second request.
+    /// </summary>
+    public int OpenedOnlyCount { get; set; }
+
+    /// <summary>
     /// Students whose <c>EstimatedCompletionPct</c> meets
     /// <c>VideoConstants.CompletionThresholdPercent</c> (G-ANL-1).
     /// </summary>
@@ -336,6 +351,10 @@ public sealed class VideoSessionWatchRow
 
     public int StudentsInScope { get; set; }
     public int WatchedCount { get; set; }
+
+    /// <summary>Opened the video but never cleared the watch bar.</summary>
+    public int OpenedOnlyCount { get; set; }
+
     public int CompletedCount { get; set; }
 }
 

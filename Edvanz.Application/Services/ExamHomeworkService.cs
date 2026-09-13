@@ -2,6 +2,7 @@ using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Interfaces;
@@ -83,13 +84,16 @@ public class ExamHomeworkService : IExamHomeworkService
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly ITimeZoneService _timeZoneService;
 
+    private readonly IFileAccessService _fileAccess;
+
     public ExamHomeworkService(
         IUnitOfWork unitOfWork,
         IStringLocalizer<Messages> localizer,
         IAssignmentScopeResolver scopeResolver,
         IExamHomeworkNotifier examHomeworkNotifier,                  // ← Phase 5
         ISubscriptionGateService subscriptionGate,
-        ITimeZoneService timeZoneService)
+        ITimeZoneService timeZoneService,
+        IFileAccessService fileAccess)
     {
         _unitOfWork = unitOfWork;
         _localizer = localizer;
@@ -97,6 +101,7 @@ public class ExamHomeworkService : IExamHomeworkService
         _examHomeworkNotifier = examHomeworkNotifier;                // ← Phase 5
         _subscriptionGate = subscriptionGate;
         _timeZoneService = timeZoneService;
+        _fileAccess = fileAccess;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -381,6 +386,12 @@ public class ExamHomeworkService : IExamHomeworkService
             //    a referential-integrity error if any audit row exists. We archive into
             //    the JSON snapshot above, then delete in bulk here.
             await _unitOfWork.ExamHomeworkRepo.DeleteAuditLogsForTemplateAsync(templateId);
+
+            // 2b. Detach the exam's papers. The FileObjects FK is NoAction, so leaving them
+            //     attached would BLOCK the hard delete below. DETACH (never delete) hands the
+            //     blobs to the hourly file GC — deleting the registry row inline would orphan
+            //     the blob in storage forever, since only registry-backed blobs are GC-visible.
+            await _unitOfWork.ExamHomeworkRepo.DetachExamAttachmentsAsync(templateId);
 
             // 3. Leaf-first set-based hard delete: obligations → occurrences → scopes →
             //    template (all FKs are NoAction, so nothing cascades on its own).
@@ -2108,7 +2119,8 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
     /// F2 max grade is the occurrence's snapshotted max — the same denominator as <c>ScorePercentage</c>.
     /// </summary>
     private static StudentOfflineExamListItemDto MapToStudentOfflineExamListItemDto(
-        StudentOfflineExamRow row, string? subject, StudentExamRankRow? rank) => new()
+        StudentOfflineExamRow row, string? subject, StudentExamRankRow? rank,
+        List<StudentExamAttachmentDto>? attachments) => new()
     {
         ExamId = row.OccurrenceId,
         ExamName = row.ExamName,
@@ -2121,7 +2133,56 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         Rank = rank?.Rank,
         GroupSize = rank?.GroupSize,
         Status = row.Status,
+        Attachments = attachments ?? new List<StudentExamAttachmentDto>(),
     };
+
+    /// <summary>
+    /// The papers for a page of the student's exams, keyed by template id — ONE query for the
+    /// page plus one tiny configuration read, never per row.
+    /// <para>
+    /// The release gate is applied HERE as well as in the file-access policy, and both are
+    /// load-bearing: this one stops a paper that is not yet released from ever appearing in the
+    /// list, and the policy stops the URL working even if a client somehow held one. Both read
+    /// the same rule — the LAST class to sit the exam plus the teacher's delay — so a student
+    /// whose own class sat it early still cannot see it while another class has it ahead of them.
+    /// </para>
+    /// </summary>
+    private async Task<Dictionary<long, List<StudentExamAttachmentDto>>>
+        LoadReleasedExamAttachmentsAsync(long teacherId, IReadOnlyList<StudentOfflineExamRow> rows)
+    {
+        var result = new Dictionary<long, List<StudentExamAttachmentDto>>();
+        if (rows.Count == 0) return result;
+
+        var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+        int delayHours = config?.ExamAttachmentReleaseDelayHours
+                         ?? ExamAttachmentConstants.DefaultReleaseDelayHours;
+        DateTime releaseCutoffUtc = DateTime.UtcNow.AddHours(-delayHours);
+
+        var templateIds = rows.Select(r => r.TemplateId).Distinct().ToList();
+
+        var releasedTemplateIds = await _unitOfWork.ExamHomeworkRepo
+            .GetTemplatesWithReleasedAttachmentsAsync(templateIds, teacherId, releaseCutoffUtc);
+        if (releasedTemplateIds.Count == 0) return result;
+
+        var byTemplate = await _unitOfWork.ExamHomeworkRepo
+            .GetExamAttachmentsForTemplatesAsync(releasedTemplateIds, teacherId);
+
+        foreach (var templateId in releasedTemplateIds)
+        {
+            result[templateId] = byTemplate[templateId]
+                .Select(f => new StudentExamAttachmentDto
+                {
+                    Id = f.PublicId,
+                    FileName = f.OriginalName,
+                    ContentType = f.ContentType,
+                    FileSizeBytes = f.SizeBytes,
+                    ReadUrl = _fileAccess.BuildGatedUrl(f.PublicId),
+                })
+                .ToList();
+        }
+
+        return result;
+    }
 
     /// <summary>Null when not gradeable (no grade entered yet, or MaxGradeSnapshot missing/zero).</summary>
     private static decimal? ComputeScorePercentage(decimal? score, decimal? maxScore)
@@ -2136,7 +2197,8 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
 
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
-        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize)
+        long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize,
+        bool includeAttachments = true)
     {
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
@@ -2155,9 +2217,17 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
             .GetStudentExamRanksAsync(teacherId, teacherStudentId, rows.Select(r => r.OccurrenceId));
         var rankByOccurrence = rankRows.ToDictionary(r => r.OccurrenceId);
 
+        // The exam papers for THIS page, in ONE query keyed on the template ids the rows
+        // already carry — never per row. Only exams whose release gate has opened contribute
+        // anything; the rest map to an empty list.
+        var attachmentsByTemplate = includeAttachments
+            ? await LoadReleasedExamAttachmentsAsync(teacherId, rows)
+            : new Dictionary<long, List<StudentExamAttachmentDto>>();
+
         var dtos = rows
             .Select(r => MapToStudentOfflineExamListItemDto(
-                r, subject, rankByOccurrence.GetValueOrDefault(r.OccurrenceId)))
+                r, subject, rankByOccurrence.GetValueOrDefault(r.OccurrenceId),
+                attachmentsByTemplate.GetValueOrDefault(r.TemplateId)))
             .ToList();
 
         var response = new PaginatedResponse<List<StudentOfflineExamListItemDto>>

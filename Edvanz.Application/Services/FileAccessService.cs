@@ -60,7 +60,10 @@ public sealed class FileAccessService : IFileAccessService
             return Result<string>.Failure(_localizer, FileConstants.Messages.NotOwned, HttpStatusCode.Forbidden);
 
         // Force-download name for attachments (PDFs); inline for images.
-        string? downloadName = file.Category == FileCategory.VideoAttachment ? file.OriginalName : null;
+        string? downloadName =
+            file.Category is FileCategory.VideoAttachment or FileCategory.ExamAttachment
+                ? file.OriginalName
+                : null;
         string sas = await _fileStorage.GetReadUrlAsync(file.BlobPath, downloadName);
         return Result<string>.Success(sas, _localizer);
     }
@@ -90,6 +93,11 @@ public sealed class FileAccessService : IFileAccessService
                 if (await IsSameTeacherTenantAsync(file))
                     return true;
                 return await IsAssignedStudentAsync(file);
+
+            case FileCategory.ExamAttachment:
+                if (await IsSameTeacherTenantAsync(file))
+                    return true;
+                return await IsReleasedExamAttachmentForStudentAsync(file);
 
             case FileCategory.NationalIdImage:
             default:
@@ -121,6 +129,42 @@ public sealed class FileAccessService : IFileAccessService
 
         return await _unitOfWork.OnlineExamsRepo.IsQuestionImageAssignedToStudentAsync(
             file.Id, file.TeacherId.Value, teacherStudentId.Value);
+    }
+
+    /// <summary>
+    /// True when the caller is a student who sat the file's exam AND the exam's paper has
+    /// been released.
+    /// <para>
+    /// The release is keyed on the LAST class to sit the exam, plus the teacher's configured
+    /// delay — never on this student's own class day. A DuringSession exam anchors each
+    /// session to its own class occurrence, so releasing per-student would hand Monday's
+    /// class a paper Wednesday's class has not sat yet.
+    /// </para>
+    /// <para>
+    /// The delay is read here and folded into a cutoff so the repository compares a plain
+    /// column against a constant. A missing configuration falls back to the documented
+    /// default rather than to zero — a zero delay would release papers EARLIER than the
+    /// teacher expects, and this path must fail safe, not fail open.
+    /// </para>
+    /// </summary>
+    private async Task<bool> IsReleasedExamAttachmentForStudentAsync(FileObject file)
+    {
+        if (file.TeacherId is null)
+            return false;
+
+        long? teacherStudentId = await ResolveBoundTeacherStudentIdAsync(file.TeacherId.Value);
+        if (teacherStudentId is null)
+            return false;
+
+        var config = await _unitOfWork.Users
+            .GetConfigurationByTeacherIdAsync(file.TeacherId.Value);
+        int delayHours = config?.ExamAttachmentReleaseDelayHours
+                         ?? ExamAttachmentConstants.DefaultReleaseDelayHours;
+
+        DateTime releaseCutoffUtc = DateTime.UtcNow.AddHours(-delayHours);
+
+        return await _unitOfWork.ExamHomeworkRepo.IsExamAttachmentVisibleToStudentAsync(
+            file.Id, file.TeacherId.Value, teacherStudentId.Value, releaseCutoffUtc);
     }
 
     /// <summary>
@@ -237,7 +281,11 @@ public sealed class FileAccessService : IFileAccessService
         if (file is null)
             return;
 
+        // BOTH back-references are cleared: a detached row must hold no claim on any
+        // resource, and leaving the exam one set would make the NoAction FK block the
+        // exam's hard delete long after the file stopped belonging to it.
         file.VideoAssetId = null;
+        file.AssignmentTemplateId = null;
         file.Status = FileStatus.Detached;
         await _unitOfWork.FileObjectsRepo.UpdateAsync(file);
     }

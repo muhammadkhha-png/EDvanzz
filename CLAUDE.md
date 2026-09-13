@@ -319,7 +319,9 @@ The storage account has `allow-blob-public-access=false`: an anonymous blob URL 
   files to students); `OnlineExamQuestionImage` = tenant OR a student in the exam's LIVE
   assigned set (tenant-scoped EXISTS, `IsQuestionImageAssignedToStudentAsync`);
   `NationalIdImage` = owner+admin only (no resource policy; excluded from
-  `FileConstants.UploadableCategories` — created server-side during sign-up). The student
+  `FileConstants.UploadableCategories` — created server-side during sign-up);
+  `ExamAttachment` (added 2026-09-13) = tenant OR a student with an obligation on one of the
+  exam's occurrences AND the exam's release gate open (§7.9). The student
   video list (`GetVisibleVideosForStudentAsync`) returns `videoPhotoUrl` + `attachment` per
   row, batch-resolved (no N+1).
 - **Writes**: frontend uploads via `POST /api/upload` (multipart `files` + required
@@ -1015,6 +1017,71 @@ stays on `start-watch`. When the scrape comes back empty the teacher can type th
 that box LATCHES on manual entry, because keyed off "is the length known" the first digit of
 "30" makes it known and swaps the box for the read-only chip mid-keystroke.
 
+### 7.9 Offline exam paper (attachments) + the watch threshold (2026-09-13)
+
+**The exam paper.** A teacher uploads the questions (PDF or photos) so students can review them
+after the exam. Files ride the existing `FileObject` registry (§5.5) under the new
+`FileCategory.ExamAttachment`, back-referenced by `FileObject.AssignmentTemplateId` — the second
+one-to-many case beside `VideoAssetId`. Migration `20260913161420_AddExamAttachments` (additive
+columns + FK + index only).
+
+- **Endpoints live OUTSIDE create/update on purpose.** `PUT /api/exams/{id}` 409s structural edits
+  once any result exists (`ExamHasResultsCannotRestructure`), and uploading the paper AFTER the exam
+  is the entire point — so `POST {examId}/attachments`, `DELETE {examId}/attachments/{fileId}` and
+  `PUT {examId}/attachments/release` are their own surface. `CreateExamDto.AttachmentFileIds` exists
+  for a teacher who prepares the paper in advance; it is NOT on `UpdateExamDto`.
+- **Release is keyed on the LAST class, never the student's own.** A DuringSession exam anchors each
+  session to its own class occurrence, so one class may sit it Monday and another Wednesday —
+  releasing per-student would hand Monday's class a paper Wednesday's class has not sat yet.
+  `AttachmentsReleaseBaseAt` = UTC instant of teacher-local midnight following MAX(occurrence
+  DueDate); the effective release is that **plus `TeacherConfiguration.ExamAttachmentReleaseDelayHours`**
+  (default 48, teacher-configurable in Settings → Exams). Only the BASE is stored, so changing the
+  delay moves every exam at once with no reconcile pass. Recomputed on create, on a structural PUT,
+  and on the first attach (exams predating the feature have a null base and would otherwise never
+  release).
+- **Visibility is a pure function**, never a stored flag:
+  `AttachmentsReleaseOverride ?? (utcNow >= ReleaseAt)`. `null` = follow the schedule (this is what
+  makes the teacher's switch turn itself ON when the delay elapses), `true` = released early,
+  `false` = held back. There is no background job to drift. On the wire `override: null` is a REAL
+  value meaning "follow the schedule" — not "unchanged".
+- **Two gates, both load-bearing.** The student LIST omits an unreleased paper entirely
+  (`GetTemplatesWithReleasedAttachmentsAsync`), and `FileAccessService` refuses the URL
+  (`IsExamAttachmentVisibleToStudentAsync`). Both express the same predicate — keep them in step.
+  Fail-closed.
+- **Delete.** The FK is NoAction and the exam is HARD-deleted, so `DeleteTemplateAsync` detaches the
+  papers inside its transaction (`DetachExamAttachmentsAsync`). DETACH, never delete the row — only
+  registry-backed blobs are GC-visible. `FileAccessService.DetachAsync` now clears BOTH back-refs.
+- **Parent portal is excluded on purpose**: `GetMyOfflineExamsAsync(..., includeAttachments: false)`
+  from `ParentSectionComposer` — portal parents hold no JWT and could never fetch a gated file, so
+  the query would be pure cost.
+- **Protection**: last-class keying + configurable delay + an early-release confirm that NAMES the
+  classes still to sit it (`sessionsYetToSit`) + reschedule auto-pushes the date + the student image
+  viewer runs under `ScreenCaptureGuard`. A PDF handed to the system viewer necessarily leaves that
+  protection — that is also what "or downloaded" asks for; upload as images if it must not.
+- App: one shared `AttachmentPicker` (extracted from the video form, widened to images) and one
+  shared `GatedFileOpener` — see BUG-18; never call `openUrl` on a gated URL again.
+
+**The watch threshold.** "Watched" stopped meaning "a `VideoAnalytics` row exists". `start-watch`
+creates that row on the play transition with `TotalWatchSeconds = 0`, so opening a video and leaving
+counted as watching it — on live data, 79 students "watched" one 62-minute video and 48 of them had
+watched under a minute. A student now counts as having watched only past
+`VideoConstants.WatchedMinSeconds(duration)` = `max(WatchStartedMinSeconds 60, ceil(duration ×
+WatchStartedThresholdPercent 5 / 100))`.
+
+- Applied in FOUR places or the surfaces disagree: `GetAnalyticsRowsForTeacherAsync` (adds
+  `HasWatched`; `Seen`/`Unseen` split on it), `GetAnalyticsAggregatesAsync`,
+  `GetAnalyticsBySessionAsync`, and the batched video-list counts via
+  `VideoAudienceQueries.WatchedAnalytics`.
+- **BUG-16 discipline.** The bar is always a computed `long` (single-video paths) or a per-row
+  algebraic comparison `w >= 60 && (d <= 0 || w*100 >= d*5)` (the batched path) — never a captured
+  bool, which EF folds into the literal `COUNT(NULL)` SQL Server rejects. The two forms are exactly
+  equivalent (`ceil(d*5/100) <= w ⟺ d*5 <= w*100`); both branches were checked with
+  `ToQueryString()` and the equivalence swept exhaustively.
+- Wire is additive: `hasOpened` keeps its meaning, `hasWatched` is new, and `openedOnlyCount` lets a
+  client split "opened and left" from "never opened". New `VideoAnalyticsStatusFilter.OpenedOnly` /
+  `NeverOpened` back the Unseen screen's chips. Old builds keep working.
+- App side: `_formatDuration` no longer floors sub-minute values to `"0m"` — 45 seconds reads `45s`.
+
 ---
 
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
@@ -1038,6 +1105,11 @@ that box LATCHES on manual entry, because keyed off "is the length known" the fi
 | BUG-15 | `TeacherAttendanceQrScanView` scanned into the wrong day | The scanner builds its own roster cubit and was never handed `occurrenceDate`, so every scan wrote to the teacher's current local day whatever class day the register was showing. Opening an exam's class day and scanning marked the student present on the most recent class: the exam still read absent, a different day gained a Present nobody made, and the header ("Take attendance", no class, no date) gave no way to notice. Fixed 2026-09-11 — the day is threaded route → view → cubit (queued offline scans carry it too) and the header names class and day. Tapping a row was always correct; only the scanner was wrong, which is why it read as random. **Never let a sub-screen re-derive scoping context its caller already had, and never let a screen write to a day it does not name.** See §7.8. |
 | BUG-16 | `COUNT(NULL)` from a predicate EF folded to a constant | `g.Count(x => x.SomePredicate)` in a GroupBy projection, where the predicate collapses to a compile-time constant `false` (a captured C# bool that is false for this call), is folded by EF into literal `COUNT(NULL)` — SQL Server rejects it outright (*8117, "Operand data type NULL is invalid for count operator"*) and the endpoint 500s. Data-dependent, so it survived review, unit tests and a `ToQueryString()` check that only ran the true branch; three live videos whose duration was still 0 returned 500 from `analytics/by-session`. Fixed 2026-09-11 by expressing "impossible" as an unreachable VALUE (`long.MaxValue` watch-seconds bar) instead of a bool, which keeps it a real column comparison and removes the division from SQL entirely. **When a captured flag gates a predicate inside a SQL aggregate, run `ToQueryString()` for BOTH values of the flag.** |
 | BUG-17 | Tracking-view `TotalCount` counted students the list could not show | The count was taken on the obligations alone, before the projection joins `TeacherStudent` (soft-delete filtered) and drops purged students. Exam 69 session 81 reported 162 and could only render 161; "not graded" reported 86 and rendered 85, so paging asked for a page that did not exist. Fixed 2026-09-11 with the `.Where(o => o.TeacherStudent != null)` BUG-8 already requires, applied BEFORE the count. The audience helper's per-student branch had the same shape and now joins `TeacherStudents` like its siblings. **A count that labels a list must be taken on the same population the list projects through.** |
+
+| BUG-18 | Every gated-file "download" in the app (`AppHelper.openUrl` on `/api/files/{id}`) | `GET /api/files/{fileId}` is `[Authorize]`, but the app handed its URL straight to `launchUrl(..., externalApplication)`, which sends **no Authorization header** — so the system browser/PDF viewer got **401** and the file never opened. Images were unaffected only because `CachedNetworkImage` was given the bearer explicitly (`authenticatedImageHeaders`). Shipped broken on the teacher video overview tab and the student video lesson screen. Fixed 2026-09-13: `GET /api/files/{fileId}/url` returns the SAS as JSON (`TryGetReadUrlAsync` already produced it; the original action only redirected it), and `GatedFileOpener` resolves through Dio with the bearer, then opens the SIGNED url. **Never let the HTTP client follow the gated endpoint's 302** — that forwards our JWT to `blob.core.windows.net`. Any new file surface must go through `GatedFileOpener`, never `openUrl` on a gated URL. |
+| BUG-19 | `TeacherSessionAttendanceMonthCubit.load` cleared the unsaved edit buffer | The terminal success emit set `pendingEdits: const []` unconditionally, so a **pull-to-refresh or a month change silently threw away a teacher's unsaved marks**, and search had to be hidden from the Edit screen entirely to avoid a third way to lose them. Fixed 2026-09-13: edits are keyed on `(teacherStudentId, occurrenceId)` — stable across a refetch — and re-painted onto the reloaded rows (`_reapplyPendingEdits`), with month counts recomputed from each cell's SERVER status so a re-apply can never double-count. Search is now on BOTH modes; a month change abandons the buffer but asks first. **Do not re-add an unconditional `pendingEdits: const []` to a load path.** |
+
+| BUG-20 | Editing an offline exam wiped its description | `ExamViewDto` never returned `Notes`, so the edit form opened the description blank — and `ExamService.UpdateExamAsync`'s STRUCTURAL branch then assigned `template.Notes` unconditionally, writing that blank back. Any edit that moved a date or changed the sessions silently destroyed the exam's notes. It looked random because the metadata-only branch (`ExamHomeworkService.UpdateTemplateAsync:1606`) has always had an `if (dto.Notes is not null)` guard, so renaming an exam preserved them. Fixed 2026-09-13 on all three legs: the GET returns `Notes`, the form hydrates it, and the structural branch guards like its sibling — **omitted = leave alone, empty string = clear**, so a still-deployed old build can no longer wipe anything. **Never assign an update field unconditionally when the client may legitimately omit it**, and check that the GET returns every field the PUT can write. |
 
 **CI migration delivery — root cause of the 2026-07-15/16 attendance outage (deploy.yml `Apply EF migrations`) — RESOLVED 2026-07-16.** `azure/sql-action@v2` used to run the multi-batch idempotent `migrate.sql` (one `BEGIN TRAN…COMMIT` per migration) via go-sqlcmd **without `-b`**, so when a migration's batch errored, its own transaction rolled back (migration NOT recorded) but the runner **continued to the next migration and still exited 0** — a broken migration was silently skipped while the code that needed it deployed anyway. This is why BUG-10 shipped, and it also silently skipped the `20260708193718`/`20260708220307` phone-index migrations on every deploy since 2026-07-08 (see BUG-11). Fixed by: (a) BUG-11's repair migration clearing the failing backlog, (b) `arguments: '-b'` on the sql-action step (any SQL error → non-zero exit → job fails BEFORE `az webapp deploy`), and (c) the two pre-Azure migration gates described in §0 (model-coverage check + fresh-DB rehearsal of `migrate.sql`). Do not remove `-b` or the gates.
 

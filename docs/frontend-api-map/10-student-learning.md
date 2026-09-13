@@ -288,7 +288,9 @@ _Dart file: `lib/feature/student_module/offline_exams/view/offline_exams_view.da
 | Screen open / pull-to-refresh | `GET api/assignmentobligations/student/teachers/{teacherId}/exams` | query `page` (default 1), `pageSize` (default 10, clamped to `[1,10]`) | paginated `items[]`: `{examId, examName, description, date, status, score?, scorePercentage?, maxGrade?, subject?, rank?, groupSize?}` |
 | Infinite scroll (within 120px of the bottom) | same endpoint, `page` + 1 | same query shape | items appended |
 
-This list is **read-only** — cards are not tappable, there is no detail/drill-in screen and no further endpoint calls.
+This list is **read-only** — the card itself is not tappable and there is no detail screen. Since
+2026-09-13 a card carrying an exam paper gains ONE tappable row (📎 "Exam paper · N files") which opens a
+bottom sheet listing the files; nothing else about the card changed.
 
 Wire status values and how the app derives the "Missed" chip: `status` ∈ `pending`/`done`/`notDone`/`attended`/`attendedWithGrade`/`didNotAttend`/`doneWithoutGrade`/`doneWithGrade` (case-insensitive; anything else parses to `unknown`). The card's **Missed** state is `status == didNotAttend || status == notDone` — everything else with a `scorePercentage` shows a green percentage chip and progress bar; everything else without one shows a neutral "—" chip. `date` is a calendar day (`parseApiCalendarDate`), never localized to an instant.
 
@@ -305,9 +307,30 @@ Wire status values and how the app derives the "Missed" chip: `status` ∈ `pend
   "maxGrade": 30,
   "subject": "Mathematics",
   "rank": 3,
-  "groupSize": 28
+  "groupSize": 28,
+  "attachments": [
+    {
+      "id": "3f2a…-guid",
+      "fileName": "midterm-algebra.pdf",
+      "contentType": "application/pdf",
+      "fileSizeBytes": 842113,
+      "readUrl": "https://api.edvanz.io/api/files/3f2a…-guid"
+    }
+  ]
 }
 ```
+
+`attachments` is the exam paper the teacher uploaded. It is **empty until the exam's release gate opens**
+— the server decides, so an unreleased paper is simply absent from the wire rather than present-and-
+hidden. The gate is the LAST class to sit the exam plus the teacher's configured delay (default 48h), NOT
+this student's own class day: a DuringSession exam anchors each class to its own occurrence, so a
+per-student gate would hand an early class the questions while a later one still had them ahead.
+
+Opening a file: resolve `id` through **`GET api/files/{fileId}/url`** (signed URL as JSON) and hand THAT
+to the viewer. `readUrl` points at the gated endpoint, which is `[Authorize]` — opening it directly from
+a browser or PDF viewer sends no bearer and answers 401. Images render in-app behind `ScreenCaptureGuard`
+(the protection the video player uses); PDFs go to the device viewer, which is also how a student saves
+one, and necessarily leave that protection.
 
 ---
 
@@ -341,6 +364,7 @@ GET  api/online-exams/student/teachers/{teacherId}/{onlineExamId}/result
 POST api/online-exams/student/teachers/{teacherId}/{onlineExamId}/violation
 
 GET  api/assignmentobligations/student/teachers/{teacherId}/exams
+GET  api/files/{fileId}/url
 ```
 
 **Defined in `web_constant.dart` / wired in a data source, but never called from any bloc/cubit:**

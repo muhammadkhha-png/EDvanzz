@@ -123,6 +123,23 @@ public class TeacherConfiguration : BaseEntity
     public bool StudentVisibilityOnlineExamDefault { get; set; } = true;
 
     /// <summary>
+    /// How long AFTER the last class sits an offline exam before its uploaded paper opens
+    /// to students automatically. Default 48 hours.
+    /// <para>
+    /// The buffer exists because the last class is not always the last sitting: a student
+    /// catches up, a class is rescheduled, a make-up is arranged. Releasing at the stroke
+    /// of the final class date would hand out the questions while somebody still had them
+    /// ahead of them. The teacher can still release early or hold it back per exam
+    /// (<c>AssignmentTemplate.AttachmentsReleaseOverride</c>).
+    /// </para>
+    /// <para>
+    /// Applied at READ time to <c>AssignmentTemplate.AttachmentsReleaseBaseAt</c>, so a
+    /// change here moves every exam's release at once — nothing stored needs rebuilding.
+    /// </para>
+    /// </summary>
+    public int ExamAttachmentReleaseDelayHours { get; set; } = 48;
+
+    /// <summary>
     /// Whether students can see the Videos module.
     /// Default: true (visible).
     /// </summary>

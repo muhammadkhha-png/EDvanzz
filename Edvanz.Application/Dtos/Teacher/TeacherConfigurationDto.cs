@@ -45,6 +45,12 @@ public class TeacherConfigurationDto
     public bool StudentVisibilityExamDefault { get; set; }
     public bool StudentVisibilityVideo { get; set; }
 
+    /// <summary>
+    /// Hours after the last class sits an offline exam before its paper opens to students.
+    /// Default 48. Read-back is non-nullable — the stored value always exists.
+    /// </summary>
+    public int ExamAttachmentReleaseDelayHours { get; set; }
+
     // ─── AAM-FR-04.9 ───
     public bool ParentVisibilityAttendance { get; set; }
     public bool ParentVisibilityPayment { get; set; }

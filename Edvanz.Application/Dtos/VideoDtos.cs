@@ -1106,6 +1106,13 @@ public sealed class VideoAnalyticsResponse
     public int UnseenCount { get; set; }
 
     /// <summary>
+    /// The part of <see cref="UnseenCount"/> that DID open the video but never cleared
+    /// the watch bar — so a client can split "opened and left" from "never opened"
+    /// without a second request. <c>NeverOpened = UnseenCount - OpenedOnlyCount</c>.
+    /// </summary>
+    public int OpenedOnlyCount { get; set; }
+
+    /// <summary>
     /// Students whose completion meets <c>VideoConstants.CompletionThresholdPercent</c> (G-ANL-1).
     /// </summary>
     public int CompletedCount { get; set; }
@@ -1137,7 +1144,17 @@ public sealed class VideoAnalyticsRowDto
     /// </summary>
     public long? SessionId { get; set; }
 
+    /// <summary>They pressed play at least once — an analytics row exists.</summary>
     public bool HasOpened { get; set; }
+
+    /// <summary>
+    /// They actually watched it — <see cref="TotalWatchSeconds"/> cleared the video's
+    /// watch bar (<c>VideoConstants.WatchedMinSeconds</c>). <see cref="HasOpened"/> true
+    /// with this false is "opened and left", which is why a student could previously
+    /// appear as watched with no watch time at all.
+    /// </summary>
+    public bool HasWatched { get; set; }
+
     public int OpenCount { get; set; }
     public long TotalWatchSeconds { get; set; }
     public int VideoDurationSeconds { get; set; }
@@ -1175,6 +1192,10 @@ public sealed class VideoSessionWatchBreakdownDto
     public int TotalStudentsInScope { get; set; }
     public int TotalStudentsWatched { get; set; }
     public int UnseenCount { get; set; }
+
+    /// <summary>The part of <see cref="UnseenCount"/> that opened it but did not watch.</summary>
+    public int OpenedOnlyCount { get; set; }
+
     public int CompletedCount { get; set; }
 
     public List<VideoSessionWatchRowDto> Rows { get; set; } = new();
@@ -1196,6 +1217,9 @@ public sealed class VideoSessionWatchRowDto
 
     /// <summary>= <see cref="StudentsInScope"/> - <see cref="WatchedCount"/>.</summary>
     public int UnseenCount { get; set; }
+
+    /// <summary>The part of <see cref="UnseenCount"/> that opened it but did not watch.</summary>
+    public int OpenedOnlyCount { get; set; }
 
     /// <summary>Watchers meeting <c>VideoConstants.CompletionThresholdPercent</c>.</summary>
     public int CompletedCount { get; set; }

@@ -58,6 +58,48 @@ public class CreateExamDto
 
     /// <summary>Optional global student subset across the resolved sessions; null/empty = every student.</summary>
     public List<long>? StudentIds { get; set; }
+
+    /// <summary>
+    /// Optional papers (PDF or photos) to attach at creation — <c>fileId</c>s from
+    /// <c>POST /api/upload</c> with <c>category=ExamAttachment</c>. Most teachers upload the
+    /// paper AFTER the exam instead, via <c>POST /api/exams/{examId}/attachments</c>; this is
+    /// here so preparing it in advance does not need a second trip.
+    /// <para>
+    /// Students cannot see it until the exam's release gate opens, so attaching early is
+    /// safe — see <c>AssignmentTemplate.AttachmentsReleaseBaseAt</c>.
+    /// </para>
+    /// </summary>
+    public List<Guid>? AttachmentFileIds { get; set; }
+}
+
+/// <summary>
+/// Request for <c>POST /api/exams/{examId}/attachments</c> — attach already-uploaded papers.
+/// </summary>
+public class AddExamAttachmentsDto
+{
+    /// <summary>
+    /// <c>fileId</c>s returned by <c>POST /api/upload</c> (category <c>ExamAttachment</c>).
+    /// </summary>
+    [Required]
+    [MinLength(1)]
+    public List<Guid> FileIds { get; set; } = new();
+}
+
+/// <summary>
+/// Request for <c>PUT /api/exams/{examId}/attachments/release</c> — the teacher's override of
+/// the automatic release schedule.
+/// </summary>
+public class SetExamAttachmentReleaseDto
+{
+    /// <summary>
+    /// <c>true</c> = show the paper to students now, ahead of schedule. <c>false</c> = hold it
+    /// back even though the schedule has passed. <c>null</c> = follow the schedule again.
+    /// <para>
+    /// Nullable ON PURPOSE, and null is a real value here (not "unchanged") — clearing the
+    /// override is exactly how a teacher hands control back to the automatic release.
+    /// </para>
+    /// </summary>
+    public bool? Override { get; set; }
 }
 
 /// <summary>

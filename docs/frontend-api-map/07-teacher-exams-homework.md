@@ -60,7 +60,14 @@ is **DuringSession** (per-session/-group-member a specific already-scheduled cla
 picked) or **SeparateTime** (one exam date for the whole recipient set). Editing an exam pre-loads via
 `GET api/exams/{examId}` and always resolves `recipientType: sessions` (an edited exam's original
 groups-vs-sessions distinction is not reconstructed — `sessionIds` sent on save are simply every session
-in the loaded detail).
+in the loaded detail; the resolved student audience is identical, but the exam's scope rows change from
+`SessionGroup` to `Session`, so its home-card `selectionMode` flips to "Sessions").
+
+**`notes` round-trips as of 2026-09-13.** `GET api/exams/{examId}` now returns `notes`, the edit form
+hydrates it, and the app sends it on EVERY save including as an empty string. Server-side an **omitted**
+`notes` means "leave it alone" and an **empty string** means "clear it" — before this, the GET did not
+return it, so the form opened blank and a structural save wrote the blank over the teacher's text. Do not
+reintroduce an unconditional `template.Notes = …` on the update path (CLAUDE.md BUG-20).
 
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
@@ -531,6 +538,10 @@ Screen list (all present, none call a homework-specific endpoint):
 `PUT api/exams/grades`
 `PUT api/exams/attendance`
 `POST api/exams/attendance/scan`
+`POST api/exams/{examId}/attachments`
+`DELETE api/exams/{examId}/attachments/{fileId}`
+`PUT api/exams/{examId}/attachments/release`
+`GET api/files/{fileId}/url`
 `GET api/online-exams`
 `POST api/online-exams`
 `GET api/online-exams/{onlineExamId}`
@@ -562,3 +573,42 @@ fileId → attach" for the general contract)
   Details-step note above). The same URL constant IS called live, but from the unrelated Auth module
   (`lib/feature/auth/data/auth_remote_data_source.dart`, subject selection during signup) — out of scope
   for this chapter.
+
+
+---
+
+## Offline exam paper (attachments) — added 2026-09-13
+
+_Dart files: `lib/feature/teacher_module/exams/view/widgets/teacher_exam_paper_section.dart`
+(detail screen) and `..._upload_card.dart` (create form); shared picker
+`lib/core/services/attachments/attachment_picker.dart`._
+**Reached from:** Offline Exam Detail → "Exam paper" section (between the stats grid and the
+session search), and the create form after "Success score".
+
+The teacher uploads the questions (PDF or photos) so students can review them afterwards.
+
+| UI element / action | Endpoint | Sends | Uses from response |
+|---|---|---|---|
+| "Add file" | `POST api/upload` | multipart `files` + `category=ExamAttachment`; oversized PDFs are rasterised to fit and oversized photos re-encoded, both client-side | `fileId` |
+| …then, on the detail screen | `POST api/exams/{examId}/attachments` | `{"fileIds": ["<guid>"]}` | `data[]` of `{id, fileName, contentType, fileSizeBytes, readUrl, createdAt}` — the exam's full list |
+| …or, on the create form | `POST api/exams` | `attachmentFileIds: ["<guid>"]` alongside the normal create body (omitted when empty) | `examId` |
+| Trash on a file row | `DELETE api/exams/{examId}/attachments/{fileId}` | — | the remaining list, same shape |
+| "Students can see it" switch | `PUT api/exams/{examId}/attachments/release` | `{"override": true \| false \| null}` | `{releaseAt, override, visibleToStudents, releaseDelayHours, sessionsYetToSit[]}` |
+| Tapping a file row | `GET api/files/{fileId}/url` | — | `data` = a short-lived signed URL, handed to the device viewer |
+| Exam home card | `GET api/exams/home` | — | `attachmentsCount` per row (paper-clip chip; absent chip = none uploaded) |
+| Exam detail load | `GET api/exams/{examId}` | — | `attachments[]` + `attachmentRelease{…}` |
+
+**`override` is tri-state and `null` is a real value**, not "unchanged": it hands control back to the
+automatic schedule. Do not treat it like the nullable "omitted = unchanged" fields elsewhere in this API.
+
+**Release rule.** `releaseAt` = the LAST class to sit the exam (max occurrence date, teacher-local
+midnight after it) **+ the teacher's `examAttachmentReleaseDelayHours`** (default 48, set in Settings →
+Exams). Keyed on the last class, never the student's own: a DuringSession exam anchors each session to
+its own class occurrence, so a per-student gate would hand Monday's class a paper Wednesday's class has
+not sat yet. `visibleToStudents = override ?? (now >= releaseAt)` — computed, never stored, so the switch
+turns itself on with no job to run. Rescheduling a class moves `releaseAt` on its own.
+
+**`GET api/files/{fileId}/url` is not optional plumbing.** `/api/files/{id}` is `[Authorize]`, and
+`launchUrl` sends no bearer — opening it directly answers **401**, which is why every PDF "download" in
+the app silently did nothing. Resolve to the signed URL first, then hand THAT to the viewer. Never let the
+HTTP client follow the gated endpoint's 302: that forwards the JWT to the storage host.

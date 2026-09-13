@@ -45,4 +45,26 @@ public class StudentOfflineExamListItemDto
     public int? GroupSize { get; set; }
 
     public ObligationStatus Status { get; set; }
+
+    /// <summary>
+    /// The exam's paper (PDF / photos) so the student can review the questions afterwards.
+    /// EMPTY until the exam's release gate opens — which is keyed on the LAST class to sit
+    /// the exam plus the teacher's delay, never on this student's own class day, so a class
+    /// that sat it early cannot be handed the paper while another class still has it ahead
+    /// of them. Each entry's <c>ReadUrl</c> re-checks that gate on every fetch.
+    /// </summary>
+    public List<StudentExamAttachmentDto> Attachments { get; set; } = new();
+}
+
+/// <summary>One paper on a student's offline exam. Mirrors the teacher-side shape.</summary>
+public class StudentExamAttachmentDto
+{
+    /// <summary>Registry id (<c>FileObject.PublicId</c>) — the token in the gated URL.</summary>
+    public Guid Id { get; set; }
+    public string FileName { get; set; } = null!;
+    public string ContentType { get; set; } = null!;
+    public long FileSizeBytes { get; set; }
+
+    /// <summary>Gated URL (<c>/api/files/{id}</c>); re-authorizes on every fetch.</summary>
+    public string ReadUrl { get; set; } = null!;
 }

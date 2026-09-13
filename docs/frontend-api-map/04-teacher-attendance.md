@@ -210,7 +210,7 @@ denied user sees the **Needs Permission** empty state instead.
 
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
-| Screen load / month arrow / search (View only) / infinite-scroll more students / "load more occurrence columns" | `GET api/Attendance/sessions/{sessionId}/month` | Query: `year`, `month`, `page` (student page, clamped 1–100), `pageSize` (25), `occurrencePage`, `occurrencePageSize` (clamped 1–31), `search` (View screen's debounced search box, name OR code) | `data.occurrences[]` → `{occurrenceId, date/occurrenceDate}` (date columns); `data.students[]`/`data.rows[]` → `{teacherStudentId/studentId, studentName/name, studentCode, monthPresentCount, monthAbsentCount, cells[]}`; each cell → `{occurrenceId, occurrenceDate/date, isMarked, status/attendanceStatus, attendanceRecordId}`; pagination fields `page/totalPages/totalCount` (students) and `occurrencePage/occurrenceTotalPages/occurrenceTotalCount` (date columns) |
+| Screen load / month arrow / search (**View AND Edit** since 2026-09-13) / infinite-scroll more students / "load more occurrence columns" | `GET api/Attendance/sessions/{sessionId}/month` | Query: `year`, `month`, `page` (student page, clamped 1–100), `pageSize` (25), `occurrencePage`, `occurrencePageSize` (clamped 1–31), `search` (debounced 350ms, name OR code) | `data.occurrences[]` → `{occurrenceId, date/occurrenceDate}` (date columns); `data.students[]`/`data.rows[]` → `{teacherStudentId/studentId, studentName/name, studentCode, monthPresentCount, monthAbsentCount, cells[]}`; each cell → `{occurrenceId, occurrenceDate/date, isMarked, status/attendanceStatus, attendanceRecordId}`; pagination fields `page/totalPages/totalCount` (students) and `occurrencePage/occurrenceTotalPages/occurrenceTotalCount` (date columns) |
 | Edit mode: tap a cell to cycle Present↔Absent (existing record) | `PUT api/Attendance/edit` | `{teacherId, attendanceRecordId, newStatus}` (`newStatus` is `"Present"` or `"Absent"` only — the grid never produces Held) | 204/void envelope; on success the month page is reloaded (`force:true`) |
 | Edit mode: tap a cell with no existing record | `POST api/Attendance/add` | `{teacherId, sessionId, teacherStudentId, occurrenceDate, status}` | Same; a `409`/duplicate-style failure triggers a fallback record-id lookup (below) then retries as `PUT edit` |
 | — resolving which `attendanceRecordId` an edit/add-conflict belongs to | `GET api/Attendance/sessions/{sessionId}/students` (paged, `PageSize=10`, up to 100 pages) **or** its path-fallback `GET .../occurrences/{date}/students` | Query: `occurrenceDate`; matched client-side by `teacherStudentId` | First non-null `attendanceRecordId`/`recordId`/`id` for that student on that occurrence |
@@ -453,3 +453,24 @@ queued/draining) taps through to `AppRoute.goToSyncCenter` (`lib/core/offline/vi
 - `GET api/Attendance/reports`
 - `GET api/Attendance/reports/export`
 - `GET api/Attendance/timeline/students/{studentId}/export`
+
+
+---
+
+## Edit Attendance: unsaved edits survive a reload (2026-09-13)
+
+Search used to be hidden on the Edit screen because every reload cleared the unsaved edit buffer —
+`load()` ended with `pendingEdits: const []` unconditionally, so searching mid-edit would have thrown the
+teacher's marks away. The SAME line was silently discarding them on **pull-to-refresh** and on a **month
+change** in shipped builds; only the back button ever asked.
+
+Pending edits are keyed on `(teacherStudentId, occurrenceId)` — ids that survive a refetch — so they are
+now re-painted onto freshly-loaded rows instead of dropped (`_reapplyPendingEdits`), with month counts
+recomputed from the SERVER status of each cell so a re-apply can never double-count. An edit whose cell
+already carries that status on the server (another device saved the same mark) drops out of the buffer, so
+"Save changes (N)" never counts a no-op.
+
+Consequences for anyone touching this screen:
+- **Search is a filter, not a checkpoint** — edits for students filtered out stay buffered and still save.
+- **A month change still abandons the buffer** (different cells), but now asks first.
+- No wire change: the endpoint already supported `search`.

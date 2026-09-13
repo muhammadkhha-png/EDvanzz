@@ -273,7 +273,7 @@ _Cubit: `TeacherVideoSessionWatchCubit`_
 
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
-| Screen load / pull-to-refresh | `GET api/videos/{id}/analytics/by-session` | — | `videoAssetId, title, totalStudentsInScope, totalStudentsWatched, unseenCount, completedCount, rows[]` where each row is `{sessionId (null = "not in a class" bucket, sorted last), sessionName, sessionGroupId, sessionGroupName, studentsInScope, watchedCount, unseenCount, completedCount, watchedPct}` — rows sum to `totalStudentsInScope` (a student reachable via both a direct session and a scoped group is counted once, keyed on their own session) |
+| Screen load / pull-to-refresh | `GET api/videos/{id}/analytics/by-session` | — | `videoAssetId, title, totalStudentsInScope, totalStudentsWatched, unseenCount, openedOnlyCount, completedCount, rows[]` where each row is `{sessionId (null = "not in a class" bucket, sorted last), sessionName, sessionGroupId, sessionGroupName, studentsInScope, watchedCount, openedOnlyCount, unseenCount, completedCount, watchedPct}` — rows sum to `totalStudentsInScope` (a student reachable via both a direct session and a scoped group is counted once, keyed on their own session) |
 | Row tap (has a `sessionId`) | *(navigation only)* | — | opens **Seen/Unseen/Completed Students** filtered to that `sessionId`, defaulting to the "unseen" tab if any student there hasn't watched, else "seen" |
 | Row tap (the null-`sessionId` "Not in a class" bucket) | *(disabled — no tap target, nothing to filter by)* | — | — |
 
@@ -286,7 +286,7 @@ _Cubit: `TeacherVideoStudentStatsCubit`_
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
 | Screen open (session filter chips) | `GET api/videos/{id}/analytics/by-session` | — | reuses the same per-session rows as Watched by Class, purely to populate the filter chip row (best-effort — a failure just hides the chips) |
-| Screen load / search (350ms debounce) / session chip / infinite scroll | `GET api/videos/{id}/analytics` | Query `Page`, `PageSize=30`, `Search`, `StatusFilter` = `"Seen"` \| `"Unseen"` \| `"Completed"` (from the `kind` the screen was opened with — this is fixed per screen, not user-togglable here), `SessionId` (from the chip row, omitted for "All classes") | **Non-standard pagination** — row array is `data.rows` (not `data.data`): each row `{teacherStudentId, studentName, studentCode, sessionName (nullable), hasOpened, openCount, totalWatchSeconds, estimatedCompletionPct}`; `page/pageSize/totalCount/totalPages` siblings of `rows` |
+| Screen load / search (350ms debounce) / session chip / infinite scroll | `GET api/videos/{id}/analytics` | Query `Page`, `PageSize=30`, `Search`, `StatusFilter` = `"Seen"` \| `"Unseen"` \| `"Completed"` \| `"OpenedOnly"` \| `"NeverOpened"` (the first three come from the `kind` the screen was opened with; the Unseen screen's watch-state chips swap in the last two), `SessionId` (from the chip row, omitted for "All classes") | **Non-standard pagination** — row array is `data.rows` (not `data.data`): each row `{teacherStudentId, studentName, studentCode, sessionName (nullable), hasOpened, hasWatched, openCount, totalWatchSeconds, estimatedCompletionPct}`; `unseenCount`/`openedOnlyCount` and `page/pageSize/totalCount/totalPages` are siblings of `rows` |
 
 ## Video Fullscreen Preview
 _Dart file: `lib/feature/teacher_module/videos/view/teacher_video_fullscreen_screen.dart`_
@@ -331,6 +331,14 @@ teacher side, including here.
 - `GET api/videos/{id}/overview` — lightweight detail (stats/audience)
 - `PATCH api/videos/{id}/status` — set Draft/Published (+ optional `publishDate`, or explicit `clearPublishDate`)
 - `GET api/videos/{id}/analytics` — per-student seen/unseen/completed list (paged, `StatusFilter`, `SessionId`)
+
+**Watch threshold (2026-09-13).** "Watched" is no longer "an analytics row exists". A student counts as
+having watched only past `max(60s, 5% of DurationSeconds)` — `start-watch` creates the row on the play
+transition with zero seconds, so opening and leaving used to read as watched (79 "watched" on one live
+62-minute video, 48 of them under a minute). `hasOpened` still means "pressed play"; the new `hasWatched`
+means "cleared the bar", and `Seen`/`Unseen` now split on **`hasWatched`**. The difference is
+`openedOnlyCount`, which the Unseen screen's chips use to separate "opened and left" from "never opened".
+Deployed builds that only read `hasOpened` keep working — they just render a less specific label.
 - `GET api/videos/{id}/analytics/by-session` — per-class watch breakdown
 - `POST api/upload` / `PUT api/upload` / `DELETE api/upload?fileId=` — shared file handshake (categories `VideoPhoto`, `VideoAttachment`, `VideoExamQuestionImage`)
 

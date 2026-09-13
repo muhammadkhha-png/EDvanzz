@@ -1,3 +1,5 @@
+using Edvanz.Domain.Constants;
+using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +31,39 @@ internal sealed class VideoAudiencePair
 /// </summary>
 internal static class VideoAudienceQueries
 {
+    /// <summary>
+    /// Every <see cref="VideoAnalytics"/> row whose student actually WATCHED the video,
+    /// as opposed to merely opening it — <c>start-watch</c> creates the row on the play
+    /// transition with zero seconds, so "a row exists" was never evidence of watching.
+    /// <para>
+    /// The single-video paths compare against a pre-computed
+    /// <see cref="VideoConstants.WatchedMinSeconds(int)"/> scalar. Here the query spans
+    /// many videos, so each row's own duration is a column and the same rule is written
+    /// algebraically to keep division out of SQL:
+    /// <code>
+    /// bar = max(MinSeconds, ceil(duration * Pct / 100))
+    /// w >= ceil(duration * Pct / 100)   &lt;=&gt;   w * 100 >= duration * Pct
+    /// </code>
+    /// A duration of 0 means "not learned yet", so the floor alone applies — exactly what
+    /// <c>WatchedMinSeconds</c> returns. Every term is a real column or constant, so EF
+    /// can never fold this into the literal <c>COUNT(NULL)</c> of BUG-16.
+    /// </para>
+    /// <para>
+    /// Exposed as a filtered <c>IQueryable</c> rather than a predicate so both callers
+    /// compose it by swapping <c>context.VideoAnalytics</c> for this — ONE definition,
+    /// and EF translates it in both shapes. KEEP IN STEP with
+    /// <see cref="VideoConstants.WatchedMinSeconds(int)"/>.
+    /// </para>
+    /// </summary>
+    private static IQueryable<VideoAnalytics> WatchedAnalytics(EdvanzDbContext context)
+        => from a in context.VideoAnalytics
+           join v in context.VideoAssets on a.VideoAssetId equals v.Id
+           where a.TotalWatchSeconds >= VideoConstants.WatchStartedMinSeconds
+              && (v.DurationSeconds <= 0
+                  || a.TotalWatchSeconds * 100L
+                     >= (long)v.DurationSeconds * VideoConstants.WatchStartedThresholdPercent)
+           select a;
+
     /// <summary>
     /// Distinct (VideoAssetId, TeacherStudentId) audience pairs for a SET of
     /// videos: the students each video's OWN <c>VideoScope</c> rows target
@@ -132,7 +167,7 @@ internal static class VideoAudienceQueries
             .ToListAsync();
 
         var seen = await pairs
-            .Join(context.VideoAnalytics,
+            .Join(WatchedAnalytics(context),
                   p => new { p.VideoAssetId, p.TeacherStudentId },
                   a => new { a.VideoAssetId, a.TeacherStudentId },
                   (p, a) => p)
@@ -203,7 +238,7 @@ internal static class VideoAudienceQueries
             .ToListAsync();
 
         var seen = await unitPairs
-            .Join(context.VideoAnalytics,
+            .Join(WatchedAnalytics(context),
                   x => new { x.VideoAssetId, x.TeacherStudentId },
                   a => new { a.VideoAssetId, a.TeacherStudentId },
                   (x, a) => new { x.UnitId, x.TeacherStudentId })

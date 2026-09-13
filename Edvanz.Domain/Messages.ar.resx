@@ -1633,6 +1633,21 @@
   <data name="FileAlreadyInUse" xml:space="preserve">
     <value>الملف ده متربط بعنصر تاني بالفعل.</value>
   </data>
+  <data name="ExamTooManyAttachments" xml:space="preserve">
+    <value>الامتحان يقبل {0} ملفات كحد أقصى.</value>
+  </data>
+  <data name="ExamAttachmentNotFound" xml:space="preserve">
+    <value>الملف ده مش مرفوع على الامتحان ده.</value>
+  </data>
+  <data name="ExamAttachmentsUpdated" xml:space="preserve">
+    <value>ملفات الامتحان اتحدّثت</value>
+  </data>
+  <data name="ExamAttachmentRemoved" xml:space="preserve">
+    <value>الملف اتشال</value>
+  </data>
+  <data name="ExamAttachmentReleaseUpdated" xml:space="preserve">
+    <value>اتحدّد امتى الطلاب يشوفوا ورقة الامتحان</value>
+  </data>
   <data name="VideoUnitsAssigned" xml:space="preserve"><value>وحدات الفيديو اتحدثت</value></data>
 <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ONLINE EXAM MODULE                                               -->

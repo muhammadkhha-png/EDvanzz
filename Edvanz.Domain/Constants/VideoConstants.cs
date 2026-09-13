@@ -75,6 +75,51 @@ public static class VideoConstants
     public const int CompletionThresholdPercent = 90;
 
     /// <summary>
+    /// Share of a video (0-100) a student must watch before they count as having
+    /// WATCHED it at all. Below this they are "opened only" — they pressed play and
+    /// left.
+    ///
+    /// Why this exists: a <c>VideoAnalytics</c> row is created by <c>start-watch</c> on
+    /// the play transition with <c>TotalWatchSeconds = 0</c>, so "has a row" used to be
+    /// the whole definition of "watched". On live data that made 79 students "watched" on
+    /// one 62-minute lecture, 48 of whom had watched under a minute. Opening a video is
+    /// not watching it.
+    ///
+    /// Expressed as a share so it scales with length — a minute of a 150-minute lecture
+    /// is not the same commitment as a minute of a 5-minute one — with
+    /// <see cref="WatchStartedMinSeconds"/> as the floor for short videos.
+    /// </summary>
+    public const int WatchStartedThresholdPercent = 5;
+
+    /// <summary>
+    /// Absolute floor for <see cref="WatchStartedThresholdPercent"/>: a student must
+    /// watch at least this many seconds however short the video, and this is the ONLY
+    /// bar when the duration is still unknown (0) — a percentage of nothing is nothing.
+    /// </summary>
+    public const int WatchStartedMinSeconds = 60;
+
+    /// <summary>
+    /// The watch-seconds bar a student must clear to count as having watched a video of
+    /// <paramref name="durationSeconds"/>. Single source of truth for every surface that
+    /// reports watched/unseen — the analytics rows, the aggregates, the by-session
+    /// breakdown and the video list — so they can never disagree.
+    ///
+    /// Returned as a <c>long</c> BAR, never a bool, on purpose: a captured bool inside a
+    /// SQL aggregate is folded by EF into a literal <c>COUNT(NULL)</c>, which SQL Server
+    /// rejects outright (BUG-16). Comparing a real column to a number keeps it a real
+    /// predicate in every branch.
+    /// </summary>
+    public static long WatchedMinSeconds(int durationSeconds)
+    {
+        if (durationSeconds <= 0)
+            return WatchStartedMinSeconds;
+
+        // Ceiling division so a fractional second always rounds the bar UP.
+        long share = ((long)durationSeconds * WatchStartedThresholdPercent + 99) / 100;
+        return Math.Max(WatchStartedMinSeconds, share);
+    }
+
+    /// <summary>
     /// Maximum number of attachments a single video may hold (multi-attachment support,
     /// 2026-07-16). Mirrors <c>UploadConstants.MaxFilesPerRequest</c> so one upload batch can
     /// fill one video exactly.

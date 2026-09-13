@@ -159,6 +159,44 @@ public class AssignmentTemplate : BaseEntity
     public DateTime? UpdatedAt { get; set; }
 
     // ══════════════════════════════════════════════
+    // EXAM PAPER (ATTACHMENTS) — RELEASE GATE
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// EXAM-ONLY. The moment the exam is FULLY over: the UTC instant of teacher-local
+    /// midnight following the LATEST <see cref="AssignmentOccurrence.DueDate"/> across
+    /// every occurrence of this template. Null until the exam has occurrences.
+    /// <para>
+    /// Keyed on the LAST occurrence, not the student's own, and that is the whole point:
+    /// a DuringSession exam anchors each session to its own class, so one class may sit it
+    /// on Monday and another on Wednesday. Releasing the paper per-student would hand it to
+    /// Monday's class while Wednesday's had not sat it yet — a photograph away from the
+    /// answers. Nobody sees it until everybody has sat it.
+    /// </para>
+    /// <para>
+    /// Only the BASE is stored; the effective release is this plus
+    /// <see cref="TeacherConfiguration.ExamAttachmentReleaseDelayHours"/>, computed at read
+    /// time so changing the delay applies everywhere at once with no reconcile pass.
+    /// Recomputed whenever the occurrences move, so rescheduling a class pushes the
+    /// release later on its own.
+    /// </para>
+    /// </summary>
+    public DateTime? AttachmentsReleaseBaseAt { get; set; }
+
+    /// <summary>
+    /// EXAM-ONLY teacher override of the automatic schedule:
+    /// <list type="bullet">
+    ///   <item><c>null</c> — follow the schedule (hidden before the release, visible after;
+    ///   this is what makes the switch turn itself on).</item>
+    ///   <item><c>true</c> — released early, deliberately.</item>
+    ///   <item><c>false</c> — held back past the release.</item>
+    /// </list>
+    /// Visibility is therefore a pure function of these two columns and the clock — there
+    /// is no flag for a background job to keep up to date, and nothing to drift.
+    /// </summary>
+    public bool? AttachmentsReleaseOverride { get; set; }
+
+    // ══════════════════════════════════════════════
     // CONCURRENCY
     // ══════════════════════════════════════════════
 

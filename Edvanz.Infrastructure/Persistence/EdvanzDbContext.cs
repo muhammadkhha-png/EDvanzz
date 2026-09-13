@@ -528,6 +528,13 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .WithOne(t => t.Configuration)
                 .HasForeignKey<TeacherConfiguration>(tc => tc.TeacherId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            // EVERY existing teacher must land on the documented 48h, not on 0. Without an
+            // explicit DB default the ADD COLUMN backfills existing rows with the CLR
+            // default (0), which would release every exam paper the moment the last class
+            // day ended — the one direction this feature must never fail in.
+            entity.Property(tc => tc.ExamAttachmentReleaseDelayHours)
+                .HasDefaultValue(ExamAttachmentConstants.DefaultReleaseDelayHours);
         });
         #endregion
 
@@ -3558,10 +3565,24 @@ modelBuilder.Entity<AssignmentTemplate>(entity =>
                 .HasForeignKey(f => f.VideoAssetId)
                 .OnDelete(DeleteBehavior.NoAction);
 
+            // An offline exam's paper points back here the same way (one-to-many).
+            // Fluent-only, NoAction: the exam is HARD-deleted, so the delete path must
+            // detach these first (ExamHomeworkRepo.DetachExamAttachmentsAsync) — the FK is
+            // the backstop that makes forgetting fail loudly instead of orphaning a blob.
+            entity.HasOne<AssignmentTemplate>()
+                .WithMany()
+                .HasForeignKey(f => f.AssignmentTemplateId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             // GC scans Status + CreateAt; attach/detach and the gated read look up by PublicId
             // (already uniquely indexed above).
             entity.HasIndex(f => f.Status)
                 .HasDatabaseName("IX_FileObjects_Status");
+
+            // The student exam list and the exam detail both fetch "this exam's files" —
+            // a seek, not a scan, and the FK needs the index anyway.
+            entity.HasIndex(f => f.AssignmentTemplateId)
+                .HasDatabaseName("IX_FileObjects_AssignmentTemplateId");
         });
         #endregion
 

@@ -1051,6 +1051,11 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
 
         int durationSeconds = video.DurationSeconds;
 
+        // The watch bar for THIS video. One shared definition
+        // (VideoConstants.WatchedMinSeconds) drives the rows, the aggregates and the
+        // by-session breakdown, so the three can never disagree about who watched.
+        long watchedMinSeconds = VideoConstants.WatchedMinSeconds(durationSeconds);
+
         // Resolved-students set: video's own scope UNION its unit's scope
         // (if any) — see GetResolvedStudentIdsForVideoQuery.
         var resolvedStudentIds = GetResolvedStudentIdsForVideoQuery(teacherId, videoAssetId);
@@ -1088,6 +1093,11 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 SessionName = sn != null ? sn.SessionName : null,
                 SessionId = sn != null ? (long?)sn.Id : null,
                 HasOpened = an != null,
+                // "Watched" is NOT "has a row": start-watch creates the row on the play
+                // transition with 0 seconds, so opening and leaving used to read as
+                // watched. watchedMinSeconds is a plain long BAR (never a captured bool)
+                // so EF keeps this a real column comparison — see BUG-16.
+                HasWatched = an != null && an.TotalWatchSeconds >= watchedMinSeconds,
                 OpenCount = an != null ? an.OpenCount : 0,
                 TotalWatchSeconds = an != null ? an.TotalWatchSeconds : 0L,
                 VideoDurationSeconds = durationSeconds,
@@ -1138,8 +1148,16 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
         // of "completed" as GetAnalyticsAggregatesAsync's CompletedCount.
         rowsQuery = statusFilter switch
         {
-            VideoAnalyticsStatusFilter.Seen => rowsQuery.Where(r => r.HasOpened),
-            VideoAnalyticsStatusFilter.Unseen => rowsQuery.Where(r => !r.HasOpened),
+            // Seen/Unseen split on HasWatched, not HasOpened — a student who pressed
+            // play and left belongs with the students who have not watched it.
+            VideoAnalyticsStatusFilter.Seen => rowsQuery.Where(r => r.HasWatched),
+            VideoAnalyticsStatusFilter.Unseen => rowsQuery.Where(r => !r.HasWatched),
+            // The Unseen list now holds two different situations; this isolates the one
+            // a teacher can act on differently — they DID open it, so they have the link
+            // and the interest, they just did not stay.
+            VideoAnalyticsStatusFilter.OpenedOnly =>
+                rowsQuery.Where(r => r.HasOpened && !r.HasWatched),
+            VideoAnalyticsStatusFilter.NeverOpened => rowsQuery.Where(r => !r.HasOpened),
             VideoAnalyticsStatusFilter.Completed => rowsQuery.Where(r =>
                 r.EstimatedCompletionPct != null
              && r.EstimatedCompletionPct >= VideoConstants.CompletionThresholdPercent),
@@ -1179,20 +1197,34 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
 
         int totalInScope = await resolvedStudentIds.CountAsync();
 
-        int totalWatched = await resolvedStudentIds
-            .Join(_context.VideoAnalytics.Where(a => a.VideoAssetId == videoAssetId),
-                  sid => sid,
-                  a => a.TeacherStudentId,
-                  (sid, a) => sid)
-            .CountAsync();
-
-        // G-ANL-1: completedCount — resolved students whose completion meets
-        // the threshold. Needs the video's duration; 0 means "unknown", in
-        // which case no student can be Completed yet.
+        // Duration first — the watch bar depends on it, and so does completedCount.
+        // 0 means "unknown": no student can be Completed, and the watch bar falls back
+        // to the absolute floor.
         int durationSeconds = await _context.VideoAssets
             .Where(v => v.Id == videoAssetId && v.TeacherId == teacherId)
             .Select(v => v.DurationSeconds)
             .FirstOrDefaultAsync();
+
+        long watchedMinSeconds = VideoConstants.WatchedMinSeconds(durationSeconds);
+
+        // "Watched" clears the bar — same definition as the report rows and the
+        // by-session breakdown. Joining and counting rows (the old behaviour) counted
+        // everyone who pressed play, including those who watched nothing.
+        int totalWatched = await resolvedStudentIds
+            .Join(_context.VideoAnalytics.Where(a => a.VideoAssetId == videoAssetId),
+                  sid => sid,
+                  a => a.TeacherStudentId,
+                  (sid, a) => a.TotalWatchSeconds)
+            .CountAsync(watchSeconds => watchSeconds >= watchedMinSeconds);
+
+        // Students who opened it but never cleared the bar — surfaced so the app can
+        // separate them from students who never opened it at all.
+        int openedOnlyCount = await resolvedStudentIds
+            .Join(_context.VideoAnalytics.Where(a => a.VideoAssetId == videoAssetId),
+                  sid => sid,
+                  a => a.TeacherStudentId,
+                  (sid, a) => a.TotalWatchSeconds)
+            .CountAsync(watchSeconds => watchSeconds < watchedMinSeconds);
 
         int completedCount = 0;
         if (durationSeconds > 0)
@@ -1211,6 +1243,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             TotalStudentsInScope = totalInScope,
             TotalStudentsWatched = totalWatched,
             UnseenCount = Math.Max(0, totalInScope - totalWatched),
+            OpenedOnlyCount = openedOnlyCount,
             CompletedCount = completedCount,
         };
     }
@@ -1245,6 +1278,11 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
             ? ((long)durationSeconds * VideoConstants.CompletionThresholdPercent + 99) / 100
             : long.MaxValue;
 
+        // The same trick for the STARTED bar: a plain long, so the predicate below stays
+        // a real column comparison in every branch. Unlike "completed", an unknown
+        // duration does not make watching impossible — the floor still applies.
+        long watchedMinSeconds = VideoConstants.WatchedMinSeconds(durationSeconds);
+
         // Flatten to scalars BEFORE grouping: EF translates a GroupBy over scalar keys
         // with counted predicates, but not one whose elements are joined entities.
         var flattened =
@@ -1266,6 +1304,7 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                     ? sn.SessionGroup.GroupName
                     : null,
                 HasOpened = an != null,
+                HasWatched = an != null && an.TotalWatchSeconds >= watchedMinSeconds,
                 IsCompleted = an != null
                     && an.TotalWatchSeconds >= completedMinWatchSeconds,
             };
@@ -1286,7 +1325,10 @@ public class VideoAssetRepo : GenericRepo<VideoAsset, long>, IVideoAssetRepo
                 SessionGroupId = g.Key.SessionGroupId,
                 SessionGroupName = g.Key.SessionGroupName,
                 StudentsInScope = g.Count(),
-                WatchedCount = g.Count(x => x.HasOpened),
+                // Watched = cleared the bar. Rows must keep summing to the header, and
+                // the header sums from these rows, so both moved together.
+                WatchedCount = g.Count(x => x.HasWatched),
+                OpenedOnlyCount = g.Count(x => x.HasOpened && !x.HasWatched),
                 CompletedCount = g.Count(x => x.IsCompleted),
             })
             .AsNoTracking()

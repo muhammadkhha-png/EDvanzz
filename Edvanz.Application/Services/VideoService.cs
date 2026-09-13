@@ -491,9 +491,16 @@ public sealed class VideoService : IVideoService
                 CreateAt = utcNow,
             });
 
-            // Step 5 — title/description (unchanged existing logic).
+            // Step 5 — title/description.
+            //
+            // Description follows the same rule as every other optional field on this
+            // request: OMITTED (null) = leave it alone, empty STRING = clear it. The app
+            // always sends it hydrated, so this changes nothing for real traffic — it just
+            // removes the one way a caller could blank a description by not mentioning it,
+            // which is exactly how offline exams were losing theirs (BUG-20).
             video.Title = title;
-            video.Description = request.Description?.Trim();
+            if (request.Description is not null)
+                video.Description = request.Description.Trim();
 
             // Step 6 — sourceUrl change detection + analytics reset
             // (UNCHANGED existing rule — do not alter).
@@ -1114,6 +1121,7 @@ public sealed class VideoService : IVideoService
             SessionName = r.SessionName,
             SessionId = r.SessionId,
             HasOpened = r.HasOpened,
+            HasWatched = r.HasWatched,
             OpenCount = r.OpenCount,
             TotalWatchSeconds = r.TotalWatchSeconds,
             VideoDurationSeconds = r.VideoDurationSeconds,
@@ -1131,6 +1139,7 @@ public sealed class VideoService : IVideoService
             TotalStudentsInScope = aggregates.TotalStudentsInScope,
             TotalStudentsWatched = aggregates.TotalStudentsWatched,
             UnseenCount = aggregates.UnseenCount,
+            OpenedOnlyCount = aggregates.OpenedOnlyCount,
             CompletedCount = aggregates.CompletedCount,
             Rows = rowDtos,
             Page = request.Page,
@@ -1173,6 +1182,7 @@ public sealed class VideoService : IVideoService
             TotalStudentsInScope = totalInScope,
             TotalStudentsWatched = totalWatched,
             UnseenCount = Math.Max(0, totalInScope - totalWatched),
+            OpenedOnlyCount = rows.Sum(r => r.OpenedOnlyCount),
             CompletedCount = rows.Sum(r => r.CompletedCount),
             Rows = rows.Select(r => new VideoSessionWatchRowDto
             {
@@ -1183,6 +1193,7 @@ public sealed class VideoService : IVideoService
                 StudentsInScope = r.StudentsInScope,
                 WatchedCount = r.WatchedCount,
                 UnseenCount = Math.Max(0, r.StudentsInScope - r.WatchedCount),
+                OpenedOnlyCount = r.OpenedOnlyCount,
                 CompletedCount = r.CompletedCount,
                 // Computed here rather than on the client so every surface rounds the
                 // same way; an empty session reads 0 instead of dividing by zero.

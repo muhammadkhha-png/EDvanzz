@@ -818,6 +818,72 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
     /// <c>StudentUserService.BuildDashboardTeacherDtoFromBatch</c>. Returns null if the teacher is absent.
     /// </summary>
     Task<TeacherSubjectDisplayRow?> GetTeacherSubjectDisplayAsync(long teacherId);
+
+    // ══════════════════════════════════════════════════════════════════════════════════
+    // OFFLINE EXAM PAPER (ATTACHMENTS)
+    // ══════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// File-access policy support (<c>IFileAccessService</c>): true when
+    /// <paramref name="fileObjectId"/> is a paper attached to an exam owned by
+    /// <paramref name="teacherId"/>, the student <paramref name="teacherStudentId"/> has an
+    /// obligation for one of that exam's occurrences, AND the exam's release gate is open.
+    /// <para>
+    /// The gate is <c>AttachmentsReleaseOverride ?? (AttachmentsReleaseBaseAt &lt;= cutoff)</c>,
+    /// where the caller supplies <paramref name="releaseCutoffUtc"/> = now minus the teacher's
+    /// configured delay. Passing the cutoff in (rather than the delay) keeps the comparison a
+    /// plain indexed column test with no date arithmetic in SQL.
+    /// </para>
+    /// <para>Fail-closed: anything missing or unreadable denies.</para>
+    /// </summary>
+    Task<bool> IsExamAttachmentVisibleToStudentAsync(
+        long fileObjectId, long teacherId, long teacherStudentId, DateTime releaseCutoffUtc);
+
+    /// <summary>
+    /// The papers attached to one exam, newest last. Teacher-scoped through the template.
+    /// </summary>
+    Task<IReadOnlyList<FileObject>> GetExamAttachmentsAsync(long templateId, long teacherId);
+
+    /// <summary>
+    /// Papers for a SET of exams in one round trip, keyed by template id — the student list
+    /// and the exam home cards page over many exams and must never go N+1.
+    /// </summary>
+    Task<ILookup<long, FileObject>> GetExamAttachmentsForTemplatesAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId);
+
+    /// <summary>
+    /// Of the given exams, which ones have their paper RELEASED to students right now —
+    /// <c>AttachmentsReleaseOverride ?? (AttachmentsReleaseBaseAt &lt;= cutoff)</c>, evaluated
+    /// in SQL against the caller's precomputed cutoff. One query for a whole page.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetTemplatesWithReleasedAttachmentsAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId, DateTime releaseCutoffUtc);
+
+    /// <summary>How many papers each of the given exams holds. One grouped query.</summary>
+    Task<Dictionary<long, int>> GetExamAttachmentCountsAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId);
+
+    /// <summary>
+    /// Detaches every paper on a template (clears the back-reference, marks the rows
+    /// <c>Detached</c>) so the hourly file GC reaps the blobs. MUST run inside the delete
+    /// transaction — the FK is NoAction and would otherwise block the hard delete.
+    /// Never hard-deletes a FileObject row: only registry-backed blobs are GC-visible, so an
+    /// inline delete would orphan the blob forever.
+    /// </summary>
+    Task DetachExamAttachmentsAsync(long templateId);
+
+    /// <summary>
+    /// The latest <see cref="AssignmentOccurrence.DueDate"/> across a template's occurrences —
+    /// the day the exam is finally over for everyone. Null when it has no occurrences.
+    /// </summary>
+    Task<DateTime?> GetLatestOccurrenceDateAsync(long templateId);
+
+    /// <summary>
+    /// Names of the exam's sessions whose class day has not been reached yet, relative to
+    /// <paramref name="teacherLocalToday"/>. Shown in the confirmation when a teacher releases
+    /// the paper early, so "show now" can never be an uninformed tap.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetSessionsYetToSitAsync(long templateId, DateTime teacherLocalToday);
 }
 
 // ══════════════════════════════════════════════

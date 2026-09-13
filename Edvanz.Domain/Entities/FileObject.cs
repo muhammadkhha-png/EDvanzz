@@ -63,4 +63,16 @@ public class FileObject : BaseEntity
     /// single-valued category (those are referenced by an FK on the consuming entity instead).
     /// </summary>
     public long? VideoAssetId { get; set; }
+
+    /// <summary>
+    /// Back-reference for the second one-to-many case — an offline exam's paper. Set when a
+    /// <see cref="FileCategory.ExamAttachment"/> file is attached to an
+    /// <see cref="AssignmentTemplate"/> (the exam); null for every other category.
+    /// <para>
+    /// The exam is HARD-deleted (REQ-EXH-037), and this FK is NoAction, so anything that
+    /// deletes a template must detach its files first — see
+    /// <c>ExamHomeworkRepo.DetachExamAttachmentsAsync</c>.
+    /// </para>
+    /// </summary>
+    public long? AssignmentTemplateId { get; set; }
 }

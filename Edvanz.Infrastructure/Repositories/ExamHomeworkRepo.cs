@@ -1931,4 +1931,137 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             _ => null,
         };
 
+    // ══════════════════════════════════════════════════════════════════════════════════
+    // OFFLINE EXAM PAPER (ATTACHMENTS)
+    // ══════════════════════════════════════════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<bool> IsExamAttachmentVisibleToStudentAsync(
+        long fileObjectId, long teacherId, long teacherStudentId, DateTime releaseCutoffUtc)
+    {
+        // One EXISTS over three joined facts, all tenant-scoped:
+        //   1. the file is a paper on an exam this teacher owns,
+        //   2. this student has an obligation for one of that exam's occurrences,
+        //   3. the exam's release gate is open.
+        // Anything missing denies — there is no branch that returns true by default.
+        return await _context.FileObjects
+            .Where(f => f.Id == fileObjectId
+                     && f.Category == FileCategory.ExamAttachment
+                     && f.Status == FileStatus.Attached
+                     && f.TeacherId == teacherId
+                     && f.AssignmentTemplateId != null)
+            .Join(_context.AssignmentTemplates.Where(t => t.TeacherId == teacherId),
+                  f => f.AssignmentTemplateId,
+                  t => (long?)t.Id,
+                  (f, t) => t)
+            // The gate. An explicit override wins in BOTH directions; with none set the
+            // schedule decides, which is what makes the teacher's switch turn itself on
+            // once the delay has passed without anything having to write to the row.
+            .Where(t => t.AttachmentsReleaseOverride == true
+                     || (t.AttachmentsReleaseOverride == null
+                         && t.AttachmentsReleaseBaseAt != null
+                         && t.AttachmentsReleaseBaseAt <= releaseCutoffUtc))
+            .AnyAsync(t => _context.StudentAssignmentObligations.Any(o =>
+                o.Occurrence.TemplateId == t.Id
+             && o.TeacherId == teacherId
+             && o.TeacherStudentId == teacherStudentId));
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<FileObject>> GetExamAttachmentsAsync(
+        long templateId, long teacherId)
+        => await _context.FileObjects
+            .Where(f => f.AssignmentTemplateId == templateId
+                     && f.TeacherId == teacherId
+                     && f.Category == FileCategory.ExamAttachment
+                     && f.Status == FileStatus.Attached)
+            .OrderBy(f => f.CreateAt)
+            .ThenBy(f => f.Id)
+            .AsNoTracking()
+            .ToListAsync();
+
+    /// <inheritdoc />
+    public async Task<ILookup<long, FileObject>> GetExamAttachmentsForTemplatesAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId)
+    {
+        if (templateIds.Count == 0)
+            return Enumerable.Empty<FileObject>().ToLookup(_ => 0L);
+
+        var rows = await _context.FileObjects
+            .Where(f => f.AssignmentTemplateId != null
+                     && templateIds.Contains(f.AssignmentTemplateId.Value)
+                     && f.TeacherId == teacherId
+                     && f.Category == FileCategory.ExamAttachment
+                     && f.Status == FileStatus.Attached)
+            .OrderBy(f => f.CreateAt)
+            .ThenBy(f => f.Id)
+            .AsNoTracking()
+            .ToListAsync();
+
+        return rows.ToLookup(f => f.AssignmentTemplateId!.Value);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<long>> GetTemplatesWithReleasedAttachmentsAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId, DateTime releaseCutoffUtc)
+    {
+        if (templateIds.Count == 0)
+            return Array.Empty<long>();
+
+        return await _context.AssignmentTemplates
+            .Where(t => templateIds.Contains(t.Id) && t.TeacherId == teacherId)
+            // Identical gate to IsExamAttachmentVisibleToStudentAsync — kept as one
+            // expression in both places so the list and the file URL can never disagree
+            // about whether a paper is out.
+            .Where(t => t.AttachmentsReleaseOverride == true
+                     || (t.AttachmentsReleaseOverride == null
+                         && t.AttachmentsReleaseBaseAt != null
+                         && t.AttachmentsReleaseBaseAt <= releaseCutoffUtc))
+            .Select(t => t.Id)
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<long, int>> GetExamAttachmentCountsAsync(
+        IReadOnlyCollection<long> templateIds, long teacherId)
+    {
+        if (templateIds.Count == 0)
+            return new Dictionary<long, int>();
+
+        return await _context.FileObjects
+            .Where(f => f.AssignmentTemplateId != null
+                     && templateIds.Contains(f.AssignmentTemplateId.Value)
+                     && f.TeacherId == teacherId
+                     && f.Category == FileCategory.ExamAttachment
+                     && f.Status == FileStatus.Attached)
+            .GroupBy(f => f.AssignmentTemplateId!.Value)
+            .Select(g => new { TemplateId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TemplateId, x => x.Count);
+    }
+
+    /// <inheritdoc />
+    public Task DetachExamAttachmentsAsync(long templateId)
+        => _context.FileObjects
+            .Where(f => f.AssignmentTemplateId == templateId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(f => f.AssignmentTemplateId, (long?)null)
+                .SetProperty(f => f.Status, FileStatus.Detached));
+
+    /// <inheritdoc />
+    public async Task<DateTime?> GetLatestOccurrenceDateAsync(long templateId)
+        => await _context.AssignmentOccurrences
+            .Where(o => o.TemplateId == templateId)
+            .MaxAsync(o => (DateTime?)o.DueDate);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetSessionsYetToSitAsync(
+        long templateId, DateTime teacherLocalToday)
+        => await _context.AssignmentOccurrences
+            .Where(o => o.TemplateId == templateId
+                     && o.DueDate > teacherLocalToday
+                     && o.Session != null)
+            .Select(o => o.Session!.SessionName)
+            .Distinct()
+            .OrderBy(name => name)
+            .ToListAsync();
 }

@@ -225,4 +225,93 @@ public class ExamsController : ModuleSixApiBaseController
 
         return ToResponse(await _exams.DeleteExamAsync(teacherId.Value, GetActingUserId(), examId, confirm));
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // EXAM PAPER — ATTACH
+    // POST /api/exams/{examId}/attachments   { "fileIds": ["guid", ...] }
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // WHAT IT DOES:
+    //   Attaches papers (PDF or photos) already uploaded via POST /api/upload with
+    //   category=ExamAttachment, so students can review the questions afterwards.
+    //
+    // WHY IT IS NOT PART OF PUT /api/exams/{examId}:
+    //   That endpoint 409s structural edits once any result exists
+    //   (ExamHasResultsCannotRestructure) — and uploading the paper AFTER the exam is
+    //   exactly the point. Attachments are metadata and must stay editable for the life
+    //   of the exam.
+    //
+    // TABLES WRITTEN: FileObjects (Status Pending→Attached, AssignmentTemplateId set)
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPost("{examId:long}/attachments")]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<List<Edvanz.Application.Dtos.Exams.ExamAttachmentDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AddExamAttachments(
+        [FromRoute] long examId, [FromBody] AddExamAttachmentsDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.AddExamAttachmentsAsync(
+            teacherId.Value, GetActingUserId(), examId, dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // EXAM PAPER — REMOVE
+    // DELETE /api/exams/{examId}/attachments/{fileId}
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // Detaches the file (never a hard delete — the hourly file GC owns blob removal, and
+    // an inline delete would orphan the blob forever). A fileId belonging to another exam
+    // 404s rather than being detached from where it does belong.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpDelete("{examId:long}/attachments/{fileId:guid}")]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<List<Edvanz.Application.Dtos.Exams.ExamAttachmentDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveExamAttachment(
+        [FromRoute] long examId, [FromRoute] Guid fileId)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.RemoveExamAttachmentAsync(teacherId.Value, examId, fileId));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // EXAM PAPER — RELEASE OVERRIDE
+    // PUT /api/exams/{examId}/attachments/release   { "override": true|false|null }
+    // ══════════════════════════════════════════════════════════════════════════
+    //
+    // The paper opens to students on its own once the LAST class has sat the exam plus
+    // the teacher's configured delay (TeacherConfiguration.ExamAttachmentReleaseDelayHours,
+    // default 48h). This endpoint is the teacher's override of that schedule:
+    //   true  — show it now, ahead of schedule
+    //   false — keep it hidden even though the schedule has passed
+    //   null  — go back to following the schedule
+    //
+    // Visibility is COMPUTED from these two columns and the clock, so there is no flag for
+    // a background job to keep current and nothing to drift.
+    //
+    // TABLES WRITTEN: AssignmentTemplates (AttachmentsReleaseOverride, UpdatedAt)
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("{examId:long}/attachments/release")]
+    [ModulePermission("Exams And Homework", "ManageAssignments")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Exams.ExamAttachmentReleaseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetExamAttachmentRelease(
+        [FromRoute] long examId, [FromBody] SetExamAttachmentReleaseDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.SetExamAttachmentReleaseAsync(teacherId.Value, examId, dto));
+    }
 }

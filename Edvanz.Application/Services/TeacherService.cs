@@ -668,6 +668,11 @@ public class TeacherService : ITeacherService
             config.StudentVisibilityHomework = dto.StudentVisibilityHomework;
             config.StudentVisibilityExamDefault = dto.StudentVisibilityExamDefault;
             config.StudentVisibilityVideo = dto.StudentVisibilityVideo;
+
+            // Null = unchanged. An older build that does not know this setting exists sends
+            // nothing, and must not reset the teacher's choice on an unrelated save.
+            if (dto.ExamAttachmentReleaseDelayHours is int delayHours)
+                config.ExamAttachmentReleaseDelayHours = Math.Clamp(delayHours, 0, 24 * 30);
             config.ParentVisibilityAttendance = dto.ParentVisibilityAttendance;
             config.ParentVisibilityPayment = dto.ParentVisibilityPayment;
             config.ParentVisibilityHomework = dto.ParentVisibilityHomework;
@@ -816,6 +821,7 @@ public class TeacherService : ITeacherService
             StudentVisibilityPayment = config.StudentVisibilityPayment,
             StudentVisibilityHomework = config.StudentVisibilityHomework,
             StudentVisibilityExamDefault = config.StudentVisibilityExamDefault,
+            ExamAttachmentReleaseDelayHours = config.ExamAttachmentReleaseDelayHours,
             StudentVisibilityVideo = config.StudentVisibilityVideo,
             ParentVisibilityAttendance = config.ParentVisibilityAttendance,
             ParentVisibilityPayment = config.ParentVisibilityPayment,
