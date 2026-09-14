@@ -84,6 +84,19 @@ public class ExamService : IExamService
         if (dto.SuccessScore > dto.MaxGrade)
             return Fail("SuccessScoreExceedsMax");
 
+        // The paper, when it is supplied at creation. SAME ceiling and SAME refusal as the
+        // dedicated endpoint (AddExamAttachmentsAsync): this path used to .Take(Max) and create
+        // the exam anyway, so a teacher who attached twelve photographed pages got an exam whose
+        // paper silently stopped at page ten, with a 201 and nothing on screen saying so. A
+        // truncated question paper is worse than no question paper — the student cannot tell
+        // which is which. Checked here, before the transaction opens, so the refusal costs nothing.
+        if (dto.AttachmentFileIds is { Count: > 0 } &&
+            dto.AttachmentFileIds.Distinct().Count() > ExamAttachmentConstants.MaxAttachmentsPerExam)
+            return Fail(
+                ExamAttachmentConstants.Messages.TooManyAttachments,
+                HttpStatusCode.UnprocessableEntity,
+                new object?[] { ExamAttachmentConstants.MaxAttachmentsPerExam });
+
         DateTime utcNow = DateTime.UtcNow;
 
         // ── 2. Dates + recipient + per-session plan (single pipeline shared with update) ──
@@ -208,8 +221,9 @@ public class ExamService : IExamService
             // half-attached paper.
             if (dto.AttachmentFileIds is { Count: > 0 })
             {
-                foreach (var fileId in dto.AttachmentFileIds.Distinct()
-                             .Take(ExamAttachmentConstants.MaxAttachmentsPerExam))
+                // No .Take() here: the ceiling is enforced as a refusal in step 1, never by
+                // quietly discarding the overflow.
+                foreach (var fileId in dto.AttachmentFileIds.Distinct())
                 {
                     var resolved = await _fileAccess.ResolveForAttachAsync(
                         fileId, FileCategory.ExamAttachment, actingUserId, teacherId);

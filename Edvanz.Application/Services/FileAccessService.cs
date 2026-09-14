@@ -19,8 +19,9 @@ namespace Edvanz.Application.Services;
 /// server-side from the uploader's JWT — never client-supplied, §4.4). Student branches: the
 /// online-exam image checks live exam assignment; the video categories (photo / attachment /
 /// video-exam question image) check live membership of the OWNING VIDEO's scope, which also
-/// enforces the Published + PublishDate gate. The national-ID image has no resource policy
-/// (owner + admin only).
+/// enforces the Published + PublishDate gate. The exam paper checks the teacher's exams-module
+/// switch, the student's obligation, and the release gate — all three. The national-ID image has
+/// no resource policy (owner + admin only).
 /// </summary>
 public sealed class FileAccessService : IFileAccessService
 {
@@ -142,9 +143,18 @@ public sealed class FileAccessService : IFileAccessService
     /// </para>
     /// <para>
     /// The delay is read here and folded into a cutoff so the repository compares a plain
-    /// column against a constant. A missing configuration falls back to the documented
-    /// default rather than to zero — a zero delay would release papers EARLIER than the
-    /// teacher expects, and this path must fail safe, not fail open.
+    /// column against a constant. No fallback is needed for it any more: a missing configuration
+    /// row is already a denial (below), and the column itself is NOT NULL and defaults to
+    /// <c>ExamAttachmentConstants.DefaultReleaseDelayHours</c>. Never substitute a zero delay
+    /// here — that would release papers EARLIER than the teacher expects.
+    /// </para>
+    /// <para>
+    /// The teacher's exams-module switch (<c>StudentVisibilityExamDefault</c>) is checked FIRST.
+    /// Release and visibility are two different questions and only the first was ever asked here:
+    /// a student holding a fileId from before the teacher hid exams could still fetch the paper,
+    /// because a released exam stays released no matter what the switch says afterwards. Hiding a
+    /// module has to reach the files it published, or it hides a list and nothing else. Read off
+    /// the configuration row this method already loads, so the gate costs no extra query.
     /// </para>
     /// </summary>
     private async Task<bool> IsReleasedExamAttachmentForStudentAsync(FileObject file)
@@ -158,8 +168,15 @@ public sealed class FileAccessService : IFileAccessService
 
         var config = await _unitOfWork.Users
             .GetConfigurationByTeacherIdAsync(file.TeacherId.Value);
-        int delayHours = config?.ExamAttachmentReleaseDelayHours
-                         ?? ExamAttachmentConstants.DefaultReleaseDelayHours;
+
+        // Fail-CLOSED on a missing configuration row, unlike the video gate which fails open:
+        // this is the authorization path for a file, and the student list expresses the exact
+        // same predicate (ExamHomeworkService.LoadReleasedExamAttachmentsAsync) so the two
+        // cannot disagree about whether a paper is reachable. Keep them in step.
+        if (config?.StudentVisibilityExamDefault != true)
+            return false;
+
+        int delayHours = config.ExamAttachmentReleaseDelayHours;
 
         DateTime releaseCutoffUtc = DateTime.UtcNow.AddHours(-delayHours);
 

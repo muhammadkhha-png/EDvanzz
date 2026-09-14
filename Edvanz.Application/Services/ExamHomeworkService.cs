@@ -2146,6 +2146,13 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
     /// the same rule — the LAST class to sit the exam plus the teacher's delay — so a student
     /// whose own class sat it early still cannot see it while another class has it ahead of them.
     /// </para>
+    /// <para>
+    /// The teacher's exams-module switch (<c>StudentVisibilityExamDefault</c>) gates the paper
+    /// too, fail-CLOSED, and <c>FileAccessService.IsReleasedExamAttachmentForStudentAsync</c>
+    /// applies the identical expression. Release and visibility are different questions: a
+    /// released exam stays released, so without this a student holding an old fileId kept the
+    /// paper after the teacher hid the module. Change one of the two and change the other.
+    /// </para>
     /// </summary>
     private async Task<Dictionary<long, List<StudentExamAttachmentDto>>>
         LoadReleasedExamAttachmentsAsync(long teacherId, IReadOnlyList<StudentOfflineExamRow> rows)
@@ -2154,9 +2161,10 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         if (rows.Count == 0) return result;
 
         var config = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-        int delayHours = config?.ExamAttachmentReleaseDelayHours
-                         ?? ExamAttachmentConstants.DefaultReleaseDelayHours;
-        DateTime releaseCutoffUtc = DateTime.UtcNow.AddHours(-delayHours);
+        if (config?.StudentVisibilityExamDefault != true) return result;
+
+        DateTime releaseCutoffUtc = DateTime.UtcNow
+            .AddHours(-config.ExamAttachmentReleaseDelayHours);
 
         var templateIds = rows.Select(r => r.TemplateId).Distinct().ToList();
 

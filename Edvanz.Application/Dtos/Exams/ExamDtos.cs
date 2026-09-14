@@ -68,6 +68,12 @@ public class CreateExamDto
     /// Students cannot see it until the exam's release gate opens, so attaching early is
     /// safe — see <c>AssignmentTemplate.AttachmentsReleaseBaseAt</c>.
     /// </para>
+    /// <para>
+    /// Capped at <c>ExamAttachmentConstants.MaxAttachmentsPerExam</c> (10 distinct ids), and
+    /// going over is REFUSED with 422 <c>ExamTooManyAttachments</c> — the same answer the
+    /// dedicated endpoint gives. It is never silently truncated: an exam created with the first
+    /// ten of twelve pages is a question paper missing two, and nothing would say so.
+    /// </para>
     /// </summary>
     public List<Guid>? AttachmentFileIds { get; set; }
 }
