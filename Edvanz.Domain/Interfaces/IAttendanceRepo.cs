@@ -784,9 +784,17 @@ public class AttendanceStatusTallies
     // number from another to label a chip. A subtraction is exact today and silently wrong the
     // first time the two counts are measured on different sets.
     //
-    // A visitor can only reach Present or Held here: a cross-session mark is forced to
-    // CrossSessionPresent (so "absent" is unreachable for them — they were never obliged to this
-    // class), and Held is written against THIS session without a cross-session remap.
+    // LinkedAbsentCount is routinely NON-ZERO, and it does not mean what a careless reading
+    // suggests. Each row's status is resolved over the whole equivalent-slot occurrence set (this
+    // session plus every linked session sharing the (WeekStartDate, DayPositionIndex) slot), so a
+    // visitor who was marked Absent in THEIR OWN class — by the tutor, or by the nightly
+    // auto-absent sweep — surfaces on this roster carrying that Absent. They were never obliged to
+    // THIS class, and nothing here ever marks them absent from it.
+    //
+    // So: linked_absent_count counts visitors whose absence was recorded in their own class, and no
+    // screen may present it as "absent from this class". That is exactly why the app offers a
+    // "from other classes" chip on the Present and Hold lists and deliberately offers none on the
+    // Absent list — the number is real, the sentence it would imply is not.
     public int LinkedPresentCount { get; set; }
     public int LinkedAbsentCount { get; set; }
     public int LinkedHeldCount { get; set; }

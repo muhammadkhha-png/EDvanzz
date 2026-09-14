@@ -1,6 +1,5 @@
 using Edvanz.Domain.Entities.ShareProp;
 using Edvanz.Domain.Enums;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
 
@@ -22,8 +21,16 @@ namespace Edvanz.Domain.Entities;
 /// </summary>
 public class UserLoginActivity : BaseEntity
 {
-    /// <summary>The account that signed in. Every role lands here.</summary>
-    [ForeignKey(nameof(User))]
+    /// <summary>
+    /// The account that signed in. Every role lands here.
+    /// <para>
+    /// NO <c>[ForeignKey]</c> ANNOTATION. The relationship is configured entirely in Fluent API
+    /// (<c>EdvanzDbContext</c>, <c>HasForeignKey(l =&gt; l.UserId).OnDelete(NoAction)</c>), and
+    /// EF Core 10 silently DROPS an explicit <c>OnDelete</c> when an annotation coexists with it
+    /// on the same FK — the bug that produced NoAction-everywhere in an early migration
+    /// (CLAUDE.md §4.1 / BUG-4). Fluent is the sole authority here; do not re-add it.
+    /// </para>
+    /// </summary>
     public long UserId { get; set; }
 
     public User User { get; set; } = null!;

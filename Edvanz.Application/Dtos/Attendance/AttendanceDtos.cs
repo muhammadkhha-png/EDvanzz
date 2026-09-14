@@ -1025,8 +1025,14 @@ public class AttendanceStudentListDto : PaginatedResponse<List<AttendanceStudent
     // The other half of the same grouping. Sent rather than left to be derived: a client that
     // subtracts assigned_* from the plain total is exact today and silently wrong the first time
     // the two are measured on different sets. These label the "from other classes" chip on the
-    // Present / Hold screens. A visitor can only be Present or Held here — a cross-session mark is
-    // forced to CrossSessionPresent, so "absent" is unreachable for them.
+    // Present / Hold screens.
+    //
+    // linked_absent_count is routinely non-zero and means something narrower than it looks: a row's
+    // status is resolved over the whole equivalent-slot occurrence set, so a visitor marked Absent
+    // in THEIR OWN class — by the tutor or by the nightly auto-absent sweep — arrives here carrying
+    // it. It counts visitors absent from their own class; it is NEVER "absent from this class",
+    // which they were never obliged to attend. That is why the Absent list deliberately has no
+    // "from other classes" chip while Present and Hold do.
 
     [JsonPropertyName("linked_present_count")]
     public int LinkedPresentCount { get; set; }
