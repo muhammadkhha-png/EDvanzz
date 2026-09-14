@@ -68,7 +68,7 @@ namespace Edvanz.Infrastructure.Repositories
         /// </summary>
         public async Task DeleteAsync(T entity)
         {
-            _context.Set<T>().Remove(entity);
+            RemoveWithoutAttachingGraph(entity);
             await Task.CompletedTask;
         }
         //----------------------------------------------------------------
@@ -92,8 +92,77 @@ namespace Edvanz.Infrastructure.Repositories
         /// </summary>
         public async Task DeleteRangeAsync(IEnumerable<T> entities)
         {
-            _context.Set<T>().RemoveRange(entities);
+            foreach (var entity in entities)
+                RemoveWithoutAttachingGraph(entity);
             await Task.CompletedTask;
+        }
+
+        //----------------------------------------------------------------
+        /// <summary>
+        /// Marks one entity Deleted, safely, whether or not the context is already tracking it.
+        ///
+        /// <para>An entity that is ALREADY tracked is removed exactly as before — no behaviour
+        /// change for the overwhelmingly common case.</para>
+        ///
+        /// <para>A DETACHED entity (one that came back from an <c>AsNoTracking</c> query) is the
+        /// dangerous case. <c>Remove</c>/<c>RemoveRange</c> attach it by walking its whole navigation
+        /// graph, so an eager-loaded parent gets attached too — and if the request already tracks
+        /// that parent, EF throws <c>"another instance with the same key value is already being
+        /// tracked"</c>. That is a 500 with no way for the caller to see it coming. It took down
+        /// every student move involving a per-class session: the period rows carried an included
+        /// <c>Session</c>, and the move had already loaded the destination session.</para>
+        ///
+        /// <para>So for a detached entity we first look for an instance with the same key that the
+        /// context is already tracking and delete THAT one; failing that we set the state directly,
+        /// which tracks this row alone and never touches its navigations.</para>
+        /// </summary>
+        private void RemoveWithoutAttachingGraph(T entity)
+        {
+            var entry = _context.Entry(entity);
+
+            if (entry.State != EntityState.Detached)
+            {
+                _context.Set<T>().Remove(entity);
+                return;
+            }
+
+            var primaryKey = entry.Metadata.FindPrimaryKey();
+            if (primaryKey is not null)
+            {
+                var keyValues = primaryKey.Properties
+                    .Select(property => entry.Property(property.Name).CurrentValue)
+                    .ToArray();
+
+                var tracked = _context.ChangeTracker.Entries<T>()
+                    .FirstOrDefault(candidate => candidate.State != EntityState.Detached
+                        && HasSameKey(candidate, primaryKey, keyValues));
+
+                if (tracked is not null)
+                {
+                    if (tracked.State != EntityState.Deleted)
+                        tracked.State = EntityState.Deleted;
+                    return;
+                }
+            }
+
+            // Setting the state attaches THIS row only — RemoveRange would walk the graph.
+            entry.State = EntityState.Deleted;
+        }
+
+        //----------------------------------------------------------------
+        /// <summary>True when a tracked entry carries the same primary-key values.</summary>
+        private static bool HasSameKey(
+            Microsoft.EntityFrameworkCore.ChangeTracking.EntityEntry<T> candidate,
+            Microsoft.EntityFrameworkCore.Metadata.IKey primaryKey,
+            object?[] keyValues)
+        {
+            for (int i = 0; i < primaryKey.Properties.Count; i++)
+            {
+                var current = candidate.Property(primaryKey.Properties[i].Name).CurrentValue;
+                if (!Equals(current, keyValues[i]))
+                    return false;
+            }
+            return true;
         }
         //----------------------------------------------------------------
         /// <inheritdoc />

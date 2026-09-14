@@ -280,6 +280,22 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         long teacherId, long teacherStudentId, long? sessionId);
 
     /// <summary>
+    /// The student's payment periods across every session, TRACKED and with NO navigation
+    /// <c>Include</c>s — the loader every WRITE path must use.
+    ///
+    /// <para><see cref="GetAllPaymentPeriodsByStudentAsync"/> eager-loads <c>Session</c> and
+    /// <c>PaymentTransactions</c> for display and returns them detached. Handing those detached rows
+    /// to a delete walks the whole navigation graph, so EF tries to track the included
+    /// <c>Session</c> (or a second copy of a period this request already tracks) and throws
+    /// <c>"another instance with the same key value is already being tracked"</c>. That is what made
+    /// every move involving a per-class session fail with a 500.</para>
+    ///
+    /// <para>Tracked + include-free means a caller can mutate a row and hand it straight to
+    /// delete/update with no identity conflict and no accidental graph attach.</para>
+    /// </summary>
+    Task<List<PaymentPeriod>> GetPaymentPeriodsForWriteAsync(long teacherId, long teacherStudentId);
+
+    /// <summary>
     /// Gets all payment periods for a student across all sessions.
     /// REQ-PAY-092: Unified timeline across all sessions.
     /// </summary>

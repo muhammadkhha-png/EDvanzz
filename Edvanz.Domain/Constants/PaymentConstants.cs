@@ -100,6 +100,14 @@ public static class PaymentConstants
         public const string PaymentSameDayWarning = "PaymentSameDayWarning";
         public const string PaymentAmountInvalid = "PaymentAmountInvalid";
         public const string PaymentAmountExceedsAdvanceLimit = "PaymentAmountExceedsAdvanceLimit";
+
+        /// <summary>
+        /// A student cannot be moved between a MONTHLY class and a PER-CLASS one: a calendar-month
+        /// obligation and a class-on-a-date obligation are different kinds of debt, and the
+        /// destination has no equivalent slot to carry the balance into. Refused explicitly instead
+        /// of the 500 every such move used to produce.
+        /// </summary>
+        public const string PaymentCrossBillingTypeMoveNotAllowed = "PaymentCrossBillingTypeMoveNotAllowed";
         public const string PaymentStudentInRecycleBin = "PaymentStudentInRecycleBin";
 
         // Per-student joining-month proration override (REQ-PAY-021/022, 2026-09-02)

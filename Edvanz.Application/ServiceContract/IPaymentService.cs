@@ -419,6 +419,16 @@ public interface IPaymentService
     /// the student's counter is recomputed from the resulting periods. PerSession sessions fall back to
     /// the unassign+assign behavior. Runs on the caller's transaction when one is active, else owns its own.
     /// </summary>
+    /// <summary>
+    /// READ-ONLY dry run of <see cref="OnStudentMovedBetweenSessionsAsync"/> for a batch of students:
+    /// how many months would follow them into <paramref name="toSessionId"/> and at what value, how
+    /// many future months would be voided, and which students the move would refuse outright.
+    /// Writes nothing and opens no transaction — it classifies through the same
+    /// <c>BuildCarryOverPlan</c> the live move uses, so the numbers cannot drift from the behaviour.
+    /// </summary>
+    Task<Result<MoveBillingPreviewDto>> PreviewStudentMoveAsync(
+        long teacherId, long toSessionId, IReadOnlyList<long> studentIds);
+
     Task<Result<bool>> OnStudentMovedBetweenSessionsAsync(
         long teacherId, long teacherStudentId,
         long fromSessionId, string fromSessionName,

@@ -441,6 +441,53 @@ public class ForgivenessHistoryEntryDto
 }
 
 /// <summary>
+/// What a pending student move would do to the MONEY, per student, computed without writing anything.
+/// Feeds the transfer confirmation so a teacher is told that arrears re-price and future months are
+/// cancelled BEFORE they tap, instead of discovering it on a parent's next bill.
+/// </summary>
+public class MoveBillingPreviewDto
+{
+    public List<MoveBillingPreviewStudentDto> Students { get; set; } = new();
+
+    /// <summary>Months that follow the students into the destination, across the whole batch.</summary>
+    public int CarriedMonths { get; set; }
+
+    /// <summary>What those months will be worth at the destination's price.</summary>
+    public decimal CarriedAmount { get; set; }
+
+    /// <summary>Future months voided in the source (the destination re-creates its own).</summary>
+    public int CancelledMonths { get; set; }
+
+    /// <summary>What those voided months were worth in the source.</summary>
+    public decimal CancelledAmount { get; set; }
+
+    /// <summary>Students the move will refuse (see <see cref="MoveBillingPreviewStudentDto.BlockedReason"/>).</summary>
+    public int BlockedCount { get; set; }
+}
+
+/// <inheritdoc cref="MoveBillingPreviewDto"/>
+public class MoveBillingPreviewStudentDto
+{
+    public long StudentId { get; set; }
+    public string StudentName { get; set; } = null!;
+    public string? StudentCode { get; set; }
+
+    /// <summary>The class they are leaving; null when they have no current class (a plain assign).</summary>
+    public string? FromSessionName { get; set; }
+
+    /// <summary>True when this student cannot be moved at all — the batch would fail on them.</summary>
+    public bool IsBlocked { get; set; }
+
+    /// <summary>Localized reason, ready to render. Null unless <see cref="IsBlocked"/>.</summary>
+    public string? BlockedReason { get; set; }
+
+    public int CarriedMonths { get; set; }
+    public decimal CarriedAmount { get; set; }
+    public int CancelledMonths { get; set; }
+    public decimal CancelledAmount { get; set; }
+}
+
+/// <summary>
 /// Display DTO for a payment period.
 /// </summary>
 public class PaymentPeriodDto

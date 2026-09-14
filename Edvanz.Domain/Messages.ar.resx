@@ -783,6 +783,9 @@
   <data name="PaymentAmountExceedsAdvanceLimit" xml:space="preserve">
     <value>المبلغ أكبر من المستحق؛ الطالب يقدر يدفع شهر واحد مقدمًا بحد أقصى.</value>
   </data>
+  <data name="PaymentCrossBillingTypeMoveNotAllowed" xml:space="preserve">
+    <value>مينفعش تنقل الطالب بين مجموعة بالشهر ومجموعة بالحصة. سدّد اللي عليه، شيله من المجموعة الحالية، وبعدين ضيفه للمجموعة الجديدة.</value>
+  </data>
   <data name="PaymentStudentInRecycleBin" xml:space="preserve">
     <value>مينفعش تحصّل دفع — الطالب في سلة المحذوفات.</value>
   </data>

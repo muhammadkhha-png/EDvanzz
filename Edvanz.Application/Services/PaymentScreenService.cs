@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
@@ -1915,8 +1915,12 @@ public class PaymentScreenService : IPaymentScreenService
             // Amount = the student's TOTAL arrears through the resolved month boundary (all overdue
             // months up to it, not just the earliest). The collection engine then cascades it across
             // those months, oldest first, clearing each. Already paid → no-op success.
+            // STUDENT-WIDE, matching the collect engine and the lookup (2026-09-14). Scoping this to
+            // the student's current class made "mark as paid" settle less than the screen said was
+            // owed, and left arrears raised under a previous class permanently uncollectable — the
+            // button reported "Already paid" over a student the same screen showed as unpaid.
             decimal amount = await _unitOfWork.PaymentsRepo
-                .GetOverdueTotalThroughAsync(teacherId, studentId, student.SessionId, throughMonthEnd);
+                .GetOverdueTotalThroughAsync(teacherId, studentId, null, throughMonthEnd);
             if (amount <= 0m)
             {
                 results.Add(new MarkPaidResultDto { StudentId = idStr, Status = "paid", Reason = "Already paid." });

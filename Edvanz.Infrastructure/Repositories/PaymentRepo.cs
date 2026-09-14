@@ -1,4 +1,4 @@
-    using Edvanz.Domain.Constants;
+﻿    using Edvanz.Domain.Constants;
     using Edvanz.Domain.Entities;
     using Edvanz.Domain.Enums;
     using Edvanz.Domain.Helpers;
@@ -957,6 +957,22 @@
                 .Distinct()
                 .ToListAsync();
             return rows.Select(r => (r.TeacherId, r.StudentId)).ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<List<PaymentPeriod>> GetPaymentPeriodsForWriteAsync(
+            long teacherId, long teacherStudentId)
+        {
+            // TRACKED and deliberately WITHOUT Include(Session)/Include(PaymentTransactions).
+            // See the interface docs: a detached row carrying an included Session cannot be handed to
+            // a delete without EF trying to track that Session too, which collides with the Session
+            // the same request already has tracked. Every write path (delete / re-point / re-price)
+            // loads through here; the display loader keeps its includes.
+            return await _context.PaymentPeriods
+                .Where(p => p.TeacherId == teacherId && p.TeacherStudentId == teacherStudentId)
+                .OrderBy(p => p.PeriodStart)
+                .ThenBy(p => p.PeriodSequence)
+                .ToListAsync();
         }
 
         /// <inheritdoc />

@@ -783,6 +783,9 @@
   <data name="PaymentAmountExceedsAdvanceLimit" xml:space="preserve">
     <value>Amount is more than what is due; a student can only pay up to one month in advance.</value>
   </data>
+  <data name="PaymentCrossBillingTypeMoveNotAllowed" xml:space="preserve">
+    <value>This student can't be moved between a monthly class and a per-class class. Settle their balance, remove them from the current class, then add them to the new one.</value>
+  </data>
   <data name="PaymentStudentInRecycleBin" xml:space="preserve">
     <value>Cannot collect payment — student is in the recycle bin.</value>
   </data>

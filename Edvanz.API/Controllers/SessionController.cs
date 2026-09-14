@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos.Session;
+﻿using Edvanz.Application.Dtos.Session;
 using Edvanz.Domain.Constants;
 using Edvanz.Application.ServiceContract;
 using Microsoft.AspNetCore.Mvc;
@@ -17,15 +17,18 @@ namespace Edvanz.API.Controllers;
 public class SessionController : ApiBaseController
 {
     private readonly ISessionService _sessionService;
+    private readonly IPaymentService _paymentService;
     private readonly Edvanz.Application.IservicesContract.ICurrentUserService _currentUser;
     private readonly Edvanz.Domain.Interfaces.IUnitOfWork _unitOfWork;
 
     public SessionController(
         ISessionService sessionService,
+        IPaymentService paymentService,
         Edvanz.Application.IservicesContract.ICurrentUserService currentUser,
         Edvanz.Domain.Interfaces.IUnitOfWork unitOfWork)
     {
         _sessionService = sessionService;
+        _paymentService = paymentService;
         _currentUser = currentUser;
         _unitOfWork = unitOfWork;
     }
@@ -499,6 +502,37 @@ public class SessionController : ApiBaseController
     //   [10, 13]
     //
     // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
+    // REASSIGN PREVIEW — what the move will do to the MONEY (read-only)
+    //
+    // WHAT IT DOES:
+    //   Dry-runs confirm-reassign's billing side so the confirmation can tell the teacher what
+    //   happens BEFORE they commit: how many months follow the student (and what they will be worth
+    //   at the destination's price), how many future months are voided, and which students the move
+    //   would refuse. Writes nothing.
+    //
+    // SAMPLE REQUEST:
+    //   GET /api/session/1/sessions/5/reassign-preview?studentIds=10&studentIds=13
+    //
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("sessions/{sessionId:long}/reassign-preview")]
+    [HttpGet("{teacherId:long}/sessions/{sessionId:long}/reassign-preview")]
+    [ProducesResponseType(
+        typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.MoveBillingPreviewDto>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ReassignPreview(
+        [FromRoute] long sessionId,
+        [FromQuery] List<long> studentIds,
+        [FromRoute] long? teacherId = null)
+    {
+        var id = await ResolveTeacherIdAsync(teacherId);
+        if (id is null) return TeacherNotResolvedResult();
+        var result = await _paymentService.PreviewStudentMoveAsync(
+            id.Value, sessionId, studentIds ?? new List<long>());
+        return ToResponse(result);
+    }
+
     [HttpPost("sessions/{sessionId:long}/confirm-reassign")]
     [HttpPost("{teacherId:long}/sessions/{sessionId:long}/confirm-reassign")]
     [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<int>), StatusCodes.Status200OK)]

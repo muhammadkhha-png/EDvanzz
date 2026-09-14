@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
@@ -271,23 +271,23 @@ public class PaymentService : IPaymentService
         // billing keeps its original single-period behavior.
         bool isMonthly = session.PaymentType == PaymentType.Monthly;
 
-        List<PaymentPeriod> payablePeriods;
-        if (isMonthly)
-        {
-            var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
-            // End of NEXT month = current-month arrears + one month in advance (the maximum).
-            var advanceCapEnd = currentMonthStart.AddMonths(2).AddDays(-1);
-            payablePeriods = await _unitOfWork.PaymentsRepo
-                .GetUnpaidPeriodsThroughAsync(dto.TeacherId, dto.TeacherStudentId, dto.SessionId, advanceCapEnd);
-        }
-        else
-        {
-            var earliest = await _unitOfWork.PaymentsRepo
-                .GetEarliestUnpaidPeriodAsync(dto.TeacherId, dto.TeacherStudentId, dto.SessionId);
-            payablePeriods = earliest is null
-                ? new List<PaymentPeriod>()
-                : new List<PaymentPeriod> { earliest };
-        }
+        // WHAT A STUDENT OWES IS NOT SCOPED TO ONE CLASS (2026-09-14). This used to pass dto.SessionId,
+        // so the engine could only settle months belonging to the class the student is in RIGHT NOW —
+        // while the collect lookup, the "is a note required?" check and the tracking screens all
+        // measure the student's whole ledger. A student holding an older class's arrears was therefore
+        // quoted a figure the engine refused ("...can only pay up to one month in advance"), and once
+        // the current class was settled the remainder became uncollectable by every button on the
+        // screen while still showing as unpaid. Student-wide, oldest first, is the one definition.
+        //
+        // PER-CLASS BILLING CASCADES TOO. It used to take the single earliest occurrence and dump the
+        // WHOLE amount on it, with no cap at all: a student paying 850 for 17 classes had one class
+        // recorded as "50 due / 850 paid" and still owed for the other sixteen. Both billing types now
+        // fill oldest-first and share one advance ceiling — arrears plus at most next month.
+        var currentMonthStart = new DateTime(localDate.Year, localDate.Month, 1);
+        // End of NEXT month = current arrears + one month in advance (the maximum).
+        var advanceCapEnd = currentMonthStart.AddMonths(2).AddDays(-1);
+        var payablePeriods = await _unitOfWork.PaymentsRepo
+            .GetUnpaidPeriodsThroughAsync(dto.TeacherId, dto.TeacherStudentId, null, advanceCapEnd);
 
         // REQ-PAY-026: Already-paid — nothing owed within the payable window. For monthly this
         // also means the student is already paid one month ahead (cannot pay further in advance).
@@ -319,12 +319,14 @@ public class PaymentService : IPaymentService
             // 8. Cascade the collected cash across the payable periods, oldest first. Each month
             // is settled up to its own remaining due and the cash is attributed to the month it
             // clears (that period's AmountPaid). A single transaction records the whole cash event.
+            // PLAN FIRST, WRITE AFTER. Work out where every pound would land without touching a row,
+            // so the over-the-cap rejection below can return having changed nothing. It used to mutate
+            // the periods and then undo them only when this method owned the transaction — correct
+            // today only because every caller happens to own one, and a silent money bug for the first
+            // caller that wraps collection in a larger unit of work.
             decimal amountLeft = dto.Amount;
-            decimal totalApplied = 0m;
             decimal totalTargetedDue = 0m;
-            int periodsNewlyPaid = 0;
-            PaymentPeriod? firstTouched = null;
-            // PAY-1: capture how much cash landed on each period so we can record a per-period
+            // PAY-1: capture how much cash lands on each period so we can record a per-period
             // settlement ledger below (enables reversing the exact set of periods this cash cleared).
             var appliedSlices = new List<(PaymentPeriod Period, decimal Amount)>();
 
@@ -335,15 +337,30 @@ public class PaymentService : IPaymentService
                 decimal remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
                 if (remaining <= 0m) continue;
 
-                // Monthly caps each month at its remaining and rolls the rest to the next month.
-                // Per-session dumps the full amount into its single period (legacy overpay allowed).
-                decimal apply = isMonthly ? Math.Min(amountLeft, remaining) : amountLeft;
-                p.AmountPaid += apply;
+                decimal apply = Math.Min(amountLeft, remaining);
                 amountLeft -= apply;
-                totalApplied += apply;
                 totalTargetedDue += remaining;
-                firstTouched ??= p;
                 appliedSlices.Add((p, apply));
+            }
+
+            // Reject cash beyond arrears + one month in advance rather than silently absorbing it.
+            if (amountLeft > 0m)
+            {
+                if (ownsTransaction) await _unitOfWork.RollbackAsync();
+                return Result<CollectPaymentResultDto>.Failure(
+                    _localizer, PaymentConstants.Messages.PaymentAmountExceedsAdvanceLimit,
+                    HttpStatusCode.UnprocessableEntity);
+            }
+
+            decimal totalApplied = 0m;
+            int periodsNewlyPaid = 0;
+            PaymentPeriod? firstTouched = null;
+
+            foreach (var (p, apply) in appliedSlices)
+            {
+                p.AmountPaid += apply;
+                totalApplied += apply;
+                firstTouched ??= p;
 
                 // A month is settled when paid + forgiven covers it (forgiveness reduces what's owed).
                 p.PaymentStatus = p.AmountPaid + (p.ForgivenAmount ?? 0m) >= p.AmountDue
@@ -352,16 +369,6 @@ public class PaymentService : IPaymentService
                 if (p.PaymentStatus == PaymentStatus.Paid) periodsNewlyPaid++;
 
                 await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
-            }
-
-            // Monthly: reject cash beyond current-month arrears + one month in advance rather than
-            // silently dropping it (server-computed amounts never hit this; a manual overpay can).
-            if (isMonthly && amountLeft > 0m)
-            {
-                if (ownsTransaction) await _unitOfWork.RollbackAsync();
-                return Result<CollectPaymentResultDto>.Failure(
-                    _localizer, PaymentConstants.Messages.PaymentAmountExceedsAdvanceLimit,
-                    HttpStatusCode.UnprocessableEntity);
             }
 
             bool isPartial = totalApplied < totalTargetedDue;
@@ -3627,8 +3634,11 @@ public class PaymentService : IPaymentService
             await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
         }
 
+        // TRACKED + include-free: the pending-debt fold-in below both RE-POINTS and DELETES rows from
+        // this set. Reading it through the display loader returns detached copies, which collide with
+        // any instance the request already tracks the moment one is marked Modified or Deleted.
         var allStudentPeriods = await _unitOfWork.PaymentsRepo
-            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+            .GetPaymentPeriodsForWriteAsync(teacherId, teacherStudentId);
 
         // Months / dates the student has ALREADY paid (any session) — skip them below so a paid or
         // pre-paid period "reflects" under the session it was paid on and is never double-billed
@@ -3768,15 +3778,23 @@ public class PaymentService : IPaymentService
         // session). PAID / partially-paid / overpaid periods AND all PAST periods are preserved as
         // history. Called on reassignment BEFORE the new session's schedule is generated, so a
         // student is never billed by two sessions for the same forward months.
-        var nowUtc = DateTime.UtcNow;
-        var currentMonthStart = new DateTime(nowUtc.Year, nowUtc.Month, 1);
+        // The TENANT's current month (§11b). DateTime.UtcNow.Date is still the previous month between
+        // midnight and ~02:00 Cairo on the 1st, which widened this delete by a whole month and took
+        // the previous month's genuine arrears with it.
+        var localToday = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var currentMonthStart = new DateTime(localToday.Year, localToday.Month, 1);
 
+        // TRACKED + include-free: these rows are about to be deleted, and a detached row carrying an
+        // eager-loaded Session cannot be handed to a delete without an identity conflict.
         var allPeriods = await _unitOfWork.PaymentsRepo
-            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
+            .GetPaymentPeriodsForWriteAsync(teacherId, teacherStudentId);
         var toRemove = allPeriods
             .Where(p => p.PeriodStart >= currentMonthStart
                 && p.PaymentStatus == PaymentStatus.Unpaid
-                && p.AmountPaid <= 0m)
+                && p.AmountPaid <= 0m
+                // A waived month carries a human decision (and a forgiveness ledger row that would
+                // cascade away with it) — cash and waiver are both ground truth here.
+                && (p.ForgivenAmount ?? 0m) <= 0m)
             .ToList();
 
         if (toRemove.Count == 0)
@@ -3804,6 +3822,119 @@ public class PaymentService : IPaymentService
     // ══════════════════════════════════════════════
     // SESSION MOVE (A → B) — BILLING CARRY-OVER
     // ══════════════════════════════════════════════
+
+    /// <inheritdoc />
+    public async Task<Result<MoveBillingPreviewDto>> PreviewStudentMoveAsync(
+        long teacherId, long toSessionId, IReadOnlyList<long> studentIds)
+    {
+        var toSession = await _unitOfWork.SessionsRepo.GetByIdAndTeacherAsync(toSessionId, teacherId);
+        if (toSession is null)
+            return Result<MoveBillingPreviewDto>.Failure(
+                _localizer, PaymentConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
+
+        var preview = new MoveBillingPreviewDto();
+        if (studentIds is null || studentIds.Count == 0)
+            return Result<MoveBillingPreviewDto>.Success(
+                preview, _localizer, PaymentConstants.Messages.Success);
+
+        var today = _timeZoneService.GetTeacherLocalDate(teacherId);
+        var currentMonthEnd = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
+        bool destinationIsPerSession = toSession.PaymentType != PaymentType.Monthly;
+
+        foreach (var studentId in studentIds.Distinct())
+        {
+            var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(studentId, teacherId);
+            if (student is null) continue;
+
+            var row = new MoveBillingPreviewStudentDto
+            {
+                StudentId = student.Id,
+                StudentName = student.StudentName,
+                StudentCode = student.StudentCode
+            };
+            preview.Students.Add(row);
+
+            // No current class, or already in the destination → nothing carries; it is a plain assign.
+            if (student.SessionId is not long fromSessionId || fromSessionId == toSessionId)
+                continue;
+
+            var fromSession = await _unitOfWork.SessionsRepo
+                .GetByIdAndTeacherAsync(fromSessionId, teacherId);
+            row.FromSessionName = fromSession?.SessionName;
+
+            var fromPeriods = (await _unitOfWork.PaymentsRepo
+                    .GetPaymentPeriodsByStudentAndSessionAsync(teacherId, studentId, fromSessionId))
+                .OrderBy(p => p.PeriodSequence)
+                .ToList();
+
+            bool sourceIsPerSession = fromSession is not null
+                ? fromSession.PaymentType != PaymentType.Monthly
+                : fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
+
+            if (sourceIsPerSession != destinationIsPerSession)
+            {
+                row.IsBlocked = true;
+                row.BlockedReason =
+                    _localizer[PaymentConstants.Messages.PaymentCrossBillingTypeMoveNotAllowed];
+                preview.BlockedCount++;
+                continue;
+            }
+
+            // Per-class ⇄ per-class carries nothing: the unpaid current+future are voided and the
+            // destination generates its own class dates. Report that honestly rather than as a carry.
+            if (destinationIsPerSession)
+            {
+                var voided = fromPeriods
+                    .Where(p => p.PeriodStart >= new DateTime(today.Year, today.Month, 1)
+                        && p.AmountPaid <= 0m
+                        && (p.ForgivenAmount ?? 0m) <= 0m
+                        && p.PaymentStatus != PaymentStatus.Paid)
+                    .ToList();
+                row.CancelledMonths = voided.Count;
+                row.CancelledAmount = voided.Sum(p => p.AmountDue);
+                preview.CancelledMonths += row.CancelledMonths;
+                preview.CancelledAmount += row.CancelledAmount;
+                continue;
+            }
+
+            var counter = await _unitOfWork.PaymentsRepo.GetPaymentCounterAsync(teacherId, studentId);
+            decimal destBaseAmount = counter?.CustomPaymentAmount ?? toSession.SessionAmount;
+
+            var plan = BuildCarryOverPlan(fromPeriods, currentMonthEnd, destExistingMonths: null);
+
+            bool preserveAnchor = plan.UnpaidDueToMove.Any(p => p.IsProrationAnchorMonth)
+                && await ResolveFirstMonthAnchorPreservationAsync(teacherId, studentId);
+
+            foreach (var p in plan.UnpaidDueToMove)
+            {
+                row.CarriedMonths++;
+                row.CarriedAmount += preserveAnchor && p.IsProrationAnchorMonth
+                    && p.AmountPaid <= 0m && p.ProRatedFraction < 1.0m
+                        ? Math.Round(destBaseAmount * p.ProRatedFraction, 2)
+                        : destBaseAmount;
+            }
+
+            foreach (var p in plan.PartialsToSplit)
+            {
+                decimal shortfall = Math.Max(
+                    0m, destBaseAmount - (p.AmountPaid + (p.ForgivenAmount ?? 0m)));
+                if (shortfall <= 0m) continue;
+                row.CarriedMonths++;
+                row.CarriedAmount += shortfall;
+            }
+
+            row.CancelledMonths = plan.FutureToCancel.Count;
+            row.CancelledAmount = plan.CancelledAmount;
+
+            preview.CarriedMonths += row.CarriedMonths;
+            preview.CarriedAmount += row.CarriedAmount;
+            preview.CancelledMonths += row.CancelledMonths;
+            preview.CancelledAmount += row.CancelledAmount;
+        }
+
+        return Result<MoveBillingPreviewDto>.Success(
+            preview, _localizer, PaymentConstants.Messages.Success);
+    }
 
     /// <inheritdoc />
     public async Task<Result<bool>> OnStudentMovedBetweenSessionsAsync(
@@ -3839,45 +3970,55 @@ public class PaymentService : IPaymentService
             await _unitOfWork.PaymentsRepo.AddPaymentCounterAsync(counter);
         }
 
-        // The source session's periods for this student, ordered. Also lets us fall back to a snapshot
-        // name when the source session was hard-deleted (fromSessionName empty).
-        var fromPeriods = (await _unitOfWork.PaymentsRepo
-                .GetPaymentPeriodsByStudentAndSessionAsync(teacherId, teacherStudentId, fromSessionId))
+        // ONE tracked, include-free read of the student's whole ledger backs every write below: the
+        // source rows we re-point, the destination rows we merge into, and the month snapshots the
+        // generation skip-set needs. Loading the source separately (and detached) is what produced the
+        // "another instance with the same key value is already being tracked" 500 — see
+        // IPaymentRepo.GetPaymentPeriodsForWriteAsync.
+        var ledger = await _unitOfWork.PaymentsRepo
+            .GetPaymentPeriodsForWriteAsync(teacherId, teacherStudentId);
+
+        var fromPeriods = ledger
+            .Where(p => p.SessionId == fromSessionId)
             .OrderBy(p => p.PeriodSequence)
             .ToList();
         string effectiveFromName = !string.IsNullOrWhiteSpace(fromSessionName)
             ? fromSessionName
             : (fromPeriods.FirstOrDefault()?.SessionNameAtGeneration ?? string.Empty);
 
-        // Per-session source (or a per-session destination) can't use the monthly arrears-move plan below.
-        bool anyPerSessionSource = fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
-        if (toSession.PaymentType != PaymentType.Monthly || anyPerSessionSource)
+        // BILLING TYPE MUST MATCH (2026-09-14). A monthly obligation and a per-class obligation are not
+        // the same kind of debt — one is a calendar month, the other is a specific class on a specific
+        // date that the destination session does not have. Every crossing combination used to end in a
+        // 500 (the tracking fault above), so nothing was ever actually carried across; rather than
+        // invent a conversion nobody has agreed, the move is refused with a message that says what to
+        // do instead. Same-type moves are unaffected. The source session may already be hard-deleted —
+        // fall back to what its own periods say.
+        var fromSession = await _unitOfWork.SessionsRepo
+            .GetByIdAndTeacherAsync(fromSessionId, teacherId);
+        bool sourceIsPerSession = fromSession is not null
+            ? fromSession.PaymentType != PaymentType.Monthly
+            : fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
+        bool destinationIsPerSession = toSession.PaymentType != PaymentType.Monthly;
+
+        if (sourceIsPerSession != destinationIsPerSession)
+            return Result<bool>.Failure(
+                _localizer, PaymentConstants.Messages.PaymentCrossBillingTypeMoveNotAllowed,
+                HttpStatusCode.UnprocessableEntity);
+
+        // Per-class ⇄ per-class: a class-dated obligation cannot follow the student to a session with
+        // different class dates, so the unpaid current+future are voided and the destination generates
+        // its own. (Unchanged behaviour — it simply could not run before.)
+        if (destinationIsPerSession)
         {
             bool ownsTxFallback = !_unitOfWork.HasActiveTransaction;
             if (ownsTxFallback) await _unitOfWork.BeginTransactionAsync();
             try
             {
-                if (toSession.PaymentType == PaymentType.Monthly)
+                var unassigned = await OnStudentUnassignedFromSessionAsync(teacherId, teacherStudentId);
+                if (!unassigned.IsSuccess)
                 {
-                    // Per-session (or mixed) source → MONTHLY destination: collapse the source's unpaid
-                    // months to pending carry-forward debt, then the assign fold-in (DB2a) re-materializes
-                    // each as ONE unpaid month in the destination at its MONTHLY rate (agreed: "by-session
-                    // unpaid ⇒ 1 unpaid month in the new monthly session"). Paid history stays put.
-                    var todayLocal = _timeZoneService.GetTeacherLocalDate(teacherId);
-                    var monthEnd = new DateTime(todayLocal.Year, todayLocal.Month, 1).AddMonths(1).AddDays(-1);
-                    await ConvertStudentSessionArrearsToPendingAsync(
-                        teacherId, teacherStudentId, fromSessionId, monthEnd);
-                    await _unitOfWork.SaveChangesAsync();
-                }
-                else
-                {
-                    // Destination is per-session → keep the existing behaviour (void unpaid current+future).
-                    var unassigned = await OnStudentUnassignedFromSessionAsync(teacherId, teacherStudentId);
-                    if (!unassigned.IsSuccess)
-                    {
-                        if (ownsTxFallback) await _unitOfWork.RollbackAsync();
-                        return unassigned;
-                    }
+                    if (ownsTxFallback) await _unitOfWork.RollbackAsync();
+                    return unassigned;
                 }
 
                 var assigned = await OnStudentAssignedToSessionAsync(
@@ -3908,40 +4049,48 @@ public class PaymentService : IPaymentService
             int destSequence = await _unitOfWork.PaymentsRepo
                 .GetMaxPeriodSequenceAsync(teacherId, teacherStudentId, toSessionId) + 1;
 
-            // Classify the source periods (paid stay, unpaid-due move, future cancel, partials split).
-            // Live move: no dest-overlap guard — the destination is (re)generated afterwards and the
-            // generation skip-set below prevents any double-bill.
+            // The destination's OWN monthly rows, keyed by month, TRACKED so a merge can rewrite them.
+            // A carried month that lands on a month the destination already bills is folded into that
+            // one row (agreed 2026-09-14) — the pair used to be written as two rows for the same
+            // (student, session, month), which the unique index rejects outright. That is the 409
+            // "still linked to other data" a return move produced, and it failed the whole batch.
+            var destinationMonthlyRows = ledger
+                .Where(p => p.SessionId == toSessionId && p.PeriodType == PeriodType.Monthly)
+                .GroupBy(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+                .ToDictionary(g => g.Key, g => g.OrderBy(p => p.PeriodSequence).First());
+
+            // Month/date snapshots for the generation skip-set, taken BEFORE apply mutates anything.
+            // Settled = cash OR a waiver: both mean the month is already answered and must not be
+            // re-billed by the destination ladder.
+            var settledBefore = ledger
+                .Where(p => p.AmountPaid > 0m
+                    || (p.ForgivenAmount ?? 0m) > 0m
+                    || p.PaymentStatus == PaymentStatus.Paid
+                    || p.PaymentStatus == PaymentStatus.Overpaid)
+                .ToList();
+            var skipMonths = settledBefore
+                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
+                .ToHashSet();
+            var skipDates = settledBefore.Select(p => p.PeriodStart.Date).ToHashSet();
+            skipMonths.UnionWith(destinationMonthlyRows.Keys);
+
+            // Classify the source periods (settled stay, unpaid-due move, future cancel, partials split).
             var plan = BuildCarryOverPlan(fromPeriods, currentMonthEnd, destExistingMonths: null);
 
             // Capture the transfer snapshot BEFORE apply mutates the partials' AmountDue.
             decimal outstandingCarried = plan.OutstandingCarried;
             var statusAtTransfer = plan.StatusAtTransfer;
+            skipMonths.UnionWith(plan.MovedMonths);
 
             // Destination rate = the student's custom override else the destination session's amount;
-            // carried unpaid months are re-priced to it.
+            // EVERYTHING carried is judged at it — a fully-unpaid month and the shortfall on a
+            // partly-settled one alike (agreed 2026-09-14; the remainder used to keep the old price,
+            // so two months carried in one move could be priced by two different rules).
             decimal destBaseAmount = counter.CustomPaymentAmount ?? toSession.SessionAmount;
             destSequence = await ApplyCarryOverPlanAsync(
                 plan, teacherId, teacherStudentId, student,
-                fromSessionId, effectiveFromName, toSessionId, toSessionName, destSequence, destBaseAmount);
-
-            // Generate the destination's OWN schedule (movedAt → end), skipping every month already
-            // covered so nothing is double-billed: paid months (any session) ∪ months just moved/carried
-            // in ∪ the destination's OWN pre-existing period months (e.g. a prior stint in this session).
-            var studentPeriodsPreMove = await _unitOfWork.PaymentsRepo
-                .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
-            var paidPeriods = studentPeriodsPreMove
-                .Where(p => p.AmountPaid > 0m
-                    || p.PaymentStatus == PaymentStatus.Paid
-                    || p.PaymentStatus == PaymentStatus.Overpaid)
-                .ToList();
-            var skipMonths = paidPeriods
-                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1))
-                .ToHashSet();
-            skipMonths.UnionWith(plan.MovedMonths);
-            skipMonths.UnionWith(studentPeriodsPreMove
-                .Where(p => p.SessionId == toSessionId)
-                .Select(p => new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1)));
-            var skipDates = paidPeriods.Select(p => p.PeriodStart.Date).ToHashSet();
+                fromSessionId, effectiveFromName, toSessionId, toSessionName, destSequence,
+                destBaseAmount, destinationMonthlyRows);
 
             // isNewEnrollment: false — a MOVE/transfer is never prorated (agreed design).
             var generated = await BuildSessionPeriodsAsync(
@@ -4010,11 +4159,15 @@ public class PaymentService : IPaymentService
         /// <summary>First-of-month keys carried into the destination (moved + partial-remainder).</summary>
         public HashSet<DateTime> MovedMonths { get; } = new();
 
-        public decimal RedundantDeletedAmount => OverlapRedundantToDelete.Sum(p => p.AmountDue - p.AmountPaid);
-        public decimal MovedAmount => UnpaidDueToMove.Sum(p => p.AmountDue - p.AmountPaid);
-        public decimal SettledRemainderAmount => PartialsToSplit.Sum(p => p.AmountDue - p.AmountPaid);
-        public decimal SettledInSourceAmount => PartialsToSplit.Sum(p => p.AmountPaid);
-        public decimal CancelledAmount => FutureToCancel.Sum(p => p.AmountDue - p.AmountPaid);
+        private static decimal Outstanding(PaymentPeriod p)
+            => p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m);
+
+        public decimal RedundantDeletedAmount => OverlapRedundantToDelete.Sum(Outstanding);
+        public decimal MovedAmount => UnpaidDueToMove.Sum(Outstanding);
+        public decimal SettledRemainderAmount => PartialsToSplit.Sum(Outstanding);
+        public decimal SettledInSourceAmount =>
+            PartialsToSplit.Sum(p => p.AmountPaid + (p.ForgivenAmount ?? 0m));
+        public decimal CancelledAmount => FutureToCancel.Sum(Outstanding);
         public decimal OutstandingCarried => MovedAmount + SettledRemainderAmount;
         public PaymentStatus StatusAtTransfer =>
             PartialsToSplit.Count > 0 ? PaymentStatus.PartiallyPaid
@@ -4036,9 +4189,15 @@ public class PaymentService : IPaymentService
         var plan = new CarryOverPlan();
         foreach (var p in fromPeriods.OrderBy(p => p.PeriodSequence))
         {
-            decimal remaining = p.AmountDue - p.AmountPaid;
+            // SETTLED = cash + waiver. Forgiveness answers a month exactly as cash does, so a month the
+            // teacher waived is finished and must never travel (agreed 2026-09-14: "the waiver stands").
+            // Reading only AmountPaid here is what re-billed forgiven months on every move and, because
+            // the row kept its Paid status while its charge was rewritten, left the student's
+            // outstanding total permanently above the sum of the months on screen.
+            decimal settled = p.AmountPaid + (p.ForgivenAmount ?? 0m);
+            decimal remaining = p.AmountDue - settled;
             if (remaining <= 0m)
-                continue; // fully paid / overpaid → stays in the source as history (untouched)
+                continue; // fully paid / overpaid / fully forgiven → stays in the source as history
 
             var monthKey = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
             if (destExistingMonths is not null && destExistingMonths.Contains(monthKey))
@@ -4054,9 +4213,10 @@ public class PaymentService : IPaymentService
                 continue;
             }
 
-            if (p.AmountPaid > 0m)
+            if (settled > 0m)
             {
-                // PARTIAL: paid part becomes source history; remainder is re-billed in the destination.
+                // PARTIAL: the settled part (cash and/or waiver) becomes source history; the shortfall
+                // against the DESTINATION's price is re-billed there.
                 plan.PartialsToSplit.Add(p);
                 plan.MovedMonths.Add(monthKey);
             }
@@ -4084,9 +4244,11 @@ public class PaymentService : IPaymentService
     private async Task<int> ApplyCarryOverPlanAsync(
         CarryOverPlan plan, long teacherId, long teacherStudentId, TeacherStudent student,
         long fromSessionId, string fromSessionName, long toSessionId, string toSessionName,
-        int startDestSequence, decimal destBaseAmount)
+        int startDestSequence, decimal destBaseAmount,
+        IReadOnlyDictionary<DateTime, PaymentPeriod>? destinationMonthlyRows = null)
     {
         int destSequence = startDestSequence;
+        var absorbedSourceRows = new List<PaymentPeriod>();
 
         // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION (BUG: proration wiped when a never-paid
         // student is moved within their first month). A carried month is normally re-priced to the FULL
@@ -4101,6 +4263,21 @@ public class PaymentService : IPaymentService
 
         foreach (var p in plan.UnpaidDueToMove)
         {
+            var monthKey = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+
+            // The destination may ALREADY bill this month (a previous stint, or the settled half of an
+            // earlier split). One student + one session + one month is one bill — enforced by
+            // UX_PP_Student_Session_Month_Monthly — so fold into that row instead of writing a second.
+            if (destinationMonthlyRows is not null
+                && destinationMonthlyRows.TryGetValue(monthKey, out var existing)
+                && !ReferenceEquals(existing, p))
+            {
+                MergeCarriedMonthInto(existing, destBaseAmount, 0m, fromSessionId, fromSessionName);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(existing);
+                absorbedSourceRows.Add(p); // held no cash and no waiver — nothing to keep behind
+                continue;
+            }
+
             p.SessionId = toSessionId;
             p.SessionNameAtGeneration = toSessionName;
             p.MovedFromSessionId = fromSessionId;
@@ -4119,14 +4296,37 @@ public class PaymentService : IPaymentService
         var remainders = new List<PaymentPeriod>();
         foreach (var p in plan.PartialsToSplit)
         {
-            decimal remaining = p.AmountDue - p.AmountPaid;
-
-            // Source: settle to exactly what was paid → becomes fully-paid history.
-            p.AmountDue = p.AmountPaid;
+            // Everything already answered for this month — cash AND waiver — stays where it was
+            // answered, as settled history under the source session's name.
+            decimal settledInSource = p.AmountPaid + (p.ForgivenAmount ?? 0m);
+            p.AmountDue = settledInSource;
             p.PaymentStatus = PaymentStatus.Paid;
+            // This row is now history, not a joining month: a stale anchor would make the proration
+            // story line reconstruct the full month from the settled figure and print nonsense.
+            p.IsProrationAnchorMonth = false;
+            p.ProrationClassesTotal = null;
+            p.ProrationClassesBilled = null;
             await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(p);
 
-            // Destination: the remaining balance as a new tagged, carried-forward bill (same month).
+            // The month is worth the DESTINATION's price now; only the shortfall travels. This is the
+            // single pricing rule the fully-unpaid branch above already follows — the remainder used to
+            // keep the source price, so one move could price two of its own months two different ways.
+            decimal shortfall = Math.Max(0m, destBaseAmount - settledInSource);
+            if (shortfall <= 0m)
+                continue; // already covered at the new price — nothing left to bill
+
+            var partialMonthKey = new DateTime(p.PeriodStart.Year, p.PeriodStart.Month, 1);
+            if (destinationMonthlyRows is not null
+                && destinationMonthlyRows.TryGetValue(partialMonthKey, out var existingForPartial)
+                && !ReferenceEquals(existingForPartial, p))
+            {
+                MergeCarriedMonthInto(
+                    existingForPartial, destBaseAmount, settledInSource, fromSessionId, fromSessionName);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(existingForPartial);
+                continue;
+            }
+
+            // Destination: the shortfall as a new tagged, carried-forward bill (same month).
             remainders.Add(new PaymentPeriod
             {
                 TeacherId = teacherId,
@@ -4135,7 +4335,7 @@ public class PaymentService : IPaymentService
                 PeriodType = PeriodType.Monthly,
                 PeriodStart = p.PeriodStart,
                 PeriodEnd = p.PeriodEnd,
-                AmountDue = remaining,
+                AmountDue = shortfall,
                 AmountPaid = 0m,
                 PaymentStatus = PaymentStatus.Unpaid,
                 IsProRated = false,
@@ -4159,6 +4359,7 @@ public class PaymentService : IPaymentService
         // (no cash) — see BuildCarryOverPlan.
         var toDelete = new List<PaymentPeriod>(plan.FutureToCancel);
         toDelete.AddRange(plan.OverlapRedundantToDelete);
+        toDelete.AddRange(absorbedSourceRows);
         if (toDelete.Count > 0)
         {
             var periodRepo = _unitOfWork.GetRepository<PaymentPeriod, long>();
@@ -4166,6 +4367,35 @@ public class PaymentService : IPaymentService
         }
 
         return destSequence;
+    }
+
+    /// <summary>
+    /// Folds a carried month into the destination row that ALREADY bills that month, so one student +
+    /// one session + one month stays one bill (UX_PP_Student_Session_Month_Monthly).
+    ///
+    /// <para>The surviving row is charged the destination's price LESS whatever the source row had
+    /// already settled for that month, and never less than what has already been settled on the
+    /// surviving row itself — so no cash or waiver is ever charged twice, and the month's total
+    /// obligation lands on the new class's price exactly like every other carried month.</para>
+    ///
+    /// <para>Mutates only; the caller persists and owns the commit.</para>
+    /// </summary>
+    private static void MergeCarriedMonthInto(
+        PaymentPeriod destination, decimal destBaseAmount, decimal settledInSource,
+        long fromSessionId, string fromSessionName)
+    {
+        decimal settledOnDestination = destination.AmountPaid + (destination.ForgivenAmount ?? 0m);
+        decimal shortfall = Math.Max(0m, destBaseAmount - settledInSource);
+
+        destination.AmountDue = Math.Max(settledOnDestination, shortfall);
+        destination.IsCarriedForward = true;
+        destination.MovedFromSessionId = fromSessionId;
+        destination.MovedFromSessionName = fromSessionName;
+        destination.OriginSessionName ??= fromSessionName;
+        destination.IsProRated = false;
+        destination.ProRatedFraction = 1.0m;
+        destination.IsProrationAnchorMonth = false;
+        destination.PaymentStatus = RecomputePeriodStatus(destination);
     }
 
     /// <summary>
@@ -4238,10 +4468,17 @@ public class PaymentService : IPaymentService
         long teacherId, long teacherStudentId, StudentPaymentCounter counter)
     {
         var all = await _unitOfWork.PaymentsRepo
-            .GetAllPaymentPeriodsByStudentAsync(teacherId, teacherStudentId);
-        counter.TotalOutstanding = all.Sum(p => Math.Max(0m, p.AmountDue - p.AmountPaid));
-        counter.TotalUnpaidPeriods = all.Count(p => p.AmountPaid < p.AmountDue);
-        counter.TotalPaidPeriods = all.Count(p => p.AmountPaid >= p.AmountDue);
+            .GetPaymentPeriodsForWriteAsync(teacherId, teacherStudentId);
+        // Outstanding = due − paid − FORGIVEN, the definition every other query in this module uses
+        // (and the one AdjustCounterForForgivenessAsync maintains incrementally). Omitting the waiver
+        // here made a single move add a whole month's fee to the student's outstanding total while no
+        // month on screen accounted for it — and it grew again on every later move.
+        counter.TotalOutstanding = all.Sum(p =>
+            Math.Max(0m, p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m)));
+        counter.TotalUnpaidPeriods = all.Count(p =>
+            p.AmountPaid + (p.ForgivenAmount ?? 0m) < p.AmountDue);
+        counter.TotalPaidPeriods = all.Count(p =>
+            p.AmountPaid + (p.ForgivenAmount ?? 0m) >= p.AmountDue);
         counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
             .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
         await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
