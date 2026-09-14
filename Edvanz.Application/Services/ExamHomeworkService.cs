@@ -2219,9 +2219,18 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         // teacher who switched exams off still had their exam list delivered to students; only the
         // PAPER was gated, which is why it read as half-hidden.
         //
-        // Written as the SAME predicate the two paper gates use (LoadReleasedExamAttachmentsAsync
-        // below and FileAccessService.IsReleasedExamAttachmentForStudentAsync), fail-CLOSED on a
-        // missing configuration row, so all three answer alike (§7.9's keep-them-in-step rule).
+        // FAIL-OPEN on a missing configuration row (`?? true`), matching
+        // VideoService.CheckStudentVisibilityAsync and the home aggregate's own vOfflineExam. This
+        // is DELIBERATELY the opposite of the two PAPER gates, which fail closed — and the pair is
+        // the intended rule, not an oversight:
+        //
+        //   the LIST says an exam EXISTS   → low sensitivity, default to showing it
+        //   the PAPER is the questions     → high sensitivity, never hand it out on a guess
+        //
+        // So a teacher with no configuration row gets the exam list shown and the paper withheld.
+        // Do not "align" these two by making the list fail closed: that would blank a student's
+        // exam list on an absent row, which is a worse answer than showing a list they are
+        // entitled to see anyway.
         //
         // NOT applied to the parent portal. This method is shared, and parents have their OWN flag
         // (ParentVisibilityExamDefault) which ParentSectionComposer's caller enforces — gating the
@@ -2229,7 +2238,7 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
         if (enforceStudentVisibility)
         {
             var visibilityConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
-            if (visibilityConfig?.StudentVisibilityExamDefault != true)
+            if (!(visibilityConfig?.StudentVisibilityExamDefault ?? true))
                 return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Failure(
                     _localizer, "ExamsModuleDeactivated", HttpStatusCode.Forbidden);
         }

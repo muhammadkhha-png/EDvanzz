@@ -214,8 +214,10 @@ public interface IExamHomeworkService
     /// </param>
     /// <param name="enforceStudentVisibility">
     /// Whether to apply the teacher's STUDENT exams-module switch
-    /// (<c>TeacherConfiguration.StudentVisibilityExamDefault</c>), failing closed on a missing
-    /// configuration row. True for the student path, which is the default so a new caller is gated
+    /// (<c>TeacherConfiguration.StudentVisibilityExamDefault</c>), failing OPEN on a missing
+    /// configuration row like videos and the home aggregate do. The PAPER gates fail closed
+    /// instead, and that split is the intended rule: the list only says an exam exists, the paper
+    /// is the questions. True for the student path, and the default so a new caller is gated
     /// rather than exposed. The parent-portal composer passes FALSE: parents are governed by
     /// <c>ParentVisibilityExamDefault</c>, enforced by its own caller, and gating the portal on the
     /// student switch would hide a section the teacher deliberately left on.
