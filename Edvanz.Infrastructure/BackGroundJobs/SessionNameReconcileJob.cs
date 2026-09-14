@@ -1,5 +1,7 @@
+using Edvanz.Application.Options;
 using Edvanz.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Edvanz.Infrastructure.BackGroundJobs;
 
@@ -36,26 +38,17 @@ namespace Edvanz.Infrastructure.BackGroundJobs;
 /// </remarks>
 public class SessionNameReconcileJob
 {
-    /// <summary>
-    /// Rows per statement. Comfortably under SQL Server's ~5000-lock escalation threshold, so each
-    /// batch takes row/page locks and releases them on autocommit.
-    /// </summary>
-    private const int BatchSize = 2000;
-
-    /// <summary>
-    /// Ceiling per table per run — 100k rows each, which clears any realistic backlog in one or two
-    /// nights while keeping a single run bounded. A backlog larger than this resumes tomorrow.
-    /// </summary>
-    private const int MaxBatchesPerTable = 50;
-
     private readonly IUnitOfWork _unitOfWork;
+    private readonly SessionNameReconcileOptions _options;
     private readonly ILogger<SessionNameReconcileJob> _logger;
 
     public SessionNameReconcileJob(
         IUnitOfWork unitOfWork,
+        IOptions<SessionNameReconcileOptions> options,
         ILogger<SessionNameReconcileJob> logger)
     {
         _unitOfWork = unitOfWork;
+        _options = options.Value;
         _logger = logger;
     }
 
@@ -63,17 +56,42 @@ public class SessionNameReconcileJob
     /// Runs one bounded pass. Logs only when it actually repaired something — in steady state this
     /// job writes nothing and should stay silent.
     /// </summary>
+    /// <remarks>
+    /// Batch size and the per-table ceiling come from <see cref="SessionNameReconcileOptions"/>, so
+    /// a run that proves too heavy for the database tier can be shrunk — or stopped outright via
+    /// the kill switch below — from App Service settings, with no redeploy and no DDL. The defaults
+    /// reproduce the pre-configuration behaviour exactly.
+    /// </remarks>
     public async Task RunAsync()
     {
+        // THE KILL SWITCH. Checked here, before any statement runs, so a disabled reconcile writes
+        // NOTHING rather than doing a pass that repairs nothing — the same shape as the auto-absent
+        // sweep and the usage rollup. This job rewrites eight tables platform-wide, two of them the
+        // hottest write paths here, so this is the one lever that stops it without a redeploy.
+        if (!_options.Enabled)
+        {
+            _logger.LogInformation(
+                "Session-name reconcile is disabled (SessionNameReconcile__Enabled=false); nothing repaired.");
+            return;
+        }
+
+        // The repository already clamps both to >= 1; the UPPER bounds are the point of clamping
+        // here. A batch above SQL Server's ~5000-lock escalation threshold is the one setting that
+        // turns this job into the table-lock-on-AttendanceRecords incident it was designed as a job
+        // to avoid, and an unbounded ceiling would turn one nightly pass into a long-running write.
+        // A typo in an App Service setting must not be able to reach either.
+        int batchSize = Math.Clamp(_options.BatchSize, 1, 5000);
+        int maxBatchesPerTable = Math.Clamp(_options.MaxBatchesPerTable, 1, 1000);
+
         int repaired = await _unitOfWork.SessionsRepo
-            .ReconcileStoredSessionNamesAsync(BatchSize, MaxBatchesPerTable);
+            .ReconcileStoredSessionNamesAsync(batchSize, maxBatchesPerTable);
 
         if (repaired > 0)
         {
             _logger.LogInformation(
                 "Session-name reconcile repaired {Rows} stored name(s). A run that hits the " +
                 "per-table ceiling ({Ceiling} rows) resumes on the next pass.",
-                repaired, BatchSize * MaxBatchesPerTable);
+                repaired, batchSize * maxBatchesPerTable);
         }
     }
 }

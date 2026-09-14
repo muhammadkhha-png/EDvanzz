@@ -324,6 +324,11 @@ builder.Services.Configure<Edvanz.Application.Options.AutoAbsentOptions>(
 // Admin usage rollup — kill switch + window sizes, tunable from App Service settings.
 builder.Services.Configure<Edvanz.Application.Options.AdminInsightsOptions>(
     builder.Configuration.GetSection(Edvanz.Application.Options.AdminInsightsOptions.Section));
+// Nightly session-name reconcile — kill switch, batch size, per-table ceiling and cron, tunable via
+// App Service settings "SessionNameReconcile__Enabled" / "SessionNameReconcile__BatchSize" etc. It
+// rewrites eight tables platform-wide, so it must be stoppable in one settings save (no redeploy).
+builder.Services.Configure<Edvanz.Application.Options.SessionNameReconcileOptions>(
+    builder.Configuration.GetSection(Edvanz.Application.Options.SessionNameReconcileOptions.Section));
 
 builder.Services.Configure<Edvanz.Application.Options.SupportOptions>(
     builder.Configuration.GetSection(Edvanz.Application.Options.SupportOptions.Section));
@@ -794,13 +799,17 @@ for (int attempt = 1; ; attempt++)
         // commits, and its runtime counts against one command timeout. Here it runs after the app
         // is up, in autocommitting batches, and an unfinished run resumes tomorrow.
         //
-        // 03:30 Africa/Cairo — after the auto-absent sweep (02:30) and the recycle-bin purge
+        // Default 03:30 Africa/Cairo — after the auto-absent sweep (02:30) and the recycle-bin purge
         // (03:00), well clear of any class. Idempotent (§6.4): guarded on the name actually
-        // differing, so a steady-state run writes nothing.
+        // differing, so a steady-state run writes nothing. Cron, batch size, per-table ceiling and
+        // the kill switch all come from SessionNameReconcile__* app settings; the job itself is the
+        // kill switch (SessionNameReconcile__Enabled), exactly like the auto-absent sweep.
+        var sessionNameReconcileOpts = app.Services
+            .GetRequiredService<IOptions<Edvanz.Application.Options.SessionNameReconcileOptions>>().Value;
         RecurringJob.AddOrUpdate<SessionNameReconcileJob>(
             recurringJobId: "session-name-reconcile",
             methodCall: job => job.RunAsync(),
-            cronExpression: "30 3 * * *",
+            cronExpression: sessionNameReconcileOpts.CronExpression,
             options: new RecurringJobOptions
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),

@@ -131,6 +131,11 @@ public static class InfrastructureServiceExtensions
         services.AddScoped<FileObjectGcJob>();
         // Daily student recycle-bin purge (REQ-STU-027/028 10-day retention).
         services.AddScoped<RecycleBinPurgeJob>();
+        // Nightly session-name reconcile — repairs the eight denormalized session-name columns.
+        // Registered for consistency with the jobs around it: Hangfire's activator can construct an
+        // unregistered type through ActivatorUtilities, so this changes nothing at run time, but a
+        // job that resolves options and a unit of work belongs in the container with its siblings.
+        services.AddScoped<SessionNameReconcileJob>();
         // Exams & Homework Module — report export (stub; replace with ClosedXML/QuestPDF)
         //  Hangfire dispatcher + worker (Phase 6) ──
         // Daily fan-out + per-template materialization workers.
