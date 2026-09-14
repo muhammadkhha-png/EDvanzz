@@ -951,10 +951,20 @@ public class SessionService : ISessionService
                 {
                     var prevSession = await _unitOfWork.SessionsRepo
                         .GetByIdAndTeacherAsync(previousSessionId.Value, teacherId);
-                    await _paymentService.OnStudentMovedBetweenSessionsAsync(
+                    // HONOUR THE RESULT. This was fire-and-forget, so a refusal from the billing side
+                    // was swallowed and the student was repointed anyway — landing in a class whose
+                    // billing type their obligations do not match, with no ladder. A move the money
+                    // cannot make is not a move: abort the whole batch and surface its message.
+                    var moved = await _paymentService.OnStudentMovedBetweenSessionsAsync(
                         teacherId, student.Id,
                         previousSessionId.Value, prevSession?.SessionName ?? string.Empty,
                         sessionId, session.SessionName, DateTime.UtcNow);
+                    if (!moved.IsSuccess)
+                    {
+                        if (ownsTransaction)
+                            await _unitOfWork.RollbackAsync();
+                        return Result<int>.Failure(moved);
+                    }
                 }
                 else
                 {

@@ -491,10 +491,17 @@ public class TeacherStudentService : ITeacherStudentService
                         // unassign(A)+assign(B) pair, which STRANDED past arrears in A.
                         var prevSession = await _unitOfWork.SessionsRepo
                             .GetByIdAndTeacherAsync(previousSessionId.Value, teacherId);
-                        await _paymentService.OnStudentMovedBetweenSessionsAsync(
+                        // HONOUR THE RESULT — see the same guard in SessionService.ConfirmReassign.
+                        // Ignoring it let a refused move repoint the student anyway.
+                        var moved = await _paymentService.OnStudentMovedBetweenSessionsAsync(
                             teacherId, student.Id,
                             previousSessionId.Value, prevSession?.SessionName ?? string.Empty,
                             newSession.Id, newSession.SessionName, DateTime.UtcNow);
+                        if (!moved.IsSuccess)
+                        {
+                            await _unitOfWork.RollbackAsync();
+                            return Result<TeacherStudentDto>.Failure(moved);
+                        }
                     }
                     else
                     {
