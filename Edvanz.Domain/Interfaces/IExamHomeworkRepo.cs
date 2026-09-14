@@ -253,6 +253,18 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
         int page, int pageSize);
 
     /// <summary>
+    /// Headcount per <see cref="ObligationStatus"/> for one occurrence, measured on the
+    /// SEARCH-filtered set only (never the grade chips) so a chip can never renumber itself.
+    /// </summary>
+    /// <remarks>
+    /// The exam take-attendance screen shares the attendance roster's UI and had the same defect:
+    /// no totals on the wire, so the app counted the rows it had loaded and reported that as the
+    /// class's progress. One grouped round-trip; at most a handful of rows come back.
+    /// </remarks>
+    Task<IReadOnlyDictionary<ObligationStatus, int>> GetObligationStatusCountsAsync(
+        long teacherId, long occurrenceId, string? search);
+
+    /// <summary>
     /// Builds the Grade Entry View query — only obligations awaiting grade entry.
     /// REQ-EXH-026-A: Filters to Status IN (Attended, DoneWithoutGrade), backed by
     /// the filtered index IX_StudentAssignmentObligations_PendingGrades.

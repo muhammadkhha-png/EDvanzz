@@ -392,6 +392,152 @@ public class SessionRepo : GenericRepo<Session, long>, ISessionRepo
     }
 
     /// <inheritdoc />
+    public async Task<int> PropagateSessionNameAsync(
+        long teacherId, long sessionId, string newName)
+    {
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // THE ONE PLACE THAT KNOWS WHICH TABLES KEEP A COPY OF A SESSION'S NAME.
+        //
+        // Adding a new denormalized session-name column means adding a statement HERE. Nothing
+        // else will catch it: every read site is a plain column read by design, so a column that
+        // is never propagated simply shows an out-of-date name forever, silently.
+        // scripts/check-session-name-propagation.sh guards the CALL SITE, not this list.
+        //
+        // These copies exist for exactly one reason (BR-ATT-005): sessions are HARD-deleted, so a
+        // history row must keep a readable name after its session is gone. Keeping them in step
+        // while the session still EXISTS does not weaken that — on delete `SessionId` is NULLed
+        // and nothing updates the row again, so the last-known name is what survives.
+        //
+        // Set-based on purpose: `ExecuteUpdateAsync` never materializes an entity, so renaming a
+        // year-old 126-student class is a handful of index seeks rather than loading ~15k rows.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        int rows = 0;
+
+        // IX_AR_TeacherId_SessionId_OccurrenceDate — seek.
+        rows += await _context.AttendanceRecords
+            .Where(r => r.TeacherId == teacherId && r.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.SessionNameAtRecording, newName));
+
+        // "Attended in {class} on Saturday" (REQ-ATT-018). No index on CrossSessionId — a scan of
+        // one teacher's records, on an operation that happens a handful of times per session.
+        rows += await _context.AttendanceRecords
+            .Where(r => r.TeacherId == teacherId && r.CrossSessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.CrossSessionNameAtRecording, newName));
+
+        // IX (SessionId, IsActive) — seek. Unassigned (historical) rows are updated too: they are
+        // still shown on the student's attendance profile.
+        rows += await _context.StudentSessionAssignments
+            .Where(a => a.TeacherId == teacherId && a.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.SessionNameAtAssignment, newName));
+
+        // "Was absent last time in {class}" — one row per student, so the missing index on
+        // LastAbsenceSessionId costs nothing.
+        rows += await _context.StudentAbsenceCounters
+            .Where(c => c.TeacherId == teacherId && c.LastAbsenceSessionId == sessionId)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(c => c.LastAbsenceSessionNameAtRecording, newName));
+
+        // IX (TeacherId, SessionId, PaymentStatus) — seek. Periods are pre-generated one per month
+        // to the session's end date, so this is the leg that never self-healed: on live data 0
+        // stale rows in July, 8 in August, 50 in September, 118 in October and every month after.
+        rows += await _context.PaymentPeriods
+            .Where(p => p.TeacherId == teacherId && p.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(p => p.SessionNameAtGeneration, newName));
+
+        // IX (TeacherId, SessionId, CollectedAt) — seek. IgnoreQueryFilters because
+        // PaymentTransaction carries a global `!IsDeleted` filter: a refunded/corrected collection
+        // is still READ (the refund history joins through it), so skipping it would strand exactly
+        // the rows a teacher goes looking for when money is in question.
+        rows += await _context.PaymentTransactions
+            .IgnoreQueryFilters()
+            .Where(t => t.TeacherId == teacherId && t.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(t => t.SessionNameAtCollection, newName));
+
+        // IX (TeacherId, SessionId) — seek.
+        rows += await _context.StudentDepartures
+            .Where(d => d.TeacherId == teacherId && d.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.SessionNameAtDeparture, newName));
+
+        // Small table; no SessionId index needed.
+        rows += await _context.PaymentForgivenesses
+            .Where(f => f.TeacherId == teacherId && f.SessionId == sessionId)
+            .ExecuteUpdateAsync(s => s.SetProperty(f => f.SessionNameAtForgiveness, newName));
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> ReconcileStoredSessionNamesAsync(
+        int batchSize, int maxBatchesPerTable, CancellationToken cancellationToken = default)
+    {
+        if (batchSize < 1) batchSize = 1;
+        if (maxBatchesPerTable < 1) maxBatchesPerTable = 1;
+
+        // Same eight columns PropagateSessionNameAsync writes, repaired platform-wide instead of
+        // for one session. Raw SQL because this needs `UPDATE TOP (n)` — the batching is the whole
+        // point, and LINQ has no equivalent that keeps the write set bounded.
+        //
+        // The predicates carry an `IS NULL` arm where the column is nullable: `NULL <> 'x'` is
+        // UNKNOWN in SQL, so without it a row that never got a name would be skipped forever.
+        //
+        // Only rows whose session still EXISTS are touched — the join supplies the name. A row
+        // whose session was hard-deleted keeps its copy, which is the case these copies are for.
+        //
+        // None of this can collide with IX_AR_PostDeletion_DuplicateGuard: that unique index is
+        // filtered on `SessionId IS NULL`, and every statement here requires a session to join to.
+        var statements = new[]
+        {
+            "UPDATE TOP ({0}) ar SET ar.[SessionName] = s.[SessionName] FROM [AttendanceRecords] ar " +
+            "INNER JOIN [Sessions] s ON s.[Id] = ar.[SessionId] WHERE ar.[SessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) ar SET ar.[CrossSessionName] = s.[SessionName] FROM [AttendanceRecords] ar " +
+            "INNER JOIN [Sessions] s ON s.[Id] = ar.[CrossSessionId] " +
+            "WHERE ar.[CrossSessionName] IS NULL OR ar.[CrossSessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) a SET a.[SessionName] = s.[SessionName] FROM [StudentSessionAssignments] a " +
+            "INNER JOIN [Sessions] s ON s.[Id] = a.[SessionId] WHERE a.[SessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) c SET c.[LastAbsenceSessionName] = s.[SessionName] FROM [StudentAbsenceCounters] c " +
+            "INNER JOIN [Sessions] s ON s.[Id] = c.[LastAbsenceSessionId] " +
+            "WHERE c.[LastAbsenceSessionName] IS NULL OR c.[LastAbsenceSessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) p SET p.[SessionName] = s.[SessionName] FROM [PaymentPeriods] p " +
+            "INNER JOIN [Sessions] s ON s.[Id] = p.[SessionId] WHERE p.[SessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) t SET t.[SessionName] = s.[SessionName] FROM [PaymentTransactions] t " +
+            "INNER JOIN [Sessions] s ON s.[Id] = t.[SessionId] WHERE t.[SessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) d SET d.[SessionName] = s.[SessionName] FROM [StudentDepartures] d " +
+            "INNER JOIN [Sessions] s ON s.[Id] = d.[SessionId] WHERE d.[SessionName] <> s.[SessionName];",
+
+            "UPDATE TOP ({0}) f SET f.[SessionName] = s.[SessionName] FROM [PaymentForgivenesses] f " +
+            "INNER JOIN [Sessions] s ON s.[Id] = f.[SessionId] " +
+            "WHERE f.[SessionName] IS NULL OR f.[SessionName] <> s.[SessionName];",
+        };
+
+        int repaired = 0;
+        foreach (var template in statements)
+        {
+            // batchSize is an int this method owns — never user input — so formatting it into
+            // TOP() cannot be an injection vector, and TOP does not accept a parameter in every
+            // SQL Server plan shape.
+            string sql = string.Format(template, batchSize);
+            for (int batch = 0; batch < maxBatchesPerTable; batch++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // No ambient transaction: each batch autocommits, so locks are taken and released
+                // incrementally and can never escalate to a table lock held across the whole run.
+                int rows = await _context.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+                repaired += rows;
+                if (rows < batchSize) break; // table is in step
+            }
+        }
+
+        return repaired;
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyDictionary<long, string>> GetGroupNamesByIdsAsync(
         long teacherId, IEnumerable<long> groupIds)
     {

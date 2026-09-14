@@ -329,6 +329,46 @@ public class AttendanceStudentListRequest
 
     /// <summary>Filter to show only unmarked students.</summary>
     public bool UnmarkedOnly { get; set; } = false;
+
+    /// <summary>
+    /// Filter to show only students who ALREADY carry a status on this occurrence — the mirror of
+    /// <see cref="UnmarkedOnly"/>.
+    /// </summary>
+    /// <remarks>
+    /// Added 2026-09-13 with <see cref="AssignedOnly"/> / <see cref="LinkedOnly"/>. The app has been
+    /// sending all three since the take-attendance chips shipped, and nothing bound them: every chip
+    /// except "unmarked" returned the WHOLE list online while the offline snapshot path filtered them
+    /// client-side, so the same chip showed a different set (and a different count) depending on
+    /// connectivity. Defaults keep every existing caller byte-identical.
+    /// </remarks>
+    public bool MarkedOnly { get; set; } = false;
+
+    /// <summary>Filter to students assigned to THIS session (excludes linked-session students).</summary>
+    public bool AssignedOnly { get; set; } = false;
+
+    /// <summary>Filter to students who appear only through a LINKED session.</summary>
+    public bool LinkedOnly { get; set; } = false;
+
+    /// <summary>
+    /// Filter to ONE attendance status — what the Present / Hold / Absent screens open on.
+    /// Null means no status filter (the default; every existing caller is unaffected).
+    /// </summary>
+    /// <remarks>
+    /// <c>Present</c> deliberately matches <c>CrossSessionPresent</c> too, because a visitor from a
+    /// linked class who attended here is recorded as <c>CrossSessionPresent</c>
+    /// (<c>AttendanceService</c>: "cross-session marks are always CrossSessionPresent") and is
+    /// present by every definition a teacher uses. That is the SAME rule the headcounts apply, so a
+    /// card's number and the list it opens can never disagree.
+    ///
+    /// "Remaining" is not a status — it is <see cref="UnmarkedOnly"/>.
+    ///
+    /// Before this existed the app had no way to ask for one status, so the Present / Remaining /
+    /// Hold screens downloaded the roster ten rows at a time until it ran out (capped at 100 pages,
+    /// silently truncating past 1000 students) and filtered in Dart. 402 marked students meant 41
+    /// sequential round-trips before the screen could draw, and for Hold it downloaded every marked
+    /// student to show six.
+    /// </remarks>
+    public AttendanceStatus? Status { get; set; }
 }
 
 /// <summary>
@@ -941,6 +981,64 @@ public class AttendanceStudentListDto : PaginatedResponse<List<AttendanceStudent
     /// </summary>
     [JsonPropertyName("hold_count")]
     public int HoldCount { get; set; }
+
+    // ── Status headcounts (added 2026-09-13) ─────────────────────────────────────────────────
+    // Before these existed this response carried NO present/absent/unmarked totals at all, so the
+    // app counted the ten rows on the page it was holding. On a 119-student class that made the
+    // "Attendance saved" screen read Remaining 0 with six students still unmarked, and the filter
+    // badges read 0 / 10 against a real 402 / 145.
+    //
+    // Two populations, because a linked family of sessions has two honest answers (see
+    // AttendanceStatusTallies): the unprefixed counts describe the WHOLE list the chips open, the
+    // assigned_* ones describe only THIS session's register — what "am I done?" means. Both are
+    // measured on the searched set BEFORE any chip filter, exactly like assigned_count.
+    //
+    // Additive: an older app ignores them and keeps deriving from the page; a newer app against an
+    // older server reads zeros and falls back to the same derivation. Neither breaks.
+
+    [JsonPropertyName("present_count")]
+    public int PresentCount { get; set; }
+
+    [JsonPropertyName("absent_count")]
+    public int AbsentCount { get; set; }
+
+    [JsonPropertyName("unmarked_count")]
+    public int UnmarkedCount { get; set; }
+
+    /// <summary>Present (incl. cross-session) among students assigned to THIS session.</summary>
+    [JsonPropertyName("assigned_present_count")]
+    public int AssignedPresentCount { get; set; }
+
+    /// <summary>Absent among students assigned to THIS session.</summary>
+    [JsonPropertyName("assigned_absent_count")]
+    public int AssignedAbsentCount { get; set; }
+
+    /// <summary>Held among students assigned to THIS session.</summary>
+    [JsonPropertyName("assigned_hold_count")]
+    public int AssignedHoldCount { get; set; }
+
+    /// <summary>Still unmarked among students assigned to THIS session — the register's "left to do".</summary>
+    [JsonPropertyName("assigned_unmarked_count")]
+    public int AssignedUnmarkedCount { get; set; }
+
+    // ── Visitors from the linked classes ─────────────────────────────────────────────────────
+    // The other half of the same grouping. Sent rather than left to be derived: a client that
+    // subtracts assigned_* from the plain total is exact today and silently wrong the first time
+    // the two are measured on different sets. These label the "from other classes" chip on the
+    // Present / Hold screens. A visitor can only be Present or Held here — a cross-session mark is
+    // forced to CrossSessionPresent, so "absent" is unreachable for them.
+
+    [JsonPropertyName("linked_present_count")]
+    public int LinkedPresentCount { get; set; }
+
+    [JsonPropertyName("linked_absent_count")]
+    public int LinkedAbsentCount { get; set; }
+
+    [JsonPropertyName("linked_hold_count")]
+    public int LinkedHoldCount { get; set; }
+
+    [JsonPropertyName("linked_unmarked_count")]
+    public int LinkedUnmarkedCount { get; set; }
 
     /// <summary>
     /// Whether this teacher has the attendance-history alert enabled

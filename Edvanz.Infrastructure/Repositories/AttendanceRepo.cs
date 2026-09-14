@@ -1,4 +1,4 @@
-﻿using Edvanz.Domain.Constants;
+using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
@@ -824,12 +824,13 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     public async Task<(DateTime? LastAbsenceDate, string? LastAbsenceSessionName, long? LastAbsenceSessionId, DateTime? LastAttendanceDate)>
         GetLastAbsenceAndAttendanceAsync(long teacherStudentId)
     {
-        // AttendanceRecord carries the session name/id denormalized, so no join is needed.
+        // AttendanceRecord carries the session name/id denormalized, so no join is needed — the
+        // name is kept in step by ISessionRepo.PropagateSessionNameAsync when the class is renamed.
         var lastAbsence = await _context.AttendanceRecords
             .Where(r => r.TeacherStudentId == teacherStudentId
                 && r.Status == AttendanceStatus.Absent)
             .OrderByDescending(r => r.OccurrenceDate)
-            .Select(r => new { r.OccurrenceDate, r.SessionName, r.SessionId })
+            .Select(r => new { r.OccurrenceDate, SessionName = r.SessionNameAtRecording, r.SessionId })
             .FirstOrDefaultAsync();
 
         var lastAttendanceDate = await _context.AttendanceRecords
@@ -1161,12 +1162,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     // ══════════════════════════════════════════════
 
     /// <inheritdoc />
-    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount)>
+    public async Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount, AttendanceStatusTallies Tallies)>
         GetPagedAttendanceStudentListAsync(
             long teacherId, long sessionId, DateTime occurrenceDate,
             IEnumerable<long> linkedSessionIds,
             string? search, bool unmarkedOnly,
-            int page, int pageSize)
+            int page, int pageSize,
+            bool markedOnly = false, bool assignedOnly = false, bool linkedOnly = false,
+            AttendanceStatus? status = null)
     {
         var linkedIds = linkedSessionIds.ToList();
 
@@ -1194,17 +1197,26 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 StudentName = a.TeacherStudent != null ? a.TeacherStudent.StudentName : "Unknown",
                 StudentCode = a.TeacherStudent != null ? a.TeacherStudent.StudentCode : "",
                 AssignedSessionId = a.SessionId,
-                AssignedSessionName = a.SessionName,
+                // The assignment's own copy IS the class's name: a rename rewrites it through
+                // ISessionRepo.PropagateSessionNameAsync, and it is the only name left once the
+                // session is hard-deleted (BR-ATT-005). No join, on a query that runs per page.
+                AssignedSessionName = a.SessionNameAtAssignment,
                 IsFromLinkedSession = a.SessionId != sessionId,
                 // Match against the equivalent-slot occurrence set. The guard lives INSIDE the subquery
                 // WHERE as a typed `Contains` over a C# list — an empty list compiles to `IN ()` /
                 // no-match, never an untyped NULL constant in the SQL tree (preserving the BUG-7 fix
                 // for dates with no occurrence). Do NOT hoist to `list.Any() ? subquery : null`.
-                AttendanceRecord = _context.AttendanceRecords
+                //
+                // A nullable SCALAR, not a sub-object: EF re-inlines a projected member every time it
+                // is referenced, and the status is referenced by the tally below as well as the page.
+                // As an object it needed TWO correlated subqueries per reference (one EXISTS for the
+                // null check, one TOP(1) for the value) and the tally alone emitted fourteen of them.
+                // A typed `(AttendanceStatus?)` scalar is one subquery, and `== null` reads the same.
+                RecordStatus = _context.AttendanceRecords
                     .Where(r => r.TeacherStudentId == a.TeacherStudentId
                         && r.SessionOccurrenceId.HasValue
                         && equivalentOccurrenceIds.Contains(r.SessionOccurrenceId.Value))
-                    .Select(r => new { r.Status })
+                    .Select(r => (AttendanceStatus?)r.Status)
                     .FirstOrDefault(),
                 Counter = _context.StudentAbsenceCounters
                     .Where(c => c.TeacherId == teacherId
@@ -1214,7 +1226,11 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                         c.ConsecutiveAbsences,
                         c.TotalAbsences,
                         c.LastAbsenceDate,
-                        c.LastAbsenceSessionName
+                        // "Was absent last time in {class}" — kept current by the rename, so this is
+                        // a plain column. It used to resolve through a correlated Sessions subquery
+                        // INSIDE the ROW_NUMBER window below, which made every roster page pay for a
+                        // lookup per counter row across the teacher's whole counter table.
+                        LastAbsenceSessionName = c.LastAbsenceSessionNameAtRecording
                     })
                     .FirstOrDefault()
             });
@@ -1234,22 +1250,110 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
                 || EF.Functions.Like(DbSearch.ArabicNormalize(r.StudentCode), pattern));
         }
 
+        // Every label on this screen is measured here, on the search-filtered set but BEFORE any chip
+        // filter: selecting a chip must not renumber the chips, or the teacher could never see what
+        // the OTHER chips hold while one is active.
+        //
+        // TWO populations, deliberately, because a linked family of sessions has two honest answers.
+        // The LIST is this session plus every linked one (one tutor's 19:00 class shows 547 people:
+        // 119 of his own and 428 who may visit from the 10:00/12:00/14:00 classes). The chip badges
+        // must describe the list they open — but "am I done?" is about his own REGISTER, the 119.
+        // On one live class day the list read 402 marked of 547 while his own register was 91 of 119,
+        // because 311 of those marks were made in the three earlier classes. Reporting either number
+        // for the other question is how a register looks finished when it is not.
+        //   • plain counts  → the whole searched list (chip badges)
+        //   • assigned*     → students assigned to THIS session (progress + the saved screen)
+        //
+        // ONE round-trip for all nine numbers, and a small statement: grouping by
+        // (is-it-mine, status) yields at most ten rows and mentions the record subquery TWICE,
+        // where nine separate `Count(predicate)` aggregates re-inlined it fourteen times. It also
+        // replaces the four CountAsync calls this method used to make, so it is cheaper than what
+        // it succeeds. No `Count(predicate)` at all means BUG-16 cannot apply here by construction.
+        // "Present" means BOTH here and in the filter below: a visitor from a linked class who
+        // attended is recorded as CrossSessionPresent, and is present by every definition a teacher
+        // uses. These two must never drift — they are the count and the list of the same thing.
+        AttendanceStatus?[] PresentStatuses =
+            [AttendanceStatus.Present, AttendanceStatus.CrossSessionPresent];
+
+        var buckets = await rowQuery
+            .GroupBy(r => new { IsMine = !r.IsFromLinkedSession, r.RecordStatus })
+            .Select(g => new { g.Key.IsMine, g.Key.RecordStatus, Count = g.Count() })
+            .ToListAsync();
+
+        static bool IsPresent(AttendanceStatus? s) =>
+            s == AttendanceStatus.Present || s == AttendanceStatus.CrossSessionPresent;
+
+        int Tally(Func<bool, AttendanceStatus?, bool> predicate) =>
+            buckets.Where(b => predicate(b.IsMine, b.RecordStatus)).Sum(b => b.Count);
+
+        int searchedCount = buckets.Sum(b => b.Count);
+        int assignedCount = Tally((mine, _) => mine);
+        int notAssignedCount = searchedCount - assignedCount;
+        int holdCount = Tally((_, status) => status == AttendanceStatus.Held);
+        var statusTallies = new AttendanceStatusTallies
+        {
+            PresentCount = Tally((_, status) => IsPresent(status)),
+            AbsentCount = Tally((_, status) => status == AttendanceStatus.Absent),
+            HeldCount = holdCount,
+            UnmarkedCount = Tally((_, status) => status is null),
+            AssignedPresentCount = Tally((mine, s) => mine && IsPresent(s)),
+            AssignedAbsentCount = Tally((mine, s) => mine && s == AttendanceStatus.Absent),
+            AssignedHeldCount = Tally((mine, s) => mine && s == AttendanceStatus.Held),
+            AssignedUnmarkedCount = Tally((mine, s) => mine && s is null),
+            // The other half of the SAME grouping — visitors from the linked classes. Surfaced
+            // rather than left to be derived, so no screen subtracts one server number from
+            // another to label a chip.
+            LinkedPresentCount = Tally((mine, s) => !mine && IsPresent(s)),
+            LinkedAbsentCount = Tally((mine, s) => !mine && s == AttendanceStatus.Absent),
+            LinkedHeldCount = Tally((mine, s) => !mine && s == AttendanceStatus.Held),
+            LinkedUnmarkedCount = Tally((mine, s) => !mine && s is null),
+        };
+
+        // Chip filters — these narrow the PAGE and totalCount. Mutually exclusive on the client (one
+        // chip at a time); applied independently here so an odd combination still returns a coherent
+        // (possibly empty) set rather than 400ing a deployed build.
         if (unmarkedOnly)
         {
-            rowQuery = rowQuery.Where(r => r.AttendanceRecord == null);
+            rowQuery = rowQuery.Where(r => r.RecordStatus == null);
+        }
+
+        if (markedOnly)
+        {
+            rowQuery = rowQuery.Where(r => r.RecordStatus != null);
+        }
+
+        if (assignedOnly)
+        {
+            rowQuery = rowQuery.Where(r => !r.IsFromLinkedSession);
+        }
+
+        if (linkedOnly)
+        {
+            rowQuery = rowQuery.Where(r => r.IsFromLinkedSession);
+        }
+
+        // ONE status — what the Present / Hold / Absent screens open on.
+        //
+        // `Present` must also match `CrossSessionPresent`, and this expression must stay the
+        // literal twin of `IsPresent` above. They are the count and the list of the same thing: if
+        // they ever drift, a card says 91 and opens 90 rows, which is the whole defect class this
+        // endpoint exists to avoid (BUG-17, BUG-23). Written inline rather than through the local
+        // function because that one runs in memory over the grouped buckets and cannot be
+        // translated to SQL.
+        if (status is AttendanceStatus.Present)
+        {
+            // `Contains` on purpose, not `a == x || a == y`. The status is a correlated subquery in
+            // the projection, and EF re-inlines a projected member per REFERENCE — the OR form
+            // emitted that subquery twice per row. The IN form references it once. Same rows, half
+            // the work, and it stays the literal twin of `IsPresent` above.
+            rowQuery = rowQuery.Where(r => PresentStatuses.Contains(r.RecordStatus));
+        }
+        else if (status is not null)
+        {
+            rowQuery = rowQuery.Where(r => r.RecordStatus == status);
         }
 
         int totalCount = await rowQuery.CountAsync();
-
-        // assigned_count = students belonging to THIS session; not_assigned_count = students shown
-        // from linked sessions. They split the (filtered) result set and sum to totalCount.
-        int assignedCount = await rowQuery.CountAsync(r => !r.IsFromLinkedSession);
-        int notAssignedCount = totalCount - assignedCount;
-
-        // hold_count = students whose CURRENT status on this occurrence is Held (REQ-ATT-061), across
-        // the whole filtered set (not just the returned page) — same scope as assigned/not-assigned.
-        int holdCount = await rowQuery.CountAsync(
-            r => r.AttendanceRecord != null && r.AttendanceRecord.Status == AttendanceStatus.Held);
 
         // When searching by an exact student code (barcode/manual-scan lookup), rank the EXACT
         // StudentCode match FIRST — otherwise a short code like "8A" is a substring of "18A/28A/108A…"
@@ -1257,8 +1361,14 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
         // scanner loads → a real, in-session student wrongly reads as "not found in this session".
         var pagedResults = await rowQuery
             .OrderBy(r => trimmedSearch != null && r.StudentCode == trimmedSearch ? 0 : 1)
-            .ThenBy(r => r.AttendanceRecord != null ? 1 : 0)
+            .ThenBy(r => r.RecordStatus != null ? 1 : 0)
             .ThenBy(r => r.StudentName)
+            // Unique tiebreaker. Two students sharing a name leave SQL Server free to order the tie
+            // differently per page, and the offline hydrator walks this list six pages deep for a
+            // 547-row linked roster — a reshuffled tie there repeats one student and DROPS another
+            // from the downloaded snapshot, which then reads as a student who "isn't in the class".
+            // The exam roster (ExamHomeworkRepo.GetTrackingViewPagedAsync) already does this.
+            .ThenBy(r => r.TeacherStudentId)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync();
@@ -1272,15 +1382,15 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
             SessionName = r.AssignedSessionName,
             IsFromLinkedSession = r.IsFromLinkedSession,
             SourceSessionName = r.IsFromLinkedSession ? r.AssignedSessionName : null,
-            IsMarked = r.AttendanceRecord != null,
-            CurrentStatus = r.AttendanceRecord != null ? r.AttendanceRecord.Status : null,
+            IsMarked = r.RecordStatus != null,
+            CurrentStatus = r.RecordStatus,
             ConsecutiveAbsences = r.Counter?.ConsecutiveAbsences ?? 0,
             TotalAbsences = r.Counter?.TotalAbsences ?? 0,
             LastAbsenceDate = r.Counter?.LastAbsenceDate,
             LastAbsenceSessionName = r.Counter?.LastAbsenceSessionName
         }).ToList();
 
-        return (items, totalCount, assignedCount, notAssignedCount, holdCount);
+        return (items, totalCount, assignedCount, notAssignedCount, holdCount, statusTallies);
     }
 
     // ══════════════════════════════════════════════

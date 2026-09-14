@@ -1,4 +1,4 @@
-﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
@@ -253,7 +253,7 @@ public class PaymentService : IPaymentService
                     Transaction = null,
                     IsSameDayDuplicate = true,
                     TodayPaidAmount = todayTotal,
-                    TodayPaidSessionName = mostRecent.SessionName,
+                    TodayPaidSessionName = mostRecent.SessionNameAtCollection,
                     TodayPaidByName = paidByName,
                     TodayPaidMonthLabel = monthLabel
                 };
@@ -385,7 +385,7 @@ public class PaymentService : IPaymentService
                 CollectedByUserId = dto.CollectedByUserId,
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
-                SessionName = session.SessionName,
+                SessionNameAtCollection = session.SessionName,
                 CollectedAt = now,
                 // LocalCollectedAt is the teacher-LOCAL wall-clock of collection (stored as-is,
                 // displayed raw by the client). Use the teacher-local NOW — the old
@@ -576,7 +576,8 @@ public class PaymentService : IPaymentService
         {
             HasSameDayPayment = sameDayTransactions.Count > 0,
             TodayPaidAmount = sameDayTransactions.Sum(t => t.AmountPaid),
-            TodayPaidPeriodLabel = sameDayTransactions.FirstOrDefault()?.SessionName,
+            TodayPaidPeriodLabel =
+                sameDayTransactions.FirstOrDefault()?.SessionNameAtCollection,
             IsCurrentPeriodPaid = period is null,
             CurrentPeriodLabel = period is not null ? FormatPeriodLabel(period) : null
         }, _localizer, PaymentConstants.Messages.Success);
@@ -876,7 +877,7 @@ public class PaymentService : IPaymentService
             Departures = departures.Select(d => new StudentDepartureDto
             {
                 Id = d.Id,
-                SessionName = d.SessionName,
+                SessionName = d.SessionNameAtDeparture,
                 StudentName = d.StudentName,
                 PaymentStatusAtDeparture = d.PaymentStatusAtDeparture,
                 TotalOccurrencesInPeriod = d.TotalOccurrencesInPeriod,
@@ -1735,7 +1736,7 @@ public class PaymentService : IPaymentService
                     IsProRated = false,
                     ProRatedFraction = 1.0m,
                     PeriodSequence = sequence++,
-                    SessionName = session.SessionName,
+                    SessionNameAtGeneration = session.SessionName,
                     StudentName = student?.StudentName ?? string.Empty,
                     StudentCode = student?.StudentCode ?? string.Empty,
                     CreateAt = DateTime.UtcNow
@@ -2883,7 +2884,7 @@ public class PaymentService : IPaymentService
                 TeacherId = dto.TeacherId,
                 TeacherStudentId = dto.TeacherStudentId,
                 SessionId = dto.SessionId,
-                SessionName = summary.SessionName,
+                SessionNameAtDeparture = summary.SessionName,
                 StudentName = summary.StudentName,
                 StudentCode = summary.StudentCode,
                 PaymentStatusAtDeparture = summary.PaymentStatusAtDeparture,
@@ -2995,7 +2996,7 @@ public class PaymentService : IPaymentService
             return Result<StudentDepartureDto>.Success(new StudentDepartureDto
             {
                 Id = departure.Id,
-                SessionName = departure.SessionName,
+                SessionName = departure.SessionNameAtDeparture,
                 StudentName = departure.StudentName,
                 PaymentStatusAtDeparture = departure.PaymentStatusAtDeparture,
                 TotalOccurrencesInPeriod = departure.TotalOccurrencesInPeriod,
@@ -3234,7 +3235,7 @@ public class PaymentService : IPaymentService
                     PeriodSequence = 0, // Carried-forward appears before regular periods
                     IsCarriedForward = true,
                     OriginSessionName = summary.SourceSessionName,
-                    SessionName = summary.DestinationSessionName,
+                    SessionNameAtGeneration = summary.DestinationSessionName,
                     CreateAt = DateTime.UtcNow
                 };
                 await _unitOfWork.PaymentsRepo.AddPaymentPeriodAsync(carriedPeriod);
@@ -3554,7 +3555,7 @@ public class PaymentService : IPaymentService
     /// exactly what it is denormalized for.
     /// </summary>
     private static string DisplaySessionName(PaymentPeriod p) =>
-        p.Session?.SessionName ?? p.SessionName;
+        p.Session?.SessionName ?? p.SessionNameAtGeneration;
 
     /// <summary>Maps a period to a tracking-screen row with explicitly-named amounts.</summary>
     private static StudentPaymentPeriodDto BuildTrackingRow(
@@ -3709,7 +3710,7 @@ public class PaymentService : IPaymentService
                 else
                 {
                     p.SessionId = sessionId;
-                    p.SessionName = sessionName;
+                    p.SessionNameAtGeneration = sessionName;
                     p.IsCarriedForward = true;
                     // Re-price to the new session's amount; a never-paid first-month anchor keeps its
                     // enrollment-priced proration fraction — see RepriceCarriedPeriod.
@@ -3846,7 +3847,7 @@ public class PaymentService : IPaymentService
             .ToList();
         string effectiveFromName = !string.IsNullOrWhiteSpace(fromSessionName)
             ? fromSessionName
-            : (fromPeriods.FirstOrDefault()?.SessionName ?? string.Empty);
+            : (fromPeriods.FirstOrDefault()?.SessionNameAtGeneration ?? string.Empty);
 
         // Per-session source (or a per-session destination) can't use the monthly arrears-move plan below.
         bool anyPerSessionSource = fromPeriods.Any(p => p.PeriodType != PeriodType.Monthly);
@@ -4101,7 +4102,7 @@ public class PaymentService : IPaymentService
         foreach (var p in plan.UnpaidDueToMove)
         {
             p.SessionId = toSessionId;
-            p.SessionName = toSessionName;
+            p.SessionNameAtGeneration = toSessionName;
             p.MovedFromSessionId = fromSessionId;
             p.MovedFromSessionName = fromSessionName;
             p.OriginSessionName ??= fromSessionName; // keep the legacy display field populated too
@@ -4144,7 +4145,7 @@ public class PaymentService : IPaymentService
                 MovedFromSessionId = fromSessionId,
                 MovedFromSessionName = fromSessionName,
                 OriginSessionName = fromSessionName,
-                SessionName = toSessionName,
+                SessionNameAtGeneration = toSessionName,
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
                 CreateAt = DateTime.UtcNow
@@ -4352,7 +4353,7 @@ public class PaymentService : IPaymentService
                     ProrationClassesTotal = isAnchorMonth ? anchorClassesTotal : null,
                     ProrationClassesBilled = isAnchorMonth ? anchorClassesBilled : null,
                     PeriodSequence = sequence++,
-                    SessionName = sessionName,
+                    SessionNameAtGeneration = sessionName,
                     StudentName = student.StudentName,
                     StudentCode = student.StudentCode,
                     CreateAt = DateTime.UtcNow
@@ -4387,7 +4388,7 @@ public class PaymentService : IPaymentService
                     AmountDue = baseAmount,
                     PaymentStatus = PaymentStatus.Unpaid,
                     PeriodSequence = sequence++,
-                    SessionName = sessionName,
+                    SessionNameAtGeneration = sessionName,
                     StudentName = student.StudentName,
                     StudentCode = student.StudentCode,
                     CreateAt = DateTime.UtcNow
@@ -4532,7 +4533,7 @@ public class PaymentService : IPaymentService
                     var fromSession = await _unitOfWork.SessionsRepo
                         .GetByIdAndTeacherAsync(fromSessionId, candidate.TeacherId);
                     string fromName = fromSession?.SessionName
-                        ?? fromPeriods.FirstOrDefault()?.SessionName ?? string.Empty;
+                        ?? fromPeriods.FirstOrDefault()?.SessionNameAtGeneration ?? string.Empty;
 
                     var plan = BuildCarryOverPlan(fromPeriods, currentMonthEnd, destExistingMonths);
 
@@ -4700,7 +4701,7 @@ public class PaymentService : IPaymentService
             StudentName = fromPeriod.StudentName,
             StudentCode = fromPeriod.StudentCode,
             SessionId = fromPeriod.SessionId,
-            SessionName = fromPeriod.SessionName,
+            SessionName = fromPeriod.SessionNameAtGeneration,
             TargetMonth = $"{targetStart.Year:D4}-{targetStart.Month:D2}",
             TargetMonthLabel = targetStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
             TargetAmountDue = monthlyRate,
@@ -4750,7 +4751,7 @@ public class PaymentService : IPaymentService
                 IsProRated = false,
                 ProRatedFraction = 1.0m,
                 PeriodSequence = targetSequence,
-                SessionName = fromPeriod.SessionName,
+                SessionNameAtGeneration = fromPeriod.SessionNameAtGeneration,
                 StudentName = fromPeriod.StudentName,
                 StudentCode = fromPeriod.StudentCode,
                 CreateAt = DateTime.UtcNow
@@ -5032,7 +5033,7 @@ public class PaymentService : IPaymentService
                 var empties = members.Where(p => !CarriesMeaning(p)).ToList();
 
                 string monthLabel = g.Key.Month.ToString("MMMM yyyy", CultureInfo.InvariantCulture);
-                string label = $"{monthLabel} — {members[0].SessionName ?? $"session {g.Key.SessionId}"}";
+                string label = $"{monthLabel} — {members[0].SessionNameAtGeneration ?? $"session {g.Key.SessionId}"}";
 
                 if (meaningful.Count > 1)
                 {
@@ -5419,7 +5420,7 @@ public class PaymentService : IPaymentService
             .Select(g =>
             {
                 var members = g.ToList();
-                string fromName = members[0].SessionName;
+                string fromName = members[0].SessionNameAtGeneration;
                 // NEVER-PAID FIRST-MONTH-MOVE PRORATION PRESERVATION: when a month collapses to a SINGLE
                 // never-paid monthly proration anchor, carry its proration (fraction + anchor flag) onto the
                 // pending debt so a later reassignment (DB2a fold-in in OnStudentAssignedToSessionAsync) can
@@ -5446,7 +5447,7 @@ public class PaymentService : IPaymentService
                     IsCarriedForward = true,
                     MovedFromSessionName = fromName,
                     OriginSessionName = fromName,
-                    SessionName = fromName,
+                    SessionNameAtGeneration = fromName,
                     StudentName = members[0].StudentName,
                     StudentCode = members[0].StudentCode,
                     CreateAt = DateTime.UtcNow
@@ -5866,7 +5867,7 @@ public class PaymentService : IPaymentService
         TeacherStudentId = t.TeacherStudentId,
         StudentName = t.StudentName,
         StudentCode = t.StudentCode,
-        SessionName = t.SessionName,
+        SessionName = t.SessionNameAtCollection,
         SessionId = t.SessionId,
         AmountDue = t.AmountDue,
         AmountPaid = t.AmountPaid,

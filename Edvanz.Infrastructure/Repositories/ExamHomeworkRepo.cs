@@ -447,6 +447,34 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<ObligationStatus, int>> GetObligationStatusCountsAsync(
+        long teacherId, long occurrenceId, string? search)
+    {
+        // Same population the roster page projects through: BUG-8/BUG-17 — count what the list can
+        // actually render, or the totals promise students the rows will never show.
+        var query = _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId && o.OccurrenceId == occurrenceId)
+            .Where(o => o.TeacherStudent != null);
+
+        // SEARCH only. The grade chips (graded / not graded) deliberately do NOT narrow these —
+        // a chip measured on its own filter can never be un-selected from its own label.
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
+            query = query.Where(o =>
+                EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentName), pattern)
+                || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentCode), pattern));
+        }
+
+        var rows = await query
+            .GroupBy(o => o.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.Status, r => r.Count);
+    }
+
+    /// <inheritdoc />
     /// Hot-path query — projects directly to TrackingViewRow without materializing
     /// the full obligation graph. Backed by IX_StudentAssignmentObligations_Tracking
     /// (covering index, Section 7.2 index #1). Drives REQ-EXH-NFR-001 (&lt; 2 seconds).
@@ -479,10 +507,16 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
             // screen's chips agree.
             .Where(o => o.TeacherStudent != null);
 
+        // Trimmed exact search term (null when no search) — used both for the substring filter and to
+        // rank an EXACT StudentCode match first (see the ordering below). The Arabic fold is for the
+        // substring match only; the exact ranking stays a code-point comparison like the attendance
+        // roster's, so a scanned barcode matches the stored code and nothing else.
+        string? trimmedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+
         // REQ-EXH-031 — search by name or code.
-        if (!string.IsNullOrWhiteSpace(search))
+        if (trimmedSearch is not null)
         {
-            string pattern = $"%{ArabicTextNormalizer.Normalize(search.Trim())}%";
+            string pattern = $"%{ArabicTextNormalizer.Normalize(trimmedSearch)}%";
             query = query.Where(o =>
                 EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentName), pattern)
                 || EF.Functions.Like(DbSearch.ArabicNormalize(o.TeacherStudent.StudentCode), pattern));
@@ -531,9 +565,16 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
 
         // Project to TrackingViewRow inside SQL — avoids materializing entities.
         var items = await query
+            // Rank an EXACT StudentCode match first (barcode/manual scan). The exam scanner searches
+            // this list and then requires an exact code on the FIRST page it loads (10 rows): a short
+            // code like "8B" is a substring of "18B/128B/158B…", so by name alone the student it
+            // actually belongs to sorts 11th and the scan reads "الطالب غير موجود" for a student who
+            // is right there. Mirrors AttendanceRepo.GetPagedAttendanceStudentListAsync, which has
+            // ranked this way since the same bug was found on the attendance roster.
+            .OrderBy(o => trimmedSearch != null && o.TeacherStudent.StudentCode == trimmedSearch ? 0 : 1)
             // Student names repeat in a large roster; without a unique tiebreaker SQL Server is free
             // to order ties differently per page, which repeats some students and skips others.
-            .OrderBy(o => o.TeacherStudent.StudentName)
+            .ThenBy(o => o.TeacherStudent.StudentName)
             .ThenBy(o => o.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)

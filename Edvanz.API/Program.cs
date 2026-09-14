@@ -780,6 +780,32 @@ for (int attempt = 1; ; attempt++)
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
             });
 
+        // ── Session-name reconcile ──
+        // Repairs stored session names that drifted from Sessions.SessionName. Eight tables keep a
+        // copy so a name survives a session HARD delete (BR-ATT-005), and every screen reads those
+        // columns directly; ISessionRepo.PropagateSessionNameAsync keeps them current at the
+        // rename, but cannot repair rows that went stale before it shipped — nothing else ever
+        // rewrites them, so that backlog grew every month. Left running it is also the net that
+        // catches drift if a future column is ever added and not propagated.
+        //
+        // A JOB, NOT A MIGRATION, on purpose: migrations are applied by azure/sql-action BEFORE the
+        // app is swapped in, so the live app is serving teachers while they run. An unbounded
+        // repair there escalates to a TABLE lock on AttendanceRecords held until the migration
+        // commits, and its runtime counts against one command timeout. Here it runs after the app
+        // is up, in autocommitting batches, and an unfinished run resumes tomorrow.
+        //
+        // 03:30 Africa/Cairo — after the auto-absent sweep (02:30) and the recycle-bin purge
+        // (03:00), well clear of any class. Idempotent (§6.4): guarded on the name actually
+        // differing, so a steady-state run writes nothing.
+        RecurringJob.AddOrUpdate<SessionNameReconcileJob>(
+            recurringJobId: "session-name-reconcile",
+            methodCall: job => job.RunAsync(),
+            cronExpression: "30 3 * * *",
+            options: new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Cairo"),
+            });
+
         // assistant-cleanup runs every 10 minutes so a teacher-deleted (soft-deleted)
         // assistant is purged promptly — freeing its username/phone for reuse shortly
         // after deletion. Each purge is a small, isolated transaction (see the job), so

@@ -83,7 +83,13 @@ public class StudentAbsenceCounter : BaseEntity
     /// Session name where the last absence occurred.
     /// REQ-ATT-060: Cross-session absence alert identifies the linked session by name.
     /// </summary>
-    public string? LastAbsenceSessionName { get; set; }
+    /// <remarks>
+    /// Kept in step by <see cref="Edvanz.Domain.Interfaces.ISessionRepo.PropagateSessionNameAsync"/>
+    /// when the session is renamed — keyed on <c>LastAbsenceSessionId</c>, so a rename to EITHER side of a linked
+    /// pair reaches it. Read it directly; it is the only name left once the session is
+    /// hard-deleted (BR-ATT-005). CLAUDE.md §7.10.
+    /// </remarks>
+    public string? LastAbsenceSessionNameAtRecording { get; set; }
 
     /// <summary>
     /// Session Id where the last absence occurred.

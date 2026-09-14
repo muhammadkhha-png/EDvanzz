@@ -230,5 +230,15 @@ public class ExamSessionRosterDto
     public DateTime Date { get; set; }
     public decimal? MaxGrade { get; set; }
     public decimal? SuccessScore { get; set; }
+
+    // ── Status headcounts (added 2026-09-13) ─────────────────────────────────────────────────
+    // The exam take-attendance screen reuses the attendance roster's UI and had the same defect:
+    // no totals on the wire, so the app counted the rows it had loaded (30 at a time) and showed
+    // that as the class's progress. Measured on the SEARCH-filtered set only — never the grade
+    // chips, so selecting a chip cannot renumber it. Additive: an older app ignores them.
+    public int PresentCount { get; set; }
+    public int AbsentCount { get; set; }
+    public int UnmarkedCount { get; set; }
+
     public PaginatedResponse<List<ExamStudentRowDto>> Students { get; set; } = null!;
 }

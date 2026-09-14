@@ -688,6 +688,16 @@ public class ExamService : IExamService
             RowVersion = Convert.ToBase64String(r.ObligationRowVersion),
         }).ToList();
 
+        // Whole-roster headcounts. Without these the app counted the page it was holding, so a
+        // 30-student page reported the progress of a 138-student class.
+        var statusCounts = await _unitOfWork.ExamHomeworkRepo
+            .GetObligationStatusCountsAsync(teacherId, occ.OccurrenceId, search);
+        int Count(ObligationStatus status) =>
+            statusCounts.TryGetValue(status, out int value) ? value : 0;
+        int presentCount = Count(ObligationStatus.Attended) + Count(ObligationStatus.AttendedWithGrade);
+        int absentCount = Count(ObligationStatus.DidNotAttend);
+        int unmarkedCount = statusCounts.Sum(kv => kv.Value) - presentCount - absentCount;
+
         var dto = new ExamSessionRosterDto
         {
             ExamId = examId,
@@ -697,6 +707,9 @@ public class ExamService : IExamService
             Date = occ.DueDate,
             MaxGrade = occ.MaxGradeSnapshot,
             SuccessScore = occ.PassingThresholdSnapshot,
+            PresentCount = presentCount,
+            AbsentCount = absentCount,
+            UnmarkedCount = unmarkedCount,
             Students = new PaginatedResponse<List<ExamStudentRowDto>>
             {
                 data = students,

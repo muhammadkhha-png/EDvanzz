@@ -587,12 +587,20 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// across the whole filtered set, not just the page). Soft-deleted students are excluded
     /// (no more "Unknown" rows). Each row also carries the student's absence-counter snapshot
     /// (ConsecutiveAbsences / TotalAbsences / LastAbsenceDate / LastAbsenceSessionName).
+    ///
+    /// The four chip filters (<paramref name="unmarkedOnly"/> / <paramref name="markedOnly"/> /
+    /// <paramref name="assignedOnly"/> / <paramref name="linkedOnly"/>) narrow the PAGE and
+    /// TotalCount. AssignedCount / NotAssignedCount / HoldCount are the chip LABELS and are
+    /// deliberately measured on the search-filtered set BEFORE any chip filter — a chip that
+    /// renumbered itself the moment it was selected could never be un-selected from its own label.
     /// </summary>
-    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount)> GetPagedAttendanceStudentListAsync(
+    Task<(IReadOnlyList<PagedAttendanceStudentRow> Items, int TotalCount, int AssignedCount, int NotAssignedCount, int HoldCount, AttendanceStatusTallies Tallies)> GetPagedAttendanceStudentListAsync(
         long teacherId, long sessionId, DateTime occurrenceDate,
         IEnumerable<long> linkedSessionIds,
         string? search, bool unmarkedOnly,
-        int page, int pageSize);
+        int page, int pageSize,
+        bool markedOnly = false, bool assignedOnly = false, bool linkedOnly = false,
+        AttendanceStatus? status = null);
 
     // ══════════════════════════════════════════════
     // V2 AUDIT FIX — NEW BATCH METHODS
@@ -738,5 +746,50 @@ public class PagedAttendanceStudentRow
     public int TotalAbsences { get; set; }
     public DateTime? LastAbsenceDate { get; set; }
     public string? LastAbsenceSessionName { get; set; }
+}
+
+/// <summary>
+/// Status headcounts for the take-attendance screen, measured on the SEARCHED set before any chip
+/// filter (so selecting a chip never renumbers the chips).
+/// </summary>
+/// <remarks>
+/// Two populations on purpose. The unprefixed counts describe the whole list — this session plus
+/// every linked one — which is the population the chip badges open. The <c>Assigned*</c> counts
+/// describe only students assigned to THIS session: the tutor's own register, which is what
+/// "how far am I?" and the saved screen mean.
+///
+/// They diverge sharply in a linked family: one tutor's 19:00 class lists 547 people (119 his, 428
+/// who may visit from the 10:00/12:00/14:00 classes), and on a live class day the list read 402
+/// marked of 547 while his own register was 91 of 119 — 311 of those marks belonged to the three
+/// earlier classes. Before this existed the app had NO totals at all here and counted the ten rows
+/// on the page it happened to be holding, which is how "Remaining" reached 0 with students still
+/// unmarked.
+/// </remarks>
+public class AttendanceStatusTallies
+{
+    public int PresentCount { get; set; }
+    public int AbsentCount { get; set; }
+    public int HeldCount { get; set; }
+    public int UnmarkedCount { get; set; }
+
+    public int AssignedPresentCount { get; set; }
+    public int AssignedAbsentCount { get; set; }
+    public int AssignedHeldCount { get; set; }
+    public int AssignedUnmarkedCount { get; set; }
+
+    // Visitors from the LINKED classes, counted separately rather than left to be derived.
+    //
+    // The grouped query produces these rows already — grouping on (is-it-mine, status) yields both
+    // halves — so surfacing them costs nothing and means no screen ever has to subtract one server
+    // number from another to label a chip. A subtraction is exact today and silently wrong the
+    // first time the two counts are measured on different sets.
+    //
+    // A visitor can only reach Present or Held here: a cross-session mark is forced to
+    // CrossSessionPresent (so "absent" is unreachable for them — they were never obliged to this
+    // class), and Held is written against THIS session without a cross-session remap.
+    public int LinkedPresentCount { get; set; }
+    public int LinkedAbsentCount { get; set; }
+    public int LinkedHeldCount { get; set; }
+    public int LinkedUnmarkedCount { get; set; }
 }
 

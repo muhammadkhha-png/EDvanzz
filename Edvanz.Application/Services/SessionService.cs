@@ -255,6 +255,12 @@ public class SessionService : ISessionService
         // original assignment never generated (it only ran to the end date as it was back then). ──
         bool endDateChanged = session.EndDate != dto.EndDate;
 
+        // ── Track a RENAME so the eight tables that keep a denormalized copy of the name can be
+        // brought into step (see ISessionRepo.PropagateSessionNameAsync). This endpoint handles
+        // every session edit — dates, price, days, group — and only a genuine rename should pay
+        // for eight updates, so the flag is captured BEFORE the assignment below overwrites it. ──
+        bool nameChanged = !string.Equals(session.SessionName, trimmedName, StringComparison.Ordinal);
+
         // SES-1: the session mutation AND the occurrence rebuild must be one atomic unit. Previously the
         // session row was committed first and occurrence regeneration ran un-transacted afterwards, so a
         // slot-key collision left the session's day pattern out of sync with its generated occurrences
@@ -317,6 +323,20 @@ public class SessionService : ISessionService
             // extended before this fix shipped — re-save the session with its end date changed.
             if (endDateChanged)
                 await _paymentService.BackfillSessionPeriodsThroughEndDateAsync(teacherId, sessionId);
+
+            // ── A RENAME REWRITES THE DENORMALIZED COPIES. Eight tables keep the session's name,
+            // written once, so a rename used to split one class across two names on the same
+            // screen: 90 of session 78's 126 students still read «المجموعة» while 36 read the new
+            // name, and /api/v1/payments/students served two names no session had had for months.
+            //
+            // MUST BE LAST IN THE TRANSACTION. `ExecuteUpdate` bypasses the change tracker, and
+            // the occurrence rebuild and the re-pricing above both load and SAVE AttendanceRecords
+            // and PaymentPeriods on this same context — a row still tracked with the old name and
+            // saved after this ran would write the old name straight back. Anything added below
+            // that calls SaveChangesAsync must go ABOVE this block.
+            if (nameChanged)
+                await _unitOfWork.SessionsRepo
+                    .PropagateSessionNameAsync(teacherId, sessionId, trimmedName);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();

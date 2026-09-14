@@ -1,4 +1,4 @@
-﻿    using Edvanz.Domain.Constants;
+    using Edvanz.Domain.Constants;
     using Edvanz.Domain.Entities;
     using Edvanz.Domain.Enums;
     using Edvanz.Domain.Helpers;
@@ -419,7 +419,7 @@
                     StudentName = d.StudentName,
                     StudentCode = d.StudentCode,
                     // Live session name when the session still exists; else the departure-time snapshot.
-                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionName,
+                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionNameAtDeparture,
                     RefundAmount = d.FinalAmount,
                     RefundPeriodStart = d.RefundPeriodStart,
                     CollectedByUserId = d.CollectedByUserId,
@@ -971,7 +971,9 @@
                 // Eager-load the session so the service can display its LIVE name; the period's own
                 // SessionName is a generation-time snapshot that goes stale on a rename.
                 .Include(p => p.Session)
-                .OrderBy(p => p.SessionName)
+                // Order by the name these rows DISPLAY. The stored copy IS that name — a rename
+                // rewrites it (ISessionRepo.PropagateSessionNameAsync) — so no join is needed to sort.
+                .OrderBy(p => p.SessionNameAtGeneration)
                 .ThenBy(p => p.PeriodSequence)
                 // Identity resolution (NOT plain AsNoTracking): sibling periods share ONE Session (and
                 // transaction) instance instead of a fresh detached copy per row. Without it, when a
@@ -1018,7 +1020,8 @@
                 // Eager-load non-deleted transactions so the history screen's period rows carry their
                 // collection(s) � incl. the collector (CollectedByUserId) � without an N+1 per period.
                 .Include(p => p.PaymentTransactions.Where(t => !t.IsDeleted))
-                .OrderBy(p => p.SessionName)
+                // Same ordering rule as GetAllPaymentPeriodsByStudentAsync.
+                .OrderBy(p => p.SessionNameAtGeneration)
                 .ThenBy(p => p.PeriodSequence)
                 .AsNoTracking()
                 .ToListAsync();
@@ -1134,7 +1137,7 @@
                     // only the fallback for a session that no longer exists.
                     SessionName = l.PaymentTransaction.Session != null
                         ? l.PaymentTransaction.Session.SessionName
-                        : l.PaymentTransaction.SessionName,
+                        : l.PaymentTransaction.SessionNameAtCollection,
                     // The actually-refunded delta. PreviousAmount alone overstates a
                     // partial/prorated reversal (e.g. a prorated departure that only
                     // reverses part of the period); Deleted writes NewAmount=0 so a full
@@ -2028,7 +2031,10 @@
                                         && t.PaymentPeriod.PeriodStart <= monthEnd)))
                             .OrderByDescending(t => t.CollectedAt)
                             .ThenByDescending(t => t.Id)
-                            .Select(t => t.SessionName)
+                            // The name of the session they paid on. Both stored copies here are
+                            // kept in step by ISessionRepo.PropagateSessionNameAsync, so this is a
+                            // plain column on a query that runs per student row.
+                            .Select(t => t.SessionNameAtCollection)
                             .FirstOrDefault()
                         // Fallback (unpaid/prorated, no payment yet): the month's period session.
                         ?? _context.PaymentPeriods
@@ -2036,7 +2042,7 @@
                                 && p.TeacherStudentId == ts.Id
                                 && p.PeriodStart >= monthStart && p.PeriodStart <= monthEnd)
                             .OrderBy(p => p.PeriodSequence)
-                            .Select(p => p.SessionName)
+                            .Select(p => p.SessionNameAtGeneration)
                             .FirstOrDefault()
                 })
                 .AsNoTracking()
@@ -2683,7 +2689,7 @@
                     StudentName = d.StudentName,
                     StudentCode = d.StudentCode,
                     // Live session name when the session still exists; else the snapshot.
-                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionName,
+                    SessionName = d.Session != null ? d.Session.SessionName : d.SessionNameAtDeparture,
                     DepartedAt = d.DepartedAt,
                     DepartureOutcome = d.DepartureOutcome,
                     FinalAmount = d.FinalAmount,
@@ -2998,7 +3004,7 @@
                 .GroupBy(p => new
                 {
                     p.SessionId,
-                    SessionName = p.Session != null ? p.Session.SessionName : p.SessionName,
+                    SessionName = p.Session != null ? p.Session.SessionName : p.SessionNameAtGeneration,
                     // Group the session belongs to (null = ungrouped). Lets the app render
                     // groups + ungrouped sessions with per-group roll-ups.
                     SessionGroupId = p.Session != null ? p.Session.SessionGroupId : (long?)null,

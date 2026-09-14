@@ -237,6 +237,54 @@ public interface ISessionRepo : IGenericRepo<Session, long>
     Task<IReadOnlyDictionary<long, string>> GetSessionNamesByIdsAsync(long teacherId, IEnumerable<long> sessionIds);
 
     /// <summary>
+    /// Rewrites every denormalized copy of a session's name to <paramref name="newName"/>, and
+    /// returns how many rows were touched. Call it from the ONE place that renames a session,
+    /// inside that rename's transaction.
+    /// </summary>
+    /// <remarks>
+    /// Eight tables keep a copy of the session name, written once and never updated. They exist
+    /// for exactly one reason (BR-ATT-005): sessions are HARD-deleted, so a history row must keep
+    /// a readable name after its session is gone.
+    ///
+    /// They used to be treated as an immutable archive, with every screen resolving the live name
+    /// through a join or an extra query instead. That was correct and expensive — a query per mark
+    /// on the attendance path, a correlated subquery per row on the payment tabs — to compensate
+    /// for an event that happens a handful of times in a session's life. Updating the copies at
+    /// the rename is the cheap half of the same guarantee: on hard delete `SessionId` is NULLed
+    /// and nothing writes the row again, so the last-known name still survives.
+    ///
+    /// Consequence for callers: a denormalized <c>SessionNameAt…</c> is now simply THE name. Read
+    /// it directly. Do not reintroduce a live lookup.
+    ///
+    /// LAST in its transaction, always — <c>ExecuteUpdate</c> bypasses the change tracker, so a
+    /// row still tracked with the old name and saved afterwards would write it straight back.
+    /// </remarks>
+    Task<int> PropagateSessionNameAsync(long teacherId, long sessionId, string newName);
+
+    /// <summary>
+    /// Repairs stored session names platform-wide, in bounded batches, and returns how many rows
+    /// were rewritten. A no-op once everything is in step.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PropagateSessionNameAsync"/> keeps the copies current from the moment it ships;
+    /// it cannot repair rows that went stale BEFORE it existed, and nothing else ever rewrites
+    /// them (periods are pre-generated one per month to the session's end date, attendance rows
+    /// are never revisited). This is that repair — and, left running, it is also the net that
+    /// catches any future drift.
+    ///
+    /// NOT A MIGRATION, deliberately. The deploy applies migrations with `azure/sql-action`
+    /// BEFORE `az webapp deploy`, so the currently deployed app is live and teachers are marking
+    /// attendance while they run. An unbounded data repair there can escalate to a table lock on
+    /// <c>AttendanceRecords</c>, and its total runtime counts against one command timeout — a slow
+    /// repair would extend or fail the deploy. Here it runs after the app is up, in batches that
+    /// autocommit, bounded per run, and resumes on the next pass if it does not finish.
+    /// </remarks>
+    /// <param name="batchSize">Rows per statement. Keep it under SQL Server's ~5000 lock-escalation threshold.</param>
+    /// <param name="maxBatchesPerTable">Ceiling on one run, so a huge backlog is spread over several passes.</param>
+    Task<int> ReconcileStoredSessionNamesAsync(
+        int batchSize, int maxBatchesPerTable, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Returns an Id→GroupName map for the given session-group Ids, scoped to the teacher.
     /// Mirrors <see cref="GetSessionNamesByIdsAsync"/>; used by the video allowed-scope-targets
     /// picker to label the groups a video's units cover.

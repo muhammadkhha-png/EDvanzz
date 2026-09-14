@@ -1082,6 +1082,259 @@ WatchStartedThresholdPercent 5 / 100))`.
   `NeverOpened` back the Unseen screen's chips. Old builds keep working.
 - App side: `_formatDuration` no longer floors sub-minute values to `"0m"` — 45 seconds reads `45s`.
 
+### 7.10 A scan must reach the register — code resolution and the alert that ate it (2026-09-13)
+
+Reported by one tutor as three complaints; all three are the same thing — a scan that never became
+a record, with nothing on screen disagreeing. Her own words: «بنت كودها 8B … بيقولي الطالب مش موجود
+ومش راضي يتاخد. روحت ادفعها الفلوس رضي ياخدها», «خدت الغياب من غير نت وظاهر ١١٣ طالب وهما ١٢٠».
+
+**A scan resolves by EXACT code, and the exact match must be on the first page.** The scanner
+searches, loads page 1 (10 rows) and then demands an exact `studentCode` on it. Codes are short and
+share digits, so a code is routinely a substring of a dozen others: on her live 547-row linked
+roster `8B` matched 16 codes and the student who owns it sorted 12th. Both server queries have
+ranked the exact match first for a while
+(`AttendanceRepo.GetPagedAttendanceStudentListAsync`, and now
+`ExamHomeworkRepo.GetTrackingViewPagedAsync` — the exam scanner had the same hole ONLINE); the
+OFFLINE snapshot slice had no equivalent and simply took the first ten substring matches. One
+helper now expresses it for both offline paths — `rankExactCodeFirst` (`lib/core/utils/`) — and the
+regression test carries the real 16-code fixture. Three codes on that one roster (`8B`, `8A`, `3C`)
+were unreachable offline; five once marks reorder the snapshot. **Any new list a scan resolves
+through must rank the exact code first, on the server AND in its offline slice.**
+
+**Closing the "before you mark" alert may never discard the student.** `shouldShowAbsenceAlert ||
+shouldShowPaymentAlert` opens a blocking dialog before the scan is queued — on her roster that is
+**222 of 547 students (41 %)**. It was `barrierDismissible: true` with no cancel button, and every
+one of its seven call sites read the resulting `null` as "do nothing": a stray tap at the classroom
+door dropped the scan silently. That is the whole of «١١٣ وهما ١٢٠», and «روحت ادفعها الفلوس رضي
+ياخدها» is the same bug seen from the other side — once her money was collected the alert stopped
+firing, so the scan went through.
+- The prompt now returns a non-nullable `AttendanceAlertDecision` (`status`, `wasDismissed`), so the
+  compiler asks every call site what it wants. **Do not make it nullable again.**
+- The barrier no longer closes it. Exits are the X and Back, both routed through one handler.
+- Closing resolves into `intendedStatus` — the mark the tutor was already making — and the caller
+  reports it BY NAME (`teacher_attendance_alert_dismissed_queued` / `…_marked`). A hint under the
+  buttons says so before the act.
+- **The one exception is the server-forced absence confirmation** (`forceShowAbsence`,
+  REQ-ATT-057/058): there a dismissal must record NOTHING, so it warns first and names the student.
+  That is the only place `AttendanceAlertDecision.abandoned()` is reachable, and the scanner files
+  the student under "not added" rather than moving on.
+- The scanner counts every scan that did NOT reach the queue (`_notAdded`, keyed by code, cleared on
+  a successful retry) and shows «{n} ما اتضافوش» directly above the "review N" button, opening the
+  shared not-recorded sheet (`showAttendanceNotRecordedSheet`, extended from the partial-save sheet
+  — extend it, never fork a second one). **A short save must be visible at the door, not a week
+  later.**
+
+**A session's name lives in ONE place logically and EIGHT places physically, and the rename keeps
+them in step.** Eight tables carry a denormalized copy of the session name, written once when the
+row is created: `StudentSessionAssignment.SessionNameAtAssignment`,
+`AttendanceRecord.SessionNameAtRecording` + `CrossSessionNameAtRecording`,
+`StudentAbsenceCounter.LastAbsenceSessionNameAtRecording`, `PaymentPeriod.SessionNameAtGeneration`,
+`PaymentTransaction.SessionNameAtCollection`, `StudentDeparture.SessionNameAtDeparture`,
+`PaymentForgiveness.SessionNameAtForgiveness`. They exist for ONE reason (BR-ATT-005): sessions are
+HARD-deleted (§4.3), so a history row must keep a readable name after its session is gone.
+
+**Read the stored column directly. Do NOT resolve the live row.** `ISessionRepo
+.PropagateSessionNameAsync(teacherId, sessionId, newName)` rewrites all eight with eight set-based
+`ExecuteUpdateAsync` statements, called from the ONE rename in the codebase
+(`SessionService.UpdateSessionAsync`, guarded on the name actually changing) — so the stored copy
+never goes stale while the session exists, and on hard delete `SessionId` is NULLed and nothing
+writes the row again, which is exactly the case the copies are for.
+
+- **MUST BE LAST IN THE RENAME TRANSACTION.** `ExecuteUpdate` bypasses the change tracker, and that
+  same method runs `RegenerateOccurrencesAsync` and the re-pricing, which load and SAVE
+  `AttendanceRecords` / `PaymentPeriods` on the same context. A row still tracked with the old name
+  and saved afterwards writes it straight back. Anything new that calls `SaveChangesAsync` in that
+  method goes ABOVE the propagation.
+- **`PaymentTransactions` needs `IgnoreQueryFilters()`** — it carries a global `!IsDeleted` filter
+  and a refunded/corrected collection is still read (the refund history joins through it).
+- Five of the eight are index seeks (`IX_AR_TeacherId_SessionId_OccurrenceDate`,
+  `(TeacherId, SessionId, CollectedAt)`, `(TeacherId, SessionId, PaymentStatus)`,
+  `(SessionId, IsActive)`, `(TeacherId, SessionId)`); `AttendanceRecord.CrossSessionId` and
+  `StudentAbsenceCounter.LastAbsenceSessionId` have no index and scan — teacher-scoped, on an
+  operation that happens a handful of times per session.
+- **Adding a ninth session-name column means adding a statement to that repo method.** Nothing else
+  can catch it: every read site is a plain column read by design, so a column that is never
+  propagated simply shows a stale name forever. `scripts/check-session-name-propagation.sh` runs in
+  CI beside the timezone gate and fails when (a) a `session.SessionName =` write is not paired with
+  a propagate call in the same file, or (b) the repo method stops writing one of the eight.
+
+**History — why the live-read design was tried and removed (do not reintroduce it).** A rename used
+to write only `Sessions.SessionName`, so students assigned either side of one listed the SAME class
+under two names: 90 of session 78's 126 students read «المجموعة» while 36 read «مجموعه الساعه ١٠».
+`/api/v1/payments/students` served «المجموعة» and «مجموع الحامول» — names no session had had for
+months — and it grows then sticks: **0 stale rows in July, 8 in August, 50 in September, 118 in
+October and every month after**, because the transaction leg self-heals (the next payment stamps
+the new name) while the period leg never does (periods are pre-generated one per month to the
+session's end date, §7.4). The first fix resolved the live row at every display site. It was
+correct and **expensive in daily operation**: a single-row query per mark on the attendance path
+(~48 per 120-student class), a correlated `Sessions` subquery per counter row *inside* the
+`ROW_NUMBER()` window on every roster page, an extra round-trip on five list endpoints, and a
+two-subquery `COALESCE` per student on the payment tabs — all to compensate for an event that
+happens a handful of times in a session's life. Propagation is the cheap half of the same
+guarantee. The renamed properties (`…At<Moment>`) are kept: the compiler found all 78 call sites
+during the first attempt, and the names still tell a reader when the value was written.
+
+**Deliberately left as live reads:** `PaymentRepo`'s `.Include(p => p.Session)` +
+`d.Session != null ? … : d.SessionNameAtDeparture` (3 sites), `PaymentService.DisplaySessionName`,
+and `PaymentScreenService.ResolveSessionName` (2 sites). These predate the whole episode, are
+already deployed, cost one join on a query that is loading the row anyway, and act as a free safety
+net if a propagation is ever missed. Redundant, not wrong.
+
+**The backlog is repaired by a JOB, not a migration** — Hangfire recurring `session-name-reconcile`
+(03:30 Africa/Cairo, after the auto-absent sweep and the recycle-bin purge) →
+`ISessionRepo.ReconcileStoredSessionNamesAsync`, the same eight columns repaired platform-wide in
+autocommitting batches of 2000, capped at 50 batches per table per run, resuming the next night if
+it does not finish. Guarded on the name actually differing, so a steady-state run writes nothing.
+
+**Why not a migration.** `azure/sql-action` applies migrations BEFORE `az webapp deploy`, so the
+CURRENTLY DEPLOYED app is live and teachers are marking attendance while they run. A repair of
+unbounded size there does two bad things: it exceeds SQL Server's ~5000-lock escalation threshold
+and holds a TABLE lock on `AttendanceRecords` until the migration commits (every attendance write
+blocked), and its total runtime counts against one command timeout, so a slow repair extends or
+fails the deploy. One rename makes a whole session's history stale at once (90 of 126 students ×
+~50 records), so both were reachable. **Never put a data repair of unbounded size in a migration —
+this codebase deploys schema before code, with the old app still serving.** Left running, the job
+is also the net that catches drift if a ninth session-name column is ever added and not propagated.
+
+**Status headcounts: two populations, never the loaded page.** The list response carried
+`assigned_count` / `not_assigned_count` / `hold_count` and NO present/absent/unmarked totals, so
+`AttendanceOccurrenceStudentsApiDto` counted the ten rows it was handed. The filter badges read
+0 marked / 10 unmarked against a real 402 / 145, and — worse — the "Attendance saved" screen's
+Present / Remaining / Hold cards used the same page-derived summary, drifted by in-memory
+adjustment against a `clamp(0, …)`: after 113 scans **"Remaining" read 0 with six students still
+unmarked**. It told the tutor he was finished.
+- `present_count` / `absent_count` / `unmarked_count` describe the WHOLE list and label the chips,
+  which open exactly that list. `assigned_present_count` / `…_absent_` / `…_hold_` / `…_unmarked_`
+  describe THIS session's own register and drive the progress line + the saved screen. Both are
+  measured on the searched set BEFORE any chip filter, like `assigned_count`.
+- **The two are not interchangeable.** His 19:00 list holds 547 people (119 his, 428 who may visit
+  from the 10:00/12:00/14:00 classes); on 12 Sep the list read 402 marked of 547 while his register
+  was 91 of 119, because 311 of those marks were made in the three earlier classes. "402 of 547" as
+  progress answers a question nobody asked.
+- All nine numbers come from ONE grouped query — `GroupBy(IsMine, RecordStatus)` — which also
+  replaces the four `CountAsync` calls this method used to make, so it is cheaper than what it
+  succeeds. It has no `Count(predicate)` at all, so BUG-16 cannot apply. The row projection carries
+  a nullable `RecordStatus` SCALAR rather than a sub-object: EF re-inlines a projected member per
+  reference, and as an object the tally emitted **fourteen** correlated subqueries instead of one.
+  Both queries were verified with `ToQueryString()` against the real model before shipping.
+- Additive both ways: an older app ignores the fields; a newer app against an older server reads
+  zeros and keeps the page derivation. The all-zero fallback guard now also checks
+  `unmarkedCount`, or a genuine "0 present, 0 absent, 547 unmarked" was thrown away as "nothing
+  sent". `hold_count` alone must never satisfy that guard.
+- The offline slice computes both the same way (search → counts → chip filter → page), so offline
+  is now exactly as accurate as online. The EXAM roster had the identical defect
+  (`teacher_exam_take_attendance_cubit` counted its loaded pages) and now reads
+  `presentCount`/`absentCount`/`unmarkedCount` off `ExamSessionRosterDto`; an exam occurrence has
+  no linked visitors, so its register and list are the same population.
+- App side: `TeacherAttendanceProgressLine` puts «اتسجّل ٩١ من ١١٩ · فاضل ٢٨» and a thin bar on the
+  screen where the marking happens — one atomic status sentence in a `liveRegion`, never a bare
+  number. Marks are adjusted in memory against BOTH summaries via `_adjustBothSummaries`, routed by
+  `isAssignedToSession`; `TeacherAttendanceQueuedScan` carries that flag from the moment the scan
+  resolved, because a scanned visitor is usually not on the loaded page to ask.
+
+
+
+**A lookup is a question, not a filter (app, 2026-09-14).** `lookupStudentByCode` used to
+`emit(searchQuery: <the scanned code>)` and call `load(force: true)`, and **nothing ever cleared
+that field**; `load()` reads `state.searchQuery` on every call. So from the first scan that missed
+the in-memory fast path onwards, the whole cubit — roster, chips, `summary`, `registerSummary`,
+`assignedCount` — described ONE student, and stayed that way through submit. `_submitQueuedScans`
+hands `registerSummary` straight to the "Attendance saved" screen with no reload in between, so
+that is the number the tutor reads.
+
+**This is NOT the cause of «خدت الغياب وظاهر ١١٣ طالب وهما ١٢٠» — do not re-attribute it.** That
+complaint was scans genuinely never queued, because closing the before-you-mark alert discarded
+them (BUG-22), and it is already fixed. Scanning itself worked and the marks saved. The scoping
+defect above reaches exactly ONE surface, the saved screen's numbers, and in the shipped build its
+effect was masked: `summary` was page-derived from ten rows anyway, so a one-row search base was
+the same class of wrong, not a new one. It is fixed here because the server totals only help if
+nothing re-scopes them afterwards — a guard on the new numbers, not a repair of an old bug. The
+lookup is
+now one direct repository query that emits no list state (the exam cubit's has always worked this
+way — it was the outlier). The zero-network fast path over rows already in memory stays.
+Belt-and-braces on top: **only a load with NO search term may replace `registerSummary` /
+`registerAssignedCount`.** The server measures every headcount on the SEARCH-filtered set on
+purpose (so a chip cannot renumber itself when selected), which is right for the chips and wrong
+for the progress line and the saved screen — searching one already-marked student would otherwise
+turn the bar full green and announce «خلصت المجموعة» in a `liveRegion`. Marks made during a search
+still move both summaries in memory, so the bar stays live. Same split applied to the exam cubit.
+
+**`hold_count` was never parsed.** The roster response sends `hold_count`; the app looked for
+`holdCount`/`heldCount`/`held`/`totalHeld`. Harmless while the all-zero fallback recomputed the
+summary from the page — but once `present_count`/`absent_count`/`unmarked_count` started arriving
+the fallback stopped firing and the hold count pinned at 0, so the filter menu's **Marked** total
+(present + absent + hold) was smaller than the list that chip opens. It is now read, **gated on the
+response also carrying the other three**: an OLDER server sends `hold_count` and nothing else, and
+reading it there would put a non-zero number in an otherwise empty summary and defeat the fallback.
+All ten snake_case keys on that DTO were cross-checked against the parser; this was the only miss.
+
+**A scan whose student the roster never resolved has UNKNOWN membership.**
+`TeacherAttendanceQueuedScan.isAssignedToSession` is `bool?` and defaults to **null**, and only
+`true` moves the register. Membership-LINKED students are not the unknown case — the roster query
+is `sessionId OR linkedIds.Contains(...)`, so a visitor resolves and arrives as `false`; only a QR
+payload the search could not match is null. The two errors are not symmetrical: counting a
+non-member in can make the register read finished while a real student is unmarked (the failure the
+progress line exists to prevent), while leaving a real member out only reads one short, which the
+tutor can see. Never collapse `null` back to `true`.
+
+
+**Present / Remaining / Hold are SERVER lists, scoped to the card that opened them (2026-09-14).**
+The three cards on "Attended students" (`teacher_attendance_attended_result_view`) open
+`teacher_attendance_roster_view`. That screen used to call `loadRosterForKind`, which downloaded
+the WHOLE roster ten rows at a time until it ran out (`fetchAllPaginatedEitherItems`, `maxPages:
+100`) and then filtered in Dart — 41 sequential round-trips for 402 marked students, each running
+the full roster query, and for Hold it downloaded every marked student to show six. Past **1000
+students it silently truncated**: the loop stopped and `totalCount: filtered.length` agreed with
+the short list, so nothing on screen disagreed.
+
+- **`AttendanceStudentListRequest.Status`** (nullable) filters the existing roster query to one
+  status. `Present` matches `CrossSessionPresent` too, expressed as
+  `PresentStatuses.Contains(r.RecordStatus)` — `Contains`, not `a == x || a == y`, because the
+  status is a correlated subquery in the projection and EF re-inlines a projected member per
+  REFERENCE, so the OR form emitted it twice per row. It must stay the literal twin of the tally's
+  `IsPresent`: they are the count and the list of the same thing (BUG-17 / BUG-23).
+- **"Remaining" is not a status** — it is `UnmarkedOnly`, and it is ALWAYS scoped to the tutor's own
+  register. A visitor who was never marked is not work he owes: on one live class, list-wide
+  "remaining" would read 426 for a class of 119 because 398 visitors simply did not come.
+- **Present and Hold default to the register and offer a visitors chip.** A visitor CAN reach both:
+  a cross-session mark is forced to `CrossSessionPresent` (`AttendanceService` line ~694), and the
+  Hold branch writes against THIS session with `IsCrossSession = false` and only checks the student
+  has *an* assignment. A visitor can never be Absent — marking one absent silently records
+  `CrossSessionPresent`, because they were never obliged to this class.
+- **`linked_present_count` / `linked_absent_count` / `linked_hold_count` / `linked_unmarked_count`**
+  are sent as their own set. The grouped query already produces both halves, so this costs nothing
+  and means **no screen subtracts one server number from another** to label a chip — a subtraction
+  is exact today and silently wrong the first time the two are measured on different sets.
+- **`teacher_attendance_attended_result_view` builds its own cubit and loads**, so the summary its
+  caller passes is only the first frame; `displaySummary` decides what the cards show thereafter.
+  It read `state.summary` (the whole linked family) — "Present 402" for a class of 119 — and now
+  reads `state.registerSummary`. **A screen that re-loads must re-derive from the same population
+  its caller intended, or the argument is decoration.**
+
+
+**Take-attendance chip filters.** The app has always sent `AssignedOnly` / `LinkedOnly` /
+`MarkedOnly`; `AttendanceStudentListRequest` bound none of them, so online every chip except
+"unmarked" returned the whole list while the offline slice filtered client-side — the same chip,
+two answers. All three are bound now. The chip LABELS (`assigned_count` / `not_assigned_count` /
+`hold_count`) are measured on the search-filtered set **before** any chip filter, so selecting a
+chip never renumbers the chips; `totalCount` and the page use the fully filtered set. The offline
+slice was reordered to match (search → counts → chip filter → page). Note `holdCount` on the wire is
+ignored by the app (`AttendanceOccurrenceStudentsApiDto` derives the summary from the page).
+
+**Offline payment status is not one truth, and must say so.** Tracking holds only the aggregates the
+server computed — no per-student rows — so an offline read can only ever be the last download, and
+it used to be served with nothing saying that. A tutor who had just collected saw "paid" on the
+collect screen (which overlays the outbox) and unpaid in the tracking counts: «ياسين دا انا دفعته …
+وظاهر عنده أنه دافع بس عندي لا». No money was ever lost (his ledger is one clean transaction per
+month). The fix is honesty, never client-side money arithmetic: tracking carries
+`servedFromCacheAt` + `pendingCollectCount` and renders "as of {time} — {n} collections aren't in
+these figures yet". **Do not recompute `statusBreakdown` / collected / remaining on the device** —
+a prorated or multi-month collect makes that wrong in ways a timestamp never is. Two related fixes:
+the attendance roster's `paymentInfo` is suppressed for any student with a live collect in the
+outbox (a stale unpaid alert is what opened the dialog that dropped scans), and the offline collect
+search matches `studentCode` — it compared the numeric `id`, so typing "86C" offline found nobody
+while scanning the same code worked.
+
 ---
 
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
@@ -1110,6 +1363,13 @@ WatchStartedThresholdPercent 5 / 100))`.
 | BUG-19 | `TeacherSessionAttendanceMonthCubit.load` cleared the unsaved edit buffer | The terminal success emit set `pendingEdits: const []` unconditionally, so a **pull-to-refresh or a month change silently threw away a teacher's unsaved marks**, and search had to be hidden from the Edit screen entirely to avoid a third way to lose them. Fixed 2026-09-13: edits are keyed on `(teacherStudentId, occurrenceId)` — stable across a refetch — and re-painted onto the reloaded rows (`_reapplyPendingEdits`), with month counts recomputed from each cell's SERVER status so a re-apply can never double-count. Search is now on BOTH modes; a month change abandons the buffer but asks first. **Do not re-add an unconditional `pendingEdits: const []` to a load path.** |
 
 | BUG-20 | Editing an offline exam wiped its description | `ExamViewDto` never returned `Notes`, so the edit form opened the description blank — and `ExamService.UpdateExamAsync`'s STRUCTURAL branch then assigned `template.Notes` unconditionally, writing that blank back. Any edit that moved a date or changed the sessions silently destroyed the exam's notes. It looked random because the metadata-only branch (`ExamHomeworkService.UpdateTemplateAsync:1606`) has always had an `if (dto.Notes is not null)` guard, so renaming an exam preserved them. Fixed 2026-09-13 on all three legs: the GET returns `Notes`, the form hydrates it, and the structural branch guards like its sibling — **omitted = leave alone, empty string = clear**, so a still-deployed old build can no longer wipe anything. **Never assign an update field unconditionally when the client may legitimately omit it**, and check that the GET returns every field the PUT can write. |
+| BUG-21 | Offline scan: a short student code resolved to "الطالب غير موجود" | The scanner searches, loads page 1 (10 rows) and requires an EXACT `studentCode` on it. The server ranks the exact match first; the offline snapshot slice did not, so a code that is a substring of many others fell off page 1 and a student standing in the room scanned as not found. Measured on one live roster: `8B` matched 16 codes and sat 12th; `8B`, `8A`, `3C` were all unreachable. It only ever happened offline, which is why it read as random. Fixed 2026-09-13 with `rankExactCodeFirst` shared by both offline slices, plus the same ranking added to the EXAM roster (`ExamHomeworkRepo.GetTrackingViewPagedAsync`), where it failed ONLINE too. **A list a scan resolves through must rank the exact code first on both sides of the connection.** See §7.10. |
+| BUG-22 | Closing the "before you mark" alert discarded the scan, silently | The absence/unpaid prompt returned `TeacherAttendanceStatus?` and all seven call sites read `null` as "do nothing"; it was `barrierDismissible: true` with no cancel button. 41% of one live roster (222/547) raises this alert, so a stray tap at the classroom door is how a class of 120 saved as 113 with no error anywhere. Fixed 2026-09-13: non-nullable `AttendanceAlertDecision`, no barrier dismissal, closing resolves into the mark the tutor was making and is reported by name, and the scanner surfaces a "{n} not added" list. The server-forced absence confirmation (REQ-ATT-057/058) is the ONLY dismissal that records nothing, and it warns first. **Never let a prompt's dismissal be indistinguishable from "nothing happened".** See §7.10. |
+| BUG-23 | Take-attendance counts described the loaded page, not the class | `AttendanceStudentListDto` returned no present/absent/unmarked totals, so the app counted the ten rows it was holding. The filter badges read 0 / 10 against a real 402 / 145, and the "Attendance saved" screen — same page-derived summary, drifted by in-memory adjustment against a `clamp(0, …)` — showed **Remaining 0 after 113 scans with six students still unmarked**, telling the tutor he had finished. The exam roster counted its loaded pages the same way. Fixed 2026-09-13: nine server-side totals in one grouped query, split into the whole LIST (labels the chips) and THIS session's REGISTER (progress + saved screen), because in a linked family 311 of the list's 402 marks belonged to three other classes. **A count that answers "am I done?" must be measured on the register, and never on the page that happens to be loaded.** See §7.10. |
+
+| BUG-24 | `lookupStudentByCode` left the roster filtered to the scanned code | It set `state.searchQuery` and called `load(force: true)`; nothing ever cleared it, and `load()` reads that field every time. After the first scan that missed the in-memory fast path, the roster, the chips, `summary`, `registerSummary` and `assignedCount` all described ONE student, and stayed that way through submit. **It is NOT the cause of the 113-of-120 report — that was BUG-22, scans the alert discarded, and scanning itself worked.** The only surface it reaches is the saved screen's numbers, and in the shipped build that was already page-derived from ten rows, so the effect was masked. It matters now because server-side totals only help if nothing re-scopes them afterwards. Fixed 2026-09-14: the lookup is one direct repository query that emits no list state (mirroring the exam cubit, which was always right), and only a search-free load may replace the register counts. **A lookup is a question, not a filter — never let one re-scope the list it read from.** See §7.10. |
+| BUG-25 | `hold_count` unread, so the "Marked" chip under-counted | The parser looked for `holdCount`/`heldCount`/`held`/`totalHeld` and never the wire key `hold_count`. Masked while the all-zero fallback recomputed the summary from the loaded page; once `present_count`/`absent_count`/`unmarked_count` shipped the fallback stopped firing and the hold count pinned at 0, so the filter menu's Marked total (present + absent + hold) was smaller than the list that chip opens. Fixed 2026-09-14 by reading it **only when the response also carries the other three** — an older server sends `hold_count` alone and reading it there would defeat the fallback, which is why it was excluded in the first place. **A wire key that is only sometimes meaningful needs a contract signal, not exclusion.** |
+| BUG-26 | An unresolved scan was counted into the teacher's own register | `TeacherAttendanceQueuedScan.isAssignedToSession` defaulted to `true`, so a QR payload the roster search could not match advanced "91 of 119" as if it belonged to the class — and the scanner hands that number to the saved screen with no reload. Membership-linked students were never the issue (the roster query covers `sessionId OR linkedIds.Contains(...)`, so they resolve as `false`). Fixed 2026-09-14: the flag is `bool?`, defaults to null, and only `true` moves the register. **When the two errors are asymmetric — over-counting says "done" while a student is unmarked, under-counting only reads one short — encode "unknown" and take the safe one.** |
 
 **CI migration delivery — root cause of the 2026-07-15/16 attendance outage (deploy.yml `Apply EF migrations`) — RESOLVED 2026-07-16.** `azure/sql-action@v2` used to run the multi-batch idempotent `migrate.sql` (one `BEGIN TRAN…COMMIT` per migration) via go-sqlcmd **without `-b`**, so when a migration's batch errored, its own transaction rolled back (migration NOT recorded) but the runner **continued to the next migration and still exited 0** — a broken migration was silently skipped while the code that needed it deployed anyway. This is why BUG-10 shipped, and it also silently skipped the `20260708193718`/`20260708220307` phone-index migrations on every deploy since 2026-07-08 (see BUG-11). Fixed by: (a) BUG-11's repair migration clearing the failing backlog, (b) `arguments: '-b'` on the sql-action step (any SQL error → non-zero exit → job fails BEFORE `az webapp deploy`), and (c) the two pre-Azure migration gates described in §0 (model-coverage check + fresh-DB rehearsal of `migrate.sql`). Do not remove `-b` or the gates.
 

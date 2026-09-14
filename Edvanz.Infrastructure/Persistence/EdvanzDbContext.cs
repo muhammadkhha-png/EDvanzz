@@ -1,4 +1,4 @@
-﻿using DocumentFormat.OpenXml.Vml.Office;
+using DocumentFormat.OpenXml.Vml.Office;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Entities.Chat;
@@ -1750,7 +1750,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         {
             entity.ToTable("StudentSessionAssignments");
 
-            entity.Property(a => a.SessionName)
+            entity.Property(a => a.SessionNameAtAssignment).HasColumnName("SessionName")
                 .HasMaxLength(200)
                 .IsRequired();
 
@@ -1808,7 +1808,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
         {
             entity.ToTable("AttendanceRecords");
 
-            entity.Property(r => r.SessionName)
+            entity.Property(r => r.SessionNameAtRecording).HasColumnName("SessionName")
                 .HasMaxLength(200)
                 .IsRequired();
 
@@ -1829,7 +1829,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(r => r.LastEditedAt)
                 .HasColumnType("datetime2(0)");
 
-            entity.Property(r => r.CrossSessionName)
+            entity.Property(r => r.CrossSessionNameAtRecording).HasColumnName("CrossSessionName")
                 .HasMaxLength(200);
 
             entity.Property(r => r.CrossSessionOccurrenceDate)
@@ -1862,7 +1862,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .HasDatabaseName("IX_AR_TeacherStudentId_OccurrenceDate_SessionId");
 
             // Step 5.1: Post-deletion duplicate guard using denormalized SessionName
-            entity.HasIndex(r => new { r.TeacherStudentId, r.OccurrenceDate, r.SessionName })
+            entity.HasIndex(r => new { r.TeacherStudentId, r.OccurrenceDate, r.SessionNameAtRecording })
                 .IsUnique()
                 .HasFilter("[SessionOccurrenceId] IS NULL AND [SessionId] IS NULL AND [TeacherStudentId] IS NOT NULL")
                 .HasDatabaseName("IX_AR_PostDeletion_DuplicateGuard");
@@ -1956,7 +1956,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(c => c.LastAbsenceDate)
                 .HasColumnType("date");
 
-            entity.Property(c => c.LastAbsenceSessionName)
+            entity.Property(c => c.LastAbsenceSessionNameAtRecording).HasColumnName("LastAbsenceSessionName")
                 .HasMaxLength(200);
 
             entity.Property(c => c.LastAttendanceDate)
@@ -2014,7 +2014,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // String lengths
             entity.Property(t => t.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(t => t.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
-            entity.Property(t => t.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(t => t.SessionNameAtCollection).HasColumnName("SessionName").HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
             entity.Property(t => t.OnlineTransactionRef).HasMaxLength(PaymentConstants.OnlineTransactionRefMaxLength);
             entity.Property(t => t.OfflineDeviceId).HasMaxLength(PaymentConstants.OfflineDeviceIdMaxLength);
             entity.Property(t => t.ProRatedTierLabel).HasMaxLength(PaymentConstants.ProRatedTierLabelMaxLength);
@@ -2172,7 +2172,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(p => p.PeriodEnd).HasColumnType("date");
 
             // String lengths
-            entity.Property(p => p.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(p => p.SessionNameAtGeneration).HasColumnName("SessionName").HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
             entity.Property(p => p.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(p => p.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
             entity.Property(p => p.OriginSessionName).HasMaxLength(PaymentConstants.NameMaxLength);
@@ -2430,7 +2430,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(f => f.ReversalNote).HasMaxLength(PaymentConstants.EditReasonMaxLength);
             entity.Property(f => f.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(f => f.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
-            entity.Property(f => f.SessionName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(f => f.SessionNameAtForgiveness).HasColumnName("SessionName").HasMaxLength(PaymentConstants.NameMaxLength);
 
             // Student timeline: all forgivenesses for a student (history surface + reverse lookup).
             entity.HasIndex(f => new { f.TeacherId, f.TeacherStudentId })
@@ -2495,7 +2495,7 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(d => d.AnchorPeriodStart).HasColumnType("datetime2(0)");
             entity.Property(d => d.PaidAmountAtDeparture).HasColumnType("decimal(10,2)");
 
-            entity.Property(d => d.SessionName).HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
+            entity.Property(d => d.SessionNameAtDeparture).HasColumnName("SessionName").HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
             entity.Property(d => d.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(d => d.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
 

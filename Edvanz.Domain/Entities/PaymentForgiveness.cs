@@ -84,7 +84,22 @@ public class PaymentForgiveness : BaseEntity
 
     public string? StudentName { get; set; }
     public string? StudentCode { get; set; }
-    public string? SessionName { get; set; }
+    /// <remarks>
+    /// THIS IS THE NAME — read it directly. It is denormalized so the surfaces that show a class
+    /// name cost no join, on paths that run per mark and per page.
+    ///
+    /// It is written when the amount was forgiven, and rewritten by
+    /// <see cref="Edvanz.Domain.Interfaces.ISessionRepo.PropagateSessionNameAsync"/> whenever the
+    /// session is renamed, so it never goes stale while the session exists. It exists at all
+    /// because sessions are HARD-deleted (BR-ATT-005): on that delete <c>SessionId</c> is NULLed
+    /// and nothing writes this row again, so the last-known name is what survives.
+    ///
+    /// Do NOT reintroduce a live lookup through <c>Session.SessionName</c>. That was tried and
+    /// removed: it cost a query per mark on the attendance path and a correlated subquery per row
+    /// on the payment tabs, every day, to compensate for an event that happens a handful of times
+    /// in a session's life. Enforced by scripts/check-session-name-propagation.sh; CLAUDE.md §7.10.
+    /// </remarks>
+    public string? SessionNameAtForgiveness { get; set; }
 
     // ══════════════════════════════════════════════
     // PER-PERIOD LEDGER (precise reversal)

@@ -390,7 +390,7 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
             StudentName = assignment.TeacherStudent!.StudentName,
             StudentCode = assignment.TeacherStudent!.StudentCode,
             SessionId = session.Id,
-            SessionName = session.SessionName,
+            SessionNameAtRecording = session.SessionName,
             SessionGroupId = session.SessionGroupId,
             OccurrenceDate = occ.OccurrenceDate,
             Status = AttendanceStatus.Absent,
@@ -465,7 +465,7 @@ public class AttendanceAutoAbsentService : IAttendanceAutoAbsentService
             && (!counter.LastAbsenceDate.HasValue || la.date >= counter.LastAbsenceDate.Value))
         {
             counter.LastAbsenceDate = la.date;
-            counter.LastAbsenceSessionName = la.sessionName;
+            counter.LastAbsenceSessionNameAtRecording = la.sessionName;
             counter.LastAbsenceSessionId = la.sessionId;
         }
 

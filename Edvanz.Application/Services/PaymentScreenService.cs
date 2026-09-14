@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
@@ -571,7 +571,7 @@ public class PaymentScreenService : IPaymentScreenService
             // system-suggested amount + who set it are batch-filled by EnrichProrationTransparencyAsync.
             IsProratedFirstMonth = appliedMonths.Any(m => m.IsProRated),
             // Live session name; the transaction's copy is a stale-on-rename snapshot.
-            SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
+            SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionNameAtCollection),
             CollectedAt = tx.CollectedAt,
             // Collector's free-text note for a custom/partial collect (null for whole-month collects).
             Note = tx.CollectionNote
@@ -933,7 +933,7 @@ public class PaymentScreenService : IPaymentScreenService
                 StudentCode = tx.StudentCode,
                 // Live session name (eager-loaded); the transaction's own copy is a collection-time
                 // snapshot that goes stale on rename, and is only the fallback for a deleted session.
-                SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionName),
+                SessionName = ResolveSessionName(tx.Session?.SessionName, tx.SessionNameAtCollection),
                 Amount = tx.AmountPaid,
                 CollectedAt = tx.CollectedAt,
                 Kind = "collection",
@@ -2214,7 +2214,7 @@ public class PaymentScreenService : IPaymentScreenService
                 ForgivenAt = now,
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
-                SessionName = sessionName,
+                SessionNameAtForgiveness = sessionName,
                 CreateAt = now
             };
             await _unitOfWork.PaymentsRepo.AddPaymentForgivenessAsync(forgiveness);
@@ -2355,7 +2355,7 @@ public class PaymentScreenService : IPaymentScreenService
                     .GetActiveByIdAndTeacherAsync(forgiveness.TeacherStudentId.Value, teacherId);
                 var sessionName = student is not null
                     ? await ResolveStudentSessionNameAsync(teacherId, student.SessionId)
-                    : forgiveness.SessionName;
+                    : forgiveness.SessionNameAtForgiveness;
                 summary = await BuildForgiveStudentSummaryAsync(
                     teacherId, forgiveness.TeacherStudentId.Value,
                     student?.StudentName ?? forgiveness.StudentName,
@@ -2370,7 +2370,7 @@ public class PaymentScreenService : IPaymentScreenService
                     Id = string.Empty,
                     Name = forgiveness.StudentName,
                     StudentCode = forgiveness.StudentCode,
-                    SessionName = forgiveness.SessionName,
+                    SessionName = forgiveness.SessionNameAtForgiveness,
                     Outstanding = 0m,
                     MonthsOwed = 0,
                     Status = "paid"

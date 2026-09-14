@@ -1,4 +1,4 @@
-﻿using Edvanz.Application.Dtos;
+using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Attendance;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
@@ -333,11 +333,13 @@ public class AttendanceService : IAttendanceService
         var linkedSessions = await _unitOfWork.SessionsRepo.GetLinkedSessionsAsync(sessionId);
         var linkedSessionIds = linkedSessions.Select(s => s.Id).ToList();
 
-        var (items, totalCount, assignedCount, notAssignedCount, holdCount) =
+        var (items, totalCount, assignedCount, notAssignedCount, holdCount, tallies) =
             await _unitOfWork.AttendanceRepo.GetPagedAttendanceStudentListAsync(
                 teacherId, sessionId, date, linkedSessionIds,
                 request.Search, request.UnmarkedOnly,
-                request.Page, request.PageSize);
+                request.Page, request.PageSize,
+                request.MarkedOnly, request.AssignedOnly, request.LinkedOnly,
+                request.Status);
 
         // Optional per-teacher enrichment (ShowPaymentInfoOnAttendanceScreen /
         // ShowAttendanceHistoryOnAttendanceScreen).
@@ -424,6 +426,17 @@ public class AttendanceService : IAttendanceService
             AssignedCount = assignedCount,
             NotAssignedCount = notAssignedCount,
             HoldCount = holdCount,
+            PresentCount = tallies.PresentCount,
+            AbsentCount = tallies.AbsentCount,
+            UnmarkedCount = tallies.UnmarkedCount,
+            AssignedPresentCount = tallies.AssignedPresentCount,
+            AssignedAbsentCount = tallies.AssignedAbsentCount,
+            AssignedHoldCount = tallies.AssignedHeldCount,
+            AssignedUnmarkedCount = tallies.AssignedUnmarkedCount,
+            LinkedPresentCount = tallies.LinkedPresentCount,
+            LinkedAbsentCount = tallies.LinkedAbsentCount,
+            LinkedHoldCount = tallies.LinkedHeldCount,
+            LinkedUnmarkedCount = tallies.LinkedUnmarkedCount,
             ShowAttendanceHistory = showAttendanceHistory,
             ShowPaymentInfo = showPaymentInfo
         };
@@ -601,7 +614,7 @@ public class AttendanceService : IAttendanceService
             {
                 Record = null,
                 IsDuplicate = true,
-                DuplicateSessionName = existingRecord.SessionName,
+                DuplicateSessionName = existingRecord.SessionNameAtRecording,
                 DuplicateRecordedAt = existingRecord.RecordedAt
             }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
         }
@@ -647,7 +660,7 @@ public class AttendanceService : IAttendanceService
             {
                 Record = null,
                 IsDuplicate = true,
-                DuplicateSessionName = crossDuplicate.SessionName,
+                DuplicateSessionName = crossDuplicate.SessionNameAtRecording,
                 DuplicateRecordedAt = crossDuplicate.RecordedAt
             }, _localizer, AttendanceConstants.Messages.AttendanceDuplicateDetected);
         }
@@ -662,9 +675,10 @@ public class AttendanceService : IAttendanceService
             result.HasAbsenceAlert = true;
             result.ConsecutiveAbsences = absenceCounter.ConsecutiveAbsences;
             result.LastAbsenceDate = absenceCounter.LastAbsenceDate;
-            result.LastAbsenceSessionName = absenceCounter.LastAbsenceSessionName;
             result.LastAbsenceWasCrossSession = absenceCounter.LastAbsenceSessionId.HasValue
                 && absenceCounter.LastAbsenceSessionId != dto.SessionId;
+
+            result.LastAbsenceSessionName = absenceCounter.LastAbsenceSessionNameAtRecording;
 
             if (!dto.AbsenceAlertConfirmed && markStatus == AttendanceStatus.Present)
             {
@@ -678,7 +692,7 @@ public class AttendanceService : IAttendanceService
         if (mt.IsCrossSession)
         {
             result.AssignedSessionId = activeAssignment.SessionId;
-            result.AssignedSessionName = activeAssignment.SessionName;
+            result.AssignedSessionName = activeAssignment.SessionNameAtAssignment;
         }
 
         // 8. Cross-session marks are always CrossSessionPresent (the visitor attended).
@@ -707,7 +721,7 @@ public class AttendanceService : IAttendanceService
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
                 SessionId = mt.RecordSessionId,
-                SessionName = mt.RecordSessionName,
+                SessionNameAtRecording = mt.RecordSessionName,
                 // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                 // Enables Report Type 5 (SessionGroupAttendance) for deleted sessions.
                 SessionGroupId = session.SessionGroupId,
@@ -716,7 +730,7 @@ public class AttendanceService : IAttendanceService
                 AttendanceMethod = dto.AttendanceMethod,
                 IsCrossSession = mt.IsCrossSession,
                 CrossSessionId = mt.CrossSessionId,
-                CrossSessionName = mt.CrossSessionName,
+                CrossSessionNameAtRecording = mt.CrossSessionName,
                 CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                 RecordedAt = DateTime.UtcNow,
                 RecordedByUserId = dto.RecordedByUserId,
@@ -1026,7 +1040,7 @@ public class AttendanceService : IAttendanceService
                         StudentName = student.StudentName,
                         StudentCode = student.StudentCode,
                         SessionId = dto.SessionId,
-                        SessionName = session.SessionName,
+                        SessionNameAtRecording = session.SessionName,
                         SessionGroupId = session.SessionGroupId,
                         OccurrenceDate = date,
                         Status = AttendanceStatus.Held,
@@ -1101,7 +1115,7 @@ public class AttendanceService : IAttendanceService
                         StudentCode = student.StudentCode,
                         ConsecutiveAbsences = counter.ConsecutiveAbsences,
                         LastAbsenceDate = counter.LastAbsenceDate,
-                        LastAbsenceSessionName = counter.LastAbsenceSessionName,
+                        LastAbsenceSessionName = counter.LastAbsenceSessionNameAtRecording,
                         WasCrossSession = counter.LastAbsenceSessionId.HasValue
                             && counter.LastAbsenceSessionId != dto.SessionId
                     });
@@ -1117,7 +1131,7 @@ public class AttendanceService : IAttendanceService
                     StudentName = student.StudentName,
                     StudentCode = student.StudentCode,
                     SessionId = mt.RecordSessionId,
-                    SessionName = mt.RecordSessionName,
+                    SessionNameAtRecording = mt.RecordSessionName,
                     // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                     SessionGroupId = session.SessionGroupId,
                     OccurrenceDate = mt.RecordOccurrenceDate,
@@ -1125,7 +1139,7 @@ public class AttendanceService : IAttendanceService
                     AttendanceMethod = dto.AttendanceMethod,
                     IsCrossSession = mt.IsCrossSession,
                     CrossSessionId = mt.CrossSessionId,
-                    CrossSessionName = mt.CrossSessionName,
+                    CrossSessionNameAtRecording = mt.CrossSessionName,
                     CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                     RecordedAt = DateTime.UtcNow,
                     RecordedByUserId = dto.RecordedByUserId,
@@ -1154,7 +1168,7 @@ public class AttendanceService : IAttendanceService
                     counter.ConsecutiveAbsences++;
                     counter.TotalAbsences++;
                     counter.LastAbsenceDate = date;
-                    counter.LastAbsenceSessionName = session.SessionName;
+                    counter.LastAbsenceSessionNameAtRecording = session.SessionName;
                     counter.LastAbsenceSessionId = dto.SessionId;
                 }
                 else
@@ -1406,7 +1420,7 @@ public class AttendanceService : IAttendanceService
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
                 SessionId = dto.SessionId,
-                SessionName = session.SessionName,
+                SessionNameAtRecording = session.SessionName,
                 OccurrenceDate = date,
                 Status = AttendanceStatus.Held,
                 AttendanceMethod = AttendanceMethod.MultiSelect, // Holds come from UI interaction
@@ -1500,7 +1514,7 @@ public class AttendanceService : IAttendanceService
                     dto.SessionId, dto.TeacherId);
                 await UpdateAbsenceCounterForNewRecord(dto.TeacherId, dto.TeacherStudentId,
                     AttendanceStatus.Present, date,
-                    session?.SessionName ?? heldRecord.SessionName, dto.SessionId);
+                    session?.SessionName ?? heldRecord.SessionNameAtRecording, dto.SessionId);
             }
             else
             {
@@ -1663,7 +1677,7 @@ public class AttendanceService : IAttendanceService
                         TotalAbsences = counter?.TotalAbsences ?? 0,
                         AbsenceConsequenceLabel = BuildAbsenceConsequenceLabel(consecutive, absenceThreshold),
                         LastAbsenceDate = counter?.LastAbsenceDate,
-                        LastAbsenceSessionName = counter?.LastAbsenceSessionName
+                        LastAbsenceSessionName = counter?.LastAbsenceSessionNameAtRecording
                     };
                 }
             }
@@ -1844,7 +1858,7 @@ public class AttendanceService : IAttendanceService
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
                 SessionId = mt.RecordSessionId,
-                SessionName = mt.RecordSessionName,
+                SessionNameAtRecording = mt.RecordSessionName,
                 // FIX H3: Denormalized SessionGroupId survives session hard-delete (BR-ATT-005).
                 SessionGroupId = session.SessionGroupId,
                 OccurrenceDate = mt.RecordOccurrenceDate,
@@ -1852,7 +1866,7 @@ public class AttendanceService : IAttendanceService
                 AttendanceMethod = AttendanceMethod.MultiSelect, // Via Edit Attendance
                 IsCrossSession = mt.IsCrossSession,
                 CrossSessionId = mt.CrossSessionId,
-                CrossSessionName = mt.CrossSessionName,
+                CrossSessionNameAtRecording = mt.CrossSessionName,
                 CrossSessionOccurrenceDate = mt.CrossSessionOccurrenceDate,
                 RecordedAt = DateTime.UtcNow,
                 RecordedByUserId = dto.RecordedByUserId,
@@ -2049,7 +2063,7 @@ public class AttendanceService : IAttendanceService
                 StudentName = r.StudentName ?? r.TeacherStudent?.StudentName ?? "Unknown",
                 StudentCode = r.StudentCode ?? r.TeacherStudent?.StudentCode ?? "",
                 SessionId = r.SessionId,
-                SessionName = r.SessionName,
+                SessionName = r.SessionNameAtRecording,
                 ConsecutiveAbsences = 0, // Not available from a single-date query
                 TotalAbsences = 0,
                 LastAbsenceDate = r.OccurrenceDate,
@@ -2109,7 +2123,7 @@ public class AttendanceService : IAttendanceService
                 StudentCode = counter.TeacherStudent?.StudentCode ?? "",
                 SessionId = counter.TeacherStudent?.SessionId,
                 // FIX M2: Populate SessionName — was always null in the default path.
-                SessionName = counter.LastAbsenceSessionName,
+                SessionName = counter.LastAbsenceSessionNameAtRecording,
                 ConsecutiveAbsences = counter.ConsecutiveAbsences,
                 TotalAbsences = counter.TotalAbsences,
                 LastAbsenceDate = counter.LastAbsenceDate,
@@ -2181,7 +2195,7 @@ public class AttendanceService : IAttendanceService
             {
                 StudentSessionAssignmentId = a.Id,
                 SessionId = a.SessionId,
-                SessionName = a.SessionName,
+                SessionName = a.SessionNameAtAssignment,
                 AssignedAt = a.AssignedAt,
                 UnassignedAt = a.UnassignedAt,
                 IsActive = a.IsActive
@@ -2297,7 +2311,7 @@ public class AttendanceService : IAttendanceService
                     Date = o.OccurrenceDate,
                     SessionOccurrenceId = o.Id,
                     SessionId = a.SessionId,
-                    SessionName = a.SessionName,
+                    SessionName = a.SessionNameAtAssignment,
                     Status = null, // scheduled but not yet marked
                     IsPast = o.OccurrenceDate.Date <= localToday.Date
                 });
@@ -2334,7 +2348,7 @@ public class AttendanceService : IAttendanceService
                 Date = r.OccurrenceDate,
                 SessionOccurrenceId = r.SessionOccurrenceId,
                 SessionId = r.SessionId,
-                SessionName = r.SessionName,
+                SessionName = r.SessionNameAtRecording,
                 Status = r.Status,
                 IsPast = r.OccurrenceDate.Date <= localToday.Date
             });
@@ -2357,13 +2371,13 @@ public class AttendanceService : IAttendanceService
         if (headerAssignment is not null)
         {
             headerSessionId = headerAssignment.SessionId;
-            headerSessionName = headerAssignment.SessionName;
+            headerSessionName = headerAssignment.SessionNameAtAssignment;
         }
         else if (records.Count > 0)
         {
             var latest = records.OrderByDescending(r => r.OccurrenceDate).First();
             headerSessionId = latest.SessionId;
-            headerSessionName = latest.SessionName;
+            headerSessionName = latest.SessionNameAtRecording;
         }
 
         var monthSummary = new MonthlyAttendanceSummaryDto
@@ -2853,7 +2867,7 @@ public class AttendanceService : IAttendanceService
             TeacherId = teacherId,
             TeacherStudentId = teacherStudentId,
             SessionId = sessionId,
-            SessionName = sessionName,
+            SessionNameAtAssignment = sessionName,
             // AUDIT FIX Step 1: Denormalized student fields — survive student permanent purge
             StudentName = student?.StudentName,
             StudentCode = student?.StudentCode,
@@ -3001,7 +3015,7 @@ public class AttendanceService : IAttendanceService
                     counter.ConsecutiveAbsences++;
                     counter.TotalAbsences++;
                     counter.LastAbsenceDate = date;
-                    counter.LastAbsenceSessionName = sessionName;
+                    counter.LastAbsenceSessionNameAtRecording = sessionName;
                     counter.LastAbsenceSessionId = sessionId;
                 }
                 else // Present or CrossSessionPresent
@@ -3057,7 +3071,7 @@ public class AttendanceService : IAttendanceService
             if (!counter.LastAbsenceDate.HasValue || date > counter.LastAbsenceDate.Value)
             {
                 counter.LastAbsenceDate = date;
-                counter.LastAbsenceSessionName = sessionName;
+                counter.LastAbsenceSessionNameAtRecording = sessionName;
                 counter.LastAbsenceSessionId = sessionId;
             }
         }
@@ -3116,7 +3130,7 @@ public class AttendanceService : IAttendanceService
         var last = await _unitOfWork.AttendanceRepo
             .GetLastAbsenceAndAttendanceAsync(teacherStudentId);
         counter.LastAbsenceDate = last.LastAbsenceDate;
-        counter.LastAbsenceSessionName = last.LastAbsenceSessionName;
+        counter.LastAbsenceSessionNameAtRecording = last.LastAbsenceSessionName;
         counter.LastAbsenceSessionId = last.LastAbsenceSessionId;
         counter.LastAttendanceDate = last.LastAttendanceDate;
 
@@ -3162,7 +3176,7 @@ public class AttendanceService : IAttendanceService
         {
             record.IsCrossSession = true;
             record.CrossSessionId = crossSessionId;
-            record.CrossSessionName = crossSessionName;
+            record.CrossSessionNameAtRecording = crossSessionName;
             record.CrossSessionOccurrenceDate = crossOccurrenceDate;
         }
         record.IsEdited = true;
@@ -3308,7 +3322,7 @@ public class AttendanceService : IAttendanceService
         }
 
         return new MarkTarget(true, recordOccurrenceId, recordOccurrenceDate, landedOccurrence,
-            activeAssignment.SessionId, activeAssignment.SessionName,
+            activeAssignment.SessionId, activeAssignment.SessionNameAtAssignment,
             selectedSession.Id, selectedSession.SessionName, physicalDate);
     }
 
@@ -3351,7 +3365,7 @@ public class AttendanceService : IAttendanceService
         {
             StudentSessionAssignmentId = a.Id,
             SessionId = a.SessionId,
-            SessionName = a.SessionName,
+            SessionName = a.SessionNameAtAssignment,
             AssignedAt = a.AssignedAt,
             UnassignedAt = a.UnassignedAt,
             IsActive = a.IsActive
@@ -3389,13 +3403,13 @@ public class AttendanceService : IAttendanceService
             StudentCode = record.StudentCode ?? studentCode,
             SessionOccurrenceId = record.SessionOccurrenceId,
             SessionId = record.SessionId,
-            SessionName = record.SessionName,
+            SessionName = record.SessionNameAtRecording,
             OccurrenceDate = record.OccurrenceDate,
             Status = record.Status,
             AttendanceMethod = record.AttendanceMethod,
             IsCrossSession = record.IsCrossSession,
             CrossSessionId = record.CrossSessionId,
-            CrossSessionName = record.CrossSessionName,
+            CrossSessionName = record.CrossSessionNameAtRecording,
             CrossSessionOccurrenceDate = record.CrossSessionOccurrenceDate,
             RecordedAt = record.RecordedAt,
             IsEdited = record.IsEdited,
