@@ -1,4 +1,4 @@
-namespace Edvanz.Domain.Constants;
+﻿namespace Edvanz.Domain.Constants;
 
 /// <summary>
 /// Constants for the generic file-upload endpoint (images + PDF → permanent
@@ -27,10 +27,21 @@ public static class UploadConstants
     /// trusted here — the same trust boundary the video-attachment path uses
     /// (no magic-byte sniffing anywhere in the codebase).
     /// </summary>
+    /// <remarks>
+    /// HEIC, HEIF and TIFF are DELIBERATELY ABSENT. Flutter's image pipeline cannot decode any of
+    /// them — it handles JPEG, PNG, GIF, WebP and BMP and nothing else — so a file stored in one of
+    /// those formats renders as a broken image for every student. HEIC is the default camera format
+    /// on every modern iPhone, which made an exam paper photographed on a phone unopenable by the
+    /// whole class. Worse, it was invisible to the one person who could fix it: a teacher checking
+    /// their own upload opens it in the phone browser, which CAN render HEIC, so their copy looked
+    /// perfect. The app now re-encodes every picked image to JPEG before uploading; this list is the
+    /// second half of that fix, so a caller that skips the transcode cannot reintroduce the problem.
+    /// Do NOT add a format back here without confirming Flutter can decode it.
+    /// </remarks>
     public static readonly string[] AllowedContentTypes =
     {
         "image/jpeg", "image/png", "image/gif", "image/webp",
-        "image/bmp",  "image/tiff", "image/heic", "image/heif",
+        "image/bmp",
         "application/pdf"
     };
 

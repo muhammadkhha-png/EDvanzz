@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Upload;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -38,9 +38,6 @@ public sealed class FileUploadService : IFileUploadService
             ["image/gif"]       = ".gif",
             ["image/webp"]      = ".webp",
             ["image/bmp"]       = ".bmp",
-            ["image/tiff"]      = ".tiff",
-            ["image/heic"]      = ".heic",
-            ["image/heif"]      = ".heif",
             ["application/pdf"] = ".pdf",
         };
 
