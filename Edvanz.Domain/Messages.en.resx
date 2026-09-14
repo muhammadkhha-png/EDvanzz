@@ -1434,6 +1434,9 @@
   <data name="VideoNotInScope" xml:space="preserve">
     <value>You do not have access to this video</value>
   </data>
+  <data name="ExamsModuleDeactivated" xml:space="preserve">
+    <value>The exams module is currently disabled for this teacher</value>
+  </data>
   <data name="ModuleDeactivated" xml:space="preserve">
     <value>The video module is currently disabled for this teacher</value>
   </data>

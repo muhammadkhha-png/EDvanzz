@@ -1437,6 +1437,9 @@
   <data name="VideoNotInScope" xml:space="preserve">
     <value>معندكش صلاحية تشاهد الفيديو ده</value>
   </data>
+  <data name="ExamsModuleDeactivated" xml:space="preserve">
+    <value>وحدة الامتحانات متوقفة دلوقتي</value>
+  </data>
   <data name="ModuleDeactivated" xml:space="preserve">
     <value>وحدة الفيديوهات متوقفة دلوقتي</value>
   </data>

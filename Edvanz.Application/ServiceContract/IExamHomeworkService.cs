@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
 
 namespace Edvanz.Application.ServiceContract;
@@ -212,7 +212,15 @@ public interface IExamHomeworkService
     /// parent-portal composer passes FALSE: portal parents hold no JWT, so they could never
     /// fetch a gated file, and the query would be pure cost on that path.
     /// </param>
+    /// <param name="enforceStudentVisibility">
+    /// Whether to apply the teacher's STUDENT exams-module switch
+    /// (<c>TeacherConfiguration.StudentVisibilityExamDefault</c>), failing closed on a missing
+    /// configuration row. True for the student path, which is the default so a new caller is gated
+    /// rather than exposed. The parent-portal composer passes FALSE: parents are governed by
+    /// <c>ParentVisibilityExamDefault</c>, enforced by its own caller, and gating the portal on the
+    /// student switch would hide a section the teacher deliberately left on.
+    /// </param>
     Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
         long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize,
-        bool includeAttachments = true);
+        bool includeAttachments = true, bool enforceStudentVisibility = true);
 }

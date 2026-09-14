@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.ExamHomework;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -2206,10 +2206,33 @@ RowVersion = Convert.ToBase64String(obligation.RowVersion),
     /// <inheritdoc />
     public async Task<Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>> GetMyOfflineExamsAsync(
         long teacherId, long teacherStudentId, string? studentLanguage, int page, int pageSize,
-        bool includeAttachments = true)
+        bool includeAttachments = true, bool enforceStudentVisibility = true)
     {
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        // The teacher's exams-module switch, for the STUDENT path only.
+        //
+        // Every other student surface honours its module's switch — videos return 403
+        // ModuleDeactivated (VideoService.CheckStudentVisibilityAsync), attendance fails closed on
+        // IsAttendanceVisibleTo — and this list was the one that served its rows regardless. A
+        // teacher who switched exams off still had their exam list delivered to students; only the
+        // PAPER was gated, which is why it read as half-hidden.
+        //
+        // Written as the SAME predicate the two paper gates use (LoadReleasedExamAttachmentsAsync
+        // below and FileAccessService.IsReleasedExamAttachmentForStudentAsync), fail-CLOSED on a
+        // missing configuration row, so all three answer alike (§7.9's keep-them-in-step rule).
+        //
+        // NOT applied to the parent portal. This method is shared, and parents have their OWN flag
+        // (ParentVisibilityExamDefault) which ParentSectionComposer's caller enforces — gating the
+        // portal on the STUDENT switch would hide a section the teacher deliberately left on.
+        if (enforceStudentVisibility)
+        {
+            var visibilityConfig = await _unitOfWork.Users.GetConfigurationByTeacherIdAsync(teacherId);
+            if (visibilityConfig?.StudentVisibilityExamDefault != true)
+                return Result<PaginatedResponse<List<StudentOfflineExamListItemDto>>>.Failure(
+                    _localizer, "ExamsModuleDeactivated", HttpStatusCode.Forbidden);
+        }
 
         var (rows, totalCount) = await _unitOfWork.ExamHomeworkRepo
             .GetOfflineExamsForStudentPagedAsync(teacherId, teacherStudentId, page, pageSize);

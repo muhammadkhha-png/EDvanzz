@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -216,7 +216,11 @@ public sealed class ParentSectionComposer : IParentSectionComposer
                 teacherId, teacherStudentId, language, page: 1, pageSize: OfflineExamFetchPageSize,
                 // Portal parents hold no JWT, so a gated file URL would be unusable to them —
                 // loading the papers here would be cost with no consumer.
-                includeAttachments: false);
+                includeAttachments: false,
+                // Parents are gated on ParentVisibilityExamDefault by this method's caller, NOT on
+                // the student switch. A teacher who hides exams from students while leaving them on
+                // for parents must still get this section.
+                enforceStudentVisibility: false);
             if (result.IsSuccess && result.Data?.data is { } rows)
             {
                 foreach (var row in rows)
