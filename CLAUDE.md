@@ -236,6 +236,16 @@ public long TeacherId { get; set; }
 Use `[ForeignKey]` annotations only when there is NO Fluent API `OnDelete` configuration
 for that FK. When in doubt, configure entirely in Fluent API.
 
+**One live violation was found and removed 2026-09-14**: `UserLoginActivity.UserId` carried
+`[ForeignKey(nameof(User))]` *and* a Fluent `HasForeignKey(...).OnDelete(NoAction)`. The emitted
+FK happened to be NO ACTION anyway (`NoAction` is also what EF infers for this shape), so removing
+the annotation produced **no schema change** — verified with
+`dotnet ef migrations has-pending-model-changes`. That is the point: the combination is a latent
+trap, not a live outage, and it only becomes one the day someone changes the Fluent `OnDelete` and
+watches it be ignored. **Grep for `[ForeignKey]` before adding an `OnDelete` to an existing FK**,
+and when you remove an annotation, prove the no-op with the model-changes gate rather than
+assuming it.
+
 ### 4.2 Delete Behaviors
 
 | Default policy | Exceptions |
@@ -351,6 +361,36 @@ The storage account has `allow-blob-public-access=false`: an anonymous blob URL 
 - **Adding a new file-bearing feature** = add a `FileCategory` value + a policy branch in
   `FileAccessService.IsReadAuthorizedAsync` + a named EXISTS repo method — nothing else.
   Unhandled categories are DENIED by default.
+- **A category policy must include the module's own visibility switch, not just the resource
+  gate** (added 2026-09-14). `ExamAttachment` checked the student's obligation and the release
+  gate but never `TeacherConfiguration.StudentVisibilityExamDefault`, so a student holding a
+  fileId from before the teacher hid exams kept fetching the paper — a released exam stays
+  released, and hiding the module reached the list and nothing else. `FileAccessService
+  .IsReleasedExamAttachmentForStudentAsync` now denies first on that flag, **fail-CLOSED on a
+  missing configuration row** (unlike the video gate, which fails open) and read off the config
+  row the method already loads, so the gate costs no extra query. The list side
+  (`ExamHomeworkService.LoadReleasedExamAttachmentsAsync`) applies the **identical expression** —
+  §7.9's "two gates, keep them in step" now covers three facts, not two. See §8 BUG-29.
+- **`Content-Disposition` is RFC 5987-encoded** (shipped 2026-09-14,
+  `AzureBlobFileStorageService.BuildContentDisposition`; the header travels in the SAS as `rscd`).
+  Whenever a download name is not pure printable ASCII the service emits BOTH an ASCII
+  `filename="…"` fallback **with the extension carried across** (the OS picks the viewer off it,
+  so an Arabic-named paper stripped to an empty stem still opens — stem falls back to `file`) AND
+  `filename*=UTF-8''…`. A name that is already ASCII produces the byte-identical header it did
+  before, so no existing download changes behaviour.
+  - **Why**: this app's primary language is Egyptian Arabic and teachers name papers «امتحان
+    الشهر الأول.pdf». RFC 6266 confines the plain `filename` parameter to ISO-8859-1, so raw
+    UTF-8 there is non-conformant and Safari on iOS — how most students open a PDF — mangles it
+    or substitutes a generic name.
+  - **It also closed a CR/LF header-injection path.** ASP.NET Core *decodes* RFC 5987
+    `filename*` on UPLOAD, so a crafted multipart part can put a real CRLF into
+    `IFormFile.FileName`, and `Path.GetFileName` keeps it on Linux. `FileObject.OriginalName` is
+    still stored **unsanitised** by design (it is the teacher's name, shown back to them) — **the
+    encoder is the barrier**. Any new code that puts `OriginalName`, or any user-supplied text,
+    into a header must go through it. Never interpolate a stored name into a header directly.
+  - Do NOT swap `EncodeRfc5987ExtValue` for `Uri.EscapeDataString`: its pass-through set is RFC
+    3986 "unreserved", a different list that has already moved once across runtimes, and
+    `' ( ) *` are not `attr-char`.
 
 ## 6. Hangfire & Background Jobs
 
@@ -382,6 +422,26 @@ activator instantiates through DI.
 
 Every job implementation must be idempotent. Hangfire retries 3 times with
 exponential backoff. Throw on failure so Hangfire records and retries.
+
+### 6.5 Every recurring job that writes needs a kill switch and clamped bounds
+
+A recurring job runs forever, against production, with nobody watching. Bind an options class
+from configuration (`AutoAbsentOptions`, `AdminInsightsOptions`, `SessionNameReconcileOptions`)
+so it can be tuned and STOPPED from App Service settings in one save — no redeploy, no DDL. The
+pattern, uniformly:
+
+- **`Enabled` is checked FIRST, before any statement runs**, so a disabled job writes nothing
+  rather than doing a pass that repairs nothing. Log the fact and return.
+- **`CronExpression` comes from the options**, read in `Program.cs` at
+  `RecurringJob.AddOrUpdate(...)`; the `TimeZone` stays `Africa/Cairo` in code.
+- **Clamp the numeric knobs at the point of use, UPPER bound included.** A lower bound alone
+  protects nothing: the failure mode is a typo in an App Service setting, and the dangerous
+  direction is *up*. `SessionNameReconcileJob` clamps `BatchSize` to `[1, 5000]` and
+  `MaxBatchesPerTable` to `[1, 1000]` precisely because a batch above SQL Server's ~5000-lock
+  escalation threshold turns the job into the `AttendanceRecords` table-lock incident it exists
+  to avoid (§7.10).
+- Defaults must reproduce the pre-configuration behaviour **exactly**, so adding the options
+  class is a no-op until someone sets something.
 
 ---
 
@@ -1048,6 +1108,21 @@ columns + FK + index only).
   (`GetTemplatesWithReleasedAttachmentsAsync`), and `FileAccessService` refuses the URL
   (`IsExamAttachmentVisibleToStudentAsync`). Both express the same predicate — keep them in step.
   Fail-closed.
+- **THREE facts, not two** (added 2026-09-14). The predicate is
+  `StudentVisibilityExamDefault` **AND** the student's obligation **AND** the release gate. The
+  module switch was missing from both sides: release is permanent, so a student who had ever been
+  handed a fileId kept the paper after the teacher hid exams. Added to
+  `FileAccessService.IsReleasedExamAttachmentForStudentAsync` and, identically, to
+  `ExamHomeworkService.LoadReleasedExamAttachmentsAsync` — fail-CLOSED on a missing config row on
+  both sides, and no new query on either (the config is already loaded for the delay). See §8
+  BUG-29.
+- **The create path REFUSES an over-cap paper, it does not truncate it** (fixed 2026-09-14).
+  `CreateExamAsync` did `.Distinct().Take(MaxAttachmentsPerExam)`, so twelve photographed pages
+  created an exam whose paper stopped at page ten, with a 201 and nothing on screen saying so —
+  while the dedicated endpoint answered the identical rule with 422 `ExamTooManyAttachments`. The
+  count is now checked in step 1, before the transaction opens, and returns the same key and the
+  same 422. A truncated question paper is worse than none: the student cannot tell which it is.
+  See §8 BUG-28. **Two paths enforcing one rule must give one answer.**
 - **Delete.** The FK is NoAction and the exam is HARD-deleted, so `DeleteTemplateAsync` detaches the
   papers inside its transaction (`DetachExamAttachmentsAsync`). DETACH, never delete the row — only
   registry-backed blobs are GC-visible. `FileAccessService.DetachAsync` now clears BOTH back-refs.
@@ -1060,6 +1135,23 @@ columns + FK + index only).
   protection — that is also what "or downloaded" asks for; upload as images if it must not.
 - App: one shared `AttachmentPicker` (extracted from the video form, widened to images) and one
   shared `GatedFileOpener` — see BUG-18; never call `openUrl` on a gated URL again.
+  **Correction (2026-09-14): the video form was never actually migrated** — the commit message
+  said it had been and the extraction was real, but the old inline picker stayed in place, so the
+  two drifted immediately. It is migrated now, passing **PDF-only** so video attachments did not
+  silently widen to images. *A commit message is not evidence a call site moved; grep for the
+  thing you claim to have deleted.*
+- **HEIC is re-encoded at PICK time, always** (app, 2026-09-14). Every picked attachment IMAGE is
+  decoded and re-encoded to JPEG regardless of size — quality 95 / 3000px long edge; the
+  pre-existing over-limit path keeps quality 80 / 1600px. **Why**: Flutter/Skia cannot decode
+  HEIC, HEIF or TIFF, HEIC is the iPhone camera default, and the backend allow-list ACCEPTS
+  `image/heic` / `image/heif` — so an iPhone-photographed exam paper uploaded fine, rendered
+  perfectly in the teacher's own browser preview, and was unviewable by every single student. The
+  one place the failure showed was the only place nobody looked. A decode failure now **refuses
+  with a specific message** rather than uploading the original, so the file is never accepted in a
+  form no client can read. See §8 BUG-30.
+  **Follow-up (open)**: the backend `UploadConstants` allow-list still accepts `heic`/`heif`/
+  `tiff`. The app no longer sends them, but any other client can, and the server will store a file
+  nothing renders. Decide whether to reject them at upload or transcode server-side.
 
 **The watch threshold.** "Watched" stopped meaning "a `VideoAnalytics` row exists". `start-watch`
 creates that row on the play transition with `TotalWatchSeconds = 0`, so opening a video and leaving
@@ -1123,6 +1215,12 @@ firing, so the scan went through.
   shared not-recorded sheet (`showAttendanceNotRecordedSheet`, extended from the partial-save sheet
   — extend it, never fork a second one). **A short save must be visible at the door, not a week
   later.**
+- That chip's warning colour is a **theme token**, not a hardcoded pair (2026-09-14). It shipped
+  light-mode-only on a screen the app has a real dark theme for, and its light foreground
+  `#B26A00` measured **3.90:1** — 12sp semibold needs 4.5:1. Now `#9A5C00` (**4.95:1**) with a
+  dark-mode pair alongside. **A count of lost work is the last thing that may be hard to read**;
+  when you add a semantic colour, add both modes and measure the contrast at the size it is
+  actually rendered.
 
 **A session's name lives in ONE place logically and EIGHT places physically, and the rename keeps
 them in step.** Eight tables carry a denormalized copy of the session name, written once when the
@@ -1186,6 +1284,19 @@ net if a propagation is ever missed. Redundant, not wrong.
 autocommitting batches of 2000, capped at 50 batches per table per run, resuming the next night if
 it does not finish. Guarded on the name actually differing, so a steady-state run writes nothing.
 
+**The job is configured, clamped and killable** (`SessionNameReconcileOptions`, section
+`SessionNameReconcile`, added 2026-09-14 — §6.5). `SessionNameReconcile__Enabled` /
+`__BatchSize` / `__MaxBatchesPerTable` / `__CronExpression` are App Service settings, so a job
+that rewrites eight tables platform-wide — two of them the hottest write paths here — can be
+stopped in one settings save, with no redeploy and no DDL. `Enabled` is checked before any
+statement runs. **The UPPER clamps are the load-bearing half**: `BatchSize` is clamped to
+`[1, 5000]` and `MaxBatchesPerTable` to `[1, 1000]` because the failure mode is a typo in a
+settings box, and a batch above SQL Server's ~5000-lock escalation threshold is exactly the
+`AttendanceRecords` table lock this was made a job to avoid (next paragraph). Defaults reproduce
+the previous hard-coded constants exactly, so the options class is a no-op until someone sets
+something. `SessionNameReconcileJob` is also registered in DI now — Hangfire's activator could
+construct it either way; it belongs with its siblings.
+
 **Why not a migration.** `azure/sql-action` applies migrations BEFORE `az webapp deploy`, so the
 CURRENTLY DEPLOYED app is live and teachers are marking attendance while they run. A repair of
 unbounded size there does two bad things: it exceeds SQL Server's ~5000-lock escalation threshold
@@ -1231,6 +1342,18 @@ unmarked**. It told the tutor he was finished.
   number. Marks are adjusted in memory against BOTH summaries via `_adjustBothSummaries`, routed by
   `isAssignedToSession`; `TeacherAttendanceQueuedScan` carries that flag from the moment the scan
   resolved, because a scanned visitor is usually not on the loaded page to ask.
+- **CORRECTION to `linked_absent_count` (2026-09-14).** Its doc comment used to claim a visitor
+  "can only be Present or Held here — a cross-session mark is forced to `CrossSessionPresent`, so
+  absent is unreachable for them". **That is wrong, and the number is routinely non-zero.** A
+  row's status is resolved over the whole equivalent-slot occurrence set (this session plus every
+  linked session sharing the `(WeekStartDate, DayPositionIndex)` slot), so a visitor marked Absent
+  in THEIR OWN class — by their tutor, or by the nightly auto-absent sweep (§7.2) — surfaces on
+  this roster carrying that Absent. The forcing rule only governs a PRESENT mark made here.
+  So `linked_absent_count` counts **visitors absent from their own class**; it is NEVER "absent
+  from this class", which they were never obliged to attend. That is exactly why the app offers a
+  "from other classes" chip on the Present and Hold lists and **deliberately offers none on the
+  Absent list** — the number is real, the sentence it would imply is not. Do not "add the missing
+  chip".
 
 
 
@@ -1299,8 +1422,11 @@ the short list, so nothing on screen disagreed.
 - **Present and Hold default to the register and offer a visitors chip.** A visitor CAN reach both:
   a cross-session mark is forced to `CrossSessionPresent` (`AttendanceService` line ~694), and the
   Hold branch writes against THIS session with `IsCrossSession = false` and only checks the student
-  has *an* assignment. A visitor can never be Absent — marking one absent silently records
-  `CrossSessionPresent`, because they were never obliged to this class.
+  has *an* assignment. Marking a visitor absent HERE is impossible — it silently records
+  `CrossSessionPresent`, because they were never obliged to this class. **That does NOT make
+  `linked_absent_count` zero**: a visitor absent in their OWN class arrives carrying that Absent
+  through the equivalent-slot resolution — see the correction at the end of this section. The
+  Absent list therefore has no visitors chip, on purpose.
 - **`linked_present_count` / `linked_absent_count` / `linked_hold_count` / `linked_unmarked_count`**
   are sent as their own set. The grouped query already produces both halves, so this costs nothing
   and means **no screen subtracts one server number from another** to label a chip — a subtraction
@@ -1337,6 +1463,39 @@ while scanning the same code worked.
 
 ---
 
+### 7.11 Admin activation records only what the admin STATES (2026-09-14)
+
+`POST /api/admin/subscriptions/activate` (and `-managerial` / `-managerial-plus`) bypasses payment:
+the money is arranged outside the app, so the server knows only that *someone decided to switch
+this teacher on*. A free trial, a goodwill month and a paid month are indistinguishable from here.
+
+- **The price is NEVER computed at activation.** `ActivateCoreAsync` briefly priced the period
+  through `SubscriptionPricing.MonthlyValueEGP` and stored the result, reasoning that the platform
+  otherwise has no memory of what a period was worth. It was wrong in the direction that matters:
+  a teacher granted a free month then read, **in their own subscription history**, money they had
+  never paid. A figure nobody stated is not a better record than no figure — it is a false one.
+  See §8 BUG-27. `ComputeRenewalPriceAsync` / `SubscriptionPricing` remain the source for the
+  teacher's renewal QUOTE; that is a different question and is untouched.
+- **`AmountPaidEGP` on `AdminActivateRequest` / `AdminActivateManagerialRequest`** is `decimal?`,
+  exactly mirroring `AdminExtendRequest.AmountPaidEGP`: **null means "not stated", which is NOT
+  the same as zero.** Omitted stores `0m` — the historical value — so an admin client that never
+  sends the field behaves byte-for-byte as before.
+- **A stored zero must never render as a price.** `TeacherSubscription.AmountPaidEGP` is
+  `decimal NOT NULL` (and stays that way — **no migration, no schema change**), and a real payment
+  is never zero, so a stored `0` means "nobody wrote a figure here". `SubscriptionHistoryItemDto
+  .AmountPaidEGP` is therefore `decimal?` and `SubscriptionService.GetHistoryPagedAsync` maps
+  `0m → null`. **A null cannot be formatted into a price by accident; a zero can.** The JSON key is
+  still always present (it serializes as `null`, not omitted) — only its type widened from number
+  to number-or-null.
+- Scope check before changing this: `GET /api/subscription/history` is the ONLY surface that shows
+  this column to a teacher. `CurrentSubscriptionDto` does not carry it, and
+  `CurrentSubscriptionStatusProjection.AmountPaidEGP` is populated but read by nothing. The admin
+  console's `RecordedPaidEGP` / `RecordedAmountPaidEGP` still sum the raw column and are a **floor
+  on recorded revenue, never a total of it** — rows with no stated amount contribute 0, which is
+  why `ValueBasis` stays `"TodayPrices"` and the two are reported unmixed.
+
+---
+
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
 
 | Bug | Location | Fix |
@@ -1355,7 +1514,7 @@ while scanning the same code worked.
 | BUG-12 | `ParentUserController` (all 10 endpoints) | Mass horizontal IDOR: the controller had NO `[Authorize]`/`[ModulePermission]` and injected no identity service, so `parentUserId`/`childId` were trusted straight from the route — any authenticated user (any role) could read/modify/delete ANY parent's profile, dashboard, and children. Fixed 2026-07-16 (commit `ece9fab`): identity is resolved ONLY from the JWT via `ResolveParentUserIdAsync()` (`User.Id` → active `ParentUser`); the `{parentUserId}` route segment is kept for wire-compat but IGNORED (0/null/wrong/mismatched all behave identically); every `childId` is scoped to the resolved parent inside the service (`GetActiveChildAsync(parentUserId, childId)`); class `[Authorize]` + per-endpoint `[ModulePermission(roles:["Parent"], roleOnly:true)]` added; `InitializeParentUser` forces `dto.UserId` from the JWT (registration still initializes parents server-side via `UserService`, unaffected). Mirrors `ParentAttendanceController`/`ParentPaymentController`. Generalizes §3.3 — never trust a route/body identity id (teacherId, parentUserId, childId); resolve from the token. |
 | BUG-14 | Parent portal: a wrong student code was answered "request sent" and waited forever | `RequestAccessAsync` returned the neutral pending payload for a nonexistent `StudentCode` **without writing a row**, and the portal's `/pending` treated the resulting `state: "none"` as "still waiting", refreshing every 15s indefinitely. The parent believed they had asked; no teacher could ever see or approve anything; support could not tell the case apart from a slow teacher. Fixed 2026-09-11 — honest 404 + a metered enumeration budget, and `/pending` renders only a genuine `pending`. Full contract in §7.7. **Never make a discarded request answer `pending` again**, and never let a screen assert a state the API did not return. |
 | BUG-13 | `MessagingController` auth commented + `TeacherController.GetTeachers` (`GET /api/teacher/list`) ungated | Two authorization holes closed 2026-07-16 (commit `000f009`). (a) MessagingController's class `[Authorize]` and the `send`/`history`/`resend` `[ModulePermission]` gates were commented out (this was §7.1 P0-A) → any authenticated caller could send manual messages, read history, and resend; restored verbatim — `"SendManual"`/`"ViewHistory"` are registered Messaging permissions (`DbInitializer`), `roleOnly:false` runs the `PermissionRequirement(module,permission)` check, and the tenant is still JWT-forced by `TenantScopeFilter`. (b) `GetTeachers` is documented Super-Admin-only but carried no role gate → any authenticated user could enumerate every teacher (name, code, phone, capacity, subscription); added `[ModulePermission(roles:["SuperAdmin"], roleOnly:true)]` (`roleOnly:true` → role-membership gate). Do not re-comment controller auth attributes or ship an admin-only endpoint without a role gate. |
-| BUG-15 | `TeacherAttendanceQrScanView` scanned into the wrong day | The scanner builds its own roster cubit and was never handed `occurrenceDate`, so every scan wrote to the teacher's current local day whatever class day the register was showing. Opening an exam's class day and scanning marked the student present on the most recent class: the exam still read absent, a different day gained a Present nobody made, and the header ("Take attendance", no class, no date) gave no way to notice. Fixed 2026-09-11 — the day is threaded route → view → cubit (queued offline scans carry it too) and the header names class and day. Tapping a row was always correct; only the scanner was wrong, which is why it read as random. **Never let a sub-screen re-derive scoping context its caller already had, and never let a screen write to a day it does not name.** See §7.8. |
+| BUG-15 | `TeacherAttendanceQrScanView` scanned into the wrong day | The scanner builds its own roster cubit and was never handed `occurrenceDate`, so every scan wrote to the teacher's current local day whatever class day the register was showing. Opening an exam's class day and scanning marked the student present on the most recent class: the exam still read absent, a different day gained a Present nobody made, and the header ("Take attendance", no class, no date) gave no way to notice. Fixed 2026-09-11 — the day is threaded route → view → cubit (queued offline scans carry it too) and the header names class and day. Tapping a row was always correct; only the scanner was wrong, which is why it read as random. **Never let a sub-screen re-derive scoping context its caller already had, and never let a screen write to a day it does not name.** See §7.8. **Extended 2026-09-14 — the same defect, one screen further on**: the POST-SAVE chain (saved splash → attended result → the Present / Remaining / Hold status lists) each builds its own cubit and was never handed the day either, so after scanning from an exam screen the numbers described TODAY while the marks had gone to the exam's class day. `occurrenceDate` is now threaded through all of them, and **every screen that shows a day's numbers names that day**. The rule is not "the scanner needs the date" — it is that a cubit built by a sub-screen inherits NOTHING, so any scoping the caller had must be passed explicitly and then said out loud on screen. |
 | BUG-16 | `COUNT(NULL)` from a predicate EF folded to a constant | `g.Count(x => x.SomePredicate)` in a GroupBy projection, where the predicate collapses to a compile-time constant `false` (a captured C# bool that is false for this call), is folded by EF into literal `COUNT(NULL)` — SQL Server rejects it outright (*8117, "Operand data type NULL is invalid for count operator"*) and the endpoint 500s. Data-dependent, so it survived review, unit tests and a `ToQueryString()` check that only ran the true branch; three live videos whose duration was still 0 returned 500 from `analytics/by-session`. Fixed 2026-09-11 by expressing "impossible" as an unreachable VALUE (`long.MaxValue` watch-seconds bar) instead of a bool, which keeps it a real column comparison and removes the division from SQL entirely. **When a captured flag gates a predicate inside a SQL aggregate, run `ToQueryString()` for BOTH values of the flag.** |
 | BUG-17 | Tracking-view `TotalCount` counted students the list could not show | The count was taken on the obligations alone, before the projection joins `TeacherStudent` (soft-delete filtered) and drops purged students. Exam 69 session 81 reported 162 and could only render 161; "not graded" reported 86 and rendered 85, so paging asked for a page that did not exist. Fixed 2026-09-11 with the `.Where(o => o.TeacherStudent != null)` BUG-8 already requires, applied BEFORE the count. The audience helper's per-student branch had the same shape and now joins `TeacherStudents` like its siblings. **A count that labels a list must be taken on the same population the list projects through.** |
 
@@ -1370,6 +1529,10 @@ while scanning the same code worked.
 | BUG-24 | `lookupStudentByCode` left the roster filtered to the scanned code | It set `state.searchQuery` and called `load(force: true)`; nothing ever cleared it, and `load()` reads that field every time. After the first scan that missed the in-memory fast path, the roster, the chips, `summary`, `registerSummary` and `assignedCount` all described ONE student, and stayed that way through submit. **It is NOT the cause of the 113-of-120 report — that was BUG-22, scans the alert discarded, and scanning itself worked.** The only surface it reaches is the saved screen's numbers, and in the shipped build that was already page-derived from ten rows, so the effect was masked. It matters now because server-side totals only help if nothing re-scopes them afterwards. Fixed 2026-09-14: the lookup is one direct repository query that emits no list state (mirroring the exam cubit, which was always right), and only a search-free load may replace the register counts. **A lookup is a question, not a filter — never let one re-scope the list it read from.** See §7.10. |
 | BUG-25 | `hold_count` unread, so the "Marked" chip under-counted | The parser looked for `holdCount`/`heldCount`/`held`/`totalHeld` and never the wire key `hold_count`. Masked while the all-zero fallback recomputed the summary from the loaded page; once `present_count`/`absent_count`/`unmarked_count` shipped the fallback stopped firing and the hold count pinned at 0, so the filter menu's Marked total (present + absent + hold) was smaller than the list that chip opens. Fixed 2026-09-14 by reading it **only when the response also carries the other three** — an older server sends `hold_count` alone and reading it there would defeat the fallback, which is why it was excluded in the first place. **A wire key that is only sometimes meaningful needs a contract signal, not exclusion.** |
 | BUG-26 | An unresolved scan was counted into the teacher's own register | `TeacherAttendanceQueuedScan.isAssignedToSession` defaulted to `true`, so a QR payload the roster search could not match advanced "91 of 119" as if it belonged to the class — and the scanner hands that number to the saved screen with no reload. Membership-linked students were never the issue (the roster query covers `sessionId OR linkedIds.Contains(...)`, so they resolve as `false`). Fixed 2026-09-14: the flag is `bool?`, defaults to null, and only `true` moves the register. **When the two errors are asymmetric — over-counting says "done" while a student is unmarked, under-counting only reads one short — encode "unknown" and take the safe one.** |
+| BUG-27 | `AdminSubscriptionService.ActivateCoreAsync` invented a price | Admin activation bypasses payment — the money is arranged outside the app — but the method priced the period through `SubscriptionPricing.MonthlyValueEGP` and stored it as `AmountPaidEGP`. The teacher's own subscription history (`GET /api/subscription/history`) reads that column straight out, so an admin granting a free trial or a goodwill month showed the teacher money they had never paid, in the one screen a teacher would quote back in a dispute. It had been hardcoded `0m` before. Fixed 2026-09-14: `AmountPaidEGP` is a nullable field on `AdminActivateRequest` / `AdminActivateManagerialRequest` (null = "not stated", NOT zero — the `AdminExtendRequest` pattern), omitted stores `0m`, and a stored `0` now renders as "no amount recorded" because `SubscriptionHistoryItemDto.AmountPaidEGP` became `decimal?` and maps `0m → null`. **No schema change** — the entity column stays `decimal NOT NULL`. **The server must not fabricate a number a human never stated; a null is a truthful record and a zero is not.** See §7.11. |
+| BUG-28 | `ExamService.CreateExamAsync` silently truncated the exam paper | It did `dto.AttachmentFileIds.Distinct().Take(MaxAttachmentsPerExam)` and created the exam anyway, so a teacher attaching twelve photographed pages got a **201 and a question paper that stops at page ten**, with nothing on screen saying so — while the dedicated endpoint (`AddExamAttachmentsAsync`) answered the identical rule with 422 `ExamTooManyAttachments`. A truncated paper is worse than none: the student cannot tell which it is. Fixed 2026-09-14 — the count is checked in step 1 before the transaction opens and returns the same key and the same 422. **Two paths enforcing one rule must give one answer, and the answer to "too many" is never "here are the first ten".** See §7.9. |
+| BUG-29 | Exam-paper file endpoint ignored the exams-module visibility switch | `FileAccessService.IsReleasedExamAttachmentForStudentAsync` checked the student's obligation and the release gate but never `TeacherConfiguration.StudentVisibilityExamDefault`. Release is permanent by design, so a student who had ever been handed a `fileId` kept fetching the paper after the teacher hid exams — hiding the module reached the list and nothing else. Fixed 2026-09-14 by denying first on the flag, **fail-closed on a missing config row**, read off the configuration the method already loads (no extra query); the identical expression was added to the list side (`ExamHomeworkService.LoadReleasedExamAttachmentsAsync`) so the two gates stay in step. **A category policy in the file registry must include the owning module's own visibility switch, not only the resource gate** (§5.5, §7.9). |
+| BUG-30 | HEIC exam papers were unviewable by every student | The backend `UploadConstants` allow-list accepts `image/heic` / `image/heif`, and HEIC is the iPhone camera default — but Flutter/Skia cannot decode HEIC, HEIF or TIFF. So an iPhone-photographed exam paper uploaded cleanly, **rendered perfectly in the teacher's own browser preview**, and failed to render for every student in the class. The one surface that showed the failure was the only one nobody looked at. Fixed 2026-09-14 (app): every picked attachment IMAGE is re-encoded to JPEG at pick time regardless of size (quality 95 / 3000px long edge; the pre-existing over-limit path keeps 80 / 1600px), and a decode failure **refuses with a specific message** instead of uploading the original. **Follow-up still open: the server allow-list has not changed**, so any other client can still store a file nothing renders. **An upload allow-list must be the intersection of what the server accepts and what the viewers can decode — the teacher's preview is not the test.** See §7.9. |
 
 **CI migration delivery — root cause of the 2026-07-15/16 attendance outage (deploy.yml `Apply EF migrations`) — RESOLVED 2026-07-16.** `azure/sql-action@v2` used to run the multi-batch idempotent `migrate.sql` (one `BEGIN TRAN…COMMIT` per migration) via go-sqlcmd **without `-b`**, so when a migration's batch errored, its own transaction rolled back (migration NOT recorded) but the runner **continued to the next migration and still exited 0** — a broken migration was silently skipped while the code that needed it deployed anyway. This is why BUG-10 shipped, and it also silently skipped the `20260708193718`/`20260708220307` phone-index migrations on every deploy since 2026-07-08 (see BUG-11). Fixed by: (a) BUG-11's repair migration clearing the failing backlog, (b) `arguments: '-b'` on the sql-action step (any SQL error → non-zero exit → job fails BEFORE `az webapp deploy`), and (c) the two pre-Azure migration gates described in §0 (model-coverage check + fresh-DB rehearsal of `migrate.sql`). Do not remove `-b` or the gates.
 
