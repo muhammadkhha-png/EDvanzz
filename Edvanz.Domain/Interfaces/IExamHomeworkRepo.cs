@@ -806,6 +806,20 @@ public interface IExamHomeworkRepo : IGenericRepo<StudentAssignmentObligation, l
         long teacherId, long teacherStudentId, int page, int pageSize);
 
     /// <summary>
+    /// REQ-EXH-026 (teacher-side student profile): EVERY offline-exam occurrence the given student has
+    /// an obligation for under this teacher — unpaged, ordered by DueDate descending.
+    ///
+    /// Deliberately unpaged, unlike <see cref="GetOfflineExamsForStudentPagedAsync"/>: the teacher's
+    /// per-student exam list MERGES paper exams with online exams before paging, and a page taken from
+    /// either source alone would be a page of the wrong set — the merged total would disagree with the
+    /// merged list (BUG-17: a count that labels a list must be measured on the population the list
+    /// projects through). The set is bounded by one student's own obligations under one teacher.
+    /// Rides the same IX_StudentAssignmentObligations_StudentHistory index.
+    /// </summary>
+    Task<IReadOnlyList<StudentOfflineExamRow>> GetAllOfflineExamsForStudentAsync(
+        long teacherId, long teacherStudentId);
+
+    /// <summary>
     /// Batched leaderboard ranks for one student across a set of offline-exam occurrences — ONE query,
     /// no N+1 (feeds a paged list). For each occurrence in which the student has a GRADED obligation
     /// (<see cref="ObligationStatus.AttendedWithGrade"/> with a grade), returns the student's rank by

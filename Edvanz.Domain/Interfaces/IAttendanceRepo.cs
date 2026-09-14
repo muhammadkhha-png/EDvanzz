@@ -65,8 +65,17 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// <summary>
     /// Finds a specific occurrence for a session on a given date.
     /// REQ-ATT-001/002: Determines if today is a valid occurrence for a session.
+    ///
+    /// <para><b>Pass <paramref name="teacherId"/> whenever the session id can come from the
+    /// request.</b> `SessionOccurrences.TeacherId` is a denormalized tenant column, so scoping
+    /// costs nothing and is the difference between reading your own class and reading someone
+    /// else's. Leaving it null preserves the ORIGINAL tenant-unscoped behaviour and exists only
+    /// for the one internal caller that derives the session id from a row it has already
+    /// tenant-checked (PaymentService.GetOccurrenceIdForPeriodAsync). New code must always pass
+    /// it.</para>
     /// </summary>
-    Task<SessionOccurrence?> GetOccurrenceBySessionAndDateAsync(long sessionId, DateTime date);
+    Task<SessionOccurrence?> GetOccurrenceBySessionAndDateAsync(
+        long sessionId, DateTime date, long? teacherId = null);
 
     // ── Cross-session equivalence ("weekly-slot position") ──────────────────────────────
     // Two occurrences of membership-linked sessions are the SAME logical slot iff they share
@@ -343,8 +352,15 @@ public interface IAttendanceRepo : IGenericRepo<AttendanceRecord, long>
     /// <summary>
     /// Checks if attendance already exists for a student on a specific occurrence.
     /// BR-ATT-002: Duplicate prevention.
+    ///
+    /// <para><paramref name="teacherId"/> is REQUIRED and non-optional on purpose: both ids
+    /// reaching this method can come straight off a request body (POST api/Attendance/sync),
+    /// and the returned record carries the student's denormalized name, code, status and class
+    /// date. Without the tenant filter a crafted (sessionId, teacherStudentId) pair read another
+    /// tutor's student.</para>
     /// </summary>
-    Task<AttendanceRecord?> GetExistingAttendanceAsync(long teacherStudentId, long sessionOccurrenceId);
+    Task<AttendanceRecord?> GetExistingAttendanceAsync(
+        long teacherStudentId, long sessionOccurrenceId, long teacherId);
 
     /// <summary>
     /// Checks for existing attendance records for multiple students on a specific occurrence.

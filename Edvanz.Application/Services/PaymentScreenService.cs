@@ -12,6 +12,7 @@ using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
 using Edvanz.Domain.Interfaces;
+using Edvanz.Domain.Models;
 using Microsoft.Extensions.Localization;
 
 namespace Edvanz.Application.Services;
@@ -114,7 +115,8 @@ public class PaymentScreenService : IPaymentScreenService
         DateTime? from = null, DateTime? to = null,
         string? search = null,
         bool includeAdjustments = true,
-        bool? exactRange = null)
+        bool? exactRange = null,
+        LedgerKindFilter kind = LedgerKindFilter.Fees)
     {
         (page, limit) = NormalizePaging(page, limit);
 
@@ -184,17 +186,26 @@ public class PaymentScreenService : IPaymentScreenService
             return await BuildCollectorScopedCollectionsAsync(
                 teacherId, collectorId, page, limit,
                 startDate, endDate, endExclusive,
-                resolvedYear, resolvedMonth, monthLabel, fromEcho, toEcho, search, includeAdjustments);
+                resolvedYear, resolvedMonth, monthLabel, fromEcho, toEcho, search, includeAdjustments,
+                kind);
         }
 
         // ── TEACHER-WIDE (account) path — collectedByUserId is null here (the collector-scoped path
         // returned above). Keeps SQL pagination: the few departure-refund lines are surfaced on page 1
         // and counted into the totals on every page. ──
-        var (items, totalCount) = await _unitOfWork.PaymentsRepo
-            .GetTransactionsByDateRangePagedAsync(
-                teacherId, startDate, endDate,
-                sessionId: null, collectedByUserId: null,
-                page: page, pageSize: limit, search: search);
+        // Unified source. With kind = Fees (the wire default) LedgerRows reduces to exactly the
+        // old PaymentTransactions filter, ordered identically — Kind is constant so the tiebreak
+        // degenerates to (CollectedAt desc, Id desc) — and every fee row is still built by the
+        // unchanged BuildCollectionRowFromTransaction. So a client that omits `kind` gets a
+        // byte-identical payload.
+        int totalCount = await _unitOfWork.PaymentsRepo.GetLedgerRowCountAsync(
+            teacherId, startDate, endDate,
+            sessionId: null, collectedByUserId: null, search: search, kind: kind);
+
+        var slice = await _unitOfWork.PaymentsRepo.GetLedgerSliceAsync(
+            teacherId, startDate, endDate,
+            sessionId: null, collectedByUserId: null,
+            skip: (page - 1) * limit, take: limit, search: search, kind: kind);
 
         // Arabic-variant-insensitive (أ/ا, ة/ه, ى/ي …): both sides folded in memory, mirroring
         // the SQL dbo.ArabicNormalize path. Normalize already lower-cases, so Ordinal suffices.
@@ -236,25 +247,38 @@ public class PaymentScreenService : IPaymentScreenService
         }
 
         int baseIndex = (page - 1) * limit;
-        var rows = new List<CollectionRow>(items.Count + refundRows.Count);
+        var pageRows = await MaterializeLedgerPageAsync(teacherId, slice);
+        var rows = new List<CollectionRow>(pageRows.Count + refundRows.Count);
         rows.AddRange(refundRows);
-        for (int i = 0; i < items.Count; i++)
-            rows.Add(BuildCollectionRowFromTransaction(items[i], baseIndex + i + 1));
+        for (int i = 0; i < pageRows.Count; i++)
+        {
+            pageRows[i].Index = baseIndex + i + 1;
+            rows.Add(pageRows[i]);
+        }
 
         // "How many paid X" distribution across the whole scope (not just this page), by per-month amount.
         // `search` is threaded so the cards narrow with the visible list — without it they kept
         // reporting the unfiltered scope while the rows below were filtered ("cards keep showing total").
-        var amountTiers = (await _unitOfWork.PaymentsRepo
-                .GetCollectionAmountTiersAsync(teacherId, startDate, endDate, null, search))
-            .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
-            .ToList();
+        // Suppressed under kind = All: a FEE tier is a per-MONTH settlement amount while an EXTRAS
+        // tier is a per-ITEM amount, so a merged "300 → 14" bucket would mean two different things.
+        var amountTiers = kind == LedgerKindFilter.All
+            ? new List<CollectionAmountTier>()
+            : (await _unitOfWork.PaymentsRepo
+                    .GetCollectionAmountTiersAsync(teacherId, startDate, endDate, null, search, kind))
+                .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
+                .ToList();
 
         // §2b transparency: fill system-suggested + set-by name on this page's prorated-first-month rows.
         await EnrichProrationTransparencyAsync(teacherId, rows);
 
         int transactionPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)limit);
+        var (feesTotal, extrasTotal) = await ResolveLedgerSplitAsync(
+            teacherId, startDate, endDate, sessionId: null, collectedByUserId: null, search, kind);
         var response = new CollectionsByMonthResponse
         {
+            LedgerScope = LedgerScopeLabel(kind),
+            FeesTotal = feesTotal,
+            ExtrasTotal = extrasTotal,
             Month = resolvedMonth,
             Year = resolvedYear,
             MonthLabel = monthLabel,
@@ -291,7 +315,8 @@ public class PaymentScreenService : IPaymentScreenService
         long teacherId, long collectorId, int page, int limit,
         DateTime startDate, DateTime endDate, DateTime endExclusive,
         int resolvedYear, int resolvedMonth, string monthLabel,
-        DateTime? fromEcho, DateTime? toEcho, string? search, bool includeAdjustments)
+        DateTime? fromEcho, DateTime? toEcho, string? search, bool includeAdjustments,
+        LedgerKindFilter kind)
     {
         var repo = _unitOfWork.PaymentsRepo;
         var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
@@ -311,7 +336,7 @@ public class PaymentScreenService : IPaymentScreenService
 
         var dayTotals = await repo.GetTransactionDayTotalsAsync(
             teacherId, startDate, endDate, sessionId: null, collectedByUserId: collectorId,
-            search: search, localOffsetHours: localOffsetHours);
+            search: search, localOffsetHours: localOffsetHours, kind: kind);
 
         // ── Negatives (money OUT) — refunds + wallet withdrawals — unless "collections only".
         // Read in full: they are a handful per collector per window, they interleave with the
@@ -348,9 +373,48 @@ public class PaymentScreenService : IPaymentScreenService
                     moneyOutPerformers.Add((row, performerId));
             }
 
+            // "Books & fees" negatives, from EventPaymentEditLogs. Excluded under kind = Fees so a
+            // fee-scoped net never mixes in the other kind's money — the same reason withdrawals are
+            // excluded from a kind-filtered view. includeDeleted:false for the identical orphan
+            // reason as the fee side: a deleted payment's positive row is already gone.
+            if (kind != LedgerKindFilter.Fees)
+            {
+                var extrasRefunds = (await repo.GetExtrasCollectorRefundsInRangeAsync(
+                        teacherId, collectorId, startDate, endExclusive, includeDeleted: false))
+                    .Where(r => r.RefundAmount > 0m && MatchesSearch(r.StudentName, r.StudentCode))
+                    .ToList();
+                foreach (var r in extrasRefunds)
+                {
+                    var row = new CollectionRow
+                    {
+                        Id = $"extras-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+                        Index = 0,
+                        PaymentKind = "extras",
+                        ExtrasItemName = r.ExtrasItemName,
+                        StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+                        StudentName = r.StudentName,
+                        StudentCode = r.StudentCode,
+                        Amount = -r.RefundAmount,
+                        Status = "refund",
+                        IsRefund = true,
+                        SessionName = null,
+                        RefundedForMonthLabel = null,
+                        CollectedAt = r.RefundedAt
+                    };
+                    moneyOut.Add(row);
+                    if (r.PerformedByUserId is long extrasPerformerId && extrasPerformerId != collectorId)
+                        moneyOutPerformers.Add((row, extrasPerformerId));
+                }
+            }
+
             // Cash withdrawals (hand-overs FROM this collector's wallet). A withdrawal carries no student,
             // so it's skipped while a student search is active. The tutor's own view has no wallet → empty.
-            if (string.IsNullOrEmpty(term))
+            //
+            // Also skipped under a KIND filter: a hand-over is one physical movement of a bag holding
+            // both kinds, so it cannot be attributed to one of them. Including it would make a
+            // fee-only or extras-only net subtract money the filtered rows never contained. The
+            // screen says so out loud instead ("the balance covers all types").
+            if (string.IsNullOrEmpty(term) && kind == LedgerKindFilter.All)
             {
                 var withdrawals = await repo.GetWalletResetLogsForCollectorInRangeAsync(
                     teacherId, collectorId, startDate, endExclusive);
@@ -467,12 +531,16 @@ public class PaymentScreenService : IPaymentScreenService
             }
         }
 
-        // ── The one row-bearing read: exactly the collections this page shows. ──
-        var pageTxns = positiveTake > 0
-            ? await repo.GetTransactionsByDateRangeSliceAsync(
+        // ── The one row-bearing read: exactly the collections this page shows, from BOTH money
+        // kinds in one ordered statement. The day walk above is source-agnostic — it only ever used
+        // the per-day COUNTS — so nothing about the page-location algorithm changes. ──
+        var pageSlice = positiveTake > 0
+            ? await repo.GetLedgerSliceAsync(
                 teacherId, startDate, endDate, sessionId: null, collectedByUserId: collectorId,
-                skip: positiveSkip, take: positiveTake, search: search)
-            : (IReadOnlyList<PaymentTransaction>)Array.Empty<PaymentTransaction>();
+                skip: positiveSkip, take: positiveTake, search: search, kind: kind)
+            : (IReadOnlyList<CollectionLedgerSourceRow>)Array.Empty<CollectionLedgerSourceRow>();
+
+        var pageCollections = await MaterializeLedgerPageAsync(teacherId, pageSlice);
 
         var pageRows = new List<CollectionRow>(slots.Count);
         int taken = 0;
@@ -482,8 +550,8 @@ public class PaymentScreenService : IPaymentScreenService
             // Defensive: a concurrent collection/refund inside the window can shift the slice by a
             // row between the count and the fetch. Stopping short is a truthful short page; indexing
             // past the end would be a 500.
-            if (taken >= pageTxns.Count) break;
-            pageRows.Add(BuildCollectionRowFromTransaction(pageTxns[taken++], 0));
+            if (taken >= pageCollections.Count) break;
+            pageRows.Add(pageCollections[taken++]);
         }
 
         // Name every foreign performer (tutor taking a hand-over / departing a student) on the rows
@@ -520,16 +588,28 @@ public class PaymentScreenService : IPaymentScreenService
         // over the same collector/date/search filter the rows use. It used to be folded from the fully
         // materialized row set, which is exactly what this method no longer loads. Money-out lines are
         // excluded by construction: refunds and withdrawals belong to DailyNets.
-        var amountTiers = (await repo.GetCollectionAmountTiersAsync(
-                teacherId, startDate, endDate, collectorId, search))
-            .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
-            .ToList();
+        // Suppressed under kind = All on purpose: a FEE tier is a per-MONTH settlement amount (a
+        // 600 payment clearing two months counts as two 300s) while an EXTRAS tier is a per-ITEM
+        // amount. Merged, a "300 → 14" bucket would mean two different things in one strip. The
+        // client hides the strip for this scope; sending an empty list is what tells it to.
+        var amountTiers = kind == LedgerKindFilter.All
+            ? new List<CollectionAmountTier>()
+            : (await repo.GetCollectionAmountTiersAsync(
+                    teacherId, startDate, endDate, collectorId, search, kind))
+                .Select(t => new CollectionAmountTier { Amount = t.Amount, Count = t.Count })
+                .ToList();
 
         // §2b transparency: fill system-suggested + set-by name on this page's prorated-first-month rows.
         await EnrichProrationTransparencyAsync(teacherId, pageRows);
 
+        var (feesTotal, extrasTotal) = await ResolveLedgerSplitAsync(
+            teacherId, startDate, endDate, sessionId: null, collectedByUserId: collectorId, search, kind);
+
         var response = new CollectionsByMonthResponse
         {
+            LedgerScope = LedgerScopeLabel(kind),
+            FeesTotal = feesTotal,
+            ExtrasTotal = extrasTotal,
             Month = resolvedMonth,
             Year = resolvedYear,
             MonthLabel = monthLabel,
@@ -576,6 +656,118 @@ public class PaymentScreenService : IPaymentScreenService
             // Collector's free-text note for a custom/partial collect (null for whole-month collects).
             Note = tx.CollectionNote
         };
+    }
+
+    /// <summary>
+    /// Maps a "Books &amp; fees" payment to its ledger row. Renders COMPLETELY from the flat union
+    /// projection — no eager loads, no follow-up query — which is why the unified slice can return
+    /// a projection for extras while hydrating only the fee ids.
+    ///
+    /// <para>The id is PREFIXED <c>"extras-"</c>. Fee rows use the bare numeric transaction id, so an
+    /// unprefixed extras id would collide for any client keying its list on <c>id</c> — two rows
+    /// claiming to be the same row.</para>
+    ///
+    /// <para>Fee-only concepts are left empty rather than faked: an extras payment settles no
+    /// installment month (<c>AppliedMonths</c> empty, <c>PeriodsCovered</c> 0), carries no session
+    /// (the obligation is student-scoped), and is never a prorated joining month.</para>
+    /// </summary>
+    private static CollectionRow BuildCollectionRowFromExtras(CollectionLedgerSourceRow src)
+    {
+        return new CollectionRow
+        {
+            Id = $"extras-{src.Id.ToString(CultureInfo.InvariantCulture)}",
+            Index = 0,
+            PaymentKind = "extras",
+            ExtrasItemId = src.PaymentEventId?.ToString(CultureInfo.InvariantCulture),
+            ExtrasItemName = src.ExtrasItemName,
+            StudentId = src.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = src.StudentName,
+            StudentCode = src.StudentCode,
+            Amount = src.AmountPaid,
+            Status = "collected",
+            PeriodsCovered = 0,
+            AppliedMonths = new List<CollectionMonthSlice>(),
+            IsProratedFirstMonth = false,
+            SessionName = null,
+            CollectedAt = src.CollectedAt,
+            Note = src.Note
+        };
+    }
+
+    /// <summary>
+    /// Turns an ORDERED slice of the unified ledger into ledger rows, preserving that order exactly.
+    ///
+    /// <para>Fee ids are hydrated in ONE primary-key seek and built through the unchanged
+    /// <see cref="BuildCollectionRowFromTransaction"/>, so the shipped fee-row payload stays
+    /// byte-identical; extras rows come straight off the projection. The order of the hydration
+    /// query's results is NOT relied on — rows are re-emitted in the slice's sequence, because SQL
+    /// Server is free to return an <c>IN</c> seek in any order and the ledger's day grouping depends
+    /// on the sequence being the one the slice computed.</para>
+    ///
+    /// <para>A fee row whose hydration is missing (a concurrent refund between the slice and the
+    /// seek) is SKIPPED — a truthful short page, never a null row or a 500.</para>
+    /// </summary>
+    private async Task<List<CollectionRow>> MaterializeLedgerPageAsync(
+        long teacherId, IReadOnlyList<CollectionLedgerSourceRow> slice)
+    {
+        var rows = new List<CollectionRow>(slice.Count);
+        if (slice.Count == 0) return rows;
+
+        var feeIds = slice
+            .Where(r => r.Kind == LedgerRowKind.Fee)
+            .Select(r => r.Id)
+            .Distinct()
+            .ToList();
+
+        var hydrated = feeIds.Count > 0
+            ? (await _unitOfWork.PaymentsRepo.GetTransactionsByIdsAsync(teacherId, feeIds))
+                .ToDictionary(t => t.Id)
+            : new Dictionary<long, PaymentTransaction>();
+
+        foreach (var src in slice)
+        {
+            if (src.Kind == LedgerRowKind.Extras)
+            {
+                rows.Add(BuildCollectionRowFromExtras(src));
+                continue;
+            }
+
+            if (hydrated.TryGetValue(src.Id, out var tx))
+                rows.Add(BuildCollectionRowFromTransaction(tx, 0));
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The wire spelling of a <see cref="LedgerKindFilter"/>, echoed on the response so a client can
+    /// tell an older server ignored its request instead of trusting a view it never got.
+    /// </summary>
+    private static string LedgerScopeLabel(LedgerKindFilter kind) => kind switch
+    {
+        LedgerKindFilter.Extras => "extras",
+        LedgerKindFilter.All => "all",
+        _ => "fees"
+    };
+
+    /// <summary>
+    /// The fee/extras gross split for the window.
+    ///
+    /// <para>Costs NOTHING for a client on the default <c>fees</c> scope: that is every deployed
+    /// build, and running an extra grouped query on their behalf for a number they cannot read would
+    /// be pure waste on a 5-DTU database. They get <c>FeesTotal = 0</c> / <c>ExtrasTotal = 0</c> and
+    /// ignore both fields, exactly as they did before the fields existed. A client that explicitly
+    /// asked for a wider scope pays for one grouped statement.</para>
+    /// </summary>
+    private async Task<(decimal Fees, decimal Extras)> ResolveLedgerSplitAsync(
+        long teacherId, DateTime startDate, DateTime endDate,
+        long? sessionId, long? collectedByUserId, string? search, LedgerKindFilter kind)
+    {
+        if (kind == LedgerKindFilter.Fees)
+            return (0m, 0m);
+
+        return await _unitOfWork.PaymentsRepo.GetLedgerGrossByKindAsync(
+            teacherId, startDate, endDate, sessionId, collectedByUserId, search);
     }
 
     /// <summary>
@@ -670,7 +862,8 @@ public class PaymentScreenService : IPaymentScreenService
     public async Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
         long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null,
         long? collectedByUserId = null, bool? exactRange = null,
-        string? search = null, bool includeAdjustments = true)
+        string? search = null, bool includeAdjustments = true,
+        LedgerKindFilter kind = LedgerKindFilter.Fees)
     {
         var repo = _unitOfWork.PaymentsRepo;
 
@@ -759,9 +952,31 @@ public class PaymentScreenService : IPaymentScreenService
             // Session, Allocations, Allocations.PaymentPeriod and EditLogs eager-loaded, just to add
             // them up in memory — and the app's default wallet scope opens in 2020, so "the window"
             // was the collector's entire history.
-            var (grossCollected, collectorTxCount, distinctPayingStudents) =
-                await repo.GetTransactionRangeAggregatesAsync(
-                    teacherId, startDate, endInclusiveTick, sessionId, collectorUid, search);
+            // FEE figures are read only when the scope includes them, so `kind=extras` does not
+            // pay for a query whose answer it discards.
+            decimal grossCollected = 0m;
+            int collectorTxCount = 0, distinctPayingStudents = 0;
+            if (kind != LedgerKindFilter.Extras)
+            {
+                (grossCollected, collectorTxCount, distinctPayingStudents) =
+                    await repo.GetTransactionRangeAggregatesAsync(
+                        teacherId, startDate, endInclusiveTick, sessionId, collectorUid, search);
+            }
+
+            // "Books & fees" activity over the SAME window and the same search.
+            //
+            // sessionId is deliberately NOT applied: an extras payment carries no session, so a
+            // session-scoped card is structurally fee-only. Under a session filter the extras half
+            // is therefore zero rather than wrong — the same reason "Collected by Sessions" stays
+            // fees-only (§7.12).
+            decimal extrasGross = 0m;
+            int extrasTxCount = 0, extrasDistinctStudents = 0;
+            if (kind != LedgerKindFilter.Fees && !sessionId.HasValue)
+            {
+                (extrasGross, extrasTxCount, extrasDistinctStudents) =
+                    await repo.GetExtrasRangeAggregatesAsync(
+                        teacherId, startDate, endInclusiveTick, collectorUid, search);
+            }
             // "Collections only" (includeAdjustments=false) hides refunds from the list, so the strip
             // must stop counting them too - otherwise it reports money out that the list denies.
             var collectorRefunds = includeAdjustments
@@ -773,32 +988,84 @@ public class PaymentScreenService : IPaymentScreenService
             var collectorDepartures = await repo.GetDepartureRefundsByDateRangeAsync(
                 teacherId, startDate, endExclusive, collectorUid);
 
-            refundsTotal = collectorRefunds.Sum(r => r.RefundAmount);
+            // Extras refunds, gated the same two ways as their fee siblings: hidden by
+            // "collections only", and out of scope when the card is fees-only.
+            var extrasRefunds = includeAdjustments
+                    && kind != LedgerKindFilter.Fees
+                    && !sessionId.HasValue
+                ? (await repo.GetExtrasCollectorRefundsInRangeAsync(
+                        teacherId, collectorUid, startDate, endExclusive, includeDeleted: false))
+                    .Where(r => r.RefundAmount > 0m)
+                    .ToList()
+                : new List<CollectorRefundRow>();
+
+            refundsTotal = collectorRefunds.Sum(r => r.RefundAmount)
+                + extrasRefunds.Sum(r => r.RefundAmount);
             // Clients render "collected" as net + refunds (gross) — emit net accordingly.
-            netCash = grossCollected - refundsTotal;
-            txCount = collectorTxCount;
-            studentsPaid = distinctPayingStudents;
+            netCash = grossCollected + extrasGross - refundsTotal;
+            txCount = collectorTxCount + extrasTxCount;
+            // SUMMED, not deduped across kinds: one student paying a fee and a مذكرة would be
+            // counted twice. That is accepted deliberately — deduping needs a DISTINCT over the
+            // union of both tables, and under the default `fees` scope (every deployed build) this
+            // line is byte-identical to what it replaced. Only the new segmented control can reach
+            // the `all` scope, and it reads the figure as activity, not as a headcount of people.
+            studentsPaid = distinctPayingStudents + extrasDistinctStudents;
             // "Departed" on a collector strip = departures whose refund was charged to THIS
             // collector (they CONFIRMED the departure and handed the cash back — §7.4).
             // RefundDue mirrors the refund LINES charged to them, which is what clients render
             // as the refunds count.
             departedTotal = collectorDepartures.Count;
-            departedRefundDue = collectorRefunds.Count;
+            departedRefundDue = collectorRefunds.Count + extrasRefunds.Count;
             departedAmountOwed = 0;
         }
         else
         {
-            decimal grossCash = await repo.GetCashCollectedInRangeAsync(teacherId, sessionId, startDate, endExclusive);
+            decimal grossCash = 0m;
+            if (kind != LedgerKindFilter.Extras)
+            {
+                grossCash = await repo.GetCashCollectedInRangeAsync(
+                    teacherId, sessionId, startDate, endExclusive);
+                (_, txCount) = await repo.GetTransactionsByDateRangePagedAsync(
+                    teacherId, startDate, endInclusiveTick, sessionId, null, page: 1, pageSize: 1);
+                studentsPaid = await repo.CountDistinctPayingStudentsInRangeAsync(
+                    teacherId, sessionId, startDate, endExclusive);
+            }
+            else
+            {
+                txCount = 0;
+                studentsPaid = 0;
+            }
+
             var refunds = await repo.GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive);
             refundsTotal = refunds.Sum(r => r.RefundAmount);
+
+            // "Books & fees" added on top, same scope rules as the collector branch: never under a
+            // session filter (extras carry no session), and its refunds follow "collections only".
+            if (kind != LedgerKindFilter.Fees && !sessionId.HasValue)
+            {
+                var (extrasGross, extrasTxCount, extrasDistinctStudents) =
+                    await repo.GetExtrasRangeAggregatesAsync(
+                        teacherId, startDate, endInclusiveTick, null, search);
+                grossCash += extrasGross;
+                txCount += extrasTxCount;
+                // See the collector branch: summed across kinds, not deduped, and the default
+                // `fees` scope every deployed build sends is unchanged.
+                studentsPaid += extrasDistinctStudents;
+
+                if (includeAdjustments)
+                {
+                    var extrasRefunds = (await repo.GetExtrasRefundsByDateRangeAsync(
+                            teacherId, startDate, endExclusive))
+                        .Where(r => r.RefundAmount > 0m)
+                        .ToList();
+                    refundsTotal += extrasRefunds.Sum(r => r.RefundAmount);
+                }
+            }
+
             // GetCashCollectedInRange is net of soft-deleted (reversed) transactions, but departure
             // refunds do NOT soft-delete the underlying collection — subtract them so the headline
             // reconciles with the collections ledger and per-collector cards (mirrors GetTrackingAsync).
             netCash = grossCash - refundsTotal;
-            (_, txCount) = await repo.GetTransactionsByDateRangePagedAsync(
-                teacherId, startDate, endInclusiveTick, sessionId, null, page: 1, pageSize: 1);
-            studentsPaid = await repo.CountDistinctPayingStudentsInRangeAsync(
-                teacherId, sessionId, startDate, endExclusive);
 
             // ── Departures — true range. ──
             (departedTotal, departedRefundDue, departedAmountOwed) =
@@ -820,7 +1087,21 @@ public class PaymentScreenService : IPaymentScreenService
         // this one. Teacher/SuperAdmin callers pass null here and are unaffected.
         if (collectedByUserId.HasValue)
             collectors = collectors.Where(c => c.UserId == collectedByUserId.Value).ToList();
-        var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
+
+        // "Books & fees" cash per collector over the same range, own-scoped by the SAME predicate —
+        // an assistant must never see a peer's extras figures either.
+        var extrasByCollector = await repo.GetExtrasPerCollectorAsync(teacherId, startDate, toInclusive);
+        if (collectedByUserId.HasValue)
+            extrasByCollector = extrasByCollector
+                .Where(kv => kv.Key == collectedByUserId.Value)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        // Union with the extras collectors: someone who collected ONLY books & fees in this range has
+        // no fee row at all, and would otherwise be missing from the card entirely.
+        var collectorUserIds = collectors.Select(c => c.UserId)
+            .Concat(extrasByCollector.Keys)
+            .Distinct()
+            .ToList();
         var names = collectorUserIds.Count > 0
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
             : new Dictionary<long, string>();
@@ -830,17 +1111,34 @@ public class PaymentScreenService : IPaymentScreenService
         // active-only) excluded a removed assistant, so her collections defaulted to "Teacher" and the
         // app filed them under the teacher's own "collected by me" card (§7.4).
         var teacherOwnerUserId = await _unitOfWork.Users.GetTeacherUserIdByIdAsync(teacherId);
-        var byCollector = collectors
-            .OrderByDescending(c => c.Collected)
-            .Select(c => new CollectionsSummaryCollectorDto
+        // One row per collector across BOTH money kinds, so an extras-only collector is not dropped.
+        // CollectedAmount keeps its fee-only meaning (no deployed number moves); the extras share is
+        // additive beside it.
+        var feeByCollector = collectors.ToDictionary(c => c.UserId, c => c);
+        var byCollector = collectorUserIds
+            .Select(userId =>
             {
-                UserId = c.UserId.ToString(CultureInfo.InvariantCulture),
-                Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
-                Role = c.UserId == teacherOwnerUserId ? "Teacher" : "Assistant",
-                CollectedAmount = c.Collected,
-                TransactionCount = c.TransactionCount
+                feeByCollector.TryGetValue(userId, out var fee);
+                extrasByCollector.TryGetValue(userId, out var extras);
+                return new CollectionsSummaryCollectorDto
+                {
+                    UserId = userId.ToString(CultureInfo.InvariantCulture),
+                    Name = names.TryGetValue(userId, out var nm) ? nm : fee.UserName,
+                    Role = userId == teacherOwnerUserId ? "Teacher" : "Assistant",
+                    CollectedAmount = fee.Collected,
+                    TransactionCount = fee.TransactionCount,
+                    CollectedExtras = extras.Collected,
+                    ExtrasTransactionCount = extras.TransactionCount
+                };
             })
+            .OrderByDescending(c => c.CollectedAmount + c.CollectedExtras)
             .ToList();
+
+        // The fee/extras gross split over THIS window and THESE filters, through the same helper
+        // the ledger uses — so the card and the rows can never disagree about what each kind
+        // holds. Free on the default `fees` scope (it short-circuits to 0/0), exactly as there.
+        var ledgerSplit = await ResolveLedgerSplitAsync(
+            teacherId, startDate, endInclusiveTick, sessionId, collectedByUserId, search, kind);
 
         var response = new CollectionsSummaryResponse
         {
@@ -859,7 +1157,17 @@ public class PaymentScreenService : IPaymentScreenService
             DepartedCount = departedTotal,
             DepartedRefundDueCount = departedRefundDue,
             DepartedAmountOwedCount = departedAmountOwed,
-            ByCollector = byCollector
+            ByCollector = byCollector,
+            LedgerScope = LedgerScopeLabel(kind),
+            // ONE rule, shared with the ledger endpoint: the same helper, gated the same way.
+            //
+            // NOT `collectors.Sum(...)` — that comes from GetDashboardPerCollectorAsync, which
+            // takes neither `search` nor `sessionId`, so under a searched view it would report the
+            // whole window while the rows beside it showed one student. This card sits directly
+            // above those rows and must answer for the same filtered set; that is the entire
+            // reason `search` was added to this endpoint in the first place.
+            FeesTotal = ledgerSplit.Fees,
+            ExtrasTotal = ledgerSplit.Extras
         };
 
         return Result<CollectionsSummaryResponse>.Success(
@@ -869,7 +1177,8 @@ public class PaymentScreenService : IPaymentScreenService
     /// <inheritdoc />
     public async Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
         long teacherId, long assistantId, int page, int limit,
-        long? restrictToAssistantUserId = null, string? search = null)
+        long? restrictToAssistantUserId = null, string? search = null,
+        LedgerKindFilter kind = LedgerKindFilter.All)
     {
         // Tenant-scoped lookup: a wallet belonging to another teacher's assistant returns null → 404.
         // TODO(assistant-dashboard): interim own-scoping. When an assistant calls, resolve THEIR OWN
@@ -901,6 +1210,16 @@ public class PaymentScreenService : IPaymentScreenService
             .GetCollectorTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
         var allRefunds = await _unitOfWork.PaymentsRepo
             .GetCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
+        // "Books & fees" money. NOT optional and NOT filterable here: extras cash has always credited
+        // AssistantWallet.CurrentBalance, so a stream that omits it cannot satisfy this method's whole
+        // premise — collections − refunds − hand-overs == the held balance — and the window anchor
+        // below (the running balance's last zero-crossing) would be computed from an incomplete
+        // stream and could land on the wrong event. This is the defect that made a collector's
+        // balance exceed the sum of the rows their own ledger listed.
+        var allExtrasTxns = await _unitOfWork.PaymentsRepo
+            .GetCollectorExtrasTransactionsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
+        var allExtrasRefunds = await _unitOfWork.PaymentsRepo
+            .GetExtrasCollectorRefundsInRangeAsync(teacherId, wallet.AssistantUserId, DateTime.MinValue, nowUtc);
         // Wallet hand-overs (full reset OR partial withdrawal) are money OUT of the held balance and
         // belong in the same ledger as negative lines, keyed on the wallet's AssistantId.
         // Reset/withdrawal ledger — keyed by AssistantId for a normal assistant, or CenterAssistantId
@@ -921,7 +1240,8 @@ public class PaymentScreenService : IPaymentScreenService
         // the ordering instant. Both money reads stay on the UTC CollectedAt/EditedAt columns, and
         // ResetAt is UTC too, so the merged stream is instant-consistent (no local/UTC boundary).
         var ledger = new List<AssistantWalletCollectionItemDto>(
-            allTxns.Count + allRefunds.Count + allResets.Count);
+            allTxns.Count + allRefunds.Count + allResets.Count
+            + allExtrasTxns.Count + allExtrasRefunds.Count);
         ledger.AddRange(allTxns.Select(tx =>
         {
             var (appliedMonths, isEdited, originalAmount) = BuildCollectionLedgerMeta(tx);
@@ -956,6 +1276,37 @@ public class PaymentScreenService : IPaymentScreenService
             Amount = -r.RefundAmount, // negative → refund taken back from this collector
             CollectedAt = r.RefundedAt,
             Kind = "refund"
+        }));
+        ledger.AddRange(allExtrasTxns.Select(tx => new AssistantWalletCollectionItemDto
+        {
+            // Prefixed so it cannot collide with a fee transaction id — the client keys rows on Id.
+            Id = $"extras-{tx.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = tx.TeacherStudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = tx.StudentName,
+            StudentCode = tx.StudentCode,
+            // An extras obligation is student-scoped, so it carries no session.
+            SessionName = null,
+            Amount = tx.AmountPaid,
+            CollectedAt = tx.CollectedAt,
+            Kind = "collection",
+            PaymentKind = "extras",
+            ExtrasItemName = tx.EventName,
+            Note = tx.CollectionNote,
+            // Settles no installment month, so there is nothing to name.
+            AppliedMonths = new List<CollectionMonthSlice>()
+        }));
+        ledger.AddRange(allExtrasRefunds.Select(r => new AssistantWalletCollectionItemDto
+        {
+            Id = $"extras-refund-{r.Id.ToString(CultureInfo.InvariantCulture)}",
+            StudentId = r.StudentId?.ToString(CultureInfo.InvariantCulture),
+            StudentName = r.StudentName,
+            StudentCode = r.StudentCode,
+            SessionName = null,
+            Amount = -r.RefundAmount,
+            CollectedAt = r.RefundedAt,
+            Kind = "refund",
+            PaymentKind = "extras",
+            ExtrasItemName = r.ExtrasItemName
         }));
         ledger.AddRange(allResets.Select(w => new AssistantWalletCollectionItemDto
         {
@@ -1013,15 +1364,32 @@ public class PaymentScreenService : IPaymentScreenService
 
         // Gross collected / refunded within the window, reported separately (not netted) so the card
         // explains the list: collected X, refunded Y; withdrawals appear as their own negative lines.
+        // Computed over the WHOLE window, both money kinds, because these two figures exist to
+        // explain WalletBalance — which has always included extras cash. The kind filter below
+        // narrows only the LISTED rows; it must never narrow the numbers that reconcile the card.
         decimal periodCollected = windowed
             .Where(i => i.Kind == "collection").Sum(i => i.Amount);
         decimal periodRefunded = windowed
             .Where(i => i.Kind == "refund").Sum(i => -i.Amount);
+        decimal periodCollectedExtras = windowed
+            .Where(i => i.Kind == "collection" && i.PaymentKind == "extras").Sum(i => i.Amount);
+        decimal periodRefundedExtras = windowed
+            .Where(i => i.Kind == "refund" && i.PaymentKind == "extras").Sum(i => -i.Amount);
 
         // Filter the LISTED rows by student name OR studentCode (case-insensitive). Applied AFTER the
         // window + totals are computed, so the card stays authoritative — only the list is narrowed.
         // A search naturally drops withdrawal lines (they carry no student).
         var merged = windowed;
+
+        // Scope filter on the LISTED rows only — the window, the anchor and the two totals above are
+        // already fixed. A hand-over line is deliberately kept in every scope: it is one physical
+        // movement of a bag holding both kinds and cannot be attributed to one of them, which is why
+        // the screen states "the balance covers all types" whenever a scope is active.
+        if (kind == LedgerKindFilter.Fees)
+            merged = merged.Where(m => m.PaymentKind != "extras" || m.Kind == "withdrawal").ToList();
+        else if (kind == LedgerKindFilter.Extras)
+            merged = merged.Where(m => m.PaymentKind == "extras" || m.Kind == "withdrawal").ToList();
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             string searchLower = ArabicTextNormalizer.Normalize(search.Trim());
@@ -1069,6 +1437,8 @@ public class PaymentScreenService : IPaymentScreenService
             {
                 TotalCashCollected = periodCollected,
                 TotalRefunded = periodRefunded,
+                TotalCashCollectedExtras = periodCollectedExtras,
+                TotalRefundedExtras = periodRefundedExtras,
                 WalletBalance = wallet.CurrentBalance,
                 TotalCollectedAllTime = wallet.TotalCollected,
                 CollectionsCount = liveCollectionsCount,
@@ -1153,6 +1523,9 @@ public class PaymentScreenService : IPaymentScreenService
                         Month = m.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
                         MonthLabel = m.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
                         Amount = m.Remaining,
+                        MonthAmountDue = m.AmountDue,
+                        MonthAmountPaid = m.AmountPaid,
+                        MonthForgivenAmount = m.ForgivenAmount,
                         IsProrated = m.IsProRated,
                         ProRatedFraction = m.IsProRated ? m.ProRatedFraction : (decimal?)null
                     })
@@ -1511,6 +1884,9 @@ public class PaymentScreenService : IPaymentScreenService
                     Month = m.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
                     MonthLabel = m.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
                     Amount = m.Remaining,
+                    MonthAmountDue = m.AmountDue,
+                    MonthAmountPaid = m.AmountPaid,
+                    MonthForgivenAmount = m.ForgivenAmount,
                     IsProrated = m.IsProRated,
                     ProRatedFraction = m.IsProRated ? m.ProRatedFraction : (decimal?)null
                 })
@@ -1522,6 +1898,9 @@ public class PaymentScreenService : IPaymentScreenService
                 Month = row.AdvanceMonth.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
                 MonthLabel = row.AdvanceMonth.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
                 Amount = row.AdvanceMonth.Remaining,
+                MonthAmountDue = row.AdvanceMonth.AmountDue,
+                MonthAmountPaid = row.AdvanceMonth.AmountPaid,
+                MonthForgivenAmount = row.AdvanceMonth.ForgivenAmount,
                 IsProrated = row.AdvanceMonth.IsProRated,
                 ProRatedFraction = row.AdvanceMonth.IsProRated ? row.AdvanceMonth.ProRatedFraction : (decimal?)null
             }
@@ -1677,6 +2056,17 @@ public class PaymentScreenService : IPaymentScreenService
         var activeMeta = await repo.GetActiveSessionsCollectionSummaryAsync(
             teacherId, _timeZoneService.GetTeacherLocalDate(teacherId));
         var collectors = await repo.GetDashboardPerCollectorAsync(teacherId, monthStart, monthEnd);
+        // "Books & fees" cash per collector, same window. This one MUST reach the collector cards:
+        // extras cash has always credited AssistantWallet.CurrentBalance, so a card that omits it
+        // cannot reconcile with the balance shown beside it — that is the defect, not the behaviour.
+        // Additive on the wire (CollectedExtras beside CollectedAmount) so no existing field moves.
+        var extrasByCollector = await repo.GetExtrasPerCollectorAsync(teacherId, monthStart, monthEnd);
+
+        // NOT month-scoped, unlike everything else on this response: an item is a one-off sale, so
+        // "what is still owed on books & fees" has one answer, and paging back to July must not
+        // change it. One grouped statement.
+        var (extrasOpenItems, extrasOutstanding) =
+            await repo.GetExtrasOutstandingSummaryAsync(teacherId);
         // TotalStudents = students currently assigned to a session (the ones a teacher expects
         // to collect from), not every student on the account.
         int totalStudents = await repo.CountAssignedStudentsAsync(teacherId);
@@ -1689,7 +2079,13 @@ public class PaymentScreenService : IPaymentScreenService
             .ToDictionary(x => x.SessionId, x => x.TotalStudents);
 
         // Enrich collectors with real names (repo returns null) + role (assistant vs teacher).
-        var collectorUserIds = collectors.Select(c => c.UserId).Distinct().ToList();
+        // Union with the extras collectors: the teacher row is built from `collectors`, so an owner
+        // who collected ONLY books & fees this month would otherwise have no card at all. (The
+        // assistant rows come from the wallet roster and are unaffected.)
+        var collectorUserIds = collectors.Select(c => c.UserId)
+            .Concat(extrasByCollector.Keys)
+            .Distinct()
+            .ToList();
         var names = collectorUserIds.Count > 0
             ? await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(collectorUserIds)
             : new Dictionary<long, string>();
@@ -1709,19 +2105,33 @@ public class PaymentScreenService : IPaymentScreenService
 
         // Teacher row: the account owner's own collections (at most one). The teacher has no wallet,
         // but their card is still shown (and the app links it to the teacher's own collections list).
-        var teacherRows = collectors
-            .Where(c => c.UserId == teacherOwnerUserId)
-            .Select(c => new TrackingAssistantDto
+        // Built from EITHER money kind: an owner who collected only books & fees this month has no
+        // fee row, and keying the card off `collectors` alone would drop their card entirely.
+        var teacherRows = new List<TrackingAssistantDto>();
+        if (teacherOwnerUserId is long ownerUserId)
+        {
+            bool ownerCollectedFees = collectorByUser.TryGetValue(ownerUserId, out var ownerFee)
+                && (ownerFee.TransactionCount != 0 || ownerFee.Collected != 0m);
+            bool ownerCollectedExtras = extrasByCollector.TryGetValue(ownerUserId, out var ownerExtras)
+                && (ownerExtras.TransactionCount != 0 || ownerExtras.Collected != 0m);
+
+            if (ownerCollectedFees || ownerCollectedExtras)
             {
-                Id = c.UserId.ToString(CultureInfo.InvariantCulture),
-                Name = names.TryGetValue(c.UserId, out var nm) ? nm : c.UserName,
-                AvatarUrl = null,
-                Role = "Teacher",
-                TransactionCount = c.TransactionCount,
-                CollectedAmount = c.Collected,
-                AssistantId = null,
-                WalletBalance = 0m
-            });
+                teacherRows.Add(new TrackingAssistantDto
+                {
+                    Id = ownerUserId.ToString(CultureInfo.InvariantCulture),
+                    Name = names.TryGetValue(ownerUserId, out var nm) ? nm : ownerFee.UserName,
+                    AvatarUrl = null,
+                    Role = "Teacher",
+                    TransactionCount = ownerFee.TransactionCount,
+                    CollectedAmount = ownerFee.Collected,
+                    CollectedExtras = ownerExtras.Collected,
+                    // The teacher account owner has no wallet by design — they hold their own cash.
+                    AssistantId = null,
+                    WalletBalance = 0m
+                });
+            }
+        }
 
         // REMOVED collectors are HISTORY, not roster (2026-09-05). Soft-deleting an assistant is
         // terminal (AssistantCleanupJob is a no-op) and their wallet row lives forever, so the
@@ -1745,6 +2155,11 @@ public class PaymentScreenService : IPaymentScreenService
                 return true;
             if (collectorByUser.TryGetValue(w.AssistantUserId, out var activity)
                 && (activity.TransactionCount != 0 || activity.Collected != 0m))
+                return true;
+            // Same escape hatch for "Books & fees" activity: a row carrying money is NEVER hidden,
+            // or the visible cards stop reconciling with the all-sources total.
+            if (extrasByCollector.TryGetValue(w.AssistantUserId, out var extrasActivity)
+                && (extrasActivity.TransactionCount != 0 || extrasActivity.Collected != 0m))
                 return true;
             // Held cash is never hidden, in any month. Delete is blocked on a non-zero balance, but a
             // post-removal correction (a deleted/edited collection charged back to the original
@@ -1777,6 +2192,8 @@ public class PaymentScreenService : IPaymentScreenService
                     Role = "Assistant",
                     TransactionCount = c.TransactionCount,
                     CollectedAmount = c.Collected,
+                    CollectedExtras = extrasByCollector.TryGetValue(w.AssistantUserId, out var wx)
+                        ? wx.Collected : 0m,
                     AssistantId = (w.AssistantId ?? w.CenterAssistantId ?? 0).ToString(CultureInfo.InvariantCulture),
                     WalletBalance = w.CurrentBalance,
                     // Marks the surviving history rows so the app can label them instead of showing a
@@ -1848,7 +2265,14 @@ public class PaymentScreenService : IPaymentScreenService
                 CollectedTotal = collectedTotal,
                 CollectedThisMonth = collectedThisMonth,
                 CollectedPreviousMonths = collectedPreviousMonths,
-                CollectedInAdvance = collectedAdvance
+                CollectedInAdvance = collectedAdvance,
+                // Additive all-sources view. CollectedTotal above keeps BOTH its invariants
+                // (= ThisMonth + Previous + Advance, and == CollectedByAssistant.TotalCollected).
+                CollectedExtras = extrasByCollector.Values.Sum(x => x.Collected),
+                ExtrasCollectionsCount = extrasByCollector.Values.Sum(x => x.TransactionCount),
+                CollectedCashAllSources = collectedTotal + extrasByCollector.Values.Sum(x => x.Collected),
+                ExtrasOpenItemCount = extrasOpenItems,
+                ExtrasOutstanding = extrasOutstanding
             },
             StatusBreakdown = new TrackingStatusBreakdownDto
             {
@@ -1859,6 +2283,11 @@ public class PaymentScreenService : IPaymentScreenService
             CollectedByAssistant = new TrackingByAssistantDto
             {
                 TotalCollected = collectors.Sum(c => c.Collected),
+                TotalCollectedExtras = extrasByCollector.Values.Sum(x => x.Collected),
+                // Twin of Summary.CollectedCashAllSources — the two must agree to the cent, exactly
+                // as the fee-only pair already does.
+                TotalCollectedAllSources =
+                    collectors.Sum(c => c.Collected) + extrasByCollector.Values.Sum(x => x.Collected),
                 Assistants = assistants
             },
             CollectedBySessions = new TrackingBySessionsDto { Sessions = sessions }
@@ -2113,7 +2542,15 @@ public class PaymentScreenService : IPaymentScreenService
 
             if (collect.IsSuccess && collect.Data?.Transaction is not null)
             {
-                results.Add(new SubmitCollectionResultDto { StudentId = idStr, Status = "committed", Reason = null });
+                results.Add(new SubmitCollectionResultDto
+                {
+                    StudentId = idStr,
+                    Status = "committed",
+                    Reason = null,
+                    // Where the cash landed, so the collector is told that 300 cleared August and
+                    // only part-covered September — not merely that the collection succeeded.
+                    Settlements = collect.Data.Settlements
+                });
                 submitted++;
                 totalCollected += collect.Data.Transaction.AmountPaid;
             }

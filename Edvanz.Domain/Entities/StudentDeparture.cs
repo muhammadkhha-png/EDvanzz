@@ -192,4 +192,30 @@ public class StudentDeparture : BaseEntity
     /// </summary>
     [Column(TypeName = "decimal(10,2)")]
     public decimal? PaidAmountAtDeparture { get; set; }
+
+    // ══════════════════════════════════════════════
+    // AMOUNT CORRECTION (REQ-PAY-075 — fixing a figure settled by mistake, 2026-09-15)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// <see cref="FinalAmount"/> as it stood BEFORE the most recent correction, so the departed-students
+    /// card can say "was 300, now 190" and the tutor can see what changed. Null while a departure has
+    /// never been corrected. Only the LATEST correction is kept here — the full trail lives on
+    /// <c>PaymentEditLogs</c>, which is where money history belongs.
+    /// </summary>
+    [Column(TypeName = "decimal(10,2)")]
+    public decimal? AmountBeforeEdit { get; set; }
+
+    /// <summary>The tutor who corrected the figure. Corrections are tutor-only (BR-PAY-002).</summary>
+    public long? AmountEditedByUserId { get; set; }
+
+    /// <summary>UTC instant of the most recent correction. Null when never corrected.</summary>
+    public DateTime? AmountEditedAt { get; set; }
+
+    /// <summary>
+    /// Why the figure was changed, in the tutor's own words. REQUIRED by the service on every
+    /// correction: a settled amount silently becoming a different settled amount is exactly the kind
+    /// of money change that has to carry a reason.
+    /// </summary>
+    public string? AmountEditNote { get; set; }
 }

@@ -4,6 +4,7 @@ using Edvanz.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Edvanz.Infrastructure.Migrations
 {
     [DbContext(typeof(EdvanzDbContext))]
-    partial class EdvanzDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260914170310_BooksAndFeesConcurrencyTokens")]
+    partial class BooksAndFeesConcurrencyTokens
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -6088,19 +6091,6 @@ namespace Edvanz.Infrastructure.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<decimal?>("AmountBeforeEdit")
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<string>("AmountEditNote")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime?>("AmountEditedAt")
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<long?>("AmountEditedByUserId")
-                        .HasColumnType("bigint");
 
                     b.Property<DateTime?>("AnchorPeriodStart")
                         .HasColumnType("datetime2(0)");

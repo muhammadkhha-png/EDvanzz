@@ -211,6 +211,25 @@ public sealed class CollectLookupUnpaidMonth
     public DateTime PeriodStart { get; set; }
     /// <summary>Remaining amount owed for this month (what a single-month collection would settle).</summary>
     public decimal Remaining { get; set; }
+
+    /// <summary>
+    /// The month's OWN price — what it bills in full, before anything was paid or forgiven.
+    ///
+    /// Carried because <see cref="Remaining"/> alone cannot tell a part-paid month from a cheap one.
+    /// A student who paid 110 of a 300 month and one whose month costs 190 both arrive as
+    /// "Remaining = 190", and the collect sheet — which separately shows the flat monthly rate —
+    /// then reads "1 month at 300, total 190" and contradicts itself on its face (see §7.4).
+    /// </summary>
+    public decimal AmountDue { get; set; }
+
+    /// <summary>
+    /// Cash ALREADY on this month before the collection being quoted. Non-zero means an earlier
+    /// payment cascaded into it — the fact a tutor needs in order to believe the remaining figure.
+    /// </summary>
+    public decimal AmountPaid { get; set; }
+
+    /// <summary>Amount waived on this month, so the three figures reconcile: Due − Paid − Forgiven = Remaining.</summary>
+    public decimal ForgivenAmount { get; set; }
     /// <summary>True when this month is the prorated anchor month — justifies a reduced amount.</summary>
     public bool IsProRated { get; set; }
     /// <summary>The proration fraction (e.g. 0.6685) when prorated; 1.0 otherwise.</summary>
@@ -254,6 +273,18 @@ public sealed class CollectorRefundRow
     /// <summary>User who performed the refund/edit (PaymentEditLog.EditedByUserId) — lets the ledger
     /// label a refund charged to a collector but performed by someone else (e.g. the tutor).</summary>
     public long? PerformedByUserId { get; set; }
+
+    /// <summary>
+    /// True when this negative row reverses a "Books &amp; fees" payment rather than a monthly
+    /// subscription one — i.e. it was derived from <c>EventPaymentEditLogs</c>, not
+    /// <c>PaymentEditLogs</c>. Lets the unified ledger badge it and lets a kind-filtered view
+    /// include or exclude it, so a scope net never mixes in the other kind's money.
+    /// </summary>
+    public bool IsExtras { get; set; }
+
+    /// <summary>The books &amp; fees item's name, denormalized on the audit row so it still renders
+    /// after the item or the student is gone. Null for a monthly-subscription refund.</summary>
+    public string? ExtrasItemName { get; set; }
 }
 
 /// <summary>
@@ -310,6 +341,17 @@ public sealed class DepartureListRow
     public DateTime? AnchorPeriodStart { get; set; }
     /// <summary>Cash the student had paid for the anchored month at departure time.</summary>
     public decimal? PaidAmountAtDeparture { get; set; }
+
+    // ── Amount correction (REQ-PAY-075, 2026-09-15) ──
+
+    /// <summary>The figure before the tutor corrected it. Null when never corrected.</summary>
+    public decimal? AmountBeforeEdit { get; set; }
+    /// <summary>User id of the tutor who corrected it — resolved to a display name by the service.</summary>
+    public long? AmountEditedByUserId { get; set; }
+    /// <summary>UTC instant of the correction.</summary>
+    public DateTime? AmountEditedAt { get; set; }
+    /// <summary>The tutor's stated reason for the correction.</summary>
+    public string? AmountEditNote { get; set; }
 }
 
 /// <summary>

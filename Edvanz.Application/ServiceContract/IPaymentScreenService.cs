@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using Edvanz.Domain.Models;
 using System.Threading.Tasks;
 using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Payment;
@@ -53,7 +54,8 @@ public interface IPaymentScreenService
         DateTime? from = null, DateTime? to = null,
         string? search = null,
         bool includeAdjustments = true,
-        bool? exactRange = null);
+        bool? exactRange = null,
+        LedgerKindFilter kind = LedgerKindFilter.Fees);
 
     /// <summary>
     /// Screen: Collections date-filtered SUMMARY. Period overview for the payment/collections
@@ -73,10 +75,18 @@ public interface IPaymentScreenService
     /// parsed value's TimeOfDay, which cannot distinguish a midnight-to-midnight exact window from a
     /// date-only day filter. Without it this summary widened both bounds to whole days while the rows
     /// endpoint honoured the instants, so the day-insight cards disagreed with the list they sit above.</param>
+    /// <param name="kind">
+    /// Which money kinds the money/activity figures and the per-collector rows cover. Defaults to
+    /// <c>Fees</c> so every deployed build reads byte-identical numbers. The student status
+    /// counts are an OBLIGATION lens anchored to a calendar month and are never narrowed by it;
+    /// and under a <paramref name="sessionId"/> filter the extras half is always zero, because an
+    /// extras payment carries no session.
+    /// </param>
     Task<Result<CollectionsSummaryResponse>> GetCollectionsSummaryAsync(
         long teacherId, DateTime? from, DateTime? to, string? asOfMonth, long? sessionId = null,
         long? collectedByUserId = null, bool? exactRange = null,
-        string? search = null, bool includeAdjustments = true);
+        string? search = null, bool includeAdjustments = true,
+        LedgerKindFilter kind = LedgerKindFilter.Fees);
 
     /// <summary>
     /// Withdrawal/reset history for one assistant's wallet (newest first) — the record of every
@@ -106,7 +116,8 @@ public interface IPaymentScreenService
     /// </summary>
     Task<Result<AssistantWalletScreenResponse>> GetAssistantWalletScreenAsync(
         long teacherId, long assistantId, int page, int limit,
-        long? restrictToAssistantUserId = null, string? search = null);
+        long? restrictToAssistantUserId = null, string? search = null,
+        LedgerKindFilter kind = LedgerKindFilter.All);
 
     /// <summary>
     /// Screen: CollectPayment. Searchable/filterable (all|assigned|unassigned) paginated

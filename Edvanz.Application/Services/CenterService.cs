@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Center;
 using Edvanz.Application.Dtos.Teacher;
 using Edvanz.Application.IservicesContract;
@@ -784,7 +784,7 @@ public class CenterService : ICenterService
             if (m.SessionId is long sessionId)
             {
                 var localToday = _timeZone.GetTeacherLocalDate(m.TeacherId);
-                var occurrence = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndDateAsync(sessionId, localToday);
+                var occurrence = await _unitOfWork.AttendanceRepo.GetOccurrenceBySessionAndDateAsync(sessionId, localToday, m.TeacherId);
                 todayOccurrenceId = occurrence?.Id;
             }
 

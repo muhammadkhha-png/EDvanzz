@@ -8,6 +8,12 @@ the frontend repository. Wire key names were extracted from the app's real `toJs
 something surprising, the doc records what the app really does.
 
 Snapshot date: **2026-09-12**, taken from the app's `NewApp` branch working tree.
+
+> **Amended 2026-09-14** — the Books & fees / مذكرات ومصاريف backend
+> (`api/eventpayment/*`, plus a `kind` scope filter and additive fields on the collections ledger,
+> the wallet card, the tracking dashboard and `api/subscription/status`) is documented in chapter 05
+> and the new teacher-configuration flags in chapter 08. **There is no Flutter client for it yet** —
+> the contract is recorded ahead of the app work so it is fixed before anything consumes it.
 Scope: the **mobile app only**. The Angular admin UI (`EdvanzAdminUI`) and the PHP parent portal
 (`EdvanzParentPortal`) are separate frontends and are not covered here.
 
@@ -31,7 +37,7 @@ Scope: the **mobile app only**. The Angular admin UI (`EdvanzAdminUI`) and the P
 | 02 | [02-teacher-students.md](02-teacher-students.md) | Student list/filters, add/edit student, bulk import (NDJSON streaming), student profile, barcode & Excel exports, recycle bin |
 | 03 | [03-teacher-sessions.md](03-teacher-sessions.md) | Session create/edit (schedule wire formats: day index 0=Sat…6=Fri), session hub, groups, session links, assign/transfer students, violations lists |
 | 04 | [04-teacher-attendance.md](04-teacher-attendance.md) | The register, mark/hold flows, absence & unpaid pop-ups, QR scan (resolution is client-side), monthly grids, timelines, **offline queue + `POST api/Attendance/sync` replay contract** |
-| 05 | [05-teacher-payments-subscription.md](05-teacher-payments-subscription.md) | Tracking dashboard, per-status lists, collect flow (lookup/submit/QR queue), collections ledgers (exact-instant `from`/`to` convention), assistant wallets & withdrawals, edit/delete/revert transactions, forgive, departures, **offline `POST api/Payment/sync`**, subscription screens |
+| 05 | [05-teacher-payments-subscription.md](05-teacher-payments-subscription.md) | Tracking dashboard, per-status lists, collect flow (lookup/submit/QR queue), collections ledgers (exact-instant `from`/`to` convention), assistant wallets & withdrawals, edit/delete/revert transactions, forgive, departures, **offline `POST api/Payment/sync`**, subscription screens, **Books & fees (`api/eventpayment/*`) — backend-only, no client yet** |
 | 06 | [06-teacher-videos.md](06-teacher-videos.md) | Units & videos CRUD, upload→`fileId`→attach handshake, publish flow, watch analytics + per-class breakdown |
 | 07 | [07-teacher-exams-homework.md](07-teacher-exams-homework.md) | Offline (paper) exams incl. DuringSession per-session occurrences, grades entry (+ per-item error codes), exam attendance, online exams + question editor + results/analysis; homework (mock-only) |
 | 08 | [08-teacher-assistants-messages-settings.md](08-teacher-assistants-messages-settings.md) | Assistants CRUD + permissions matrix, teacher configuration (full PUT body incl. proration/billing-start readbacks), audit trail, independence requests; messages (mock-only) |

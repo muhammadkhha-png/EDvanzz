@@ -1,4 +1,4 @@
-using Edvanz.Domain.Constants;
+﻿using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Enums;
 using Edvanz.Domain.Helpers;
@@ -45,10 +45,16 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     }
 
     /// <inheritdoc />
-    public async Task<SessionOccurrence?> GetOccurrenceBySessionAndDateAsync(long sessionId, DateTime date)
+    public async Task<SessionOccurrence?> GetOccurrenceBySessionAndDateAsync(
+        long sessionId, DateTime date, long? teacherId = null)
     {
+        // Tracked on purpose (the write path updates the occurrence's status). The tenant filter
+        // is a plain column comparison — TeacherId is denormalized onto SessionOccurrences
+        // precisely so this needs no join.
         return await _context.SessionOccurrences
-            .FirstOrDefaultAsync(o => o.SessionId == sessionId && o.OccurrenceDate == date.Date);
+            .FirstOrDefaultAsync(o => o.SessionId == sessionId
+                && o.OccurrenceDate == date.Date
+                && (teacherId == null || o.TeacherId == teacherId));
     }
 
     /// <inheritdoc />
@@ -414,11 +420,12 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
 
     /// <inheritdoc />
     public async Task<AttendanceRecord?> GetExistingAttendanceAsync(
-        long teacherStudentId, long sessionOccurrenceId)
+        long teacherStudentId, long sessionOccurrenceId, long teacherId)
     {
         return await _context.AttendanceRecords
             .FirstOrDefaultAsync(r => r.TeacherStudentId == teacherStudentId
-                && r.SessionOccurrenceId == sessionOccurrenceId);
+                && r.SessionOccurrenceId == sessionOccurrenceId
+                && r.TeacherId == teacherId);
     }
 
     /// <inheritdoc />

@@ -43,6 +43,7 @@ public class TeacherStudentService : ITeacherStudentService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IStudentCodeGenerator _codeGenerator;
     private readonly IPaymentService _paymentService;
+    private readonly IEventPaymentService _eventPaymentService;
     private readonly IAttendanceService _attendanceService;
     private readonly ISubscriptionGateService _subscriptionGate;
     /// <summary>
@@ -66,6 +67,7 @@ public class TeacherStudentService : ITeacherStudentService
         IUnitOfWork unitOfWork,
         IStudentCodeGenerator codeGenerator,
         IPaymentService paymentService,
+        IEventPaymentService eventPaymentService,
         IAttendanceService attendanceService,
         ISubscriptionGateService subscriptionGate,
         IStudentTeardownService teardownService,
@@ -75,6 +77,7 @@ public class TeacherStudentService : ITeacherStudentService
         _unitOfWork = unitOfWork;
         _codeGenerator = codeGenerator;
         _paymentService = paymentService;
+        _eventPaymentService = eventPaymentService;
         _subscriptionGate = subscriptionGate;
         _attendanceService = attendanceService;
         _teardownService = teardownService;
@@ -269,6 +272,18 @@ public class TeacherStudentService : ITeacherStudentService
                 await _paymentService.OnStudentAssignedToSessionAsync(
                     teacherId, student.Id, assignSession.Id, assignSession.SessionName, DateTime.UtcNow);
                 await _unitOfWork.SaveChangesAsync();
+
+                // ── BOOKS & FEES: auto-include items targeting this class (or all students) ──
+                await _eventPaymentService.MaterializeAutoIncludeForSessionAsync(
+                    teacherId, assignSession.Id, new[] { student.Id });
+            }
+            else
+            {
+                // NO SESSION. This is the case a session-assignment hook can never reach, and the
+                // only path by which an AllStudents-scoped item reaches a brand-new student: they
+                // have no class yet, so nothing else will ever fire for them.
+                await _eventPaymentService.MaterializeAutoIncludeForNewStudentsAsync(
+                    teacherId, new[] { student.Id });
             }
 
             await _unitOfWork.CommitAsync();
@@ -516,6 +531,16 @@ public class TeacherStudentService : ITeacherStudentService
                     await _paymentService.OnStudentUnassignedFromSessionAsync(teacherId, student.Id);
                 }
                 await _unitOfWork.SaveChangesAsync();
+
+                // ── BOOKS & FEES: auto-include items targeting the class they moved INTO ──
+                // A student edit is a fifth way into a class — alongside assign, reassign, create
+                // and an AllStudents rule — and it is the one a reader is most likely to miss,
+                // because it looks like a profile edit rather than an assignment. Existing
+                // obligations from the OLD class are deliberately untouched: an obligation is
+                // student-scoped history, and the money on it is real.
+                if (newSession is not null)
+                    await _eventPaymentService.MaterializeAutoIncludeForSessionAsync(
+                        teacherId, newSession.Id, new[] { student.Id });
             }
 
             await _unitOfWork.CommitAsync();
@@ -1317,6 +1342,28 @@ public class TeacherStudentService : ITeacherStudentService
                 {
                     await onProgress(progressTotal, progressTotal);
                 }
+
+                // ── BOOKS & FEES: auto-include, grouped BY SESSION ──
+                // This is the highest-volume assignment path in the product, which is exactly why
+                // it must not run per student: an import of 400 students across 6 classes becomes 6
+                // scope queries instead of 400. Each imported student resolves to its OWN session,
+                // so the grouping is by session, not one call for the batch.
+                foreach (var bySession in validStudents
+                             .Where(x => studentSessions.ContainsKey(x))
+                             .GroupBy(x => studentSessions[x].Id))
+                {
+                    await _eventPaymentService.MaterializeAutoIncludeForSessionAsync(
+                        teacherId, bySession.Key, bySession.Select(x => x.Id).ToList());
+                }
+
+                // Imported students with NO session: only an AllStudents-scoped item can reach them,
+                // and nothing else in this method ever will.
+                var unassigned = validStudents
+                    .Where(x => !studentSessions.ContainsKey(x))
+                    .Select(x => x.Id)
+                    .ToList();
+                if (unassigned.Count > 0)
+                    await _eventPaymentService.MaterializeAutoIncludeForNewStudentsAsync(teacherId, unassigned);
 
                 // FINAL cancellation guard — if the client disconnected/cancelled anywhere above, trip
                 // here so the commit never runs and the transaction is rolled back (nothing saved).

@@ -846,6 +846,36 @@
   <data name="DepartureRefundReversalReason" xml:space="preserve">
     <value>استرجاع فلوس عند مغادرة الطالب</value>
   </data>
+  <data name="DepartureAmountUpdated" xml:space="preserve">
+    <value>اتغيّرت تسوية {0} من {1} جنيه لـ {2} جنيه.</value>
+  </data>
+  <data name="DepartureAmountUnchanged" xml:space="preserve">
+    <value>ده نفس المبلغ المتسجّل — مفيش حاجة اتغيّرت.</value>
+  </data>
+  <data name="DepartureNotFound" xml:space="preserve">
+    <value>مفيش سجل مغادرة بالرقم ده.</value>
+  </data>
+  <data name="DepartureAmountNotEditable" xml:space="preserve">
+    <value>المغادرة دي متسوّاش عليها فلوس، فمفيش مبلغ يتعدّل.</value>
+  </data>
+  <data name="DepartureStudentPurged" xml:space="preserve">
+    <value>الطالب ده اتحذف نهائي، وسجلات فلوسه مبقتش موجودة، فالمبلغ مينفعش يتعدّل.</value>
+  </data>
+  <data name="DepartureAnchorMonthNotFound" xml:space="preserve">
+    <value>الشهر اللي اتحسبت عليه التسوية دي مبقاش موجود، فالمبلغ مينفعش يتعدّل. سجّل الفرق كتحصيل أو استرجاع لوحده.</value>
+  </data>
+  <data name="DepartureAmountExceedsMonth" xml:space="preserve">
+    <value>المبلغ ده أكبر من اللي ينفع يترجع من الشهر ده — لسه متسجّل مدفوع منه {0} جنيه بس. قلّل المبلغ، أو ارجّع الباقي كعملية لوحدها.</value>
+  </data>
+  <data name="DepartureEditNoteRequired" xml:space="preserve">
+    <value>اكتب سبب تغيير المبلغ.</value>
+  </data>
+  <data name="DepartureEditNoteTooLong" xml:space="preserve">
+    <value>خلّي السبب أقل من {0} حرف.</value>
+  </data>
+  <data name="DepartureAmountEditReason" xml:space="preserve">
+    <value>تعديل تسوية المغادرة</value>
+  </data>
   <data name="TransferSummaryLoaded" xml:space="preserve">
     <value>تم حساب ملخص النقل بنجاح.</value>
   </data>
@@ -923,6 +953,69 @@
   </data>
   <data name="EventStudentCustomAmountSet" xml:space="preserve">
     <value>تم تحديد مبلغ مخصص للطالب في الحدث بنجاح.</value>
+  </data>
+  <data name="ExtrasRequireSubscription" xml:space="preserve">
+    <value>المذكرات والمصاريف محتاجة اشتراك شغّال. جدّد الاشتراك وابدأ تضيف.</value>
+  </data>
+  <data name="ExtrasItemNotFound" xml:space="preserve">
+    <value>المذكرة أو المصاريف دي مش موجودة.</value>
+  </data>
+  <data name="ExtrasScopeTargetNotFound" xml:space="preserve">
+    <value>واحدة من المجموعات أو الجماعات أو الطلاب اللي اخترتهم مش موجودة.</value>
+  </data>
+  <data name="ExtrasScopeEmpty" xml:space="preserve">
+    <value>اختار مين المفروض يشتري الحاجة دي.</value>
+  </data>
+  <data name="ExtrasRemoveStudentsTeacherOnly" xml:space="preserve">
+    <value>المدرّس بس هو اللي يقدر يشيل طلاب من المذكرات والمصاريف.</value>
+  </data>
+  <data name="ExtrasStudentAlreadyPaidCannotRemove" xml:space="preserve">
+    <value>{0} دفع للحاجة دي، فمش ممكن تشيله. رجّع الفلوس الأول.</value>
+  </data>
+  <data name="ExtrasExemptBlockedHasPayments" xml:space="preserve">
+    <value>{0} دفع للحاجة دي. رجّع الفلوس الأول قبل ما تحدده إنه مش هياخدها.</value>
+  </data>
+  <data name="ExtrasStudentExempt" xml:space="preserve">
+    <value>{0} محدد إنه مش هياخد الحاجة دي.</value>
+  </data>
+  <data name="ExtrasItemClosed" xml:space="preserve">
+    <value>الحاجة دي مقفولة، فمش ممكن تحصّل عليها فلوس تاني.</value>
+  </data>
+  <data name="ExtrasItemHasPaymentsCannotDelete" xml:space="preserve">
+    <value>فيه فلوس اتحصّلت على الحاجة دي، فمش ممكن تتمسح. اقفلها بدل كده وبكده مفيش تحصيل تاني.</value>
+  </data>
+  <data name="ExtrasAmountExceedsOutstanding" xml:space="preserve">
+    <value>المبلغ ده أكبر من اللي فاضل على {0} في الحاجة دي.</value>
+  </data>
+  <data name="ExtrasOverpaid" xml:space="preserve">
+    <value>المبلغ ده أكبر من المطلوب، فالحاجة دي بقى فيها زيادة.</value>
+  </data>
+  <data name="ExtrasExemptionClearedByPayment" xml:space="preserve">
+    <value>{0} كان محدد إنه مش هياخد الحاجة دي، بس الدفعة اتسجّلت والتحديد اتشال.</value>
+  </data>
+  <data name="ExtrasExemptedSuccess" xml:space="preserve">
+    <value>{0} اتحدد إنه مش هياخد الحاجة دي.</value>
+  </data>
+  <data name="ExtrasExemptClearedSuccess" xml:space="preserve">
+    <value>{0} بقى مطلوب منه يدفع للحاجة دي تاني.</value>
+  </data>
+  <data name="ExtrasRefundedSuccess" xml:space="preserve">
+    <value>الفلوس رجعت بنجاح.</value>
+  </data>
+  <data name="ExtrasPaymentEditedSuccess" xml:space="preserve">
+    <value>الدفعة اتعدّلت بنجاح.</value>
+  </data>
+  <data name="ExtrasItemClosedSuccess" xml:space="preserve">
+    <value>الحاجة اتقفلت. مفيش تحصيل تاني عليها.</value>
+  </data>
+  <data name="ExtrasItemReopenedSuccess" xml:space="preserve">
+    <value>الحاجة اتفتحت تاني.</value>
+  </data>
+  <data name="ExtrasStudentsAddedSuccess" xml:space="preserve">
+    <value>{0} طالب اتضافوا للحاجة دي.</value>
+  </data>
+  <data name="ExtrasExportNotAvailable" xml:space="preserve">
+    <value>تصدير تقارير المذكرات والمصاريف لسه مش متاح.</value>
   </data>
   <data name="StatusUpdated" xml:space="preserve">
     <value>تم تحديث الحالة بنجاح</value>
@@ -1971,6 +2064,9 @@
   <data name="OfflineExamsRetrieved" xml:space="preserve">
     <value>تم جلب الامتحانات بنجاح.</value>
   </data>
+  <data name="StudentExamResultsRetrieved" xml:space="preserve">
+    <value>تم جلب درجات الامتحانات بنجاح.</value>
+  </data>
   <data name="OnlineExam.QuestionNotFound" xml:space="preserve">
     <value>السؤال ده مش موجود.</value>
   </data>
@@ -2095,7 +2191,7 @@
     <value>المدفوعات</value>
   </data>
   <data name="Module_EventBasedPayment" xml:space="preserve">
-    <value>مدفوعات الفعاليات</value>
+    <value>مذكرات ومصاريف</value>
   </data>
   <data name="Module_ExamsAndHomework" xml:space="preserve">
     <value>الامتحانات والواجبات</value>
@@ -2278,40 +2374,40 @@
     <value>بيسمح بإصدار وتصدير تقارير المدفوعات.</value>
   </data>
   <data name="Permission_EventBasedPayment_View" xml:space="preserve">
-    <value>عرض الفعاليات</value>
+    <value>عرض المذكرات والمصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_View" xml:space="preserve">
-    <value>بيسمح بعرض فعاليات الدفع.</value>
+    <value>يسمح بعرض المذكرات والمصاريف ومين دفع.</value>
   </data>
   <data name="Permission_EventBasedPayment_Create" xml:space="preserve">
-    <value>إنشاء فعالية</value>
+    <value>إضافة مذكرات ومصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Create" xml:space="preserve">
-    <value>بيسمح بإنشاء فعالية دفع جديدة.</value>
+    <value>يسمح بإضافة مذكرة أو مصاريف جديدة.</value>
   </data>
   <data name="Permission_EventBasedPayment_Edit" xml:space="preserve">
-    <value>تعديل الفعالية</value>
+    <value>تعديل المذكرات والمصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Edit" xml:space="preserve">
-    <value>بيسمح بتعديل فعالية دفع موجودة.</value>
+    <value>يسمح بتعديل المذكرة أو المصاريف وسعرها ومين عليه يدفعها.</value>
   </data>
   <data name="Permission_EventBasedPayment_Delete" xml:space="preserve">
-    <value>حذف الفعالية</value>
+    <value>حذف المذكرات والمصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Delete" xml:space="preserve">
-    <value>بيسمح بحذف فعالية دفع.</value>
+    <value>يسمح بحذف مذكرة أو مصاريف.</value>
   </data>
   <data name="Permission_EventBasedPayment_CollectPayment" xml:space="preserve">
-    <value>تحصيل دفعة الفعالية</value>
+    <value>تحصيل المذكرات والمصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_CollectPayment" xml:space="preserve">
-    <value>بيسمح بتحصيل دفعة خاصة بفعالية معينة.</value>
+    <value>يسمح بتحصيل فلوس المذكرات والمصاريف.</value>
   </data>
   <data name="Permission_EventBasedPayment_GenerateReports" xml:space="preserve">
-    <value>إصدار تقارير الفعاليات</value>
+    <value>تقارير المذكرات والمصاريف</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_GenerateReports" xml:space="preserve">
-    <value>بيسمح بإصدار وتصدير تقارير مدفوعات الفعاليات.</value>
+    <value>يسمح بإصدار تقارير المذكرات والمصاريف.</value>
   </data>
   <data name="Permission_ExamsAndHomework_View" xml:space="preserve">
     <value>عرض الواجبات والامتحانات</value>

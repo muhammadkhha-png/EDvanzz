@@ -3,7 +3,9 @@
     using Edvanz.Domain.Enums;
     using Edvanz.Domain.Helpers;
     using Edvanz.Domain.Interfaces;
+    using Edvanz.Domain.Models;
     using Edvanz.Infrastructure.Persistence;
+    using Edvanz.Infrastructure.Repositories.Queries;
     using Microsoft.EntityFrameworkCore;
 
     namespace Edvanz.Infrastructure.Repositories;
@@ -291,13 +293,100 @@
         }
 
         /// <inheritdoc />
+        public async Task<int> GetLedgerRowCountAsync(
+            long teacherId,
+            DateTime startDate, DateTime endDate,
+            long? sessionId, long? collectedByUserId,
+            string? search = null,
+            LedgerKindFilter kind = LedgerKindFilter.Fees)
+        {
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+            return await CollectionLedgerQueries
+                .LedgerRows(_context, teacherId, startDate, endDate, sessionId, collectedByUserId, term, kind)
+                .CountAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<CollectionLedgerSourceRow>> GetLedgerSliceAsync(
+            long teacherId,
+            DateTime startDate, DateTime endDate,
+            long? sessionId, long? collectedByUserId,
+            int skip, int take,
+            string? search = null,
+            LedgerKindFilter kind = LedgerKindFilter.Fees)
+        {
+            if (take <= 0) return System.Array.Empty<CollectionLedgerSourceRow>();
+            if (skip < 0) skip = 0;
+
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+
+            return await CollectionLedgerQueries
+                // Canonical order lives in ONE place, and applies the Kind tiebreak only when the
+                // query is genuinely a union — see OrderedLedgerRows for why the fee path must not
+                // carry a constant sort key.
+                .OrderedLedgerRows(_context, teacherId, startDate, endDate, sessionId, collectedByUserId, term, kind)
+                .Skip(skip)
+                .Take(take)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<(decimal Fees, decimal Extras)> GetLedgerGrossByKindAsync(
+            long teacherId,
+            DateTime startDate, DateTime endDate,
+            long? sessionId, long? collectedByUserId,
+            string? search = null)
+        {
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+
+            // ONE grouped statement over the concatenated set — never two round trips, and never a
+            // Sum(predicate) that EF could fold to a constant (BUG-16). Always measures BOTH kinds:
+            // the point of the split is to tell the tutor what the active scope is NOT showing.
+            var rows = await CollectionLedgerQueries
+                .LedgerRows(_context, teacherId, startDate, endDate, sessionId, collectedByUserId,
+                            term, LedgerKindFilter.All)
+                .Where(r => r.AmountPaid > 0m)
+                .GroupBy(r => r.Kind)
+                .Select(g => new { Kind = g.Key, Gross = g.Sum(r => r.AmountPaid) })
+                .AsNoTracking()
+                .ToListAsync();
+
+            decimal fees = rows.FirstOrDefault(r => r.Kind == LedgerRowKind.Fee)?.Gross ?? 0m;
+            decimal extras = rows.FirstOrDefault(r => r.Kind == LedgerRowKind.Extras)?.Gross ?? 0m;
+            return (fees, extras);
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentTransaction>> GetTransactionsByIdsAsync(
+            long teacherId, IReadOnlyCollection<long> ids)
+        {
+            if (ids is null || ids.Count == 0) return System.Array.Empty<PaymentTransaction>();
+
+            var idList = ids.Distinct().ToList();
+
+            return await _context.PaymentTransactions
+                .Where(t => t.TeacherId == teacherId && idList.Contains(t.Id))
+                // Same eager-loading as GetTransactionsByDateRangeSliceAsync, so
+                // BuildCollectionRowFromTransaction can be reused VERBATIM and the shipped fee-row
+                // payload stays byte-identical.
+                .Include(t => t.Session)
+                .Include(t => t.Allocations).ThenInclude(a => a.PaymentPeriod)
+                .Include(t => t.EditLogs)
+                .AsSplitQuery()
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<(DateTime Day, decimal Collected, decimal Deducted, int CollectionsCount, int RowCount)>>
             GetTransactionDayTotalsAsync(
                 long teacherId,
                 DateTime startDate, DateTime endDate,
                 long? sessionId, long? collectedByUserId,
                 string? search = null,
-                int localOffsetHours = 0)
+                int localOffsetHours = 0,
+                LedgerKindFilter kind = LedgerKindFilter.Fees)
         {
             // Grouped on the TEACHER-LOCAL calendar day, via a constant hour shift applied inside
             // the GROUP BY (DATEADD). CollectedAt is UTC, so grouping on its raw .Date filed a 01:00
@@ -311,17 +400,21 @@
             // on one of two days a year, under the neighbouring header. No money moves - only which
             // header it sits under. Per-row zone conversion is not expressible in a GROUP BY, and
             // pulling every row back to bucket in memory is the unbounded read this method removes.
-            var rows = await BuildTransactionsInRangeQuery(
-                    teacherId, startDate, endDate, sessionId, collectedByUserId, search)
-                .GroupBy(t => t.CollectedAt.AddHours(localOffsetHours).Date)
+            // Both money kinds bucket through ONE grouped statement — see CollectionLedgerQueries.
+            // `kind` defaults to Fees so every existing caller reproduces today's SQL exactly.
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+            var rows = await CollectionLedgerQueries
+                .DayBuckets(_context, teacherId, startDate, endDate, sessionId, collectedByUserId,
+                            term, kind, localOffsetHours)
+                .GroupBy(r => r.Day)
                 .Select(g => new
                 {
                     Day = g.Key,
-                    Collected = g.Sum(t => t.AmountPaid > 0m ? t.AmountPaid : 0m),
+                    Collected = g.Sum(r => r.Amount > 0m ? r.Amount : 0m),
                     // A collection row never carries a negative amount today; summed defensively so
                     // the day net stays correct if one ever does, mirroring the ledger's sign rules.
-                    Deducted = g.Sum(t => t.AmountPaid < 0m ? -t.AmountPaid : 0m),
-                    CollectionsCount = g.Count(t => t.AmountPaid > 0m),
+                    Deducted = g.Sum(r => r.Amount < 0m ? -r.Amount : 0m),
+                    CollectionsCount = g.Count(r => r.Amount > 0m),
                     RowCount = g.Count()
                 })
                 .AsNoTracking()
@@ -358,35 +451,21 @@
         /// <inheritdoc />
         public async Task<IReadOnlyList<(decimal Amount, int Count)>> GetCollectionAmountTiersAsync(
             long teacherId, DateTime startInclusive, DateTime endInclusive, long? collectedByUserId,
-            string? search = null)
+            string? search = null,
+            LedgerKindFilter kind = LedgerKindFilter.Fees)
         {
             // Distribution of money collected by per-MONTH amount: group the settlement slices
             // (one per cleared month) by their applied amount, so a multi-month payment counts once
             // per month at its monthly amount rather than as one large lump. Scoped to non-deleted
             // transactions in [start, end] for the teacher (and one collector when set).
-            var query = _context.Set<PaymentTransactionAllocation>()
-                .Where(a => a.TeacherId == teacherId
-                    && a.PaymentTransaction != null
-                    && !a.PaymentTransaction.IsDeleted
-                    && a.PaymentTransaction.CollectedAt >= startInclusive
-                    && a.PaymentTransaction.CollectedAt <= endInclusive);
-
-            if (collectedByUserId.HasValue)
-                query = query.Where(a => a.PaymentTransaction.CollectedByUserId == collectedByUserId.Value);
-
-            // Same student name/code predicate as the ledger rows (GetTransactionsByDateRangePagedAsync)
-            // so the "how many paid X" cards narrow with the visible list instead of reporting the whole
-            // scope. Case- AND Arabic-variant-insensitive, provider-side via dbo.ArabicNormalize.
+            // Same student name/code predicate as the ledger rows so the "how many paid X" cards
+            // narrow with the visible list instead of reporting the whole scope. Case- AND
+            // Arabic-variant-insensitive, provider-side via dbo.ArabicNormalize.
             var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
-            if (!string.IsNullOrEmpty(term))
-                query = query.Where(a =>
-                    (a.PaymentTransaction.StudentName != null
-                        && EF.Functions.Like(DbSearch.ArabicNormalize(a.PaymentTransaction.StudentName), $"%{term}%"))
-                    || (a.PaymentTransaction.StudentCode != null
-                        && EF.Functions.Like(DbSearch.ArabicNormalize(a.PaymentTransaction.StudentCode), $"%{term}%")));
 
-            var rows = await query
-                .GroupBy(a => a.AmountApplied)
+            var rows = await CollectionLedgerQueries
+                .TierAmounts(_context, teacherId, startInclusive, endInclusive, collectedByUserId, term, kind)
+                .GroupBy(r => r.Amount)
                 .Select(g => new { Amount = g.Key, Count = g.Count() })
                 .ToListAsync();
 
@@ -1088,6 +1167,28 @@
         }
 
         /// <inheritdoc />
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<EventPaymentTransaction>> GetCollectorExtrasTransactionsInRangeAsync(
+            long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
+        {
+            // The "Books & fees" half of the collector's signed money stream. IgnoreQueryFilters for
+            // the identical reason as the fee method: a payment later refunded is soft-deleted but its
+            // AmountPaid is preserved, so pairing it with its negative audit entry nets to zero for a
+            // same-window collect-then-refund. Omitting it would leave the refund as an unmatched
+            // negative and drive the reconstructed balance below the real one.
+            //
+            // No eager loads: an extras row renders from its own denormalized columns (student name,
+            // student code, item name) and settles no installment month, so there is nothing to join.
+            return await _context.EventPaymentTransactions
+                .IgnoreQueryFilters()
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedByUserId == collectorUserId
+                    && t.CollectedAt >= startInclusive && t.CollectedAt < endExclusive)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
             long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive)
         {
@@ -1169,6 +1270,73 @@
                 .ToListAsync();
 
             return rows;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<CollectorRefundRow>> GetExtrasCollectorRefundsInRangeAsync(
+            long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
+            bool includeDeleted = true)
+            => await BuildExtrasRefundRowsQuery(teacherId, collectorUserId, startInclusive, endExclusive, includeDeleted)
+                .AsNoTracking()
+                .ToListAsync();
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<CollectorRefundRow>> GetExtrasRefundsByDateRangeAsync(
+            long teacherId, DateTime startInclusive, DateTime endExclusive,
+            long? collectedByUserId = null)
+            => await BuildExtrasRefundRowsQuery(teacherId, collectedByUserId, startInclusive, endExclusive, includeDeleted: true)
+                .AsNoTracking()
+                .ToListAsync();
+
+        /// <summary>
+        /// ONE definition of a "Books &amp; fees" negative ledger row, shared by the collector-scoped
+        /// and teacher-wide readers so the two can never disagree about what counts as money out.
+        ///
+        /// <para>Derived from <c>EventPaymentEditLogs</c>, never from the transaction table: the
+        /// payment row is soft-deleted on a refund and may later be purged, while the audit row
+        /// carries denormalized student and item names so the line still renders.</para>
+        ///
+        /// <para>Attribution is a PLAIN EQUALITY on <c>ChargedToUserId</c> — the rule (a correction is
+        /// charged to the ORIGINAL collector whose figure it corrects) is decided and stored at WRITE
+        /// time, rather than re-derived here in a two-branch CASE the way the fee side must.</para>
+        ///
+        /// <para><paramref name="includeDeleted"/> false drops <c>Deleted</c> rows: their positive row
+        /// is already gone via the transaction's <c>!IsDeleted</c> filter, so the negative alone would
+        /// be an orphan with no counterpart (the same rule as the fee method).</para>
+        /// </summary>
+        private IQueryable<CollectorRefundRow> BuildExtrasRefundRowsQuery(
+            long teacherId, long? chargedToUserId,
+            DateTime startInclusive, DateTime endExclusive,
+            bool includeDeleted)
+        {
+            var q = _context.EventPaymentEditLogs
+                .Where(l => l.TeacherId == teacherId
+                    && l.EditedAt >= startInclusive && l.EditedAt < endExclusive
+                    // Money actually handed back. An exemption or a roster add/remove moves no cash,
+                    // and an amount EDIT that raised the figure is not money out.
+                    && l.PreviousAmount - l.NewAmount > 0m
+                    && (l.EditAction == EventPaymentEditAction.Refunded
+                        || l.EditAction == EventPaymentEditAction.AmountChanged
+                        || (includeDeleted && l.EditAction == EventPaymentEditAction.Deleted)));
+
+            if (chargedToUserId.HasValue)
+                q = q.Where(l => l.ChargedToUserId == chargedToUserId.Value);
+
+            return q.Select(l => new CollectorRefundRow
+            {
+                Id = l.Id,
+                StudentId = l.TeacherStudentId,
+                StudentName = l.StudentName,
+                StudentCode = l.StudentCode,
+                // An extras payment carries no session — the obligation is student-scoped.
+                SessionName = null,
+                RefundAmount = l.PreviousAmount - l.NewAmount,
+                RefundedAt = l.EditedAt,
+                CollectedAt = l.CollectedAt ?? l.EditedAt,
+                PerformedByUserId = l.EditedByUserId,
+                IsExtras = true,
+                ExtrasItemName = l.EventName
+            });
         }
 
         /// <inheritdoc />
@@ -1779,6 +1947,9 @@
                             PeriodId = p.Id,
                             PeriodStart = p.PeriodStart,
                             Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                            AmountDue = p.AmountDue,
+                            AmountPaid = p.AmountPaid,
+                            ForgivenAmount = p.ForgivenAmount ?? 0m,
                             IsProRated = p.IsProRated,
                             ProRatedFraction = p.ProRatedFraction,
                             IsProrationAnchorMonth = p.IsProrationAnchorMonth,
@@ -2253,6 +2424,9 @@
                     PeriodId = p.Id,
                     PeriodStart = p.PeriodStart,
                     Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                    AmountDue = p.AmountDue,
+                    AmountPaid = p.AmountPaid,
+                    ForgivenAmount = p.ForgivenAmount ?? 0m,
                     IsProRated = p.IsProRated,
                     ProRatedFraction = p.ProRatedFraction,
                     IsProrationAnchorMonth = p.IsProrationAnchorMonth,
@@ -2282,6 +2456,9 @@
                         PeriodId = p.Id,
                         PeriodStart = p.PeriodStart,
                         Remaining = p.AmountDue - p.AmountPaid - (p.ForgivenAmount ?? 0m),
+                        AmountDue = p.AmountDue,
+                        AmountPaid = p.AmountPaid,
+                        ForgivenAmount = p.ForgivenAmount ?? 0m,
                         IsProRated = p.IsProRated,
                         ProRatedFraction = p.ProRatedFraction,
                         IsProrationAnchorMonth = p.IsProrationAnchorMonth,
@@ -2683,6 +2860,14 @@
         }
 
         /// <inheritdoc />
+        public async Task<StudentDeparture?> GetStudentDepartureByIdAsync(long departureId, long teacherId)
+        {
+            // TRACKED on purpose — the amount correction mutates this row inside its own transaction.
+            return await _context.StudentDepartures
+                .FirstOrDefaultAsync(d => d.Id == departureId && d.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
         public async Task<(IReadOnlyList<DepartureListRow> Items, int TotalCount)> GetDeparturesPagedAsync(
             long teacherId, string? search, int page, int pageSize,
             DateTime? fromInclusive = null, DateTime? toExclusive = null)
@@ -2718,6 +2903,10 @@
                     OriginalCalculatedAmount = d.OriginalCalculatedAmount,
                     AnchorPeriodStart = d.AnchorPeriodStart,
                     PaidAmountAtDeparture = d.PaidAmountAtDeparture,
+                    AmountBeforeEdit = d.AmountBeforeEdit,
+                    AmountEditedByUserId = d.AmountEditedByUserId,
+                    AmountEditedAt = d.AmountEditedAt,
+                    AmountEditNote = d.AmountEditNote,
                 })
                 .AsNoTracking()
                 .ToListAsync();
@@ -3125,13 +3314,94 @@
         /// <inheritdoc />
         public async Task<Dictionary<long, int>> GetLiveCollectionCountsByCollectorUserAsync(long teacherId)
         {
-            return await _context.PaymentTransactions
-                .Where(t => t.TeacherId == teacherId
-                    && !t.IsDeleted
-                    && t.CollectedByUserId.HasValue)
-                .GroupBy(t => t.CollectedByUserId!.Value)
+            // BOTH money kinds. This count labels the wallet card and the tracking collectors card,
+            // and both sit above a list that now contains extras rows — a fee-only count would be
+            // smaller than the list it heads, which is the same class of defect as the balance not
+            // matching its rows. One grouped statement over the concatenated set.
+            var rows = await CollectionLedgerQueries
+                .LedgerRows(_context, teacherId, DateTime.MinValue, DateTime.MaxValue,
+                            sessionId: null, collectedByUserId: null,
+                            normalizedTerm: null, kind: LedgerKindFilter.All)
+                .Where(r => r.CollectedByUserId != null)
+                .GroupBy(r => r.CollectedByUserId!.Value)
                 .Select(g => new { g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.Key, x => x.Count);
+                .ToListAsync();
+
+            return rows.ToDictionary(x => x.Key, x => x.Count);
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, (decimal Collected, int TransactionCount)>>
+            GetExtrasPerCollectorAsync(
+                long teacherId,
+                DateTime? startDate, DateTime? endDate)
+        {
+            var query = _context.EventPaymentTransactions
+                .Where(t => t.TeacherId == teacherId && t.CollectedByUserId.HasValue);
+
+            if (startDate.HasValue)
+                query = query.Where(t => t.CollectedAt >= startDate.Value);
+            if (endDate.HasValue)
+                query = query.Where(t => t.CollectedAt <= endDate.Value);
+
+            var rows = await query
+                .GroupBy(t => t.CollectedByUserId!.Value)
+                .Select(g => new
+                {
+                    UserId = g.Key,
+                    Collected = g.Sum(t => t.AmountPaid),
+                    TransactionCount = g.Count()
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return rows.ToDictionary(r => r.UserId, r => (r.Collected, r.TransactionCount));
+        }
+
+        /// <inheritdoc />
+        public async Task<(decimal Gross, int TransactionCount, int DistinctStudents)>
+            GetExtrasRangeAggregatesAsync(
+                long teacherId, DateTime startDate, DateTime endInclusive,
+                long? collectedByUserId, string? search = null)
+        {
+            var query = _context.EventPaymentTransactions
+                .Where(t => t.TeacherId == teacherId
+                    && t.CollectedAt >= startDate
+                    && t.CollectedAt <= endInclusive);
+
+            if (collectedByUserId.HasValue)
+                query = query.Where(t => t.CollectedByUserId == collectedByUserId.Value);
+
+            // Same Arabic-normalizing predicate the ledger rows use, so the card and the list it
+            // sits above can never describe different sets (the "cards don't follow my filter"
+            // report, in its extras form).
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                string term = ArabicTextNormalizer.Normalize(search.Trim());
+                query = query.Where(t =>
+                    (t.StudentName != null
+                        && EF.Functions.Like(DbSearch.ArabicNormalize(t.StudentName), $"%{term}%"))
+                    || (t.StudentCode != null
+                        && EF.Functions.Like(DbSearch.ArabicNormalize(t.StudentCode), $"%{term}%")));
+            }
+
+            // ONE grouped statement for all three figures. GroupBy over a constant is how EF emits
+            // a single un-grouped aggregate row; three separate scalar queries would read the same
+            // index three times.
+            var row = await query
+                .GroupBy(t => 1)
+                .Select(g => new
+                {
+                    Gross = g.Sum(t => t.AmountPaid),
+                    TransactionCount = g.Count(),
+                    // DISTINCT students, so a student who paid two items counts once — the same
+                    // meaning "students paid" has on the fee card.
+                    DistinctStudents = g.Select(t => t.TeacherStudentId).Distinct().Count()
+                })
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+
+            return row is null ? (0m, 0, 0) : (row.Gross, row.TransactionCount, row.DistinctStudents);
         }
 
         /// <inheritdoc />
@@ -3225,6 +3495,10 @@
             int totalCount = await query.CountAsync();
             var items = await query
                 .OrderByDescending(e => e.EventDate)
+                // EventDate is a calendar DAY, so ties are routine — two items dated the same day.
+                // Without a unique tiebreak SQL Server may order them differently between two page
+                // reads, which repeats one row and drops another.
+                .ThenByDescending(e => e.Id)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .AsNoTracking()
@@ -3249,11 +3523,16 @@
 
         /// <inheritdoc />
         public async Task<EventStudentObligation?> GetEventObligationAsync(
-            long eventId, long teacherStudentId)
+            long eventId, long teacherStudentId, long teacherId)
         {
+            // teacherId is REQUIRED, not optional. Without it this read was reachable across tenants
+            // by id alone — and SetEventStudentCustomAmountAsync depended on it, so a foreign
+            // obligation's price could be rewritten. Every caller already holds the teacher id, so
+            // making it a parameter lets the COMPILER enforce the fix rather than a reviewer.
             return await _context.EventStudentObligations
                 .FirstOrDefaultAsync(o => o.PaymentEventId == eventId
-                    && o.TeacherStudentId == teacherStudentId);
+                    && o.TeacherStudentId == teacherStudentId
+                    && o.TeacherId == teacherId);
         }
 
         /// <inheritdoc />
@@ -3332,11 +3611,41 @@
 
             if (!string.IsNullOrWhiteSpace(completionStatus))
             {
+                // Filtered from the OBLIGATION ROWS, never from the cached
+                // TotalCollectedRevenue/TotalExpectedRevenue columns. Those are a best-effort cache
+                // (§7.12) and every response recomputes from the rows, so a cache-driven chip would
+                // eventually open a list whose contents disagree with the count on the card — the
+                // BUG-23 shape. The obligation set is already narrowed by the !IsDeleted query
+                // filter; TeacherStudent != null is the BUG-8 guard, so a purged student's leftover
+                // obligation can never keep an item looking unsettled forever.
                 query = completionStatus switch
                 {
-                    "FullyCollected" => query.Where(e => e.TotalCollectedRevenue >= e.TotalExpectedRevenue),
-                    "PartiallyCollected" => query.Where(e => e.TotalCollectedRevenue > 0 && e.TotalCollectedRevenue < e.TotalExpectedRevenue),
-                    "NotStarted" => query.Where(e => e.TotalCollectedRevenue == 0),
+                    "FullyCollected" => query.Where(e => !_context.EventStudentObligations
+                        .Any(o => o.PaymentEventId == e.Id
+                                  && o.TeacherStudent != null
+                                  && !o.IsExempt
+                                  && o.AmountPaid < o.AmountDue)),
+                    // The complement of FullyCollected, and it must be a SERVER filter: narrowing
+                    // only the loaded page would hide every unsettled item past page 1 behind a
+                    // chip claiming otherwise (§7.10).
+                    "Open" => query.Where(e => _context.EventStudentObligations
+                        .Any(o => o.PaymentEventId == e.Id
+                                  && o.TeacherStudent != null
+                                  && !o.IsExempt
+                                  && o.AmountPaid < o.AmountDue)),
+                    "PartiallyCollected" => query.Where(e => _context.EventStudentObligations
+                            .Any(o => o.PaymentEventId == e.Id
+                                      && o.TeacherStudent != null
+                                      && o.AmountPaid > 0)
+                        && _context.EventStudentObligations
+                            .Any(o => o.PaymentEventId == e.Id
+                                      && o.TeacherStudent != null
+                                      && !o.IsExempt
+                                      && o.AmountPaid < o.AmountDue)),
+                    "NotStarted" => query.Where(e => !_context.EventStudentObligations
+                        .Any(o => o.PaymentEventId == e.Id
+                                  && o.TeacherStudent != null
+                                  && o.AmountPaid > 0)),
                     _ => query
                 };
             }
@@ -3344,6 +3653,10 @@
             int totalCount = await query.CountAsync();
             var items = await query
                 .OrderByDescending(e => e.EventDate)
+                // EventDate is a calendar DAY, so ties are routine — two items dated the same day.
+                // Without a unique tiebreak SQL Server may order them differently between two page
+                // reads, which repeats one row and drops another.
+                .ThenByDescending(e => e.Id)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .AsNoTracking()
@@ -3359,6 +3672,130 @@
         }
 
         /// <inheritdoc />
+        public async Task<EventPaymentTransaction?> GetEventPaymentTransactionByIdAsync(
+            long transactionId, long teacherId)
+        {
+            // TRACKED on purpose — the refund/edit paths mutate this row and rely on the RowVersion
+            // token for concurrency. The global !IsDeleted filter stays ON so an already-refunded
+            // payment cannot be refunded twice.
+            return await _context.EventPaymentTransactions
+                .FirstOrDefaultAsync(t => t.Id == transactionId && t.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task UpdateEventPaymentTransactionAsync(EventPaymentTransaction transaction)
+        {
+            // State guard: forcing Modified on a freshly-Added entity is the BUG-3 mistake.
+            if (_context.Entry(transaction).State == EntityState.Detached)
+                _context.EventPaymentTransactions.Attach(transaction);
+            if (_context.Entry(transaction).State != EntityState.Added)
+                _context.Entry(transaction).State = EntityState.Modified;
+            await Task.CompletedTask;
+        }
+
+        /// <inheritdoc />
+        public async Task<EventStudentObligation?> GetEventObligationByIdAsync(
+            long obligationId, long teacherId)
+        {
+            return await _context.EventStudentObligations
+                .FirstOrDefaultAsync(o => o.Id == obligationId && o.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task AddEventPaymentEditLogAsync(EventPaymentEditLog log)
+        {
+            await _context.EventPaymentEditLogs.AddAsync(log);
+        }
+
+        /// <inheritdoc />
+        public async Task<decimal> SumEventCollectedAsync(long eventId, long teacherId)
+        {
+            // RECOMPUTED, never decremented. Decrementing a cached total drifts the moment two
+            // corrections interleave, and this column is what the item cards used to read.
+            return await _context.EventPaymentTransactions
+                .Where(t => t.PaymentEventId == eventId && t.TeacherId == teacherId)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentEvent>> GetPaymentEventsInRangeAsync(
+            long teacherId, DateTime? fromDate, DateTime? toDate, int maxItems)
+        {
+            var q = _context.PaymentEvents.Where(e => e.TeacherId == teacherId);
+
+            // EventDate is a `date` column, so the bounds are whole days — which is what a report
+            // date range means to a tutor.
+            if (fromDate.HasValue)
+                q = q.Where(e => e.EventDate >= fromDate.Value.Date);
+            if (toDate.HasValue)
+                q = q.Where(e => e.EventDate <= toDate.Value.Date);
+
+            return await q
+                .OrderByDescending(e => e.EventDate)
+                .ThenByDescending(e => e.Id)
+                .Take(maxItems)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<EventStudentObligation>> GetAllEventObligationsAsync(
+            long eventId, long teacherId, int maxItems)
+        {
+            return await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    // Purged students are excluded, as everywhere else (BUG-8).
+                    && o.TeacherStudent != null)
+                .OrderBy(o => o.StudentName)
+                .ThenBy(o => o.Id)
+                .Take(maxItems)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<int> RepriceEventObligationsAsync(long eventId, long teacherId, decimal newAmount)
+        {
+            // Set-based: one UPDATE, no rows pulled back. The predicate IS the business rule, so it
+            // cannot be forgotten at one of several call sites the way the old in-memory loop could.
+            return await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    && o.AmountPaid <= 0m
+                    && !o.IsCustomAmount
+                    && !o.IsExempt)
+                .ExecuteUpdateAsync(set => set.SetProperty(o => o.AmountDue, newAmount));
+        }
+
+        /// <inheritdoc />
+        public async Task<(int ActiveCount, decimal ExpectedTotal)> GetEventObligationTotalsAsync(
+            long eventId, long teacherId)
+        {
+            // Purged students are excluded by the TeacherStudent join (BUG-8/BUG-17): an obligation
+            // whose student is gone must not inflate a count the list cannot render.
+            var row = await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    && !o.IsExempt
+                    && o.TeacherStudent != null)
+                .GroupBy(o => 1)
+                .Select(g => new { Count = g.Count(), Expected = g.Sum(o => o.AmountDue) })
+                .AsNoTracking()
+                .FirstOrDefaultAsync();
+
+            return (row?.Count ?? 0, row?.Expected ?? 0m);
+        }
+
+        /// <inheritdoc />
+        public async Task<decimal> SumObligationPaidAsync(long obligationId, long teacherId)
+        {
+            return await _context.EventPaymentTransactions
+                .Where(t => t.EventStudentObligationId == obligationId && t.TeacherId == teacherId)
+                .SumAsync(t => (decimal?)t.AmountPaid) ?? 0m;
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<EventPaymentTransaction>> GetEventPaymentTransactionsAsync(
             long eventId, long teacherId)
         {
@@ -3367,6 +3804,67 @@
                 .OrderByDescending(t => t.CollectedAt)
                 .AsNoTracking()
                 .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<EventPaymentTransaction>>
+            GetEventPaymentTransactionsForStudentAsync(
+                long eventId, long teacherStudentId, long teacherId, int maxItems)
+        {
+            // Seeks IX_EPT_TeacherId_CollectedAt and filters in the index; the !IsDeleted query
+            // filter means a refunded payment never appears, so it cannot be refunded twice.
+            return await _context.EventPaymentTransactions
+                .Where(t => t.PaymentEventId == eventId
+                    && t.TeacherStudentId == teacherStudentId
+                    && t.TeacherId == teacherId)
+                .OrderByDescending(t => t.CollectedAt)
+                // Ties are real — two partials taken in the same second — and a list the tutor
+                // refunds FROM must not reorder between two reads.
+                .ThenByDescending(t => t.Id)
+                .Take(maxItems)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, decimal>> GetEventTransactionOriginalAmountsAsync(
+            long teacherId, IReadOnlyCollection<long> transactionIds)
+        {
+            if (transactionIds is null || transactionIds.Count == 0)
+                return new Dictionary<long, decimal>();
+            var ids = transactionIds.Distinct().ToList();
+
+            // ONE grouped statement over the audit trail, seeking IX_EPEL_TransactionId. MIN(Id)
+            // picks the EARLIEST correction per payment — `PreviousAmount` on that row is what the
+            // collector actually took, which is the figure the tutor needs. Taking the latest would
+            // report the middle value after a second correction.
+            var rows = await _context.EventPaymentEditLogs
+                .Where(l => l.TeacherId == teacherId
+                    && l.EventPaymentTransactionId != null
+                    && ids.Contains(l.EventPaymentTransactionId!.Value)
+                    && l.EditAction == EventPaymentEditAction.AmountChanged)
+                .GroupBy(l => l.EventPaymentTransactionId!.Value)
+                .Select(g => new
+                {
+                    TransactionId = g.Key,
+                    FirstLogId = g.Min(l => l.Id)
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (rows.Count == 0) return new Dictionary<long, decimal>();
+
+            var firstLogIds = rows.Select(r => r.FirstLogId).ToList();
+            var amounts = await _context.EventPaymentEditLogs
+                .Where(l => firstLogIds.Contains(l.Id))
+                .Select(l => new { l.Id, l.PreviousAmount })
+                .AsNoTracking()
+                .ToListAsync();
+            var byLogId = amounts.ToDictionary(a => a.Id, a => a.PreviousAmount);
+
+            return rows
+                .Where(r => byLogId.ContainsKey(r.FirstLogId))
+                .ToDictionary(r => r.TransactionId, r => byLogId[r.FirstLogId]);
         }
 
         // ----------------------------------------------
@@ -3404,6 +3902,510 @@
                 .Where(s => s.TeacherId == teacherId && !s.IsDeleted)
                 .Select(s => s.Id)
                 .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<(IReadOnlyList<ExtrasObligationRow> Items, int TotalCount,
+                           int PaidCount, int PartiallyPaidCount, int UnpaidCount, int ExemptCount,
+                           int SearchedCount)>
+            GetExtrasObligationsPagedAsync(
+                long eventId, long teacherId,
+                ExtrasBucket? bucket, long? sessionId, long? sessionGroupId,
+                long? collectedByUserId, string? search,
+                int page, int pageSize)
+        {
+            var baseQuery = _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    // BUG-8/BUG-17: applied BEFORE any count, so a purged student's obligation can
+                    // never inflate a number the list is unable to render.
+                    && o.TeacherStudent != null);
+
+            // ── SEARCH first. Every chip count below is measured on the SEARCHED set but BEFORE the
+            // chip filter, so selecting a chip never renumbers the chips — the tutor can always see
+            // what the other chips hold while one is active. ──
+            var term = string.IsNullOrWhiteSpace(search) ? null : ArabicTextNormalizer.Normalize(search.Trim());
+            if (!string.IsNullOrEmpty(term))
+                baseQuery = baseQuery.Where(o =>
+                    (o.StudentName != null && EF.Functions.Like(DbSearch.ArabicNormalize(o.StudentName), $"%{term}%"))
+                    || (o.StudentCode != null && EF.Functions.Like(DbSearch.ArabicNormalize(o.StudentCode), $"%{term}%")));
+
+            if (sessionId.HasValue)
+                baseQuery = baseQuery.Where(o => o.TeacherStudent!.SessionId == sessionId.Value);
+            if (sessionGroupId.HasValue)
+                baseQuery = baseQuery.Where(o => o.TeacherStudent!.Session != null
+                    && o.TeacherStudent.Session.SessionGroupId == sessionGroupId.Value);
+
+            // A collector filter narrows to students THIS collector took money from on THIS item.
+            if (collectedByUserId.HasValue)
+                baseQuery = baseQuery.Where(o => _context.EventPaymentTransactions
+                    .Any(t => t.EventStudentObligationId == o.Id
+                        && t.CollectedByUserId == collectedByUserId.Value));
+
+            // ── The chip counts: ONE grouped query over the searched set, bucketed exactly like the
+            // tracking tally. The counts and the list therefore share one predicate definition —
+            // a card can never say 91 and open 90 rows (BUG-17/BUG-23). ──
+            var buckets = await baseQuery
+                .GroupBy(o => o.IsExempt
+                    ? ExtrasBucket.Exempt
+                    : (o.PaymentStatus == PaymentStatus.Paid || o.PaymentStatus == PaymentStatus.Overpaid
+                        ? ExtrasBucket.Paid
+                        : (o.PaymentStatus == PaymentStatus.PartiallyPaid
+                            ? ExtrasBucket.PartiallyPaid
+                            : ExtrasBucket.Unpaid)))
+                .Select(g => new { Bucket = g.Key, Count = g.Count() })
+                .AsNoTracking()
+                .ToListAsync();
+
+            int Tally(ExtrasBucket b) => buckets.Where(x => x.Bucket == b).Sum(x => x.Count);
+            int paidCount = Tally(ExtrasBucket.Paid);
+            int partialCount = Tally(ExtrasBucket.PartiallyPaid);
+            int unpaidCount = Tally(ExtrasBucket.Unpaid);
+            int exemptCount = Tally(ExtrasBucket.Exempt);
+            int searchedCount = paidCount + partialCount + unpaidCount + exemptCount;
+
+            // ── NOW the chip filter, applied only to the page and its own total. ──
+            var filtered = baseQuery;
+            if (bucket is ExtrasBucket b2)
+            {
+                filtered = b2 switch
+                {
+                    // Exempt is ORTHOGONAL to payment status, so every other bucket must exclude it
+                    // explicitly — otherwise an exempt student would show up as "unpaid", which is
+                    // precisely the wrong answer for someone who is not taking the item.
+                    ExtrasBucket.Exempt => filtered.Where(o => o.IsExempt),
+                    ExtrasBucket.Paid => filtered.Where(o => !o.IsExempt
+                        && (o.PaymentStatus == PaymentStatus.Paid || o.PaymentStatus == PaymentStatus.Overpaid)),
+                    ExtrasBucket.PartiallyPaid => filtered.Where(o => !o.IsExempt
+                        && o.PaymentStatus == PaymentStatus.PartiallyPaid),
+                    _ => filtered.Where(o => !o.IsExempt && o.PaymentStatus == PaymentStatus.Unpaid)
+                };
+            }
+
+            int totalCount = await filtered.CountAsync();
+
+            var items = await filtered
+                .Select(o => new ExtrasObligationRow
+                {
+                    ObligationId = o.Id,
+                    TeacherStudentId = o.TeacherStudentId,
+                    StudentName = o.StudentName,
+                    StudentCode = o.StudentCode,
+                    SessionId = o.TeacherStudent!.SessionId,
+                    SessionName = o.TeacherStudent.Session != null ? o.TeacherStudent.Session.SessionName : null,
+                    SessionGroupId = o.TeacherStudent.Session != null ? o.TeacherStudent.Session.SessionGroupId : null,
+                    SessionGroupName = o.TeacherStudent.Session != null && o.TeacherStudent.Session.SessionGroup != null
+                        ? o.TeacherStudent.Session.SessionGroup.GroupName
+                        : null,
+                    AmountDue = o.AmountDue,
+                    AmountPaid = o.AmountPaid,
+                    PaymentStatus = o.PaymentStatus,
+                    IsExempt = o.IsExempt,
+                    ExemptedAt = o.ExemptedAt,
+                    ExemptedByUserId = o.ExemptedByUserId,
+                    ExemptReason = o.ExemptReason,
+                    IsCustomAmount = o.IsCustomAmount,
+                    CustomAmountSetByUserId = o.CustomAmountSetByUserId,
+                    CustomAmountSetAt = o.CustomAmountSetAt,
+                    // DERIVED, not denormalized. Two more stored columns × four writers (collect /
+                    // refund / edit / offline sync) is exactly the drift this codebase keeps getting
+                    // burned by. The guard is INSIDE the subquery's Where — never
+                    // `cond ? subquery : null`, which puts an untyped NULL in the SQL tree and fails
+                    // at query-compile time for any row with no match (BUG-7).
+                    LastPaymentAt = _context.EventPaymentTransactions
+                        .Where(t => t.EventStudentObligationId == o.Id)
+                        .OrderByDescending(t => t.CollectedAt)
+                        .Select(t => (DateTime?)t.CollectedAt)
+                        .FirstOrDefault(),
+                    LastCollectedByUserId = _context.EventPaymentTransactions
+                        .Where(t => t.EventStudentObligationId == o.Id)
+                        .OrderByDescending(t => t.CollectedAt)
+                        .Select(t => t.CollectedByUserId)
+                        .FirstOrDefault(),
+                    TransactionsCount = _context.EventPaymentTransactions
+                        .Count(t => t.EventStudentObligationId == o.Id)
+                })
+                // Exact StudentCode FIRST. This list is scan-reachable from the item's deep link,
+                // and a short code is routinely a substring of a dozen others — on one live roster
+                // "8B" matched 16 codes and its owner sorted 12th, off page 1 entirely (BUG-21).
+                .OrderByDescending(o => o.StudentCode == search)
+                .ThenBy(o => o.StudentName)
+                // Unique tiebreaker: two students can share a name, and without it SQL Server may
+                // order the tie differently between page reads — repeating one row and dropping
+                // another as the caller scrolls.
+                .ThenBy(o => o.ObligationId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .AsNoTracking()
+                .ToListAsync();
+
+            return (items, totalCount, paidCount, partialCount, unpaidCount, exemptCount, searchedCount);
+        }
+
+        /// <inheritdoc />
+        public async Task<Dictionary<long, List<ExtrasDebtRow>>> GetExtrasDebtsForAttendanceBatchAsync(
+            long teacherId, IReadOnlyCollection<long> teacherStudentIds, DateOnly throughDate)
+        {
+            if (teacherStudentIds is null || teacherStudentIds.Count == 0)
+                return new Dictionary<long, List<ExtrasDebtRow>>();
+
+            var idList = teacherStudentIds.Distinct().ToList();
+            var through = throughDate.ToDateTime(TimeOnly.MinValue);
+
+            // ONE query, then group in memory — the shape GetPaymentInfoForAttendanceBatchAsync
+            // established. A take-attendance list can hold 547 students, so this seeks
+            // IX_ESO_TeacherId_StudentId_IsExempt; without that index it is a table scan on the
+            // hottest path in the product.
+            //
+            // `AmountPaid < AmountDue`, NOT `PaymentStatus != Paid`. The fee sibling uses the latter,
+            // which also matches Overpaid periods — a bug not worth inheriting.
+            //
+            // The item's own !IsDeleted filter and the obligation's !PaymentEvent.IsDeleted filter
+            // drop deleted items for free.
+            var rows = await _context.EventStudentObligations
+                .Where(o => o.TeacherId == teacherId
+                    && o.TeacherStudentId != null
+                    && idList.Contains(o.TeacherStudentId!.Value)
+                    && !o.IsExempt
+                    && o.AmountPaid < o.AmountDue
+                    && o.PaymentEvent.CollectDuringAttendance
+                    && !o.PaymentEvent.IsClosed
+                    && o.PaymentEvent.EventDate <= through)
+                .Select(o => new ExtrasDebtRow
+                {
+                    TeacherStudentId = o.TeacherStudentId!.Value,
+                    ObligationId = o.Id,
+                    PaymentEventId = o.PaymentEventId,
+                    // LIVE name, so a rename shows at the door immediately.
+                    ItemName = o.PaymentEvent.EventName,
+                    AmountDue = o.AmountDue,
+                    AmountPaid = o.AmountPaid,
+                    ItemDate = o.PaymentEvent.EventDate
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return rows
+                .GroupBy(r => r.TeacherStudentId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(r => r.ItemDate).ThenBy(r => r.ObligationId).ToList());
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ExtrasTallyRow>> GetExtrasTallyAsync(long eventId, long teacherId)
+        {
+            // ONE GroupBy produces the header, the by-session breakdown AND the by-group breakdown.
+            // Folding all three from one result is what makes them agree by construction: they are
+            // literally the same numbers summed differently, so a breakdown can never drift from the
+            // header the way two separate queries eventually would.
+            //
+            // The bucket is a projected typed byte via CASE — never nine Count(predicate) aggregates.
+            // Predicate counts re-inline the row's correlated members once per reference, and one
+            // that folds to a compile-time constant becomes literal COUNT(NULL), which SQL Server
+            // rejects outright (BUG-16).
+            //
+            // The TeacherStudent join is mandatory (BUG-8/BUG-17): a purged student's obligation
+            // would otherwise inflate a count past what the list can ever render.
+            var rows = await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    && o.TeacherStudent != null)
+                .Select(o => new
+                {
+                    // The student's CURRENT session — the same column the audience resolves
+                    // through, which is what guarantees these rows sum to the header (§7.8).
+                    SessionId = o.TeacherStudent!.SessionId,
+                    SessionName = o.TeacherStudent.Session != null ? o.TeacherStudent.Session.SessionName : null,
+                    SessionGroupId = o.TeacherStudent.Session != null ? o.TeacherStudent.Session.SessionGroupId : null,
+                    SessionGroupName = o.TeacherStudent.Session != null && o.TeacherStudent.Session.SessionGroup != null
+                        ? o.TeacherStudent.Session.SessionGroup.GroupName
+                        : null,
+                    Bucket = o.IsExempt
+                        ? ExtrasBucket.Exempt
+                        : (o.PaymentStatus == PaymentStatus.Paid || o.PaymentStatus == PaymentStatus.Overpaid
+                            ? ExtrasBucket.Paid
+                            : (o.PaymentStatus == PaymentStatus.PartiallyPaid
+                                ? ExtrasBucket.PartiallyPaid
+                                : ExtrasBucket.Unpaid)),
+                    o.AmountDue,
+                    o.AmountPaid
+                })
+                .GroupBy(x => new { x.SessionId, x.SessionName, x.SessionGroupId, x.SessionGroupName, x.Bucket })
+                .Select(g => new ExtrasTallyRow
+                {
+                    SessionId = g.Key.SessionId,
+                    SessionName = g.Key.SessionName,
+                    SessionGroupId = g.Key.SessionGroupId,
+                    SessionGroupName = g.Key.SessionGroupName,
+                    Bucket = g.Key.Bucket,
+                    StudentCount = g.Count(),
+                    AmountDue = g.Sum(x => x.AmountDue),
+                    AmountPaid = g.Sum(x => x.AmountPaid)
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return rows;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ExtrasCollectorTallyRow>> GetExtrasCollectorTallyAsync(
+            long eventId, long teacherId, long? scopeToCollectorUserId)
+        {
+            // ACTIVITY-driven only — grouped over the item's non-deleted payments, never over the
+            // wallet roster. That is what keeps a removed collector from surfacing as a silent
+            // "0 EGP / 0 payments" card on an item they never touched (§7.4a), and it means these
+            // rows always reconcile with the item's collected total.
+            var q = _context.EventPaymentTransactions
+                .Where(t => t.PaymentEventId == eventId && t.TeacherId == teacherId);
+
+            // An assistant sees only their own line. The tutor's figures are none of their business,
+            // and this mirrors the force-scoping on /collections and /collections/summary.
+            if (scopeToCollectorUserId.HasValue)
+                q = q.Where(t => t.CollectedByUserId == scopeToCollectorUserId.Value);
+
+            return await q
+                .GroupBy(t => t.CollectedByUserId)
+                .Select(g => new ExtrasCollectorTallyRow
+                {
+                    CollectedByUserId = g.Key,
+                    CollectedAmount = g.Sum(t => t.AmountPaid),
+                    TransactionCount = g.Count(),
+                    // DISTINCT students, so a collector who took two partials from one student
+                    // counts them once.
+                    StudentCount = g.Select(t => t.TeacherStudentId).Distinct().Count()
+                })
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ExtrasItemTotals>> GetExtrasItemTotalsAsync(
+            long teacherId, IReadOnlyCollection<long> eventIds)
+        {
+            if (eventIds is null || eventIds.Count == 0) return System.Array.Empty<ExtrasItemTotals>();
+            var ids = eventIds.Distinct().ToList();
+
+            // ONE grouped query for a whole PAGE of items — bounded by page size, never N+1.
+            // Deliberately not read from PaymentEvents' cached TotalStudents /
+            // TotalExpectedRevenue / TotalCollectedRevenue columns: three separate write paths used
+            // to clobber those independently, which is how a card could claim 4,500 collected while
+            // its own students summed to 3,900.
+            var rows = await _context.EventStudentObligations
+                .Where(o => ids.Contains(o.PaymentEventId)
+                    && o.TeacherId == teacherId
+                    && o.TeacherStudent != null)
+                .Select(o => new
+                {
+                    o.PaymentEventId,
+                    Bucket = o.IsExempt
+                        ? ExtrasBucket.Exempt
+                        : (o.PaymentStatus == PaymentStatus.Paid || o.PaymentStatus == PaymentStatus.Overpaid
+                            ? ExtrasBucket.Paid
+                            : (o.PaymentStatus == PaymentStatus.PartiallyPaid
+                                ? ExtrasBucket.PartiallyPaid
+                                : ExtrasBucket.Unpaid)),
+                    o.AmountDue,
+                    o.AmountPaid
+                })
+                .GroupBy(x => new { x.PaymentEventId, x.Bucket })
+                .Select(g => new
+                {
+                    g.Key.PaymentEventId,
+                    g.Key.Bucket,
+                    Count = g.Count(),
+                    Due = g.Sum(x => x.AmountDue),
+                    Paid = g.Sum(x => x.AmountPaid)
+                })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return rows
+                .GroupBy(x => x.PaymentEventId)
+                .Select(g => new ExtrasItemTotals
+                {
+                    PaymentEventId = g.Key,
+                    // Exempt students are excluded from the headcount and from expected revenue:
+                    // "not taking it" means no money is expected and they are not part of the
+                    // population the tutor is chasing.
+                    TotalStudents = g.Where(x => x.Bucket != ExtrasBucket.Exempt).Sum(x => x.Count),
+                    PaidStudents = g.Where(x => x.Bucket == ExtrasBucket.Paid).Sum(x => x.Count),
+                    PartiallyPaidStudents = g.Where(x => x.Bucket == ExtrasBucket.PartiallyPaid).Sum(x => x.Count),
+                    UnpaidStudents = g.Where(x => x.Bucket == ExtrasBucket.Unpaid).Sum(x => x.Count),
+                    ExemptStudents = g.Where(x => x.Bucket == ExtrasBucket.Exempt).Sum(x => x.Count),
+                    ExpectedAmount = g.Where(x => x.Bucket != ExtrasBucket.Exempt).Sum(x => x.Due),
+                    CollectedAmount = g.Sum(x => x.Paid),
+                    ExemptAmount = g.Where(x => x.Bucket == ExtrasBucket.Exempt).Sum(x => x.Due)
+                })
+                .ToList();
+        }
+
+        /// <inheritdoc />
+        public async Task<(int OpenItems, decimal Outstanding)> GetExtrasOutstandingSummaryAsync(
+            long teacherId)
+        {
+            // GroupBy the item, so the number of GROUPS is the number of items still owed on and
+            // the sum of the groups is the money. One statement, one pass, and the two numbers
+            // cannot describe different sets.
+            var rows = await _context.EventStudentObligations
+                .Where(o => o.TeacherId == teacherId
+                    && o.TeacherStudent != null
+                    && !o.IsExempt
+                    && o.AmountPaid < o.AmountDue
+                    && !o.PaymentEvent.IsClosed)
+                .GroupBy(o => o.PaymentEventId)
+                .Select(g => new { Outstanding = g.Sum(x => x.AmountDue - x.AmountPaid) })
+                .AsNoTracking()
+                .ToListAsync();
+
+            return (rows.Count, rows.Sum(r => r.Outstanding));
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> HasCollectedEventMoneyAsync(long eventId, long teacherId)
+        {
+            // The global !IsDeleted filter is ON, so a fully-refunded item reads as false and can
+            // be deleted again — which is the honest answer: there is no money left to preserve.
+            return await _context.EventPaymentTransactions
+                .AnyAsync(t => t.PaymentEventId == eventId && t.TeacherId == teacherId);
+        }
+
+        /// <inheritdoc />
+        public async Task<int> DeleteUnpaidEventObligationsAsync(long eventId, long teacherId)
+        {
+            // ONE set-based statement, bounded by the item. Loading a 500-student roster to delete
+            // it row by row inside the delete transaction is exactly the lock duration this avoids.
+            return await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    && o.AmountPaid == 0m)
+                .ExecuteDeleteAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<ExtrasScopeSummaryRow>> GetExtrasScopeSummariesAsync(
+            long teacherId, IReadOnlyCollection<long> eventIds)
+        {
+            if (eventIds is null || eventIds.Count == 0)
+                return System.Array.Empty<ExtrasScopeSummaryRow>();
+            var ids = eventIds.Distinct().ToList();
+
+            // ONE query for a whole PAGE of items. The two name lookups are scalar subqueries with
+            // their null guards INSIDE the Where — never `SessionId == null ? null : subquery`,
+            // which puts an untyped NULL in the SQL tree and fails at query-compile time for every
+            // row (BUG-7). Both seek the filtered indexes on (TeacherId, SessionId) and
+            // (TeacherId, SessionGroupId).
+            return await _context.PaymentEventScopes
+                .Where(sc => sc.TeacherId == teacherId && ids.Contains(sc.PaymentEventId))
+                .Select(sc => new ExtrasScopeSummaryRow
+                {
+                    PaymentEventId = sc.PaymentEventId,
+                    ScopeType = (byte)sc.ScopeType,
+                    TargetName = sc.ScopeType == EventTargetScopeType.Session
+                        ? _context.Sessions
+                            .Where(x => sc.SessionId != null
+                                        && x.Id == sc.SessionId
+                                        && x.TeacherId == teacherId)
+                            .Select(x => x.SessionName)
+                            .FirstOrDefault()
+                        : _context.SessionGroups
+                            .Where(x => sc.SessionGroupId != null
+                                        && x.Id == sc.SessionGroupId
+                                        && x.TeacherId == teacherId)
+                            .Select(x => x.GroupName)
+                            .FirstOrDefault()
+                })
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentEvent>> GetAutoIncludeEventsForSessionAsync(
+            long teacherId, long sessionId)
+        {
+            // The session's group, resolved once so the scope test below is a plain comparison
+            // rather than a correlated subquery per scope row.
+            long? groupId = await _context.Sessions
+                .Where(x => x.Id == sessionId && x.TeacherId == teacherId)
+                .Select(x => x.SessionGroupId)
+                .FirstOrDefaultAsync();
+
+            return await _context.PaymentEvents
+                .Where(e => e.TeacherId == teacherId
+                    && e.AutoIncludeNewStudents
+                    && !e.IsClosed
+                    && e.Scopes.Any(sc =>
+                        (sc.ScopeType == EventTargetScopeType.Session && sc.SessionId == sessionId)
+                        || (sc.ScopeType == EventTargetScopeType.SessionGroup
+                            && groupId != null && sc.SessionGroupId == groupId)
+                        || sc.ScopeType == EventTargetScopeType.AllStudents))
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentEvent>> GetAutoIncludeAllStudentEventsAsync(long teacherId)
+        {
+            return await _context.PaymentEvents
+                .Where(e => e.TeacherId == teacherId
+                    && e.AutoIncludeNewStudents
+                    && !e.IsClosed
+                    && e.Scopes.Any(sc => sc.ScopeType == EventTargetScopeType.AllStudents))
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<long>> GetStudentIdsWithObligationAsync(
+            long eventId, long teacherId, IReadOnlyCollection<long> studentIds)
+        {
+            if (studentIds is null || studentIds.Count == 0) return System.Array.Empty<long>();
+            var ids = studentIds.Distinct().ToList();
+
+            return await _context.EventStudentObligations
+                .Where(o => o.PaymentEventId == eventId
+                    && o.TeacherId == teacherId
+                    && o.TeacherStudentId != null
+                    && ids.Contains(o.TeacherStudentId!.Value))
+                .AsNoTracking()
+                .Select(o => o.TeacherStudentId!.Value)
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<PaymentEventScope>> GetPaymentEventScopesAsync(
+            long eventId, long teacherId)
+        {
+            return await _context.PaymentEventScopes
+                .Where(sc => sc.PaymentEventId == eventId && sc.TeacherId == teacherId)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task AddPaymentEventScopesRangeAsync(IEnumerable<PaymentEventScope> scopes)
+        {
+            await _context.PaymentEventScopes.AddRangeAsync(scopes);
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteEventScopesBySessionAsync(long sessionId)
+        {
+            // IgnoreQueryFilters: PaymentEventScope carries HasQueryFilter(!PaymentEvent.IsDeleted),
+            // and a SOFT-DELETED item's scope rows are still physically present — they would block
+            // the session hard-delete just the same. Clean every row regardless of item state.
+            await _context.PaymentEventScopes
+                .IgnoreQueryFilters()
+                .Where(s => s.SessionId == sessionId)
+                .ExecuteDeleteAsync();
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteEventScopesByGroupAsync(long sessionGroupId)
+        {
+            await _context.PaymentEventScopes
+                .IgnoreQueryFilters()
+                .Where(s => s.SessionGroupId == sessionGroupId)
+                .ExecuteDeleteAsync();
         }
 
         // ----------------------------------------------

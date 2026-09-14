@@ -1,4 +1,5 @@
 ﻿using Edvanz.Domain.Entities;
+using Edvanz.Domain.Models;
 using Edvanz.Domain.Enums;
 
 namespace Edvanz.Domain.Interfaces;
@@ -137,6 +138,56 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
         string? search = null);
 
     /// <summary>
+    /// Row count of the UNIFIED ledger (monthly subscriptions and/or "Books &amp; fees") over the
+    /// same filtered scope the slice returns. One statement.
+    /// </summary>
+    Task<int> GetLedgerRowCountAsync(
+        long teacherId,
+        DateTime startDate, DateTime endDate,
+        long? sessionId, long? collectedByUserId,
+        string? search = null,
+        LedgerKindFilter kind = LedgerKindFilter.Fees);
+
+    /// <summary>
+    /// One arbitrary window of the UNIFIED ledger, newest collection first, addressed by
+    /// <paramref name="skip"/>/<paramref name="take"/>. Returns the FLAT projection
+    /// (<see cref="CollectionLedgerSourceRow"/>) rather than entities, because <c>Include</c> cannot
+    /// be applied to a concatenated query — which is also what keeps the shipped fee-row payload
+    /// byte-identical: the page's FEE ids are then hydrated by
+    /// <see cref="GetTransactionsByIdsAsync"/> and built through the unchanged row builder, while an
+    /// EXTRAS row renders completely from this projection alone.
+    ///
+    /// <para><paramref name="kind"/> defaults to <c>Fees</c>, so every deployed client that omits it
+    /// gets byte-identical behaviour. Do not change that default.</para>
+    /// </summary>
+    Task<IReadOnlyList<CollectionLedgerSourceRow>> GetLedgerSliceAsync(
+        long teacherId,
+        DateTime startDate, DateTime endDate,
+        long? sessionId, long? collectedByUserId,
+        int skip, int take,
+        string? search = null,
+        LedgerKindFilter kind = LedgerKindFilter.Fees);
+
+    /// <summary>
+    /// Hydrates specific transactions by id with the ledger's eager loads
+    /// (Session, Allocations→PaymentPeriod, EditLogs). Tenant-scoped. One PK seek for a whole page.
+    /// </summary>
+    Task<IReadOnlyList<PaymentTransaction>> GetTransactionsByIdsAsync(
+        long teacherId, IReadOnlyCollection<long> ids);
+
+    /// <summary>
+    /// Gross cash in the window split by money kind, in ONE grouped statement. Always measures BOTH
+    /// kinds regardless of the active scope filter — a tutor looking at one scope still needs to
+    /// know what the other holds, and a client must never have to subtract one server number from
+    /// another to find out.
+    /// </summary>
+    Task<(decimal Fees, decimal Extras)> GetLedgerGrossByKindAsync(
+        long teacherId,
+        DateTime startDate, DateTime endDate,
+        long? sessionId, long? collectedByUserId,
+        string? search = null);
+
+    /// <summary>
     /// Per-calendar-day money totals over the SAME filtered set as
     /// <see cref="GetTransactionsByDateRangePagedAsync"/>, newest day first: cash in
     /// (<c>Collected</c>), cash out (<c>Deducted</c> — defensive, a collection is never negative
@@ -151,7 +202,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
             DateTime startDate, DateTime endDate,
             long? sessionId, long? collectedByUserId,
             string? search = null,
-        int localOffsetHours = 0);
+            int localOffsetHours = 0,
+            LedgerKindFilter kind = LedgerKindFilter.Fees);
 
     /// <summary>
     /// Whole-scope money aggregates over the SAME filtered set as
@@ -179,7 +231,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<IReadOnlyList<(decimal Amount, int Count)>> GetCollectionAmountTiersAsync(
         long teacherId, DateTime startInclusive, DateTime endInclusive, long? collectedByUserId,
-        string? search = null);
+        string? search = null,
+        LedgerKindFilter kind = LedgerKindFilter.Fees);
 
     // ══════════════════════════════════════════════
     // PAYMENT PERIOD QUERIES
@@ -379,10 +432,48 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<Dictionary<long, int>> GetLiveCollectionCountsByCollectorUserAsync(long teacherId);
 
     /// <summary>
+    /// "Books &amp; fees" cash and collection count per collector in the window — the additive
+    /// sibling of <c>GetDashboardPerCollectorAsync</c>, so no caller has to subtract one server
+    /// number from another to show the split.
+    /// </summary>
+    Task<Dictionary<long, (decimal Collected, int TransactionCount)>> GetExtrasPerCollectorAsync(
+        long teacherId, DateTime? startDate, DateTime? endDate);
+
+    /// <summary>
+    /// "Books &amp; fees" activity over one window: gross collected, the number of collections, and
+    /// how many DISTINCT students paid — the additive sibling of
+    /// <see cref="GetTransactionRangeAggregatesAsync"/>, so the collections-summary card can answer
+    /// for extras or for both kinds without a client summing server numbers.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="endInclusive"/> is INCLUSIVE, matching its fee sibling (the caller passes an
+    /// end-of-window tick). Mixing the two conventions on one card is how a window quietly gains or
+    /// loses a day.
+    /// </remarks>
+    Task<(decimal Gross, int TransactionCount, int DistinctStudents)>
+        GetExtrasRangeAggregatesAsync(
+            long teacherId, DateTime startDate, DateTime endInclusive,
+            long? collectedByUserId, string? search = null);
+
+    /// <summary>
     /// All collections a collector took in [startInclusive, endExclusive), unpaged —
     /// merged with refunds into a single chronological month log.
     /// </summary>
     Task<IReadOnlyList<PaymentTransaction>> GetCollectorTransactionsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
+
+    /// <summary>
+    /// The "Books &amp; fees" half of one collector's signed money stream in
+    /// [startInclusive, endExclusive). Needed by the wallet screen, which reconstructs the held
+    /// balance as <c>collections − refunds − hand-overs</c> and anchors its window on that running
+    /// balance's zero-crossings: extras cash has ALWAYS credited
+    /// <c>AssistantWallet.CurrentBalance</c>, so a stream that omits it cannot reconcile with the
+    /// card and can anchor the window on the wrong event.
+    ///
+    /// <para><c>IgnoreQueryFilters</c>, like its fee counterpart, so a refunded (soft-deleted)
+    /// payment still pairs with its negative audit entry and nets to zero.</para>
+    /// </summary>
+    Task<IReadOnlyList<EventPaymentTransaction>> GetCollectorExtrasTransactionsInRangeAsync(
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive);
 
     /// <summary>
@@ -403,6 +494,33 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task<IReadOnlyList<CollectorRefundRow>> GetCollectorRefundsInRangeAsync(
         long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
         bool includeDeleted = true);
+
+    /// <summary>
+    /// The "Books &amp; fees" counterpart of <see cref="GetCollectorRefundsInRangeAsync"/>: negative
+    /// ledger rows for one collector, derived from <c>EventPaymentEditLogs</c> rather than from the
+    /// transaction table, so a refund still renders after the payment row is gone.
+    ///
+    /// <para>Charged-to is a PLAIN EQUALITY on <c>ChargedToUserId</c>, not a two-branch CASE: the
+    /// attribution rule (a correction is charged to the ORIGINAL collector whose figure it corrects)
+    /// is decided and stored at WRITE time. <c>CollectedAt</c> carries the reversed cash's original
+    /// instant so a reset-aware caller can tell whether it was collected before the last hand-over.</para>
+    ///
+    /// <para><paramref name="includeDeleted"/> mirrors the fee method: the ledger passes
+    /// <c>false</c> so a <c>Deleted</c> row is dropped — its positive row is already gone via the
+    /// transaction's <c>!IsDeleted</c> filter, and surfacing the negative alone would be an orphan.</para>
+    /// </summary>
+    Task<IReadOnlyList<CollectorRefundRow>> GetExtrasCollectorRefundsInRangeAsync(
+        long teacherId, long collectorUserId, DateTime startInclusive, DateTime endExclusive,
+        bool includeDeleted = true);
+
+    /// <summary>
+    /// Teacher-wide "Books &amp; fees" negative rows in [startInclusive, endExclusive), for the
+    /// ledger's page-1 money-out block. Counterpart of
+    /// <see cref="GetDepartureRefundsByDateRangeAsync"/>'s role on the fee side.
+    /// </summary>
+    Task<IReadOnlyList<CollectorRefundRow>> GetExtrasRefundsByDateRangeAsync(
+        long teacherId, DateTime startInclusive, DateTime endExclusive,
+        long? collectedByUserId = null);
 
     /// <summary>
     /// Student-departure refunds (RefundDue) confirmed within [startInclusive, endExclusive), sourced
@@ -791,6 +909,13 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// </summary>
     Task<IReadOnlyList<StudentDeparture>> GetStudentDeparturesAsync(long teacherId, long teacherStudentId);
 
+    /// <summary>
+    /// One departure record by id, scoped to the teacher — returns null for another tenant's row so
+    /// the caller answers "not found" rather than leaking its existence (§3.3). TRACKED: the sole
+    /// caller is the amount correction, which mutates the row inside its own transaction.
+    /// </summary>
+    Task<StudentDeparture?> GetStudentDepartureByIdAsync(long departureId, long teacherId);
+
     /// <summary>Teacher-wide paged list of departed students (search by name/code), newest first.</summary>
     Task<(IReadOnlyList<DepartureListRow> Items, int TotalCount)> GetDeparturesPagedAsync(
         long teacherId, string? search, int page, int pageSize,
@@ -1072,7 +1197,8 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>
     /// Gets a specific event obligation for a student.
     /// </summary>
-    Task<EventStudentObligation?> GetEventObligationAsync(long eventId, long teacherStudentId);
+    Task<EventStudentObligation?> GetEventObligationAsync(
+        long eventId, long teacherStudentId, long teacherId);
 
     /// <summary>
     /// Gets all obligations for an event with paging, paid/unpaid separation, and search.
@@ -1099,6 +1225,12 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// <summary>
     /// Gets filtered and paginated events for a teacher.
     /// REQ-EVT-017/018: Searchable by name, filterable by scope and completion.
+    /// <para>
+    /// <paramref name="completionStatus"/> accepts "Open", "FullyCollected",
+    /// "PartiallyCollected" or "NotStarted" and is evaluated against the obligation rows rather
+    /// than the cached revenue columns (§7.12) — the cache is best-effort and every response
+    /// recomputes, so filtering on it would open a list that disagrees with its own count.
+    /// </para>
     /// </summary>
     Task<(IReadOnlyList<PaymentEvent> Items, int TotalCount)> GetPaymentEventsFilteredPagedAsync(
         long teacherId,
@@ -1114,11 +1246,109 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     Task AddEventPaymentTransactionAsync(EventPaymentTransaction transaction);
 
     /// <summary>
+    /// One "Books &amp; fees" payment by id, TENANT-SCOPED and TRACKED (the refund/edit paths mutate
+    /// it). <c>IgnoreQueryFilters</c> is deliberately NOT used: a payment already refunded is
+    /// soft-deleted, and must not be refundable a second time.
+    /// </summary>
+    Task<EventPaymentTransaction?> GetEventPaymentTransactionByIdAsync(long transactionId, long teacherId);
+
+    /// <summary>Marks a "Books &amp; fees" payment modified. No SaveChanges — the caller commits.</summary>
+    Task UpdateEventPaymentTransactionAsync(EventPaymentTransaction transaction);
+
+    /// <summary>
+    /// One obligation by its own id, tenant-scoped and tracked. The refund path reaches the
+    /// obligation THROUGH the transaction rather than by (event, student), so it needs this.
+    /// </summary>
+    Task<EventStudentObligation?> GetEventObligationByIdAsync(long obligationId, long teacherId);
+
+    /// <summary>Records a "Books &amp; fees" audit row. No SaveChanges — the caller owns the commit.</summary>
+    Task AddEventPaymentEditLogAsync(EventPaymentEditLog log);
+
+    /// <summary>
+    /// Recomputes an item's collected total from its NON-deleted payments, in one statement. Used
+    /// after a refund or an amount edit instead of decrementing the cached column, so a sequence of
+    /// corrections cannot drift it.
+    /// </summary>
+    Task<decimal> SumEventCollectedAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// Sums an obligation's NON-deleted payments, in one statement — the authoritative
+    /// <c>AmountPaid</c> after any correction.
+    /// </summary>
+    Task<decimal> SumObligationPaidAsync(long obligationId, long teacherId);
+
+    /// <summary>
+    /// An item's NON-exempt obligation count and their summed <c>AmountDue</c>, in ONE grouped
+    /// statement. The authoritative source for the item's student count and expected revenue —
+    /// exempt students are excluded from both, since "not taking it" means no money is expected.
+    /// </summary>
+    Task<(int ActiveCount, decimal ExpectedTotal)> GetEventObligationTotalsAsync(
+        long eventId, long teacherId);
+
+    /// <summary>
+    /// Re-prices an item's obligations to <paramref name="newAmount"/> in ONE set-based statement,
+    /// skipping the three kinds that must never be rewritten:
+    /// <list type="bullet">
+    ///   <item><c>AmountPaid &gt; 0</c> — money was taken against the old price.</item>
+    ///   <item><c>IsCustomAmount</c> — a human set this student's price by hand.</item>
+    ///   <item><c>IsExempt</c> — not taking it, so there is no price.</item>
+    /// </list>
+    /// Replaces a paged read-then-loop that pulled up to 50,000 rows into memory.
+    /// </summary>
+    Task<int> RepriceEventObligationsAsync(long eventId, long teacherId, decimal newAmount);
+
+    /// <summary>
+    /// All of a teacher's live "Books &amp; fees" items whose <c>EventDate</c> falls in the given
+    /// range, ordered newest first, BOUNDED by <paramref name="maxItems"/>.
+    ///
+    /// <para>Replaces <c>GetPaymentEventsPagedAsync(teacherId, 1, 50000)</c> in the summary report,
+    /// which both pulled an unbounded page AND ignored the requested date range — so the response
+    /// claimed a period it had not filtered on.</para>
+    /// </summary>
+    Task<IReadOnlyList<PaymentEvent>> GetPaymentEventsInRangeAsync(
+        long teacherId, DateTime? fromDate, DateTime? toDate, int maxItems);
+
+    /// <summary>
+    /// All of an item's obligations, tenant-scoped, BOUNDED by <paramref name="maxItems"/>. For the
+    /// single-item report, which needs every row rather than a page.
+    /// </summary>
+    Task<IReadOnlyList<EventStudentObligation>> GetAllEventObligationsAsync(
+        long eventId, long teacherId, int maxItems);
+
+    /// <summary>
     /// Gets event payment transactions for reporting.
     /// REQ-EVT-023: Single Event Payment Report.
     /// </summary>
     Task<IReadOnlyList<EventPaymentTransaction>> GetEventPaymentTransactionsAsync(
         long eventId, long teacherId);
+
+    /// <summary>
+    /// One student's recorded "Books &amp; fees" payments on one item, newest first — the list the
+    /// tutor picks from to refund or correct a collection.
+    /// </summary>
+    /// <remarks>
+    /// The global <c>!IsDeleted</c> filter stays ON, so an already-refunded payment is absent
+    /// rather than offered for refunding twice. Bounded by <paramref name="maxItems"/>: a single
+    /// student on a single item has a handful of payments, and an unbounded read here would be the
+    /// sixth <c>pageSize: 50000</c> this module has already had removed.
+    /// </remarks>
+    Task<IReadOnlyList<EventPaymentTransaction>> GetEventPaymentTransactionsForStudentAsync(
+        long eventId, long teacherStudentId, long teacherId, int maxItems);
+
+    /// <summary>
+    /// For each of the given "Books &amp; fees" payments that has been CORRECTED, the amount it was
+    /// originally collected for — so a sheet can read "was 200, now 150" instead of presenting a
+    /// corrected figure as if it were what the collector took.
+    /// </summary>
+    /// <remarks>
+    /// DERIVED from <c>EventPaymentEditLogs</c>, never denormalized onto the transaction: two
+    /// columns × several writers is exactly the drift this codebase keeps getting burned by, and
+    /// the log row is written on every correction anyway. Takes the EARLIEST <c>AmountChanged</c>
+    /// log per payment — after two corrections the tutor still needs the ORIGINAL, not the middle
+    /// value. A payment absent from the result was never corrected.
+    /// </remarks>
+    Task<Dictionary<long, decimal>> GetEventTransactionOriginalAmountsAsync(
+        long teacherId, IReadOnlyCollection<long> transactionIds);
 
     // ══════════════════════════════════════════════
     // INTEGRATION HOOKS (called before delete/purge)
@@ -1145,6 +1375,174 @@ public interface IPaymentRepo : IGenericRepo<PaymentTransaction, long>
     /// REQ-EVT-006: All students scope event target resolution.
     /// </summary>
     Task<List<long>> GetAllStudentIdsAsync(long teacherId);
+
+    // ══════════════════════════════════════════════
+    // BOOKS & FEES SCOPE CLEANUP ON SESSION / GROUP HARD-DELETE
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Hard-deletes every <c>PaymentEventScope</c> row targeting a given session
+    /// (<c>ScopeType = Session</c>). MUST be called by <c>SessionService.DeleteSessionAsync</c>
+    /// BEFORE the session row is hard-deleted, alongside the identical calls it already makes for
+    /// <c>VideoScope</c> / <c>VideoUnitScope</c> / <c>OnlineExamScope</c>: the
+    /// <c>PaymentEventScopes.SessionId</c> FK is <c>NoAction</c>, so a surviving row would block the
+    /// delete with a 409 "conflicts with existing data" — a regression on a working feature.
+    ///
+    /// <para>The row is DELETED, not nulled: a scope row is a live targeting rule with no meaning
+    /// once its session is gone, and <c>CK_PaymentEventScopes_TargetMatchesScopeType</c> forbids a
+    /// Session-typed row with a null <c>SessionId</c>. The students' OBLIGATIONS are untouched —
+    /// they are student-scoped history and the money on them is real.</para>
+    ///
+    /// <para>Set-based <c>ExecuteDeleteAsync</c>, one round trip.</para>
+    /// </summary>
+    /// <summary>
+    /// Adds "Books &amp; fees" targeting rules in bulk. No SaveChanges — the caller owns the commit,
+    /// so the rows join the item's own transaction.
+    /// </summary>
+    Task AddPaymentEventScopesRangeAsync(IEnumerable<PaymentEventScope> scopes);
+
+    /// <summary>One item's targeting rules. Empty for a legacy item created before scope rows
+    /// existed, which is why the new-joiner count is 0 for those rather than wrong.</summary>
+    Task<IReadOnlyList<PaymentEventScope>> GetPaymentEventScopesAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// The OPEN, auto-include "Books &amp; fees" items whose targeting covers a given session —
+    /// directly, through the session's group, or via an <c>AllStudents</c> rule.
+    ///
+    /// <para>ONE statement. Seeks <c>IX_PaymentEventScopes_TeacherId_SessionId</c> /
+    /// <c>_SessionGroupId</c>, and the item's global <c>!IsDeleted</c> filter excludes deleted ones.
+    /// Closed items are excluded: closing exists precisely to stop further obligation.</para>
+    /// </summary>
+    // ══════════════════════════════════════════════
+    // BOOKS & FEES TRACKING
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// The complete tracking tally for one item: (current session, group, bucket) cells with their
+    /// student count and money, from ONE <c>GROUP BY</c>.
+    ///
+    /// <para>The header, the by-session breakdown and the by-group breakdown are all folded from
+    /// this single result, which is what makes them agree BY CONSTRUCTION rather than by
+    /// coincidence — they are the same numbers summed differently.</para>
+    ///
+    /// <para>Sessions come from the student's CURRENT assignment, not the scope the item targeted:
+    /// a tutor asking "who in the 7 PM class hasn't paid" means today's class, and this is the same
+    /// column the audience resolves through, so the rows always sum to the header (§7.8).</para>
+    /// </summary>
+    Task<IReadOnlyList<ExtrasTallyRow>> GetExtrasTallyAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// Who collected for one item, ACTIVITY-driven (grouped over its non-deleted payments, never
+    /// over the wallet roster — so a removed collector never surfaces as an empty card, §7.4a).
+    /// <paramref name="scopeToCollectorUserId"/> force-scopes an assistant caller to their own line.
+    /// </summary>
+    Task<IReadOnlyList<ExtrasCollectorTallyRow>> GetExtrasCollectorTallyAsync(
+        long eventId, long teacherId, long? scopeToCollectorUserId);
+
+    /// <summary>
+    /// Per-item totals for a PAGE of items, in one grouped query keyed on
+    /// <c>PaymentEventId IN (@pageIds)</c>. Never N+1, and never read from the cached
+    /// <c>TotalStudents</c> / <c>TotalExpectedRevenue</c> / <c>TotalCollectedRevenue</c> columns —
+    /// three write paths used to clobber those independently.
+    /// </summary>
+    Task<IReadOnlyList<ExtrasItemTotals>> GetExtrasItemTotalsAsync(
+        long teacherId, IReadOnlyCollection<long> eventIds);
+
+    /// <summary>
+    /// How many "Books &amp; fees" items still have money owed on them, and how much in total —
+    /// the two numbers on the Payments-tab card.
+    /// </summary>
+    /// <remarks>
+    /// ONE grouped statement; the item count falls out of the row count, so there is no second
+    /// query and no chance of the two numbers describing different sets. Excludes exempt students
+    /// (no money is expected from them), purged students (BUG-8), deleted items (the query
+    /// filter) and CLOSED items — a closed item's arrears are not something the tutor can act on,
+    /// and the card exists to say what is left to collect.
+    /// </remarks>
+    Task<(int OpenItems, decimal Outstanding)> GetExtrasOutstandingSummaryAsync(long teacherId);
+
+    /// <summary>
+    /// Whether any money has been collected against a "Books &amp; fees" item and not refunded.
+    /// </summary>
+    /// <remarks>
+    /// Read from <c>EventPaymentTransactions</c> — the money ledger itself — so the global
+    /// <c>!IsDeleted</c> filter means a fully-refunded item reads as false and becomes deletable
+    /// again. This is the gate that decides delete versus close.
+    /// </remarks>
+    Task<bool> HasCollectedEventMoneyAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// Deletes the obligations of a "Books &amp; fees" item that carry NO money, in one set-based
+    /// statement. Paid obligations are left behind on purpose: they are what a surviving
+    /// transaction row is attributed to, and the item's new query filter hides them from every
+    /// read once it is soft-deleted.
+    /// </summary>
+    Task<int> DeleteUnpaidEventObligationsAsync(long eventId, long teacherId);
+
+    /// <summary>
+    /// The targeting rows of several "Books &amp; fees" items at once, with each target's LIVE
+    /// name, for the audience summary on the item list and the edit form.
+    /// </summary>
+    /// <remarks>
+    /// ONE query keyed on the page's ids — bounded by page size, never N+1. An item with no rows
+    /// is either individually targeted (its students are recorded by their obligations) or
+    /// predates the scope table; the caller derives the summary from
+    /// <c>PaymentEvent.TargetScopeType</c> in that case.
+    /// </remarks>
+    Task<IReadOnlyList<ExtrasScopeSummaryRow>> GetExtrasScopeSummariesAsync(
+        long teacherId, IReadOnlyCollection<long> eventIds);
+
+    /// <summary>
+    /// One item's student roster, paged, with the four chip counts.
+    ///
+    /// <para>The counts are measured on the SEARCHED set but BEFORE the chip filter, so selecting a
+    /// chip never renumbers the chips; and the counts and the list share one bucket definition, so a
+    /// chip can never say 91 and open 90 rows (BUG-17/BUG-23). Ordering puts an exact
+    /// <c>StudentCode</c> match first, because this list is scan-reachable (BUG-21), and uses the
+    /// obligation id as a unique tiebreaker.</para>
+    /// </summary>
+    Task<(IReadOnlyList<ExtrasObligationRow> Items, int TotalCount,
+          int PaidCount, int PartiallyPaidCount, int UnpaidCount, int ExemptCount,
+          int SearchedCount)>
+        GetExtrasObligationsPagedAsync(
+            long eventId, long teacherId,
+            ExtrasBucket? bucket, long? sessionId, long? sessionGroupId,
+            long? collectedByUserId, string? search,
+            int page, int pageSize);
+
+    /// <summary>
+    /// Every student's unpaid "Books &amp; fees" dues for the attendance combined-collect sheet, in
+    /// ONE batched query (the <c>GetPaymentInfoForAttendanceBatchAsync</c> shape). Excludes exempt
+    /// students, closed items, items flagged not-to-collect-at-the-door, and items dated after
+    /// <paramref name="throughDate"/>.
+    /// </summary>
+    Task<Dictionary<long, List<ExtrasDebtRow>>> GetExtrasDebtsForAttendanceBatchAsync(
+        long teacherId, IReadOnlyCollection<long> teacherStudentIds, DateOnly throughDate);
+
+    Task<IReadOnlyList<PaymentEvent>> GetAutoIncludeEventsForSessionAsync(long teacherId, long sessionId);
+
+    /// <summary>
+    /// The OPEN, auto-include items scoped to <c>AllStudents</c>. A brand-new student with no
+    /// session yet never fires an assignment hook, so this is the only way such an item reaches
+    /// them.
+    /// </summary>
+    Task<IReadOnlyList<PaymentEvent>> GetAutoIncludeAllStudentEventsAsync(long teacherId);
+
+    /// <summary>
+    /// Of a set of students, those who ALREADY have an obligation on the given item. Lets the
+    /// materializer insert only the difference, in one round trip, and makes it idempotent
+    /// independently of the unique index that backstops it.
+    /// </summary>
+    Task<IReadOnlyList<long>> GetStudentIdsWithObligationAsync(
+        long eventId, long teacherId, IReadOnlyCollection<long> studentIds);
+
+    Task DeleteEventScopesBySessionAsync(long sessionId);
+
+    /// <summary>
+    /// Session-group counterpart of <see cref="DeleteEventScopesBySessionAsync"/>, called by the
+    /// group hard-delete path so the <c>NoAction</c> <c>SessionGroupId</c> FK cannot block it.
+    /// </summary>
+    Task DeleteEventScopesByGroupAsync(long sessionGroupId);
 
     // ══════════════════════════════════════════════
     // INTEGRATION HOOKS (called before delete/purge)

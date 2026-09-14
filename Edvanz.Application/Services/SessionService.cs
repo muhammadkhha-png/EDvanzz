@@ -56,6 +56,7 @@ public class SessionService : ISessionService
     private readonly ISessionNameGenerator _nameGenerator;
     private readonly IAttendanceService _attendanceService;
     private readonly IPaymentService _paymentService;
+    private readonly IEventPaymentService _eventPaymentService;
     private readonly ISubscriptionGateService _subscriptionGate;
     private readonly ITimeZoneService _timeZoneService;
     private readonly IStringLocalizer<Domain.Resources.Messages> _localizer;
@@ -77,6 +78,7 @@ public class SessionService : ISessionService
         ISessionNameGenerator nameGenerator,
         IAttendanceService attendanceService,
         IPaymentService paymentService,
+        IEventPaymentService eventPaymentService,
         ISubscriptionGateService subscriptionGate,
         IStringLocalizer<Domain.Resources.Messages> localizer,
         ITimeZoneService timeZoneService)
@@ -85,6 +87,7 @@ public class SessionService : ISessionService
         _nameGenerator = nameGenerator;
         _attendanceService = attendanceService;
         _paymentService = paymentService;
+        _eventPaymentService = eventPaymentService;
         _subscriptionGate = subscriptionGate;
         _localizer = localizer;
         _timeZoneService = timeZoneService;
@@ -418,6 +421,10 @@ public class SessionService : ISessionService
             await _unitOfWork.VideoAssetsRepo.DeleteScopesBySessionAsync(sessionId);
             await _unitOfWork.VideoUnitsRepo.DeleteUnitScopesBySessionAsync(sessionId);
             await _unitOfWork.OnlineExamsRepo.DeleteScopesBySessionAsync(sessionId);
+            // Books & fees (PaymentEventScope) — same NoAction FK, same CHECK constraint that
+            // forbids nulling it, therefore the same treatment. The students' OBLIGATIONS are
+            // deliberately NOT touched: they are student-scoped history and carry real money.
+            await _unitOfWork.PaymentsRepo.DeleteEventScopesBySessionAsync(sessionId);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -699,6 +706,7 @@ public class SessionService : ISessionService
             await _unitOfWork.VideoAssetsRepo.DeleteScopesByGroupAsync(groupId);
             await _unitOfWork.VideoUnitsRepo.DeleteUnitScopesByGroupAsync(groupId);
             await _unitOfWork.OnlineExamsRepo.DeleteScopesByGroupAsync(groupId);
+            await _unitOfWork.PaymentsRepo.DeleteEventScopesByGroupAsync(groupId);
 
             // REQ-SES-031: Deleting group does NOT delete sessions.
             // Sessions become ungrouped via DB SetNull on the Session.SessionGroupId FK.
@@ -823,6 +831,8 @@ public class SessionService : ISessionService
 
         var result = new AssignStudentsResultDto();
         int assignedCount = 0;
+            // Collected so the books & fees auto-include runs once for the whole batch.
+            var newlyAssignedStudentIds = new List<long>();
 
         bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
         if (ownsTransaction)
@@ -875,6 +885,7 @@ public class SessionService : ISessionService
                     await _paymentService.OnStudentAssignedToSessionAsync(
                         dto.TeacherId, student.Id, dto.SessionId, session.SessionName, DateTime.UtcNow);
 
+                    newlyAssignedStudentIds.Add(student.Id);
                     assignedCount++;
                 }
             }
@@ -883,6 +894,15 @@ public class SessionService : ISessionService
             {
                 await _unitOfWork.SaveChangesAsync();
             }
+
+            // ── BOOKS & FEES: auto-include items targeting this class ──
+            // ONCE per call, after the loop, INSIDE this transaction. Deliberately not inside the
+            // per-student loop: 300 students × 5 live items would be 300 scope queries and 1,500
+            // inserts under one set of locks. And not post-commit best-effort either — an
+            // obligation that silently fails to appear is money the tutor never learns they are owed.
+            if (newlyAssignedStudentIds.Count > 0)
+                await _eventPaymentService.MaterializeAutoIncludeForSessionAsync(
+                    dto.TeacherId, dto.SessionId, newlyAssignedStudentIds);
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();
@@ -974,6 +994,12 @@ public class SessionService : ISessionService
             }
 
             await _unitOfWork.SaveChangesAsync();
+
+            // ── BOOKS & FEES: a MOVE into a targeted class is a new joiner too ──
+            // Covers both branches above (carried billing and first assignment) — what matters is
+            // that the student is now in this session, not how they got here.
+            await _eventPaymentService.MaterializeAutoIncludeForSessionAsync(
+                teacherId, sessionId, students.Select(x => x.Id).ToList());
 
             if (ownsTransaction)
                 await _unitOfWork.CommitAsync();

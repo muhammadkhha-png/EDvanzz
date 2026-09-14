@@ -693,6 +693,40 @@ public sealed class PaymentController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // CORRECT A DEPARTURE'S SETTLED AMOUNT  (MONEY)
+    // PUT api/payment/departures/{departureId}/amount   body { amount, note }
+    //
+    // For a figure settled by mistake. Only the AMOUNT moves — the outcome is never
+    // flipped and the departure is never undone. Applies the DELTA to the same places
+    // the confirmation touched, and refuses (changing nothing) if any of them is
+    // missing: a half-applied money correction is the worst outcome available.
+    //
+    // AUTH: TUTOR-ONLY (roleOnly), matching DELETE transactions/{id} and BR-PAY-002 —
+    //   assistants may CONFIRM a departure but never re-settle one afterwards.
+    //   actingUserId comes from the JWT, never the body.
+    //
+    // TABLES WRITTEN: StudentDepartures, PaymentPeriods, StudentPaymentCounters,
+    //   PaymentEditLogs, AssistantWallets
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpPut("departures/{departureId:long}/amount")]
+    [ModulePermission(roles: new[] { "Teacher", "SuperAdmin" }, roleOnly: true)]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.Payment.DepartureAmountEditResultDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> EditDepartureAmount(
+        [FromRoute] long departureId,
+        [FromBody] EditDepartureAmountDto dto)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _paymentService.EditDepartureAmountAsync(
+            teacherId.Value, GetActingUserId(), departureId, dto));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ENDPOINT 18: TRANSFER SUMMARY
     // GET api/payment/students/{teacherStudentId}/transfer-summary
     // ══════════════════════════════════════════════════════════════════════════

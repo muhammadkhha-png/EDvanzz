@@ -78,6 +78,7 @@ tab body (`AssistantPaymentView`, documented separately below) instead of this s
 | Tap a "collected by sessions" row | *(navigation only)* | — | opens **Session Payment Detail** |
 | "Departed students" link | *(navigation only, no refetch after)* | — | opens **Departed Students List** |
 | "Pending offline" chip | *(none — reads the local offline outbox only)* | — | local `pendingCollectAmounts()` |
+| Tap the "مذكرات ومصاريف / Books & fees" card | *(navigation only)* | — | opens **Books & fees** (chapter section below). Rendered as a PAYWALL when `features.extrasAllowed` is false — see Subscription |
 
 Response `data` shape (`PaymentTrackingApiDto`):
 ```json
@@ -121,6 +122,42 @@ Notes:
   error (only "current month as of last sync" is cached).
 
 ---
+
+### Books & fees additions to `GET api/v1/payments/tracking` (2026-09-14)
+
+`summary` gains five ADDITIVE fields; **nothing existing changes value**:
+
+| Field | Meaning |
+|---|---|
+| `collectedExtras` | Books & fees cash collected this calendar month |
+| `extrasCollectionsCount` | how many such collections |
+| `collectedCashAllSources` | `collectedTotal + collectedExtras` — what the rebuilt app renders as "collected this month", with the extras share beneath it |
+| `extrasOpenItemCount` | items that still have money owed on them — **NOT month-scoped** |
+| `extrasOutstanding` | total still owed across those items — **NOT month-scoped** |
+
+The last two are alone on this response in ignoring the selected month, and that is deliberate: an
+item is a one-off sale, not an installment, so "what is still owed on books & fees" has ONE answer
+and paging back to July must not change it. Closed items are excluded (their arrears are not
+collectable) and so are exempt students. They drive the Payments-tab card's subtitle; when
+`extrasOpenItemCount` is 0 the card says "nothing added yet" rather than showing a zero.
+
+`collectedTotal` is deliberately UNCHANGED. It carries two documented invariants — it equals
+`collectedThisMonth + collectedPreviousMonths + collectedInAdvance`, and it ties to
+`collectedByAssistant.totalCollected` to the cent. Extras cash settles no installment month, so
+folding it in would break the first and make every deployed build render a total that no longer
+equals its own three parts.
+
+`collectedByAssistant` gains `totalCollectedExtras` and `totalCollectedAllSources`; each
+`assistants[]` row gains `collectedExtras`. **Invariant to rely on:**
+`summary.collectedCashAllSources == collectedByAssistant.totalCollectedAllSources`, exactly as the
+fee-only pair already ties.
+
+`expectedRevenue` / `remainingAmount` / `expectedTotal` / `remainingTotal` and `statusBreakdown` are
+**untouched** — the obligation lens, which reconciles to `totalStudents` by construction.
+
+A tutor or assistant who collected ONLY books & fees in a month now gets a collector card at all;
+previously both the teacher row and the summary's collector list were keyed off fee collections
+alone and such a person had no card.
 
 ## Payment Students By Status (Paid / Pro-rated / Unpaid tabs)
 _Dart file: `lib/feature/teacher_module/payment/view/teacher_payment_students_by_status_view.dart`_
@@ -425,7 +462,7 @@ Range wins over a plain day param when both could apply. Drawer-range constructi
 
 | Sends | Uses from response |
 |---|---|
-| `month`(int), `year`(int), `page`, `limit` (15 in this cubit; 10 in the wallet's raw fetch), optional `from`/`to` (see table above), optional `collectedByUserId` (int — omitted = account-wide), optional `search` (student name/code), optional `includeAdjustments=false` (only ever sent as literal `false`, drops refund/withdrawal rows; absence = include everything) | `month`,`year`,`monthLabel`,`page`,`limit`,`totalItems`,`totalPages`,`items[]`,`amountTiers[]`,`dailyNets[]` |
+| `month`(int), `year`(int), `page`, `limit` (15 in this cubit; 10 in the wallet's raw fetch), optional `from`/`to` (see table above), optional `collectedByUserId` (int — omitted = account-wide), optional `search` (student name/code), optional `includeAdjustments=false` (only ever sent as literal `false`, drops refund/withdrawal rows; absence = include everything), optional **`kind`** (`fees`\|`extras`\|`all` — see below) | `month`,`year`,`monthLabel`,`page`,`limit`,`totalItems`,`totalPages`,`items[]`,`amountTiers[]`,`dailyNets[]`, **`ledgerScope`**, **`feesTotal`**, **`extrasTotal`** |
 
 Ledger item (`PaymentCollectionLedgerItemApiDto`):
 ```json
@@ -453,6 +490,50 @@ Ledger item (`PaymentCollectionLedgerItemApiDto`):
 - Proration story fields are rendered here too (ledger rows, even historical/paid ones, "by design —
   history"), name-free (the ledger is already scoped to one collector).
 
+#### `kind` — the Books & fees scope filter (added 2026-09-14)
+
+This ledger now covers TWO kinds of money: monthly subscriptions (`PaymentTransactions`) and
+**Books & fees** / مذكرات ومصاريف (`EventPaymentTransactions`). Books & fees cash has always credited
+the collector's wallet balance but appeared in no ledger, so the rows never summed to the balance
+printed beside them.
+
+- **`kind` DEFAULTS TO `fees`, and that default must not change.** Every build shipped before this
+  change omits the parameter. Defaulting to `all` would grow their ledger rows they cannot label,
+  with an `id` format they do not expect, while `dailyNets` and `amountTiers` changed silently
+  underneath them. Omitting it reproduces the old payload **byte for byte**.
+- `ledgerScope` echoes what the server actually measured (`"fees"`/`"extras"`/`"all"`), so a client
+  can tell an older server ignored its request instead of trusting a filtered view it never got.
+- `feesTotal` / `extrasTotal` are the gross split over the WHOLE window — sent so no client has to
+  subtract one server number from another. **Both are 0 when `kind=fees`**: the split query is
+  skipped entirely for the default scope, because running it for a number an old build cannot read
+  would be pure cost.
+- Every figure narrows with `kind`: `totalItems`, `items[]`, `dailyNets[]`, `amountTiers[]`.
+- **`amountTiers[]` comes back EMPTY when `kind=all`**, deliberately. A fee tier is a per-MONTH
+  settlement amount (a 600 payment clearing two months counts as two 300s) while an extras tier is a
+  per-ITEM amount; merged, a "300 → 14" bucket would mean two different things in one strip. The app
+  hides the tier strip for this scope — an empty list is the signal.
+- **Withdrawal rows are omitted under `kind=fees` or `kind=extras`.** A hand-over is one physical
+  movement of a bag holding both kinds and cannot be attributed to one, so including it would make a
+  scoped net subtract money the visible rows never contained. The screen must say so instead.
+
+New fields on every ledger item:
+
+```json
+{ "paymentKind": "extras", "extrasItemName": "مذكرة الترم", "extrasItemId": "12" }
+```
+
+- **`paymentKind`**, not `kind`: `AssistantWalletCollectionItemDto.kind` already means the LINE TYPE
+  (`collection`/`refund`/`withdrawal`) and both DTOs render on the same merged wallet screen. One
+  word meaning two things in one list is a footgun. `paymentKind` is a separate axis from `status` —
+  identity vs outcome — so "a refunded extras payment" stays representable.
+- Defaults to `"fee"`, so an older build's rows read correctly.
+- **An extras row's `id` is PREFIXED `"extras-"`** (refunds: `"extras-refund-"`). Fee rows use the
+  bare numeric transaction id, so an unprefixed extras id would collide for any client keying its
+  list on `id` — two rows claiming to be the same row.
+- Extras rows carry `sessionName: null`, `appliedMonths: []`, `periodsCovered: 0` and all-null
+  proration fields. An extras obligation is student-scoped and settles no installment month; those
+  are left empty rather than faked.
+
 ### `GET api/v1/payments/collections/summary`
 
 Same `from`/`to`/`collectedByUserId`/`search`/`includeAdjustments` params as above (day-scope only; no
@@ -461,6 +542,33 @@ client-side into "collected"), `refundsTotal`→`refundedAmount`, `studentsPaidC
 `transactionCount`→`collectionsCount`, **`departedRefundDueCount`→`refundsCount`** (naming gotcha — read
 from the "departed refund due" field, not a field literally named refunds-count), `departedCount`. No
 pagination.
+
+Also accepts **`kind`** (same default and semantics as the ledger above); `netCashCollected`,
+`refundsTotal`, `transactionCount` and `studentsPaidCount` all narrow with it, and the response
+echoes `ledgerScope` + `feesTotal` / `extrasTotal` through the **same helper the ledger uses**, so
+the card and the rows beneath it can never disagree about what each kind holds (both are 0 on the
+default `fees` scope — the split query is skipped there for the same cost reason).
+
+Three scope rules on this endpoint that are NOT symmetrical, and all three matter:
+
+- **Under a `sessionId` filter the extras half is always ZERO**, not wrong. An extras payment
+  carries no session, so a session-scoped card is structurally fee-only — the same reason
+  "Collected by Sessions" stays fees-only.
+- **`studentsPaidCount` is SUMMED across kinds, not deduped.** A student who paid a fee and a مذكرة
+  in the window counts twice. Deduping needs a DISTINCT over the union of both tables; under the
+  default `fees` scope — every deployed build — this figure is byte-identical to what it replaced,
+  and the only caller that can reach `all` reads it as activity, not as a headcount of people.
+- **The student-status counts are untouched** (below).
+
+`byCollector[]` gains **`collectedExtras`** and **`extrasTransactionCount`** alongside the existing
+`collectedAmount`/`transactionCount`, which keep their fee-only meaning — nothing already on the
+wire changes value. A collector who took ONLY books & fees in the range now appears in
+`byCollector[]`; previously the list was keyed off fee collections alone and dropped them.
+
+The student-status counts (`paidInFullCount`/`partialCount`/`proratedCount`/`unpaidCount`) and the
+departure counts are **NOT** filtered or extended: they are the obligation lens, anchored to
+`asOfMonth`, and an extras obligation has no month installment. An unpaid مذكرة surfaces in the
+Books & fees screens, never in the monthly-fees "unpaid" bucket.
 
 ### `GET api/v1/payments/collections/yearly`
 
@@ -512,11 +620,32 @@ assistantName, avatarUrl, collectorUserId)`.
 
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
-| Screen load / pull-to-refresh | `GET api/v1/assistants/{assistantId}/wallet` | `page`, `limit=10`, `search?` | `assistant.{id,assistantName\|userName\|fullName\|name,avatarUrl,role,transactionCount,walletBalance\|currentBalance}`; `wallet.{totalCashCollected,walletBalance,collectionsCount,lastActivityAt}`; `collections.{total,page,limit,items[],sinceAt,heldSinceAt}` |
+| Screen load / pull-to-refresh | `GET api/v1/assistants/{assistantId}/wallet` | `page`, `limit=10`, `search?`, optional `kind` (`fees`\|`extras`\|`all` — **defaults to `all` here**, unlike the ledger) | `assistant.{id,assistantName\|userName\|fullName\|name,avatarUrl,role,transactionCount,walletBalance\|currentBalance}`; `wallet.{totalCashCollected,walletBalance,collectionsCount,lastActivityAt,totalCashCollectedExtras,totalRefundedExtras}`; `collections.{total,page,limit,items[],sinceAt,heldSinceAt}` |
 | Search field | same, page reset to 1 | `search` | same |
 | "Withdraw" button → sheet → submit | `POST api/v1/assistants/{assistantId}/wallet/withdraw` | `{"amount": 350.00}` (omitted entirely, i.e. body `{}`, only if the field is somehow cleared — the sheet pre-fills the full balance; there is no explicit "withdraw all" flag) | `withdrawalId`(`\|resetId\|id`), `status`(default `"completed"`), `amount`(`\|resetAmount\|totalAmountReset`), `walletBalanceAfter`(`\|balanceAfter\|balance`), `requestedAt`(`\|resetAt\|createdAt`) |
 | "Withdrawal history" | *(navigation only)* | — | opens **Wallet Withdrawals View** |
 | "View all" (collections) | *(navigation only)* | — | opens **Assistant Wallet Collections View**, or the shared unified ledger (via `collectedByUserId`) when `collectorUserId` is already known |
+
+**Books & fees on this card (2026-09-14).** `kind` defaults to **`all`** here, NOT `fees` as on the
+ledger — this card has always PRINTED a balance that includes books & fees cash, so the honest
+default is the list that adds up to it; a fee-only default would preserve the very discrepancy this
+change fixes. Deployed builds gain rows they already render generically (they handle refund and
+hand-over rows), rather than losing a number they rely on.
+
+`totalCashCollected` / `totalRefunded` now include books & fees, with `totalCashCollectedExtras` /
+`totalRefundedExtras` as the split. This IS a value change, and it is the fix: those two figures
+exist to explain `walletBalance`, which has always been credited by extras cash, so a fee-only
+"collected" never added up to the balance beside it.
+
+`walletBalance`, `totalCollectedAllTime`, `heldSinceAt` and `sinceAt` are **never** filtered by
+`kind` — they are properties of one physical cash bag. Consequently, **under `kind=fees` or
+`kind=extras` the listed rows will NOT sum to the balance**, which is correct; the screen must say
+so ("the balance covers all types") rather than let the tutor read a short bag.
+
+Each collections item gains `paymentKind` (`"fee"`/`"extras"`, default `"fee"`) and
+`extrasItemName`. Note this row ALSO has a `kind` field meaning the line TYPE
+(`collection`/`refund`/`withdrawal`) — the two are different axes, which is exactly why the new one
+is called `paymentKind`.
 
 **404 handling:** a 404 whose body's `code`/`message` matches "wallet not found"/"assistant not found"
 (case-insensitive) is treated as an EMPTY wallet, not an error. Withdraw errors (409/400) surface the raw
@@ -808,6 +937,145 @@ same-day rule).
 
 ---
 
+## Books & fees (مذكرات ومصاريف) — `api/eventpayment/*`
+
+_Backend module name on the wire and in the DB is **`Event-Based Payment`**; the display name is
+"Books & fees" / «مذكرات ومصاريف» and the new identifiers use `extras`. Three different namespaces,
+deliberately — the DB module/permission strings are LIVE authorization keys that must never be
+renamed._
+
+**Status: teacher screens shipped 2026-09-15** (`lib/feature/teacher_module/extras/`) — a card on the
+Payments tab, an item list, a create/edit form and a tracking screen. The attendance combined-collect
+sheet and the student/parent read surfaces are later phases.
+
+**Gating.** The Payments-tab card must render a paywall when `features.extrasAllowed` (on
+`GET api/subscription/status`) is false — the module is subscriber-only, free-tier quota 0. Gate on
+THAT field only, and **fail OPEN when it is absent**; never infer it from `hasSubscription` plus your
+own plan reasoning, which is exactly the hardcoding that `features` block exists to prevent.
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST api/eventpayment/events` | `Create` | create an item. Body: `{eventName, eventAmount, eventDate, notes?, targetScopes:[{scopeType, scopeIds[]}], autoIncludeNewStudents?, collectDuringAttendance?}`. Every scope target is validated for ownership — an unowned session/group/student is **404 `ExtrasScopeTargetNotFound`**, not a silent drop |
+| `GET api/eventpayment/events` | `View` **or** `CollectPayment` | paged list. `searchName`, `scopeTypeFilter`, `completionStatus` = `Open` \| `FullyCollected` \| `PartiallyCollected` \| `NotStarted`, `page`, `pageSize` (**clamped [1,100]**) |
+| `GET api/eventpayment/items/{id}/tracking` | `View` **or** `CollectPayment` | header + `bySession[]` + `byGroup[]` + `byCollector[]` + `newJoiners` — **no student rows** |
+| `GET api/eventpayment/items/{id}/students` | `View` **or** `CollectPayment` | paged roster + the four chip counts. `status=all\|paid\|partiallyPaid\|unpaid\|exempt`, `sessionId`, `sessionGroupId`, `collectedByUserId`, `search`, `page`, `pageSize` |
+| `GET api/eventpayment/debts` | `View` **or** `CollectPayment` | unpaid dues student-keyed. `teacherStudentIds=1,2,3` (comma-separated; unparseable entries ignored, not a 400). The attendance sheet's data and the offline hydration feed |
+| `PUT api/eventpayment/events/{id}` | `Edit` | rename / re-price / move the date / flip either switch / add & remove students. **Every field is OMITTED-means-UNCHANGED** — `eventName`, `eventAmount`, `notes`, `eventDate`, `autoIncludeNewStudents`, `collectDuringAttendance`, `studentIdsToAdd[]`, `studentIdsToRemove[]`. Never send null to mean "clear" (BUG-20). The AUDIENCE (targeting rules) is NOT editable — add/remove students individually instead |
+| `PUT api/eventpayment/items/{id}/closed` | **Teacher/SuperAdmin only** | `{closed}` — close = no further collection, while refunds, history and tracking keep working, and auto-include stops. Reversible and idempotent. Explicit state, not a toggle, so a retry lands where the caller intended |
+| `PUT api/eventpayment/events/{id}/students/{sid}/custom-amount` | `Edit` | set one student's price by hand |
+| `PUT api/eventpayment/events/{id}/students/{sid}/exempt` | `Edit` | `{exempt, reason?}` — "not taking it" |
+| `POST api/eventpayment/events/{id}/collect` | `CollectPayment` | `{teacherStudentId, amount, paymentMethod, collectionNote?, alreadyPaidConfirmed?, onlineTransactionRef?}` |
+| `DELETE api/eventpayment/events/{id}` | **Teacher/SuperAdmin only** | **409 `ExtrasItemHasPaymentsCannotDelete`** once any money has been collected and not refunded; the message names closing as the remedy. Do NOT pre-judge this client-side from `totalCollectedRevenue` — a refund on another device makes that answer wrong; run the request and report what comes back |
+| `GET api/eventpayment/items/{id}/students/{sid}/payments` | `View` **or** `CollectPayment` | that student's recorded payments on that item, newest first, with the collector's name and — where a payment has been corrected — `isEdited` + `originalAmount` (both DERIVED from the audit trail, not stored). **Already-refunded payments are ABSENT**, so none can be offered for refunding twice. Capped at 50 rows. This is the list the refund / correct sheet is built from |
+| `POST api/eventpayment/items/{id}/new-joiners` | `Edit` | adds every student now in a targeted class with no obligation — the "N new students · add them?" banner's action. Its OWN endpoint because the auto-include materializer fires on ASSIGNMENT, so an item with auto-include off has no other path to a later joiner. Shares ONE resolver with the banner's count, so "add 3" can never add 2. 409 on a closed item |
+| `POST api/eventpayment/transactions/{id}/refund` | **Teacher/SuperAdmin only** | `{amount?, reason?}`. Omitted amount = full refund |
+| `PUT api/eventpayment/transactions/{id}` | **Teacher/SuperAdmin only** | `{newAmount, reason?}` — correct a collected amount |
+
+**Why `View` is also satisfied by `CollectPayment`:** an assistant granted only `CollectPayment`
+would otherwise 403 on the very list they must collect from. The widening is checked only after the
+primary permission fails and never past a module-not-assigned failure, so it can only ever widen.
+
+**Assistant scoping.** `byCollector[]` and the roster's `collectedByUserId` are force-scoped to the
+caller for an assistant — they can neither omit it to see everyone nor forge a peer's id. The
+paid/unpaid **roster itself is deliberately teacher-wide**: an assistant must see who still owes in
+order to collect it.
+
+### Tracking response
+
+```json
+{
+  "item": { "id": 12, "eventName": "مذكرة الترم", "eventAmount": 150.0,
+            "eventDate": "2026-09-01", "totalStudents": 119,
+            "paidStudents": 91, "partiallyPaidStudents": 6, "unpaidStudents": 22,
+            "exemptStudents": 3, "autoIncludeNewStudents": false,
+            "collectDuringAttendance": true, "isClosed": false,
+            "scopeSummary": { "type": "sessions",
+                              "labels": ["مجموعة الساعة ١٠", "مجموعة الساعة ١٢"],
+                              "extraCount": 1 } },
+  "summary": { "totalStudents": 119, "paidStudents": 91, "partiallyPaidStudents": 6,
+               "unpaidStudents": 22, "exemptStudents": 3,
+               "expectedAmount": 17850.0, "collectedAmount": 14100.0,
+               "remainingAmount": 3750.0, "exemptAmount": 450.0,
+               "completionPercent": 79.0 },
+  "bySession":   [ { "id": "78", "name": "مجموعة الساعة ١٠", "totalStudents": 62, "paidStudents": 51, … } ],
+  "byGroup":     [ { "id": "4",  "name": "الجماعة أ", "totalStudents": 119, … } ],
+  "byCollector": [ { "userId": "741", "name": "Omar", "role": "Assistant",
+                     "collectedAmount": 4500.0, "transactionCount": 30, "studentCount": 30 } ],
+  "newJoiners":  { "count": 3, "autoIncludeEnabled": false }
+}
+```
+
+- **`bySession` / `byGroup` / `summary` are folded from ONE grouped query**, so a breakdown can never
+  drift from the total above it — they are the same numbers summed differently. Do not re-derive a
+  header by summing a breakdown client-side; read the header.
+- Sessions are the student's **CURRENT** class, not the scope the item targeted. A tutor asking "who
+  in the 7 PM class hasn't paid" means today's class. A student with no class appears as a row with
+  **`id: null`** — render it ("no class"), never drop it, or the rows stop summing to the header.
+- **Exempt students are excluded from `totalStudents` and from `expectedAmount`** (no money is
+  expected from someone not taking it); `exemptAmount` is reported so "expected" stays explainable.
+- `newJoiners.count` is students now in a targeted class with no obligation on the item — it drives
+  the "N new students · add them?" banner. It is **0** when `autoIncludeEnabled` is true (nothing to
+  add) and **0** for any item created before scope rows existed.
+- `byCollector` is ACTIVITY-driven (grouped over the item's payments), never the wallet roster — so a
+  removed collector never surfaces as an empty "0 EGP" card. `role` is by identity: only the account
+  owner is `"Teacher"`.
+- `item.paidStudents` / `partiallyPaidStudents` / `unpaidStudents` were declared on this DTO from day
+  one and **never populated** until 2026-09-14 — an older server returns 0 for all three.
+- **`scopeSummary`** (on every `EventDto`, list and tracking alike) is who the item is for.
+  `type` is a STRING — `sessions` | `groups` | `students` | `all` | `mixed` — not an enum of scope
+  types, because "mixed" is not one: an item can target two classes and a group at once. `all`
+  absorbs anything narrower. `labels` holds at most THREE target names and `extraCount` the
+  remainder, so a row reads "Class A، Class B +3" without the client guessing. An item with no scope
+  rows (individually targeted, or created before the scope table) reports `students` / `all` with an
+  empty `labels`. **Absent on an older server → treat as `students`, never as `all`** — overstating
+  an audience is the worse error.
+
+### Roster response
+
+`ExtrasStudentsPageDto` extends the standard `PaginatedResponse` (`totalCount`/`page`/`pageSize`/
+`totalPages`/`data`) with `paidCount`, `partiallyPaidCount`, `unpaidCount`, `exemptCount`,
+`searchedCount`.
+
+- **The four chip counts are measured on the SEARCHED set but BEFORE the chip filter**, so selecting
+  a chip never renumbers the chips — the tutor can always see what the others hold. `totalCount` and
+  `data` use the fully filtered set. `searchedCount` is the sum of the four.
+- The counts and the list share ONE bucket definition, so a chip can never claim a number the list
+  it opens disagrees with.
+- **`paymentStatus` and `isExempt` are ORTHOGONAL**: an exempt obligation is `Unpaid` AND
+  `isExempt: true`. `status=unpaid` means `!isExempt && paymentStatus == Unpaid` — an exempt student
+  is NOT "unpaid", and must not be rendered as owing money.
+- Ordering puts an exact `studentCode` match FIRST (this list is reachable from a scan), then name,
+  then obligation id as a unique tiebreaker.
+- `isCustomAmount` is a stored flag with `customAmountSetByName` / `customAmountSetAt` provenance —
+  do NOT derive it as `amountDue != item.eventAmount`; that comparison breaks the moment the item's
+  own amount changes, because a paid obligation then legitimately differs.
+
+### Debts response (attendance sheet + offline feed)
+
+```json
+{ "showExtrasInfo": true,
+  "byStudent": { "159": [ { "obligationId": "1", "itemId": "12", "itemName": "مذكرة الترم",
+                            "amountDue": 150.0, "amountPaid": 0.0, "outstanding": 150.0,
+                            "itemDate": "2026-09-01" } ] } }
+```
+
+**Key off `showExtrasInfo`, never off an empty `byStudent`.** False means the teacher switched the
+behaviour off; an empty map with `true` means nobody owes anything. The two must not look the same —
+the same rule as `showPaymentInfo` on the attendance roster.
+
+Excludes exempt students, closed items, items whose `collectDuringAttendance` is false, and items
+dated in the future. `itemDate` is a **calendar day** (`DateOnly`) on the wire.
+
+### Message keys worth branching on
+
+`ExtrasRequireSubscription` (paywall — the create gate), `ExtrasScopeTargetNotFound` (404),
+`ExtrasExemptBlockedHasPayments` (409 — refund before exempting),
+`ExtrasStudentAlreadyPaidCannotRemove` (a partial success: the item WAS updated, and
+`data.blockedRemovals[]` names the students who could not be removed),
+`ExtrasRemoveStudentsTeacherOnly` (403), `ExtrasItemClosed` (409),
+`ExtrasItemHasPaymentsCannotDelete`, `ExtrasAmountExceedsOutstanding` (422),
+`ExtrasStudentExempt` (422 — collecting from an exempt student, interactively).
+
 ## Subscription — Current Plan / Status Card / Requests
 _Dart file: `lib/feature/teacher_module/subscription/view/teacher_subscription_view.dart`_
 _Cubit: `lib/feature/teacher_module/subscription/manager/teacher_subscription_cubit.dart`, registered as an
@@ -820,7 +1088,7 @@ On open, `loadPage()` fires three independent GETs; only a `status` failure bloc
 
 | UI element / action | Endpoint | Sends | Uses from response |
 |---|---|---|---|
-| Screen open / pull-to-refresh | `GET api/subscription/status` | — | `hasSubscription`,`planType`,`status`,`daysRemaining`,`endDate`(calendar date),`renewalAmountEGP`,`attentionLevel`,`ctaType`,`message`,`hasPendingRequest`,`whatsAppNumber`,`features.{studentAccountsAllowed,parentFollowUpAllowed,linkedStudentCapacity,linkedStudentsUsed}` |
+| Screen open / pull-to-refresh | `GET api/subscription/status` | — | `hasSubscription`,`planType`,`status`,`daysRemaining`,`endDate`(calendar date),`renewalAmountEGP`,`attentionLevel`,`ctaType`,`message`,`hasPendingRequest`,`whatsAppNumber`,`features.{studentAccountsAllowed,parentFollowUpAllowed,extrasAllowed,linkedStudentCapacity,linkedStudentsUsed}` |
 | Screen open / pull-to-refresh | `GET api/subscription/pricing` | — | `perStudentMonthlyEGP`,`managerialMonthlyEGP`,`managerialPlusMonthlyEGP` |
 | Screen open / pull-to-refresh | `GET api/subscription/requests` | `page=1`,`pageSize=20` (hardcoded, no pagination UI) | `data.data[]` — note the **double-nested** `data`; sibling `totalCount`/`page`/`pageSize` on the inner object are parsed but ignored (no "load more") |
 | Plan card select (Full / Managerial+Parents / Managerial) | *(local — recomputes fee preview)* | — | — |

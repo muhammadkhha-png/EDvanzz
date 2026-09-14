@@ -97,6 +97,24 @@ public class UpdateTeacherConfigurationDto
     public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; }
 
+    /// <summary>
+    /// The account-wide "collect Books &amp; fees while taking attendance" switch. OMITTED (null) =
+    /// unchanged; the stored value is itself nullable and read as <c>?? true</c>.
+    /// </summary>
+    public bool? ShowExtrasOnAttendanceScreen { get; set; }
+
+    /// <summary>
+    /// Whether a linked student sees their "Books &amp; fees" dues. OMITTED (null) = UNCHANGED.
+    /// </summary>
+    /// <remarks>
+    /// Nullable on the wire even though the column is not: an older client that does not know the
+    /// field must never turn family-facing exposure on or off by omission (BUG-20).
+    /// </remarks>
+    public bool? StudentVisibilityExtras { get; set; }
+
+    /// <summary>Whether a parent sees their child's "Books &amp; fees" dues. OMITTED = UNCHANGED.</summary>
+    public bool? ParentVisibilityExtras { get; set; }
+
     // ─── Parent Portal (public web follow-up page) ───
 
     /// <summary>

@@ -59,6 +59,29 @@ public static class PaymentConstants
     public const int TargetScopeIdsMaxLength = 4000;
 
     /// <summary>
+    /// Hard cap on the rows a "Books &amp; fees" report materializes. Replaces the literal 50000
+    /// that was scattered through the service as an "all rows" idiom — an unbounded read on a
+    /// 5-DTU database. A report beyond this needs pagination or an export, not a bigger number.
+    /// </summary>
+    public const int EventReportMaxRows = 5000;
+
+    /// <summary>
+    /// Cap on the payments listed for ONE student on ONE item — the list the tutor refunds or
+    /// corrects from. A student pays a مذكرة once, or in two or three partials; 50 is far past any
+    /// real case and keeps the read bounded on principle.
+    /// </summary>
+    public const int ExtrasStudentPaymentsMaxRows = 50;
+
+    /// <summary>Default page size for the "Books &amp; fees" item list when the client omits one.</summary>
+    public const int EventListDefaultPageSize = 20;
+
+    /// <summary>
+    /// Upper bound on that page size. Matches the payment screens' own clamp, so one screen cannot
+    /// ask for an unbounded read the rest of the module refuses.
+    /// </summary>
+    public const int EventListMaxPageSize = 100;
+
+    /// <summary>
     /// Maximum length for event notes field.
     /// REQ-EVT-002: Optional free-text notes.
     /// </summary>
@@ -202,6 +225,28 @@ public static class PaymentConstants
         /// <summary>Audit reason stored on the PaymentEditLog written by the departure refund reversal.</summary>
         public const string DepartureRefundReversalReason = "DepartureRefundReversalReason";
 
+        // ── Departure amount correction (REQ-PAY-075, 2026-09-15) ──
+        /// <summary>200 — the settled figure was corrected; carries {0} student, {1} old, {2} new.</summary>
+        public const string DepartureAmountUpdated = "DepartureAmountUpdated";
+        /// <summary>200 — the submitted figure already matches; nothing was written.</summary>
+        public const string DepartureAmountUnchanged = "DepartureAmountUnchanged";
+        /// <summary>404 — no departure with that id belongs to this teacher.</summary>
+        public const string DepartureNotFound = "DepartureNotFound";
+        /// <summary>422 — a NoObligation departure settled nothing, so there is no figure to correct.</summary>
+        public const string DepartureAmountNotEditable = "DepartureAmountNotEditable";
+        /// <summary>422 — the student was permanently deleted; the money records to move are gone.</summary>
+        public const string DepartureStudentPurged = "DepartureStudentPurged";
+        /// <summary>422 — the anchored month can no longer be found, so the refund cannot be moved.</summary>
+        public const string DepartureAnchorMonthNotFound = "DepartureAnchorMonthNotFound";
+        /// <summary>422 — the correction is larger than the anchored month can absorb; carries {0}.</summary>
+        public const string DepartureAmountExceedsMonth = "DepartureAmountExceedsMonth";
+        /// <summary>422 — a correction must say why.</summary>
+        public const string DepartureEditNoteRequired = "DepartureEditNoteRequired";
+        /// <summary>422 — the correction note is longer than the column allows; carries {0}.</summary>
+        public const string DepartureEditNoteTooLong = "DepartureEditNoteTooLong";
+        /// <summary>Audit reason stored on the PaymentEditLog written by an amount correction.</summary>
+        public const string DepartureAmountEditReason = "DepartureAmountEditReason";
+
         // Transfer
         public const string TransferSummaryLoaded = "TransferSummaryLoaded";
         public const string TransferConfirmedSuccess = "TransferConfirmedSuccess";
@@ -239,6 +284,32 @@ public static class PaymentConstants
         public const string EventTargetScopeEmpty = "EventTargetScopeEmpty";
         public const string EventStudentAlreadyPaid = "EventStudentAlreadyPaid";
         public const string EventStudentCustomAmountSet = "EventStudentCustomAmountSet";
+
+        // ── Books & fees (مذكرات ومصاريف) — the completed module, 2026-09-14 ──
+        // Keys are Extras* while the DB module name and permissions stay "Event-Based Payment"
+        // (live authorization keys). See the resx labels for the user-facing wording.
+
+        public const string ExtrasRequireSubscription = "ExtrasRequireSubscription";
+        public const string ExtrasItemNotFound = "ExtrasItemNotFound";
+        public const string ExtrasScopeTargetNotFound = "ExtrasScopeTargetNotFound";
+        public const string ExtrasScopeEmpty = "ExtrasScopeEmpty";
+        public const string ExtrasRemoveStudentsTeacherOnly = "ExtrasRemoveStudentsTeacherOnly";
+        public const string ExtrasStudentAlreadyPaidCannotRemove = "ExtrasStudentAlreadyPaidCannotRemove";
+        public const string ExtrasExemptBlockedHasPayments = "ExtrasExemptBlockedHasPayments";
+        public const string ExtrasStudentExempt = "ExtrasStudentExempt";
+        public const string ExtrasItemClosed = "ExtrasItemClosed";
+        public const string ExtrasItemHasPaymentsCannotDelete = "ExtrasItemHasPaymentsCannotDelete";
+        public const string ExtrasAmountExceedsOutstanding = "ExtrasAmountExceedsOutstanding";
+        public const string ExtrasOverpaid = "ExtrasOverpaid";
+        public const string ExtrasExemptionClearedByPayment = "ExtrasExemptionClearedByPayment";
+        public const string ExtrasExemptedSuccess = "ExtrasExemptedSuccess";
+        public const string ExtrasExemptClearedSuccess = "ExtrasExemptClearedSuccess";
+        public const string ExtrasRefundedSuccess = "ExtrasRefundedSuccess";
+        public const string ExtrasPaymentEditedSuccess = "ExtrasPaymentEditedSuccess";
+        public const string ExtrasItemClosedSuccess = "ExtrasItemClosedSuccess";
+        public const string ExtrasItemReopenedSuccess = "ExtrasItemReopenedSuccess";
+        public const string ExtrasStudentsAddedSuccess = "ExtrasStudentsAddedSuccess";
+        public const string ExtrasExportNotAvailable = "ExtrasExportNotAvailable";
 
         // Assistants
         public const string AssistantNotFound = "AssistantNotFound";

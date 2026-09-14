@@ -846,6 +846,36 @@
   <data name="DepartureRefundReversalReason" xml:space="preserve">
     <value>Refund on student departure</value>
   </data>
+  <data name="DepartureAmountUpdated" xml:space="preserve">
+    <value>Settlement for {0} changed from {1} EGP to {2} EGP.</value>
+  </data>
+  <data name="DepartureAmountUnchanged" xml:space="preserve">
+    <value>That is already the settled amount — nothing was changed.</value>
+  </data>
+  <data name="DepartureNotFound" xml:space="preserve">
+    <value>This departure record was not found.</value>
+  </data>
+  <data name="DepartureAmountNotEditable" xml:space="preserve">
+    <value>Nothing was settled on this departure, so there is no amount to change.</value>
+  </data>
+  <data name="DepartureStudentPurged" xml:space="preserve">
+    <value>This student was permanently deleted, so their money records no longer exist and the amount cannot be changed.</value>
+  </data>
+  <data name="DepartureAnchorMonthNotFound" xml:space="preserve">
+    <value>The month this settlement was calculated on can no longer be found, so the amount cannot be changed. Record the difference as a separate payment or refund instead.</value>
+  </data>
+  <data name="DepartureAmountExceedsMonth" xml:space="preserve">
+    <value>That amount is more than this month can take back — only {0} EGP is still recorded as paid for it. Lower the amount, or refund the rest as a separate payment.</value>
+  </data>
+  <data name="DepartureEditNoteRequired" xml:space="preserve">
+    <value>Write why you are changing the amount.</value>
+  </data>
+  <data name="DepartureEditNoteTooLong" xml:space="preserve">
+    <value>Keep the reason under {0} characters.</value>
+  </data>
+  <data name="DepartureAmountEditReason" xml:space="preserve">
+    <value>Departure settlement corrected</value>
+  </data>
   <data name="TransferSummaryLoaded" xml:space="preserve">
     <value>Transfer summary calculated successfully.</value>
   </data>
@@ -923,6 +953,69 @@
   </data>
   <data name="EventStudentCustomAmountSet" xml:space="preserve">
     <value>Custom event amount set for student successfully.</value>
+  </data>
+  <data name="ExtrasRequireSubscription" xml:space="preserve">
+    <value>Books &amp; fees needs an active subscription. Renew to start adding items.</value>
+  </data>
+  <data name="ExtrasItemNotFound" xml:space="preserve">
+    <value>This books &amp; fees item was not found.</value>
+  </data>
+  <data name="ExtrasScopeTargetNotFound" xml:space="preserve">
+    <value>One of the selected classes, groups or students was not found.</value>
+  </data>
+  <data name="ExtrasScopeEmpty" xml:space="preserve">
+    <value>Choose who should buy this item.</value>
+  </data>
+  <data name="ExtrasRemoveStudentsTeacherOnly" xml:space="preserve">
+    <value>Only the tutor can remove students from a books &amp; fees item.</value>
+  </data>
+  <data name="ExtrasStudentAlreadyPaidCannotRemove" xml:space="preserve">
+    <value>{0} has already paid for this item, so they cannot be removed. Refund the payment first.</value>
+  </data>
+  <data name="ExtrasExemptBlockedHasPayments" xml:space="preserve">
+    <value>{0} has already paid for this item. Refund the payment before marking them as not taking it.</value>
+  </data>
+  <data name="ExtrasStudentExempt" xml:space="preserve">
+    <value>{0} is marked as not taking this item.</value>
+  </data>
+  <data name="ExtrasItemClosed" xml:space="preserve">
+    <value>This item is closed, so no more money can be collected for it.</value>
+  </data>
+  <data name="ExtrasItemHasPaymentsCannotDelete" xml:space="preserve">
+    <value>Money has already been collected for this item, so it cannot be deleted. Close it instead to stop further collection.</value>
+  </data>
+  <data name="ExtrasAmountExceedsOutstanding" xml:space="preserve">
+    <value>That is more than {0} still owes for this item.</value>
+  </data>
+  <data name="ExtrasOverpaid" xml:space="preserve">
+    <value>This payment is more than was owed, so the item is now overpaid.</value>
+  </data>
+  <data name="ExtrasExemptionClearedByPayment" xml:space="preserve">
+    <value>{0} was marked as not taking this item, but the payment was recorded and the mark removed.</value>
+  </data>
+  <data name="ExtrasExemptedSuccess" xml:space="preserve">
+    <value>{0} marked as not taking this item.</value>
+  </data>
+  <data name="ExtrasExemptClearedSuccess" xml:space="preserve">
+    <value>{0} is now expected to pay for this item again.</value>
+  </data>
+  <data name="ExtrasRefundedSuccess" xml:space="preserve">
+    <value>Payment refunded successfully.</value>
+  </data>
+  <data name="ExtrasPaymentEditedSuccess" xml:space="preserve">
+    <value>Payment updated successfully.</value>
+  </data>
+  <data name="ExtrasItemClosedSuccess" xml:space="preserve">
+    <value>Item closed. No more money can be collected for it.</value>
+  </data>
+  <data name="ExtrasItemReopenedSuccess" xml:space="preserve">
+    <value>Item reopened.</value>
+  </data>
+  <data name="ExtrasStudentsAddedSuccess" xml:space="preserve">
+    <value>{0} students added to this item.</value>
+  </data>
+  <data name="ExtrasExportNotAvailable" xml:space="preserve">
+    <value>Exporting books &amp; fees reports is not available yet.</value>
   </data>
   <data name="StatusUpdated" xml:space="preserve">
     <value>Status updated successfully</value>
@@ -1983,6 +2076,9 @@
   <data name="OfflineExamsRetrieved" xml:space="preserve">
     <value>Offline exams retrieved successfully.</value>
   </data>
+  <data name="StudentExamResultsRetrieved" xml:space="preserve">
+    <value>Exam grades retrieved successfully.</value>
+  </data>
   <data name="OnlineExam.QuestionNotFound" xml:space="preserve">
     <value>Question not found.</value>
   </data>
@@ -2107,7 +2203,7 @@
     <value>Payments</value>
   </data>
   <data name="Module_EventBasedPayment" xml:space="preserve">
-    <value>Event Payments</value>
+    <value>Books &amp; fees</value>
   </data>
   <data name="Module_ExamsAndHomework" xml:space="preserve">
     <value>Exams &amp; Homework</value>
@@ -2290,40 +2386,40 @@
     <value>Allows generating and exporting payment reports.</value>
   </data>
   <data name="Permission_EventBasedPayment_View" xml:space="preserve">
-    <value>View Events</value>
+    <value>View books &amp; fees</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_View" xml:space="preserve">
-    <value>Allows viewing payment events.</value>
+    <value>Allows viewing books &amp; fees items and who has paid.</value>
   </data>
   <data name="Permission_EventBasedPayment_Create" xml:space="preserve">
-    <value>Create Event</value>
+    <value>Add books &amp; fees</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Create" xml:space="preserve">
-    <value>Allows creating a new payment event.</value>
+    <value>Allows adding a new books &amp; fees item.</value>
   </data>
   <data name="Permission_EventBasedPayment_Edit" xml:space="preserve">
-    <value>Edit Event</value>
+    <value>Edit books &amp; fees</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Edit" xml:space="preserve">
-    <value>Allows editing an existing payment event.</value>
+    <value>Allows editing a books &amp; fees item, its price and who it applies to.</value>
   </data>
   <data name="Permission_EventBasedPayment_Delete" xml:space="preserve">
-    <value>Delete Event</value>
+    <value>Delete books &amp; fees</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_Delete" xml:space="preserve">
-    <value>Allows deleting a payment event.</value>
+    <value>Allows deleting a books &amp; fees item.</value>
   </data>
   <data name="Permission_EventBasedPayment_CollectPayment" xml:space="preserve">
-    <value>Collect Event Payment</value>
+    <value>Collect books &amp; fees</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_CollectPayment" xml:space="preserve">
-    <value>Allows collecting payment for an event.</value>
+    <value>Allows collecting money for a books &amp; fees item.</value>
   </data>
   <data name="Permission_EventBasedPayment_GenerateReports" xml:space="preserve">
-    <value>Generate Event Reports</value>
+    <value>Books &amp; fees reports</value>
   </data>
   <data name="PermissionDescription_EventBasedPayment_GenerateReports" xml:space="preserve">
-    <value>Allows generating and exporting event payment reports.</value>
+    <value>Allows generating books &amp; fees reports.</value>
   </data>
   <data name="Permission_ExamsAndHomework_View" xml:space="preserve">
     <value>View Assignments</value>

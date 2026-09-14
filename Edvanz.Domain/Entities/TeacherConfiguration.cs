@@ -145,6 +145,19 @@ public class TeacherConfiguration : BaseEntity
     /// </summary>
     public bool StudentVisibilityVideo { get; set; } = true;
 
+    /// <summary>
+    /// Whether a linked student account may see its own "Books &amp; fees" (مذكرات ومصاريف) dues.
+    ///
+    /// <para>DEFAULTS <b>FALSE</b> — unlike every other <c>StudentVisibility*</c> flag. This is a
+    /// NEW surface on a live app: no family may receive a debt notice until the teacher deliberately
+    /// turns it on. Same conservative stance as <see cref="ParentVisibilityExamDefault"/>.</para>
+    ///
+    /// <para>Read through the SHARED gate — <c>PaymentService.IsExtrasVisibleTo(config,
+    /// PaymentViewerType.Student)</c> — never re-inlined at a call site, so the student and parent
+    /// answers cannot drift. Fail-closed on a null config.</para>
+    /// </summary>
+    public bool StudentVisibilityExtras { get; set; } = false;
+
 
     // ─── AAM-FR-04.9: Parent Account Visibility ───
 
@@ -189,6 +202,18 @@ public class TeacherConfiguration : BaseEntity
     /// Default: true (visible) — parity with Attendance/Payment/Homework.
     /// </summary>
     public bool ParentVisibilityVideo { get; set; } = true;
+
+    /// <summary>
+    /// Whether a parent may see their child's "Books &amp; fees" (مذكرات ومصاريف) dues — in the
+    /// parent mobile dashboard AND on the public parent portal, since both read one composer
+    /// (<c>ParentSectionComposer</c>).
+    ///
+    /// <para>DEFAULTS <b>FALSE</b>, for the same reason as
+    /// <see cref="StudentVisibilityExtras"/>. The portal additionally inherits
+    /// <see cref="ParentPortalEnabled"/> and the plan's parent-follow-up capability, so a downgrade
+    /// closes the section without this flag being rewritten.</para>
+    /// </summary>
+    public bool ParentVisibilityExtras { get; set; } = false;
 
     // ─── Device Lock ───
 
@@ -242,6 +267,22 @@ public class TeacherConfiguration : BaseEntity
     /// Default: true.
     /// </summary>
     public bool? ShowAttendanceHistoryOnAttendanceScreen { get; set; } = true;
+
+    /// <summary>
+    /// Whether the Take Attendance student list includes each student's unpaid "Books &amp; fees"
+    /// (مذكرات ومصاريف) dues, so the tutor can collect them on the combined sheet at the classroom
+    /// door. When false the lookup is skipped entirely (no extra query), exactly like
+    /// <see cref="ShowPaymentInfoOnAttendanceScreen"/>.
+    ///
+    /// <para>NULLABLE ON PURPOSE, read as <c>?? true</c>: a field omitted by an older client must
+    /// not flip a stored preference (the offline-exam-notes lesson — never assign an update field
+    /// unconditionally when the client may legitimately omit it).</para>
+    ///
+    /// <para>This is the GLOBAL half of a two-level switch; each item also carries
+    /// <c>PaymentEvent.CollectDuringAttendance</c>, so a رحلة can stay off the door while a مذكرة is
+    /// chased there. Default: true.</para>
+    /// </summary>
+    public bool? ShowExtrasOnAttendanceScreen { get; set; } = true;
 
     // ─── Billing Start (onboarding billing floor, REQ-PAY §7.4b) ───
 

@@ -1382,8 +1382,18 @@ public class OfflineSyncRequestDto
     /// <summary>The user who recorded the attendance offline.</summary>
     public long? RecordedByUserId { get; set; }
 
-    /// <summary>The batch of offline entries to sync.</summary>
+    /// <summary>
+    /// The batch of offline entries to sync.
+    ///
+    /// <para>The whole batch runs inside ONE transaction, so its size is also the length of
+    /// time attendance writes are blocked. The cap is a GUARDRAIL, not a product limit: the
+    /// deployed app already chunks at 50 (<c>TeacherAttendanceOpTransport._syncChunkSize</c>),
+    /// so 500 is an order of magnitude above anything a real client sends and no existing
+    /// build can trip it. Whether a tutor with a very large backlog should instead be served
+    /// by server-side chunking is a product decision — see the handover note.</para>
+    /// </summary>
     [Required]
+    [MaxLength(500)]
     public List<OfflineAttendanceEntryDto> Entries { get; set; } = new();
 }
 
@@ -1439,6 +1449,27 @@ public class SyncEntryResultDto
     /// (REQ-ATT-057/058). Additive — older clients ignore unknown members and simply see a success.
     /// </summary>
     public bool AbsenceAlertRaised { get; set; }
+
+    /// <summary>
+    /// The entry was ACCEPTED but wrote nothing, because the student already carried a record
+    /// for this class slot — on this occurrence, or on an EQUIVALENT occurrence of a linked
+    /// session (they were scanned in the 10:00 class and this entry is the 12:00 one).
+    /// <see cref="Success"/> stays TRUE: their attendance is on file, marking again would
+    /// double-count it, and there is no human decision to make — so the queued op must settle
+    /// rather than park.
+    ///
+    /// It is reported because a bare success let the app paint its OWN status onto a row the
+    /// server never wrote, against a class the student was never marked in.
+    /// <see cref="DuplicateSessionName"/> / <see cref="DuplicateRecordedAt"/> name the record
+    /// that already exists. Additive — older clients ignore it and behave exactly as before.
+    /// </summary>
+    public bool IsDuplicate { get; set; }
+
+    /// <summary>The class that already holds this student's record. REQ-ATT-070.</summary>
+    public string? DuplicateSessionName { get; set; }
+
+    /// <summary>When that existing record was taken. REQ-ATT-070.</summary>
+    public DateTime? DuplicateRecordedAt { get; set; }
 }
 
 /// <summary>
@@ -1463,6 +1494,13 @@ public class SyncResultDto
     /// Audit Fix: Number of entries that need absence alert confirmation.
     /// </summary>
     public int RequiresConfirmationCount { get; set; }
+
+    /// <summary>
+    /// Entries counted in <see cref="SuccessCount"/> that wrote NOTHING because the student
+    /// already held a record for that class slot (see <see cref="SyncEntryResultDto.IsDuplicate"/>).
+    /// A subset of the successes, never added to them. Additive.
+    /// </summary>
+    public int DuplicateCount { get; set; }
 
     /// <summary>Detailed result per entry.</summary>
     public List<SyncEntryResultDto> EntryResults { get; set; } = new();

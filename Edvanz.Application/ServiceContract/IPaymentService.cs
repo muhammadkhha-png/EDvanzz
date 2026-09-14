@@ -233,6 +233,26 @@ public interface IPaymentService
     Task<Result<StudentDepartureDto>> ConfirmDepartureAsync(ConfirmDepartureDto dto);
 
     /// <summary>
+    /// REQ-PAY-075 — CORRECTS the settled amount of a departure already confirmed, for a figure
+    /// entered by mistake. TUTOR-ONLY (BR-PAY-002): it moves money that has already changed hands.
+    ///
+    /// <para>Only the AMOUNT moves. The outcome (RefundDue / AmountOwed) is never flipped and the
+    /// departure itself is never undone — the student stays unassigned and the record stays.</para>
+    ///
+    /// <para>Applies only the DELTA, to the same places the original confirmation touched: for a
+    /// refund, the anchored month's <c>AmountPaid</c>, the student's counter, and the cash bag of the
+    /// person who CONFIRMED the departure (a no-op when that is the tutor, who has no bag); for an
+    /// owed amount, the counter alone. Refuses — changing nothing — whenever any piece it needs is
+    /// missing (purged student, unresolvable anchored month, or a month that can no longer absorb the
+    /// difference). A half-applied money correction is the worst available outcome, so there is no
+    /// clamping and no partial path.</para>
+    ///
+    /// <para>Idempotent: re-sending the figure already on file writes nothing at all.</para>
+    /// </summary>
+    Task<Result<DepartureAmountEditResultDto>> EditDepartureAmountAsync(
+        long teacherId, long actingUserId, long departureId, EditDepartureAmountDto dto);
+
+    /// <summary>
     /// Teacher-wide paged list of departed students (search by name/code), newest first, with the
     /// per-day totals that drive the list's day-separator headers.
     /// </summary>
@@ -594,4 +614,36 @@ public interface IPaymentService
     /// </summary>
     Task<Result<BatchRevertResultDto>> BatchRevertPaymentAsync(
         BatchRevertPaymentDto dto, long teacherId, long editedByUserId);
+
+    // ══════════════════════════════════════════════
+    // COLLECTOR WALLET — shared with the "Books & fees" module
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Credits a collector's wallet for cash they just took: <c>CurrentBalance</c> and
+    /// <c>TotalCollected</c> up, <c>TransactionCount</c> up, <c>LastCollectionAt</c> stamped.
+    ///
+    /// <para>Three behaviours the caller MUST NOT re-implement: a bounded RowVersion retry loop
+    /// (<c>PaymentConstants.MaxConcurrencyRetries</c>) so two concurrent collects cannot throw an
+    /// uncaught <c>DbUpdateConcurrencyException</c>; LAZY wallet creation for a CenterAssistant
+    /// collector, who has no grant flow that pre-creates one; and a silent no-op for the teacher
+    /// account owner, who has no wallet by design because they hold their own cash.</para>
+    ///
+    /// <para>Runs on the CALLER's transaction — it does not commit.</para>
+    /// </summary>
+    Task CreditCollectorWalletAsync(long teacherId, long collectedByUserId, decimal amount);
+
+    /// <summary>
+    /// Adjusts a collector's wallet by <paramref name="delta"/> (negative to reverse) when a
+    /// collected payment is edited, refunded or deleted.
+    ///
+    /// <para>RESET-AWARE, and that is the whole point: a reversal of cash the collector ALREADY
+    /// handed to the tutor — i.e. <paramref name="reversedCollectionAt"/> is on/before the wallet's
+    /// most recent hand-over — must NOT move <c>CurrentBalance</c>, because that cash left the
+    /// holding via the hand-over and subtracting it again drives the wallet falsely negative. Such a
+    /// reversal still moves <c>TotalCollected</c> (lifetime). Pass the reversed payment's ORIGINAL
+    /// collection instant, not "now".</para>
+    /// </summary>
+    Task AdjustCollectorWalletAsync(
+        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCollectionAt = null);
 }

@@ -1,4 +1,4 @@
-namespace Edvanz.Domain.Constants;
+﻿namespace Edvanz.Domain.Constants;
 
 /// <summary>
 /// Stable keys for the per-module free-tier quotas stored in the ModuleQuota table.
@@ -28,7 +28,11 @@ public static class ModuleQuotaKeys
         [Groups] = 0,
         [Videos] = 1,
         [AssignmentTemplates] = 1,
-        [Events] = 1,
+        // Books & fees ("Event-Based Payment") is SUBSCRIBER-ONLY: a zero limit makes
+        // SubscriptionGateService.CanCreateAsync short-circuit to false without counting,
+        // exactly like Assistants / Groups / Triggers. Existing free-tier items are NOT
+        // affected — the gate is on CREATE only.
+        [Events] = 0,
         [MessageTemplates] = 1,
         [Triggers] = 0,
         [Exams] = 1,

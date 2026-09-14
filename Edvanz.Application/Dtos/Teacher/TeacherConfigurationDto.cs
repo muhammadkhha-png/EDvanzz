@@ -85,6 +85,34 @@ public class TeacherConfigurationDto
     public bool? ShowPaymentInfoOnAttendanceScreen { get; set; }
 
     /// <summary>
+    /// Whether taking attendance surfaces the student's unpaid "Books &amp; fees" dues so the tutor
+    /// can collect them on the spot, beside the monthly arrears.
+    /// </summary>
+    /// <remarks>
+    /// NULLABLE, read as <c>?? true</c>, exactly like
+    /// <see cref="ShowPaymentInfoOnAttendanceScreen"/>: null means the teacher never set it and
+    /// the behaviour defaults ON. This is the ACCOUNT-WIDE half — each item also carries its own
+    /// <c>CollectDuringAttendance</c>, so one item can stay off the classroom door while another
+    /// is chased there.
+    /// </remarks>
+    public bool? ShowExtrasOnAttendanceScreen { get; set; }
+
+    /// <summary>
+    /// Whether a linked STUDENT sees what they owe for "Books &amp; fees" in their own account.
+    /// </summary>
+    /// <remarks>
+    /// NON-nullable and default FALSE, unlike every <c>StudentVisibility*</c> sibling: a family
+    /// must not discover a new debt notice because the app updated. The teacher turns it on.
+    /// </remarks>
+    public bool StudentVisibilityExtras { get; set; }
+
+    /// <summary>
+    /// Whether a PARENT sees what their child owes for "Books &amp; fees" — on the parent app and
+    /// on the public follow-up page, which share one composer. Default FALSE, same reason.
+    /// </summary>
+    public bool ParentVisibilityExtras { get; set; }
+
+    /// <summary>
     /// What the retroactive proration reconcile did during THIS save (REQ-PAY-021/022 rev 2 — the
     /// recalculation must be visible): re-priced / kept counts. Null on plain reads and on saves where
     /// the proration config did not change. Additive — older clients ignore it.

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Edvanz.Application.Dtos.Payment;
@@ -54,6 +54,25 @@ public class CollectionsByMonthResponse
     /// the teacher-wide (account) path; only populated when the ledger is scoped to one collector.
     /// </summary>
     public List<CollectionDailyNet> DailyNets { get; set; } = new();
+
+    /// <summary>
+    /// The scope this response was measured under: <c>"fees"</c> (the default for any client that
+    /// omits the parameter), <c>"extras"</c>, or <c>"all"</c>. Echoed so a client can tell an older
+    /// server ignored its request rather than silently trusting a filtered view it never got.
+    /// </summary>
+    public string LedgerScope { get; set; } = "fees";
+
+    /// <summary>
+    /// Gross monthly-subscription cash in this window, over the WHOLE scope. Sent alongside
+    /// <see cref="ExtrasTotal"/> so no client subtracts one server number from another to label a
+    /// split — a subtraction is exact today and silently wrong the first time the two are measured
+    /// on different sets.
+    /// </summary>
+    public decimal FeesTotal { get; set; }
+
+    /// <summary>Gross "Books &amp; fees" cash in this window, over the WHOLE scope.</summary>
+    public decimal ExtrasTotal { get; set; }
+
 }
 
 /// <summary>One "how many paid X" bucket for the collections summary cards.</summary>
@@ -88,6 +107,29 @@ public class CollectionDailyNet
 /// <summary>One row in the collected-payments ledger.</summary>
 public class CollectionRow
 {
+    /// <summary>
+    /// WHICH KIND OF MONEY this row is: <c>"fee"</c> (a monthly-subscription payment) or
+    /// <c>"extras"</c> (a "Books &amp; fees" payment). A SEPARATE AXIS from <see cref="Status"/>,
+    /// which says what HAPPENED to it (collected / pending / refund / withdrawal) — identity vs
+    /// outcome, and collapsing the two would make "a refunded extras payment" unrepresentable.
+    ///
+    /// <para>NAMED <c>PaymentKind</c>, not <c>Kind</c>, on purpose:
+    /// <c>AssistantWalletCollectionItemDto.Kind</c> already means the LINE TYPE
+    /// (collection/refund/withdrawal) and both DTOs render on the same merged wallet screen. One
+    /// word meaning two things across two rows of the same list is a footgun.</para>
+    ///
+    /// <para>A string rather than an enum so it reads in Swagger and can grow. Additive: every
+    /// client that shipped before this field existed was showing fees only, which is why it defaults
+    /// to <c>"fee"</c>.</para>
+    /// </summary>
+    public string PaymentKind { get; set; } = "fee";
+
+    /// <summary>The books &amp; fees item's name — the badge's secondary line. Null for a fee row.</summary>
+    public string? ExtrasItemName { get; set; }
+
+    /// <summary>The books &amp; fees item's id, so tapping the row can deep-link to its tracking screen.</summary>
+    public string? ExtrasItemId { get; set; }
+
     public string Id { get; set; } = string.Empty;
     public int Index { get; set; }
     public string? StudentId { get; set; }
@@ -268,11 +310,40 @@ public class CollectionsSummaryResponse
 
     // ── Per-collector breakdown — TRUE [from,to] range ──
     public List<CollectionsSummaryCollectorDto> ByCollector { get; set; } = new();
+
+    /// <summary>
+    /// Which money kinds the figures above cover — "fees" | "extras" | "all" — echoed back so a
+    /// client can never render a scope it did not ask for after a race between two taps.
+    /// </summary>
+    /// <remarks>
+    /// The status counts (<see cref="PaidInFullCount"/> and its siblings) are excluded from this
+    /// scope by design: they are an obligation lens anchored to a calendar month, and an extras
+    /// payment settles no installment month.
+    /// </remarks>
+    public string LedgerScope { get; set; } = "fees";
+
+    /// <summary>
+    /// Gross cash of each kind over the SAME window and filters, reported ALWAYS — regardless of
+    /// the active scope. A tutor looking at one scope still needs to know what the other holds, and
+    /// a client must never subtract one server number from another to find out: the subtraction is
+    /// exact today and silently wrong the first time the two are measured on different sets.
+    /// </summary>
+    public decimal FeesTotal { get; set; }
+
+    /// <summary>See <see cref="FeesTotal"/>.</summary>
+    public decimal ExtrasTotal { get; set; }
 }
 
 /// <summary>One collector's collected total in the summary range (you or an assistant).</summary>
 public class CollectionsSummaryCollectorDto
 {
+    /// <summary>This collector's "Books &amp; fees" cash in the range. Additive: the existing
+    /// <c>CollectedAmount</c> keeps its fee-only meaning so no deployed figure changes.</summary>
+    public decimal CollectedExtras { get; set; }
+
+    /// <summary>Number of "Books &amp; fees" collections this collector took in the range.</summary>
+    public int ExtrasTransactionCount { get; set; }
+
     /// <summary>The collector's user id (matches <c>collectedByUserId</c> on the collections list).</summary>
     public string UserId { get; set; } = string.Empty;
     public string? Name { get; set; }
@@ -304,6 +375,21 @@ public class AssistantWalletAssistantDto
 
 public class AssistantWalletInfoDto
 {
+    /// <summary>
+    /// The "Books &amp; fees" share of <see cref="TotalCashCollected"/>, and of
+    /// <see cref="TotalRefunded"/>, within the same held-balance window.
+    ///
+    /// <para><b>Why <see cref="TotalCashCollected"/> itself now includes extras.</b> This card's
+    /// whole job is to explain <see cref="WalletBalance"/>, and that balance has ALWAYS been
+    /// credited by extras cash. A fee-only "collected" figure therefore never added up to the
+    /// balance printed beside it — that was the bug, not the behaviour. These siblings exist so the
+    /// change is explainable on screen ("of which books &amp; fees: X") rather than silent.</para>
+    /// </summary>
+    public decimal TotalCashCollectedExtras { get; set; }
+
+    /// <summary>The "Books &amp; fees" share of <see cref="TotalRefunded"/>.</summary>
+    public decimal TotalRefundedExtras { get; set; }
+
     /// <summary>Gross collections since the last handover (reset or withdraw).</summary>
     public decimal TotalCashCollected { get; set; }
     /// <summary>Gross refunds taken back from this collector since the last handover.</summary>
@@ -343,6 +429,16 @@ public class AssistantWalletCollectionsDto
 
 public class AssistantWalletCollectionItemDto
 {
+    /// <summary>
+    /// WHICH KIND OF MONEY: <c>"fee"</c> or <c>"extras"</c>. Distinct from <see cref="Kind"/> on
+    /// this same row, which is the LINE TYPE (collection/refund/withdrawal). The wallet BALANCE has
+    /// always included extras cash, so without this the list could not explain its own total.
+    /// </summary>
+    public string PaymentKind { get; set; } = "fee";
+
+    /// <summary>The books &amp; fees item's name. Null for a fee row.</summary>
+    public string? ExtrasItemName { get; set; }
+
     public string Id { get; set; } = string.Empty;
     public string? StudentId { get; set; }
     public string? StudentName { get; set; }
@@ -717,6 +813,33 @@ public class CollectLookupMonthDto
     public string MonthLabel { get; set; } = string.Empty;
     /// <summary>Remaining amount owed for this month (what paying this one month settles).</summary>
     public decimal Amount { get; set; }
+
+    /// <summary>
+    /// The month's OWN full price, before anything was paid or waived. ADDITIVE (2026-09-15).
+    ///
+    /// <para><see cref="Amount"/> alone cannot distinguish a part-paid month from a cheap one: a
+    /// student who paid 110 of a 300 month and one whose month costs 190 both arrive as
+    /// <c>amount: 190</c>. The collect sheet shows the flat monthly rate beside it and so reads
+    /// "1 month at 300 · total 190" — which a tutor correctly calls impossible. With this field the
+    /// sheet can say «سبتمبر: مدفوع منه ١١٠ من ٣٠٠ — فاضل ١٩٠».</para>
+    ///
+    /// <para>A client that shipped before this existed simply ignores it and behaves exactly as
+    /// before.</para>
+    /// </summary>
+    public decimal MonthAmountDue { get; set; }
+
+    /// <summary>
+    /// Cash ALREADY settled on this month before the collection being quoted — non-zero whenever an
+    /// earlier payment cascaded into it (the engine fills the oldest unpaid month first, §7.4).
+    /// Additive.
+    /// </summary>
+    public decimal MonthAmountPaid { get; set; }
+
+    /// <summary>
+    /// Amount waived on this month, so the four figures reconcile:
+    /// <c>MonthAmountDue − MonthAmountPaid − MonthForgivenAmount = Amount</c>. Additive.
+    /// </summary>
+    public decimal MonthForgivenAmount { get; set; }
     /// <summary>True when this is the prorated anchor month — the collect UI can show "prorated ⅔".</summary>
     public bool IsProrated { get; set; }
     /// <summary>The proration fraction (e.g. 0.6685) when prorated; null otherwise.</summary>
@@ -880,6 +1003,55 @@ public class TrackingSummaryDto
     /// installments (advance, e.g. a September bill paid in August) — the "collected ahead" breakdown line.
     /// Part of <see cref="CollectedTotal"/> (it is real cash collected this month). Often 0.</summary>
     public decimal CollectedInAdvance { get; set; }
+
+    /// <summary>
+    /// CASH · "Books &amp; fees" (مذكرات ومصاريف) money physically collected this calendar month.
+    ///
+    /// <para>ADDITIVE, and deliberately NOT folded into <see cref="CollectedTotal"/>: that field
+    /// carries two documented invariants — it equals
+    /// <see cref="CollectedThisMonth"/> + <see cref="CollectedPreviousMonths"/> +
+    /// <see cref="CollectedInAdvance"/>, and it ties to
+    /// <c>CollectedByAssistant.TotalCollected</c> to the cent. Extras cash settles no installment
+    /// month, so folding it in would break the first invariant and make every deployed build render
+    /// a total that no longer equals its own three parts.</para>
+    /// </summary>
+    public decimal CollectedExtras { get; set; }
+
+    /// <summary>Number of "Books &amp; fees" collections this calendar month.</summary>
+    public int ExtrasCollectionsCount { get; set; }
+
+    /// <summary>
+    /// CASH · ALL money physically collected this calendar month =
+    /// <see cref="CollectedTotal"/> + <see cref="CollectedExtras"/>. This is the figure the rebuilt
+    /// app renders as "collected this month", with the extras share shown beneath it.
+    ///
+    /// <para>Invariant to keep: this equals <c>CollectedByAssistant.TotalCollectedAllSources</c> to
+    /// the cent, exactly as the fee-only pair does.</para>
+    /// </summary>
+    public decimal CollectedCashAllSources { get; set; }
+
+    /// <summary>
+    /// How many "Books &amp; fees" items still have money owed on them RIGHT NOW — not scoped to
+    /// the selected month.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not month-scoped, unlike every cash figure beside it: an item is a one-off
+    /// sale, not an installment, so "how much is still owed on books &amp; fees" has one answer
+    /// and it does not change when the tutor pages back to July. Closed items are excluded —
+    /// their arrears are not collectable, and this number exists to say what is left to do.
+    /// </remarks>
+    public int ExtrasOpenItemCount { get; set; }
+
+    /// <summary>
+    /// Total still owed across those items, exempt students excluded. Same scope note as
+    /// <see cref="ExtrasOpenItemCount"/>.
+    /// </summary>
+    public decimal ExtrasOutstanding { get; set; }
+
+    // OBLIGATION-LENS FIELDS ABOVE (ExpectedRevenue / RemainingAmount / ExpectedTotal /
+    // RemainingTotal) ARE DELIBERATELY UNTOUCHED BY BOOKS & FEES. They are period-based and
+    // reconcile with statusBreakdown, which reconciles to TotalStudents by construction. An unpaid
+    // مذكرة surfaces in the Books & fees screens, never in the monthly-fees "unpaid" bucket.
 }
 
 public class TrackingStatusBreakdownDto
@@ -892,11 +1064,26 @@ public class TrackingStatusBreakdownDto
 public class TrackingByAssistantDto
 {
     public decimal TotalCollected { get; set; }
+
+    /// <summary>The "Books &amp; fees" share collected this month across ALL collectors.</summary>
+    public decimal TotalCollectedExtras { get; set; }
+
+    /// <summary>
+    /// <see cref="TotalCollected"/> + <see cref="TotalCollectedExtras"/>. Must equal
+    /// <c>Summary.CollectedCashAllSources</c> to the cent — the all-sources twin of the fee-only
+    /// invariant, and what makes a collector's card reconcile with the wallet balance that has
+    /// always included extras cash.
+    /// </summary>
+    public decimal TotalCollectedAllSources { get; set; }
     public List<TrackingAssistantDto> Assistants { get; set; } = new();
 }
 
 public class TrackingAssistantDto
 {
+    /// <summary>This collector's "Books &amp; fees" cash this month. Additive — the existing
+    /// collected figure keeps its fee-only meaning so no deployed card changes value.</summary>
+    public decimal CollectedExtras { get; set; }
+
     /// <summary>The collector's user id (kept for back-compat / identity).</summary>
     public string Id { get; set; } = string.Empty;
     public string? Name { get; set; }
@@ -1041,6 +1228,19 @@ public class SubmitCollectionResultDto
     /// <summary>committed | failed</summary>
     public string Status { get; set; } = "failed";
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// WHERE this student's cash landed — one entry per month it settled, oldest first, each with the
+    /// amount that went to it. Empty on a failed row. ADDITIVE (2026-09-15).
+    ///
+    /// <para>The collection engine fills the oldest unpaid month first and cascades forward (§7.4), so
+    /// 300 taken "for September" can clear August's 190 and leave 110 on September. Until now this
+    /// response said only <c>committed</c>, so the collector walked away believing September was
+    /// settled and the tutor later found 190 still owed on it with no way to reconstruct why.</para>
+    ///
+    /// <para>Older clients ignore the field and behave exactly as before.</para>
+    /// </summary>
+    public List<PaymentSettlementSliceDto> Settlements { get; set; } = new();
 }
 
 // ── Money: forgive balance (TEACHER-ONLY; assistants 403) ──────────────────

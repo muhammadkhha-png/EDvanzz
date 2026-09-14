@@ -443,7 +443,7 @@ public class PaymentService : IPaymentService
                 session.SessionName, periodsNewlyPaid);
 
             // 11. Update assistant wallet if collector is an assistant.
-            await UpdateAssistantWalletAfterCollectionAsync(
+            await CreditCollectorWalletAsync(
                 dto.TeacherId, dto.CollectedByUserId!.Value, totalApplied);
 
             await _unitOfWork.SaveChangesAsync();
@@ -489,6 +489,19 @@ public class PaymentService : IPaymentService
                 // Where this cash actually landed, straight from the cascade above — oldest first.
                 SettledMonths = appliedSlices
                     .Select(s => s.Period.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture))
+                    .ToList(),
+                // The same cascade WITH per-month amounts, so the collector can be told that their
+                // 300 cleared August's 190 and put 110 on September rather than just "collected".
+                // ClearedMonth is read AFTER the write loop above, so it reflects the month's real
+                // post-payment state (paid + forgiven covering the due), not the slice in isolation.
+                Settlements = appliedSlices
+                    .Select(s => new PaymentSettlementSliceDto
+                    {
+                        Month = s.Period.PeriodStart.ToString("yyyy-MM", CultureInfo.InvariantCulture),
+                        MonthLabel = s.Period.PeriodStart.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
+                        Amount = s.Amount,
+                        ClearedMonth = s.Period.PaymentStatus == PaymentStatus.Paid
+                    })
                     .ToList()
             };
             // Resolve the collector's display name for the collection receipt.
@@ -697,7 +710,7 @@ public class PaymentService : IPaymentService
                 // Keep the collecting assistant's wallet in sync with the amount change. Reset-aware:
                 // an edit-DOWN of cash already handed over (collected before the last reset) must not
                 // drive the wallet negative — pass the reversed transaction's collection instant.
-                await AdjustAssistantWalletAsync(
+                await AdjustCollectorWalletAsync(
                     dto.TeacherId, transaction.CollectedByUserId, amountDiff, transaction.CollectedAt);
             }
 
@@ -780,7 +793,7 @@ public class PaymentService : IPaymentService
             // Reverse the collecting assistant's wallet — the refunded cash is no longer held by them.
             // Reset-aware: deleting a payment collected before the last hand-over (already given to the
             // tutor) must NOT drive the wallet negative (the salma −2700 bug) — pass its collection instant.
-            await AdjustAssistantWalletAsync(
+            await AdjustCollectorWalletAsync(
                 teacherId, transaction.CollectedByUserId, -transaction.AmountPaid, transaction.CollectedAt);
 
             await _unitOfWork.SaveChangesAsync();
@@ -2211,13 +2224,36 @@ public class PaymentService : IPaymentService
         if (scopeToCollectorUserId is long ownUserId)
             collectorData = collectorData.Where(c => c.UserId == ownUserId).ToList();
 
-        var dtos = collectorData.Select(c => new CollectorSummaryDto
+        // "Books & fees" cash over the same range, own-scoped by the SAME predicate. Unioned rather
+        // than joined: a collector who took only extras in this range has no fee row, and keying the
+        // list off the fee data alone would drop them entirely.
+        var extrasByCollector = await _unitOfWork.PaymentsRepo
+            .GetExtrasPerCollectorAsync(teacherId, startDate, endDate);
+        if (scopeToCollectorUserId is long ownExtrasUserId)
+            extrasByCollector = extrasByCollector
+                .Where(kv => kv.Key == ownExtrasUserId)
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        var feeByUser = collectorData.ToDictionary(c => c.UserId, c => c);
+        var allUserIds = collectorData.Select(c => c.UserId)
+            .Concat(extrasByCollector.Keys)
+            .Distinct()
+            .ToList();
+
+        var dtos = allUserIds.Select(userId =>
         {
-            UserId = c.UserId,
-            UserName = c.UserName ?? "Unknown",
-            UserRole = "Collector", // Would be resolved from user data
-            TotalCollected = c.Collected,
-            TransactionCount = c.TransactionCount
+            feeByUser.TryGetValue(userId, out var fee);
+            extrasByCollector.TryGetValue(userId, out var extras);
+            return new CollectorSummaryDto
+            {
+                UserId = userId,
+                UserName = fee.UserName ?? "Unknown",
+                UserRole = "Collector", // Would be resolved from user data
+                TotalCollected = fee.Collected,
+                TransactionCount = fee.TransactionCount,
+                TotalCollectedExtras = extras.Collected,
+                ExtrasTransactionCount = extras.TransactionCount
+            };
         }).ToList();
 
         return Result<List<CollectorSummaryDto>>.Success(
@@ -2494,21 +2530,34 @@ public class PaymentService : IPaymentService
             bool hasMine = mineRows.Count > 0;
             var mine = hasMine ? mineRows[0] : default;
 
+            // Own "Books & fees" cash. Reported as its own field rather than folded into
+            // CollectedRevenue, so a deployed client's number does not move under it.
+            var ownExtras = await _unitOfWork.PaymentsRepo
+                .GetExtrasPerCollectorAsync(teacherId, filter.StartDate, filter.EndDate);
+            ownExtras.TryGetValue(ownUserId, out var mineExtras);
+            bool hasAny = hasMine || mineExtras.TransactionCount != 0 || mineExtras.Collected != 0m;
+
             var scoped = new PaymentDashboardDto
             {
                 ExpectedRevenue = null,   // teacher-wide — not applicable to an assistant
                 RemainingRevenue = null,  // teacher-wide — not applicable to an assistant
                 CollectedRevenue = hasMine ? mine.Collected : 0m,
+                CollectedRevenueExtras = mineExtras.Collected,
+                CollectedRevenueAllSources = (hasMine ? mine.Collected : 0m) + mineExtras.Collected,
                 PerSessionBreakdown = null, // teacher-wide — not applicable to an assistant
-                PerCollectorBreakdown = hasMine
+                // Built on hasANY, not hasMine: an assistant who collected only books & fees in this
+                // range would otherwise get an empty breakdown beside a non-zero extras total.
+                PerCollectorBreakdown = hasAny
                     ? new List<CollectorRevenueBreakdownDto>
                     {
                         new()
                         {
-                            UserId = mine.UserId,
+                            UserId = ownUserId,
                             UserName = mine.UserName,
-                            Collected = mine.Collected,
-                            TransactionCount = mine.TransactionCount
+                            Collected = hasMine ? mine.Collected : 0m,
+                            TransactionCount = mine.TransactionCount,
+                            CollectedExtras = mineExtras.Collected,
+                            ExtrasTransactionCount = mineExtras.TransactionCount
                         }
                     }
                     : new List<CollectorRevenueBreakdownDto>()
@@ -2530,12 +2579,19 @@ public class PaymentService : IPaymentService
 
         var perCollector = await _unitOfWork.PaymentsRepo
             .GetDashboardPerCollectorAsync(teacherId, filter.StartDate, filter.EndDate);
+        var perCollectorExtras = await _unitOfWork.PaymentsRepo
+            .GetExtrasPerCollectorAsync(teacherId, filter.StartDate, filter.EndDate);
 
         var dashboard = new PaymentDashboardDto
         {
             ExpectedRevenue = expected,
+            // PERIOD-based (obligation lens) — deliberately fee-only. An extras obligation has no
+            // installment period, so expected/collected/remaining stay internally consistent and
+            // keep reconciling with the status buckets. The cash view is the additive pair below.
             CollectedRevenue = collected,
             RemainingRevenue = remaining,
+            CollectedRevenueExtras = perCollectorExtras.Values.Sum(x => x.Collected),
+            CollectedRevenueAllSources = collected + perCollectorExtras.Values.Sum(x => x.Collected),
             PerSessionBreakdown = perSession.Select(s => new SessionRevenueBreakdownDto
             {
                 SessionId = s.SessionId,
@@ -2549,7 +2605,9 @@ public class PaymentService : IPaymentService
                 UserId = c.UserId,
                 UserName = c.UserName,
                 Collected = c.Collected,
-                TransactionCount = c.TransactionCount
+                TransactionCount = c.TransactionCount,
+                CollectedExtras = perCollectorExtras.TryGetValue(c.UserId, out var cx) ? cx.Collected : 0m,
+                ExtrasTransactionCount = perCollectorExtras.TryGetValue(c.UserId, out var cxc) ? cxc.TransactionCount : 0
             }).ToList()
         };
 
@@ -2659,6 +2717,17 @@ public class PaymentService : IPaymentService
             ? (IReadOnlyList<DepartureDayTotalRow>)Array.Empty<DepartureDayTotalRow>()
             : await _unitOfWork.PaymentsRepo.GetDepartureDayTotalsAsync(teacherId, search, from, to);
 
+        // Who corrected a figure, for the rows that carry a correction — ONE batched lookup for the
+        // page, never one per row. Usually empty (corrections are rare), and then not queried at all.
+        var editorIds = rows
+            .Where(r => r.AmountEditedByUserId.HasValue)
+            .Select(r => r.AmountEditedByUserId!.Value)
+            .Distinct()
+            .ToList();
+        var editorNames = editorIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _unitOfWork.Users.GetUserFullNamesByUserIdsAsync(editorIds);
+
         var response = new DeparturesResponse
         {
             Page = page,
@@ -2693,6 +2762,24 @@ public class PaymentService : IPaymentService
                 PaidAmountAtDeparture = r.PaidAmountAtDeparture,
                 DayKey = r.DepartedAt.ToString(
                     "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                AmountBeforeEdit = r.AmountBeforeEdit,
+                AmountEditedByName = r.AmountEditedByUserId.HasValue
+                    && editorNames.TryGetValue(r.AmountEditedByUserId.Value, out var editorName)
+                        ? editorName
+                        : null,
+                AmountEditedAt = r.AmountEditedAt,
+                AmountEditNote = r.AmountEditNote,
+                // The SERVER decides whether the action is offerable, so the client never shows a
+                // button that is going to 422. Three ways a row is not correctable, and they must
+                // match EditDepartureAmountAsync's own refusals exactly:
+                //   • NoObligation settled nothing, so there is no figure to move;
+                //   • a purged student has no periods or counter left to move it in;
+                //   • a REFUND recorded before PaidAmountAtDeparture was captured has no knowable
+                //     ceiling, and the correction refuses rather than guess one.
+                CanEditAmount = r.DepartureOutcome != DepartureOutcome.NoObligation
+                    && r.TeacherStudentId.HasValue
+                    && (r.DepartureOutcome != DepartureOutcome.RefundDue
+                        || r.PaidAmountAtDeparture.HasValue),
             }).ToList(),
             DailyTotals = dayTotals.Select(t => new DepartureDailyTotalDto
             {
@@ -2970,7 +3057,7 @@ public class PaymentService : IPaymentService
                 departure.CollectedByUserId = dto.ConfirmedByUserId;
                 departure.RefundPeriodStart = summary.PeriodStart;
 
-                await AdjustAssistantWalletAsync(
+                await AdjustCollectorWalletAsync(
                     dto.TeacherId, dto.ConfirmedByUserId, -finalAmount);
 
                 // Reverse the refunded cash on the ANCHORED period as well. Without this the money
@@ -3022,6 +3109,253 @@ public class PaymentService : IPaymentService
                 await _unitOfWork.RollbackAsync();
             throw;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<DepartureAmountEditResultDto>> EditDepartureAmountAsync(
+        long teacherId, long actingUserId, long departureId, EditDepartureAmountDto dto)
+    {
+        // A settled figure quietly becoming a different settled figure must carry a reason.
+        string note = dto.Note?.Trim() ?? string.Empty;
+        if (note.Length == 0)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureEditNoteRequired,
+                HttpStatusCode.UnprocessableEntity);
+
+        // Say it is too long rather than letting the column truncate it or the insert throw a 409.
+        if (note.Length > PaymentConstants.EditReasonMaxLength)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureEditNoteTooLong,
+                new object?[] { PaymentConstants.EditReasonMaxLength },
+                HttpStatusCode.UnprocessableEntity);
+
+        var departure = await _unitOfWork.PaymentsRepo
+            .GetStudentDepartureByIdAsync(departureId, teacherId);
+        if (departure is null)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureNotFound, HttpStatusCode.NotFound);
+
+        // NoObligation settled nothing — there is no figure and no money movement to correct.
+        if (departure.DepartureOutcome == DepartureOutcome.NoObligation)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureAmountNotEditable,
+                HttpStatusCode.UnprocessableEntity);
+
+        // A purged student has no PaymentPeriods and no counter left, so a correction could only
+        // move HALF the money. Refuse outright rather than half-apply it.
+        if (departure.TeacherStudentId is not long teacherStudentId)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureStudentPurged,
+                HttpStatusCode.UnprocessableEntity);
+
+        // Same ceiling the original confirmation enforced (REQ-PAY-075): a refund can never exceed
+        // the cash actually paid for the anchored month, and an owed amount can never exceed that
+        // month's full price. PaidAmountAtDeparture is null on rows written before it was captured —
+        // the ceiling is then unknowable, so the correction is refused rather than guessed.
+        if (departure.DepartureOutcome == DepartureOutcome.RefundDue
+            && departure.PaidAmountAtDeparture is null)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureAnchorMonthNotFound,
+                HttpStatusCode.UnprocessableEntity);
+
+        decimal maxAllowed = departure.DepartureOutcome == DepartureOutcome.AmountOwed
+            ? departure.FullPeriodAmount
+            : departure.PaidAmountAtDeparture!.Value;
+
+        if (dto.Amount < 0m || dto.Amount > maxAllowed)
+            return Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, PaymentConstants.Messages.DepartureOverrideAmountInvalid,
+                HttpStatusCode.UnprocessableEntity);
+
+        decimal previousAmount = departure.FinalAmount;
+        decimal delta = dto.Amount - previousAmount;
+
+        // Idempotent: re-sending the figure already on file writes NOTHING — no audit row, no wallet
+        // movement, no note overwrite. A retry after a dropped response must not look like a second
+        // correction.
+        if (delta == 0m)
+            return Result<DepartureAmountEditResultDto>.Success(
+                new DepartureAmountEditResultDto
+                {
+                    DepartureId = departure.Id,
+                    StudentName = departure.StudentName,
+                    DepartureOutcome = departure.DepartureOutcome.ToString(),
+                    PreviousAmount = previousAmount,
+                    NewAmount = previousAmount,
+                    Delta = 0m,
+                    WalletAdjustedForName = null,
+                },
+                _localizer, PaymentConstants.Messages.DepartureAmountUnchanged);
+
+        bool ownsTransaction = !_unitOfWork.HasActiveTransaction;
+        if (ownsTransaction)
+            await _unitOfWork.BeginTransactionAsync();
+
+        try
+        {
+            string? walletHolderName = null;
+
+            if (departure.DepartureOutcome == DepartureOutcome.RefundDue)
+            {
+                // The refund reversed cash on the anchored month. Correcting the refund by `delta`
+                // moves that month by the SAME delta in the opposite direction: a bigger refund takes
+                // more off AmountPaid, a smaller one puts some back.
+                //
+                // The period id was never stored on the departure, so resolve the anchored month by
+                // its start. A month can hold a generated period AND a carried-forward one; the
+                // refund was always calculated against the generated (non-carried) month, so prefer
+                // that. Ambiguity or absence is refused, never guessed — this is money.
+                if (departure.AnchorPeriodStart is not DateTime anchorStart)
+                    return await FailDepartureEditAsync(ownsTransaction,
+                        PaymentConstants.Messages.DepartureAnchorMonthNotFound);
+
+                var periods = await _unitOfWork.PaymentsRepo
+                    .GetPaymentPeriodsForWriteAsync(teacherId, teacherStudentId);
+                var candidates = periods.Where(p => p.PeriodStart.Date == anchorStart.Date).ToList();
+                var period = candidates.FirstOrDefault(p => !p.IsCarriedForward) ?? candidates.FirstOrDefault();
+                if (period is null)
+                    return await FailDepartureEditAsync(ownsTransaction,
+                        PaymentConstants.Messages.DepartureAnchorMonthNotFound);
+
+                // A bigger refund has to come OUT of the month's paid cash, and the month may have
+                // moved since (another collection, another refund). Never drive AmountPaid negative
+                // or above what the month bills — refuse and say by how much instead of clamping,
+                // because a silently clamped refund is money the tutor thinks they returned.
+                decimal newAmountPaid = period.AmountPaid - delta;
+                decimal ceiling = period.AmountDue - (period.ForgivenAmount ?? 0m);
+                if (newAmountPaid < 0m || newAmountPaid > ceiling)
+                    return await FailDepartureEditAsync(ownsTransaction,
+                        PaymentConstants.Messages.DepartureAmountExceedsMonth,
+                        new object?[] { period.AmountPaid });
+
+                decimal previousAmountPaid = period.AmountPaid;
+                var previousStatus = period.PaymentStatus;
+
+                period.AmountPaid = newAmountPaid;
+                period.PaymentStatus = RecomputePeriodStatus(period);
+                await _unitOfWork.PaymentsRepo.UpdatePaymentPeriodAsync(period);
+
+                var counter = await _unitOfWork.PaymentsRepo
+                    .GetPaymentCounterAsync(teacherId, teacherStudentId);
+                if (counter is not null)
+                {
+                    counter.TotalAmountPaid -= delta;
+                    if (counter.TotalAmountPaid < 0m) counter.TotalAmountPaid = 0m;
+                    counter.TotalOutstanding += delta;
+                    if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
+                    counter.ConsecutiveUnpaid = await _unitOfWork.PaymentsRepo
+                        .RecalculateConsecutiveUnpaidAsync(teacherId, teacherStudentId);
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                }
+
+                // The bag that handed the refund over is the bag the difference comes from: the
+                // person who CONFIRMED the departure (ConfirmedByUserId). No-op when that is the
+                // tutor — they hold their own cash and have no wallet — which is exactly the rule the
+                // original payout followed. No reset anchor: like the original payout, the difference
+                // moves NOW, out of cash currently held.
+                await AdjustCollectorWalletAsync(teacherId, departure.ConfirmedByUserId, -delta);
+                if (departure.ConfirmedByUserId is long holderId)
+                {
+                    var holderNames = await _unitOfWork.Users
+                        .GetUserFullNamesByUserIdsAsync(new List<long> { holderId });
+                    var wallet = await _unitOfWork.PaymentsRepo
+                        .GetAssistantWalletByUserIdAsync(teacherId, holderId);
+                    // Only name a bag that actually exists — the tutor has none, and reporting their
+                    // name here would claim a movement that never happened.
+                    if (wallet is not null && holderNames.TryGetValue(holderId, out var hn))
+                        walletHolderName = hn;
+                }
+
+                // Audit on the same ledger every other money reversal writes to, resolved the same
+                // way (direct transaction first, then through the PAY-1 allocation ledger) so the
+                // correction shows up in the collector's refund history like its siblings.
+                var periodTransactions = await _unitOfWork.PaymentsRepo
+                    .GetTransactionsByPeriodAsync(period.Id);
+                var latestTransaction = periodTransactions
+                    .OrderByDescending(t => t.CollectedAt)
+                    .ThenByDescending(t => t.Id)
+                    .FirstOrDefault()
+                    ?? await _unitOfWork.PaymentsRepo
+                        .GetLatestTransactionForPeriodViaAllocationsAsync(period.Id);
+
+                await _unitOfWork.PaymentsRepo.AddPaymentEditLogAsync(new PaymentEditLog
+                {
+                    PaymentTransactionId = latestTransaction?.Id,
+                    EditAction = PaymentEditAction.Reversed,
+                    PreviousAmount = previousAmountPaid,
+                    NewAmount = period.AmountPaid,
+                    PreviousStatus = previousStatus,
+                    NewStatus = period.PaymentStatus,
+                    EditedByUserId = actingUserId,
+                    EditedAt = DateTime.UtcNow,
+                    EditReason = _localizer[PaymentConstants.Messages.DepartureAmountEditReason].Value
+                        + " — " + note,
+                    CreateAt = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                // AmountOwed recorded a debt on the counter and touched no period and no wallet, so
+                // the correction is the same single move in reverse.
+                var counter = await _unitOfWork.PaymentsRepo
+                    .GetPaymentCounterAsync(teacherId, teacherStudentId);
+                if (counter is not null)
+                {
+                    counter.TotalOutstanding += delta;
+                    if (counter.TotalOutstanding < 0m) counter.TotalOutstanding = 0m;
+                    await _unitOfWork.PaymentsRepo.UpdatePaymentCounterAsync(counter);
+                }
+            }
+
+            departure.AmountBeforeEdit = previousAmount;
+            departure.FinalAmount = dto.Amount;
+            // A human has now settled on this figure, whatever the system first calculated.
+            departure.IsTutorOverride = true;
+            departure.AmountEditedByUserId = actingUserId;
+            departure.AmountEditedAt = DateTime.UtcNow;
+            departure.AmountEditNote = note;
+
+            await _unitOfWork.SaveChangesAsync();
+            if (ownsTransaction)
+                await _unitOfWork.CommitAsync();
+
+            return Result<DepartureAmountEditResultDto>.Success(
+                new DepartureAmountEditResultDto
+                {
+                    DepartureId = departure.Id,
+                    StudentName = departure.StudentName,
+                    DepartureOutcome = departure.DepartureOutcome.ToString(),
+                    PreviousAmount = previousAmount,
+                    NewAmount = dto.Amount,
+                    Delta = delta,
+                    WalletAdjustedForName = walletHolderName,
+                },
+                _localizer, PaymentConstants.Messages.DepartureAmountUpdated,
+                new object?[] { departure.StudentName ?? string.Empty, previousAmount, dto.Amount });
+        }
+        catch
+        {
+            if (ownsTransaction)
+                await _unitOfWork.RollbackAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Rolls back a departure-amount correction that turned out to be unapplicable and returns the
+    /// failure. Exists so each refusal inside the transaction is one line and can never forget the
+    /// rollback — a half-applied money correction is the worst outcome available here.
+    /// </summary>
+    private async Task<Result<DepartureAmountEditResultDto>> FailDepartureEditAsync(
+        bool ownsTransaction, string messageKey, object?[]? args = null)
+    {
+        if (ownsTransaction)
+            await _unitOfWork.RollbackAsync();
+        return args is null
+            ? Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, messageKey, HttpStatusCode.UnprocessableEntity)
+            : Result<DepartureAmountEditResultDto>.Failure(
+                _localizer, messageKey, args, HttpStatusCode.UnprocessableEntity);
     }
 
     /// <summary>
@@ -5985,7 +6319,16 @@ public class PaymentService : IPaymentService
         }
     }
 
-    private async Task UpdateAssistantWalletAfterCollectionAsync(
+    /// <inheritdoc />
+    /// <remarks>
+    /// PROMOTED to the interface (2026-09-14) so the "Books &amp; fees" collect path can INHERIT this
+    /// behaviour rather than re-implement it. Its own inline wallet mutation had none of the three
+    /// things that matter here: the bounded RowVersion retry loop, lazy wallet creation for a
+    /// CenterAssistant collector, and the teacher-owner no-op. A center assistant's extras cash
+    /// reached no wallet at all, and two concurrent collects threw an uncaught
+    /// DbUpdateConcurrencyException.
+    /// </remarks>
+    public async Task CreditCollectorWalletAsync(
         long teacherId, long collectedByUserId, decimal amount)
     {
         var wallet = await _unitOfWork.PaymentsRepo
@@ -6046,7 +6389,13 @@ public class PaymentService : IPaymentService
     /// <paramref name="reversedCollectionAt"/> is null the comparison is skipped (legacy behaviour).
     /// Mirrors <see cref="UpdateAssistantWalletAfterCollectionAsync"/>.
     /// </summary>
-    private async Task AdjustAssistantWalletAsync(
+    /// <inheritdoc />
+    /// <remarks>
+    /// PROMOTED to the interface (2026-09-14) so a "Books &amp; fees" refund or amount-correction
+    /// inherits the reset-aware rule instead of re-deriving it. Without it, reversing extras cash the
+    /// collector had already handed over would drive their balance falsely negative.
+    /// </remarks>
+    public async Task AdjustCollectorWalletAsync(
         long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCollectionAt = null)
     {
         if (collectedByUserId is null || delta == 0m) return;

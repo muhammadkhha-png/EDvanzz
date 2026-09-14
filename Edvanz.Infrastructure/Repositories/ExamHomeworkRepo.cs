@@ -172,6 +172,30 @@ public class ExamHomeworkRepo : GenericRepo<StudentAssignmentObligation, long>, 
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<StudentOfflineExamRow>> GetAllOfflineExamsForStudentAsync(
+        long teacherId, long teacherStudentId)
+    {
+        return await _context.StudentAssignmentObligations
+            .Where(o => o.TeacherId == teacherId
+                     && o.TeacherStudentId == teacherStudentId
+                     && o.Occurrence.Template.AssignmentType == AssignmentType.Exam)
+            .OrderByDescending(o => o.Occurrence.DueDate)
+            .Select(o => new StudentOfflineExamRow
+            {
+                OccurrenceId = o.OccurrenceId,
+                TemplateId = o.Occurrence.TemplateId,
+                ExamName = o.Occurrence.Template.Name,
+                Notes = o.Occurrence.Template.Notes,
+                DueDate = o.Occurrence.DueDate,
+                GradeValue = o.GradeValue,
+                MaxGradeSnapshot = o.Occurrence.MaxGradeSnapshot,
+                Status = o.Status,
+            })
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<StudentExamRankRow>> GetStudentExamRanksAsync(
         long teacherId, long teacherStudentId, IEnumerable<long> occurrenceIds)
     {

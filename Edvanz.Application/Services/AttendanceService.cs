@@ -1,4 +1,4 @@
-using Edvanz.Application.Dtos;
+﻿using Edvanz.Application.Dtos;
 using Edvanz.Application.Dtos.Attendance;
 using Edvanz.Application.Extensions;
 using Edvanz.Application.IservicesContract;
@@ -579,7 +579,7 @@ public class AttendanceService : IAttendanceService
 
         // 4. Get or validate occurrence
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date);
+            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date, dto.TeacherId);
 
         // Step 4.3: Return redirect hint when no occurrence for today
         if (occurrence is null)
@@ -588,7 +588,7 @@ public class AttendanceService : IAttendanceService
 
         // 5. BR-ATT-002 / REQ-ATT-069: Check for duplicate attendance
         var existingRecord = await _unitOfWork.AttendanceRepo
-            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id);
+            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id, dto.TeacherId);
         if (existingRecord is not null)
         {
             // A system-written auto-absent (nightly sweep) is NOT a real teacher mark — a later mark on
@@ -871,7 +871,7 @@ public class AttendanceService : IAttendanceService
 
         var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date);
+            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date, dto.TeacherId);
         if (occurrence is null)
             return Result<BulkMarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
@@ -1330,7 +1330,7 @@ public class AttendanceService : IAttendanceService
         var date = occurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(teacherId);
 
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(sessionId, date);
+            .GetOccurrenceBySessionAndDateAsync(sessionId, date, teacherId);
         if (occurrence is null)
             return Result<int>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
@@ -1388,14 +1388,14 @@ public class AttendanceService : IAttendanceService
 
         var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date);
+            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date, dto.TeacherId);
         if (occurrence is null)
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
 
         // Check if student is already marked (any status including Held)
         var existing = await _unitOfWork.AttendanceRepo
-            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id);
+            .GetExistingAttendanceAsync(dto.TeacherStudentId, occurrence.Id, dto.TeacherId);
         if (existing is not null)
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceAlreadyMarked, HttpStatusCode.Conflict);
@@ -1457,7 +1457,7 @@ public class AttendanceService : IAttendanceService
     {
         var date = dto.OccurrenceDate?.Date ?? _timeZoneService.GetTeacherLocalDate(dto.TeacherId);
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date);
+            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, date, dto.TeacherId);
         if (occurrence is null)
             return Result<MarkAttendanceResultDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
@@ -1607,7 +1607,7 @@ public class AttendanceService : IAttendanceService
                 _localizer, AttendanceConstants.Messages.SessionNotFound, HttpStatusCode.NotFound);
 
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(sessionId, occurrenceDate);
+            .GetOccurrenceBySessionAndDateAsync(sessionId, occurrenceDate, teacherId);
         if (occurrence is null)
             return Result<List<AttendanceRecordDto>>.Success(
                 new List<AttendanceRecordDto>(), _localizer, AttendanceConstants.Messages.Success);
@@ -1804,7 +1804,7 @@ public class AttendanceService : IAttendanceService
                 _localizer, AttendanceConstants.Messages.StudentNotFound, HttpStatusCode.NotFound);
 
         var occurrence = await _unitOfWork.AttendanceRepo
-            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, occDate);
+            .GetOccurrenceBySessionAndDateAsync(dto.SessionId, occDate, dto.TeacherId);
         if (occurrence is null)
             return Result<AttendanceRecordDto>.Failure(
                 _localizer, AttendanceConstants.Messages.AttendanceNoOccurrenceToday, HttpStatusCode.BadRequest);
@@ -2594,6 +2594,7 @@ public class AttendanceService : IAttendanceService
             int successCount = 0;
             int conflictCount = 0;
             int failedCount = 0;
+            int duplicateCount = 0;
 
             // Occurrences that received a NEW mark this sync — reconciled into any during-session exam
             // after commit (the nested MarkAttendanceAsync calls below skip their own exam sync).
@@ -2601,9 +2602,20 @@ public class AttendanceService : IAttendanceService
 
             foreach (var entry in dto.Entries)
             {
-                // Get or validate occurrence
+                // Get or validate occurrence.
+                //
+                // TENANT SCOPE IS LOAD-BEARING HERE. `entry.SessionId` and
+                // `entry.TeacherStudentId` arrive straight off the request body and nothing
+                // upstream checks them (the controller only forces `dto.TeacherId`). Both this
+                // lookup and the existing-record lookup below used to ignore the teacher
+                // entirely, and the conflict branch then returned that record's DENORMALIZED
+                // StudentName / StudentCode / status / class date — so a crafted
+                // (sessionId, teacherStudentId) pair read another tutor's student out of this
+                // endpoint. Scoped, a foreign session simply has no occurrence and the entry
+                // gets the same answer a genuinely missing class day gets, which is also what
+                // keeps the endpoint non-enumerable.
                 var occurrence = await _unitOfWork.AttendanceRepo
-                    .GetOccurrenceBySessionAndDateAsync(entry.SessionId, entry.OccurrenceDate.Date);
+                    .GetOccurrenceBySessionAndDateAsync(entry.SessionId, entry.OccurrenceDate.Date, dto.TeacherId);
 
                 if (occurrence is null)
                 {
@@ -2621,7 +2633,7 @@ public class AttendanceService : IAttendanceService
 
                 // Check for existing record
                 var existing = await _unitOfWork.AttendanceRepo
-                    .GetExistingAttendanceAsync(entry.TeacherStudentId, occurrence.Id);
+                    .GetExistingAttendanceAsync(entry.TeacherStudentId, occurrence.Id, dto.TeacherId);
 
                 if (existing is not null)
                 {
@@ -2731,6 +2743,36 @@ public class AttendanceService : IAttendanceService
                         continue;
                     }
 
+                    // A DUPLICATE recorded NOTHING. MarkAttendanceAsync answers Result.Success
+                    // with Record = null and IsDuplicate = true when the student already holds a
+                    // record for this class slot — on this occurrence, or on an EQUIVALENT
+                    // occurrence of a linked session (scanned in the 10:00 class, replayed here
+                    // against the 12:00 one). The guard above cannot catch it: HasAbsenceAlert is
+                    // false in both duplicate branches, so `HasAbsenceAlert && Record is null &&
+                    // !IsDuplicate` is false and execution fell straight through to a plain
+                    // success. The op then settled as synced and the app patched its cached
+                    // roster with its OWN status, against a class the server never marked.
+                    //
+                    // It is still a SUCCESS, deliberately: the attendance is on file, marking
+                    // again would double-count it, and there is no human decision to make — so
+                    // the queued op must settle rather than park forever. What changes is that
+                    // the answer now says so, and names the record that already exists.
+                    if (markData.IsDuplicate)
+                    {
+                        successCount++;
+                        duplicateCount++;
+                        result.EntryResults.Add(new SyncEntryResultDto
+                        {
+                            ClientEntryId = entry.ClientEntryId,
+                            Success = true,
+                            IsConflict = false,
+                            IsDuplicate = true,
+                            DuplicateSessionName = markData.DuplicateSessionName,
+                            DuplicateRecordedAt = markData.DuplicateRecordedAt
+                        });
+                        continue;
+                    }
+
                     successCount++;
                     var syncedEntry = new SyncEntryResultDto
                     {
@@ -2770,6 +2812,7 @@ public class AttendanceService : IAttendanceService
             result.SuccessCount = successCount;
             result.ConflictCount = conflictCount;
             result.FailedCount = failedCount;
+            result.DuplicateCount = duplicateCount;
 
             await _unitOfWork.SaveChangesAsync();
 

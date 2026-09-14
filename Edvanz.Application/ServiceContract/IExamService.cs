@@ -125,4 +125,18 @@ public interface IExamService
     /// (<c>DeletionConfirmationRequired</c> otherwise) — there is no recovery.
     /// </summary>
     Task<Result<bool>> DeleteExamAsync(long teacherId, long actingUserId, long examId, bool confirm);
+
+    /// <summary>
+    /// REQ-EXH-026 — one student's whole exam record for the teacher's student profile: PAPER exams
+    /// and ONLINE exams merged into a single date-descending list, paged.
+    ///
+    /// The two sources are merged BEFORE paging so <c>totalCount</c> and the summary describe the same
+    /// population the rows come from (BUG-17). The summary is measured over the WHOLE history, never
+    /// the loaded page, so a teacher who pages down never sees the header change.
+    ///
+    /// <paramref name="teacherStudentId"/> is validated against <paramref name="teacherId"/> — a
+    /// student from another tenant returns <c>StudentNotFound</c>, never an empty list.
+    /// </summary>
+    Task<Result<PaginatedResponse<StudentExamResultsDto>>> GetStudentExamResultsAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize);
 }

@@ -221,6 +221,10 @@ public class TeacherService : ITeacherService
                 ParentVisibilityVideo = true,
                 ShowPaymentInfoOnAttendanceScreen = true,
                 ShowAttendanceHistoryOnAttendanceScreen = true,
+                ShowExtrasOnAttendanceScreen = true,
+                // Family-facing exposure is opt-in, never seeded on (mirrors ParentPortalEnabled).
+                StudentVisibilityExtras = false,
+                ParentVisibilityExtras = false,
                 ParentPortalEnabled = false, // public parent portal is opt-in (see TeacherConfiguration)
                 CreateAt = DateTime.UtcNow
             };
@@ -684,6 +688,18 @@ public class TeacherService : ITeacherService
             config.IsDeviceLockEnabled = dto.IsDeviceLockEnabled;
             config.ShowPaymentInfoOnAttendanceScreen = dto.ShowPaymentInfoOnAttendanceScreen;
             config.ShowAttendanceHistoryOnAttendanceScreen = dto.ShowAttendanceHistoryOnAttendanceScreen;
+            // "Books & fees" — all three applied ONLY when the client actually sent them, so an
+            // older build that does not know these fields cannot switch the attendance sheet off
+            // or, far worse, flip family-facing exposure by omission (BUG-20). The stored
+            // attendance flag is itself nullable and read as `?? true`, so assigning a null there
+            // would be a real (if reversible) change; the two visibility columns are not nullable
+            // at all, and a null would have meant `false`.
+            if (dto.ShowExtrasOnAttendanceScreen.HasValue)
+                config.ShowExtrasOnAttendanceScreen = dto.ShowExtrasOnAttendanceScreen.Value;
+            if (dto.StudentVisibilityExtras.HasValue)
+                config.StudentVisibilityExtras = dto.StudentVisibilityExtras.Value;
+            if (dto.ParentVisibilityExtras.HasValue)
+                config.ParentVisibilityExtras = dto.ParentVisibilityExtras.Value;
             // Parent portal: only applied when the client actually sent it, so an older build that
             // does not know the field cannot silently switch a teacher's portal off.
             if (dto.ParentPortalEnabled.HasValue)
@@ -832,6 +848,9 @@ public class TeacherService : ITeacherService
             ParentPortalEnabled = config.ParentPortalEnabled,
             ShowPaymentInfoOnAttendanceScreen = config.ShowPaymentInfoOnAttendanceScreen,
             ShowAttendanceHistoryOnAttendanceScreen = config.ShowAttendanceHistoryOnAttendanceScreen,
+            ShowExtrasOnAttendanceScreen = config.ShowExtrasOnAttendanceScreen,
+            StudentVisibilityExtras = config.StudentVisibilityExtras,
+            ParentVisibilityExtras = config.ParentVisibilityExtras,
             BillingStartDate = config.BillingStartDate,
             // Locked = the one-time self-service set was used and support has not re-granted.
             BillingStartLocked = config.BillingStartDateSetAt.HasValue

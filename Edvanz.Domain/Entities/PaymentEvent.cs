@@ -103,7 +103,47 @@ public class PaymentEvent : BaseEntity
     /// </summary>
     public DateTime? DeletedAt { get; set; }
 
+    // ══════════════════════════════════════════════
+    // BOOKS & FEES BEHAVIOUR (added 2026-09-14)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// When true, a student later assigned to one of this item's targeted sessions/groups gets an
+    /// obligation automatically. When false the item's screen surfaces a "N new students in these
+    /// classes · add them?" banner instead, so the drift is visible rather than silent.
+    /// Per-item by design — a مذكرة for a class and a one-off رحلة want different answers.
+    /// Materialized by <c>MaterializeAutoIncludeAsync</c> once per assign CALL (never per student).
+    /// </summary>
+    public bool AutoIncludeNewStudents { get; set; } = false;
+
+    /// <summary>
+    /// When true, this item's unpaid dues appear on the combined collect sheet while taking
+    /// attendance (subject to the teacher-level <c>TeacherConfiguration
+    /// .ShowExtrasOnAttendanceScreen</c> switch, which can turn the whole behaviour off).
+    /// <para>DB default is <c>false</c> on purpose: items that already existed before this feature
+    /// must not start interrupting attendance the moment it deploys. The create path always sends
+    /// <c>true</c>, so new items behave as designed.</para>
+    /// </summary>
+    public bool CollectDuringAttendance { get; set; } = false;
+
+    /// <summary>
+    /// Closed = no further collection, but refunds and history still work. This is the escape hatch
+    /// for an item that cannot be DELETED because money was collected against it (deleting would
+    /// either orphan the cash or destroy the record of it).
+    /// </summary>
+    public bool IsClosed { get; set; } = false;
+
+    /// <summary>Teacher-local instant the item was closed, in UTC.</summary>
+    public DateTime? ClosedAt { get; set; }
+
+    /// <summary>Who soft-deleted the item. Plain column, no FK.</summary>
+    public long? DeletedByUserId { get; set; }
+
     // Navigation properties
     public ICollection<EventStudentObligation> StudentObligations { get; set; } = new List<EventStudentObligation>();
     public ICollection<EventPaymentTransaction> PaymentTransactions { get; set; } = new List<EventPaymentTransaction>();
+
+    /// <summary>The original targeting rules (Session | SessionGroup | AllStudents). See
+    /// <see cref="PaymentEventScope"/> for why individually-targeted students are NOT here.</summary>
+    public ICollection<PaymentEventScope> Scopes { get; set; } = new List<PaymentEventScope>();
 }

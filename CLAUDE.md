@@ -130,8 +130,13 @@ before assuming something is missing:
   (hourly), assistant cleanup (01:00 Africa/Cairo), recurring-assignment materializer
   (06:00 Africa/Cairo), file-registry GC `file-object-gc` (hourly — see §5.5). A new
   recurring job needs its own registration here.
-- Swagger example providers (see `IEndpointExampleProvider`, §3.7-adjacent Swagger tooling)
-  are added one `AddSingleton<IEndpointExampleProvider, ...>()` call at a time.
+- Swagger examples are **fully automatic — there are no per-endpoint or per-module providers**, and
+  a new endpoint needs NO registration. Three filters cover everything: `AutoExampleSchemaFilter`
+  (request-body example per DTO + "Allowed values: …" on every enum), `ResponseEnvelopeExampleFilter`
+  (`{success, message, data}` per response) and `ParameterExampleFilter` (query-string examples, so
+  imported Postman GETs arrive filled in). *(Corrected 2026-09-14: this section used to describe an
+  `IEndpointExampleProvider` / `AddSingleton` pattern. No such provider is registered anywhere in
+  the solution — the mechanism was replaced by these filters. Do not go looking for it.)*
 - `/health/live` (process-up only) and `/health/ready` (checks SQL Server + Hangfire) are
   the health-check endpoints; `/hangfire` is the dashboard, gated to the `SuperAdmin` role.
 
@@ -1496,6 +1501,258 @@ this teacher on*. A free trial, a goodwill month and a paid month are indistingu
 
 ---
 
+### 7.12 Books & fees — «مذكرات ومصاريف» (completed 2026-09-14)
+
+A thing the tutor sells ONCE — a مذكرة, a رحلة, a uniform, an exam fee — to a chosen set of students,
+then chases. The backend shipped in Apr 2026 (`254c5d6`) and its tables have been live since the
+baseline migration, but **no client ever called it**, so it was never exercised. Completed in full.
+
+**THREE NAMESPACES, DELIBERATELY DIFFERENT. Do not unify them.**
+
+| Layer | Value |
+|---|---|
+| DB `Models.Name` + `Permissions.Name` | `"Event-Based Payment"` · View/Create/Edit/Delete/CollectPayment/GenerateReports |
+| Existing C# + routes | `PaymentEvent`, `EventStudentObligation`, `EventPaymentTransaction`, `api/eventpayment/*` |
+| NEW identifiers | `Extras` (`kind=extras`, `ShowExtrasOnAttendanceScreen`, `ExtrasItemTotals`…) |
+| User-visible copy | «مذكرات ومصاريف» / "Books & fees" |
+
+The DB module name and the six permission strings are **live authorization keys** —
+`PermissionHandler` matches `snapshot.Modules.Contains(module)` and
+`snapshot.Permissions.Contains($"{Module}.{Permission}")`. Renaming either revokes every teacher's
+and assistant's access. The rename was therefore **display-only**: 13 resx label values + the admin
+UI's `feature-labels.ts`. Prod-verified 2026-09-14: module id 5, all six permission rows present,
+**61 users hold them (50 live assistants with `Edit`, across 25 tutors)**.
+
+**Subscriber-only.** `ModuleQuotaKeys.Events` is **0**, so `CanCreateAsync` short-circuits without
+counting (like Assistants/Groups/Triggers). The create gate returns the distinct key
+`ExtrasRequireSubscription`, and `GET api/subscription/status` carries
+**`features.extrasAllowed`** so the app renders a paywall card instead of a bare 403. Clients gate on
+that field ONLY and fail OPEN on absence — never on `hasSubscription` plus their own plan reasoning.
+Existing free-tier items keep working: the gate is on CREATE.
+
+**ONE unified collections ledger, and `kind` MUST default to `fees`.**
+`Queries/CollectionLedgerQueries.cs` is the single definition of the ledger's source set —
+`PaymentTransactions` **`Concat`** `EventPaymentTransactions`. **`Concat`, never `Union`**: `Union`
+dedupes, and two students paying the same amount at the same instant are distinct rows that must both
+count. (`VideoAudienceQueries` uses `Union` for the opposite reason.) `kind` (`fees`|`extras`|`all`)
+defaults to **`fees`** on `/collections` and `/collections/summary`, so every deployed build is
+byte-identical; verified with `ToQueryString()` that the fee scope emits the same single-table SQL and
+`ORDER BY CollectedAt DESC, Id DESC` as before. `OrderedLedgerRows` adds the `Kind` tiebreak ONLY
+when the query is genuinely a union — on a single source it would emit a useless `(SELECT 1) DESC`
+constant sort key on the hot fee path. Extras row ids are **prefixed `"extras-"`**; the row field is
+**`PaymentKind`**, not `Kind`, because `AssistantWalletCollectionItemDto.Kind` already means the line
+TYPE and both render on the merged wallet screen. `AmountTiers` comes back EMPTY under `kind=all` on
+purpose — a fee tier is a per-month settlement slice, an extras tier a per-item amount. Withdrawals
+are omitted under a kind filter: one bag, two kinds, not attributable.
+
+**Writing extras as real `PaymentTransaction` rows was rejected**, and must stay rejected. Seven
+aggregates would silently change meaning — `GetCashCollectedInRangeAsync` feeds
+**`CenterRevenueService`** (money billed to centers); `GetCashCollectedBreakdownAsync` and
+`GetCollectionAmountTiersAsync` group `PaymentTransactionAllocation` rows an extras payment has none
+of; the per-session cards are `SessionId`-keyed; `UpdatePaymentCounterAsync` advances PERIOD counts;
+and worst, `PerOpIdempotentPaymentTransport.reconcile` matches a queued FEE op by same-day+amount, so
+an extras row among them could reconcile a real fee collection away.
+
+**The wallet is one physical bag.** Extras cash has ALWAYS credited
+`AssistantWallet.CurrentBalance`, so the collector's ledger rows never summed to the balance printed
+beside them. `GetAssistantWalletScreenAsync` now folds extras collections AND extras refunds into the
+signed stream that reconstructs the held balance and anchors `HeldSinceAt` — that stream must include
+both kinds or the anchor lands on the wrong event. `WalletBalance` / `TotalCollectedAllTime` /
+`HeldSinceAt` are **never** filtered by `kind`; the wallet endpoint's `kind` therefore defaults to
+**`all`**, unlike the ledger's. `TotalCashCollected`/`TotalRefunded` DO now include extras — that is
+the fix, not a regression, since those two exist to explain the balance.
+
+**Everything else is additive.** `Summary.CollectedTotal` keeps BOTH its invariants
+(`= ThisMonth + Previous + Advance`, and ties to `CollectedByAssistant.TotalCollected`);
+`CollectedExtras` / `CollectedCashAllSources` are new, with the twin invariant
+`collectedCashAllSources == collectedByAssistant.totalCollectedAllSources`. `ExpectedRevenue` /
+`RemainingAmount` / `statusBreakdown` stay **strictly monthly fees** — they reconcile to
+`TotalStudents` by construction, and an unpaid مذكرة surfaces in Books & fees, never in the fees
+"unpaid" bucket. The yearly view is a per-month installment grid and is structurally fee-only.
+
+**Audience: `PaymentEventScopes`, and `IndividualStudents` is never a scope row.** The old
+`TargetScopeIds` held a comma-joined list of RESOLVED STUDENT IDS, so "by session / by group" was
+structurally unanswerable, and a multi-scope create collapsed `TargetScopeType` to
+`IndividualStudents`. The new table follows `OnlineExamScope` — composite tenant FK
+`(PaymentEventId, TeacherId)` declared ONCE, plus an explicitly-declared Teacher FK (leaving it to
+convention produced **CASCADE**), and **ONE** check constraint folding both shape rules because
+`AllStudents` carries no target. The unique index needs
+**`.HasFilter((string?)null)`** or EF Core 10 silently disables it. Individually-targeted students are
+already recorded by their obligations, and a `TeacherStudentId` FK here would need purge handling the
+CHECK constraint forbids — the same reason `VideoScope`'s individual branch was removed.
+`TargetScopeType`/`TargetScopeIds` are still written, for rollback safety.
+
+**`SessionService` MUST delete these scope rows on session AND group hard-delete** — the two new
+calls sit beside the existing `VideoScope`/`VideoUnitScope`/`OnlineExamScope` ones. Both target FKs
+are `NoAction` and the CHECK forbids nulling them, so a surviving row fails the delete with a 409.
+Adding any new scope-style table means adding it there too.
+
+**Auto-include is per-item, once per CALL, at SIX sites.** `PaymentEvent.AutoIncludeNewStudents`
+(default off) decides whether a later joiner gets an obligation automatically; when off, the item
+screen shows "N new students · add them?". `MaterializeAutoIncludeForSessionAsync` /
+`…ForNewStudentsAsync` both take COLLECTIONS and run **inside the caller's transaction** — not
+post-commit best-effort, because an obligation that silently fails to appear is money the tutor never
+learns they are owed. Never move this into the per-student `OnStudentAssignedToSessionAsync` hook: a
+300-student bulk assign with 5 live items would be 300 scope queries and 1,500 inserts under one set
+of locks. The six sites: `SessionService.AssignStudents`, `SessionService` reassign, student create
+(with session), student create (**no** session — the only path an `AllStudents` item reaches them by),
+**student EDIT move**, and **bulk import** (grouped BY SESSION, so 400 students across 6 classes is 6
+queries). The last two are the easy ones to miss.
+
+**Exempt is `IsExempt`, NOT a fifth `PaymentStatus`.** That enum is shared with `PaymentPeriod` and
+`PaymentTransaction.PaymentTransactionStatus`, and `!= Paid` predicates are everywhere in the FEE
+module — a fifth value would sweep "not taking it" into "owes money" across
+`GetStudentPaymentStatusCountsAsync`, `GetPaymentInfoForAttendanceBatchAsync` and more. Payment status
+and exemption are **orthogonal**: an exempt obligation is `Unpaid` AND `IsExempt`, and "unpaid" means
+`!IsExempt && PaymentStatus == Unpaid`. Exempting is **blocked (409) once `AmountPaid > 0`** — refund
+first; that is what keeps `Σ AmountPaid == Σ non-deleted payments` true in every state.
+
+**Money corrections live on `EventPaymentEditLogs`, a SEPARATE table.** Not `PaymentEditLogs`:
+`GetCollectorRefundsInRangeAsync` *derives* the fee refund ledger from that table, so extras rows
+there would force every existing reader to prove it excludes them — the same "a shared identifier is
+dangerous" argument as `PaymentStatus`. Every subject reference is a bare nullable long with **no
+FK**, and the student/item names are denormalized, so a refund row still renders after a purge.
+`ChargedToUserId` encodes the attribution at WRITE time (for extras always the ORIGINAL collector,
+whose figure the correction corrects), which keeps the ledger derivation a plain equality instead of
+the two-branch CASE the fee side needs. `CollectedAt` carries the reversed cash's original instant so
+`AdjustCollectorWalletAsync`'s reset-aware rule works without re-reading a deleted transaction.
+Refund and edit-amount are **tutor-only** (`roleOnly`), matching `DELETE api/payment/transactions/{id}`
+and BR-PAY-002; exempt sits under `Edit` because it moves no cash.
+
+**Wallet helpers are SHARED, not re-implemented.** `IPaymentService.CreditCollectorWalletAsync` /
+`AdjustCollectorWalletAsync` (promoted from private) bring the `MaxConcurrencyRetries` RowVersion
+retry loop, lazy wallet creation for a **CenterAssistant** collector (whose extras cash previously
+reached no wallet at all), the teacher-owner no-op, and the reset-aware refund rule. The old inline
+mutation had none of them.
+
+**Tracking: ONE grouped query feeds the header AND both breakdowns.** `GetExtrasTallyAsync` groups
+`(current session, group, bucket)` where the bucket is a projected typed byte via `CASE` — never nine
+`Count(predicate)` aggregates, which is how BUG-16 becomes structurally impossible. The header,
+`bySession` and `byGroup` are folded from that one result, so a breakdown cannot drift from the total
+above it. Sessions are the student's **CURRENT** class (the same column the audience resolves
+through, §7.8), and a student with no class gets a row with `id: null` — render it, or the rows stop
+summing to the header. `.Where(o => o.TeacherStudent != null)` before every count (BUG-8/BUG-17).
+Roster chip counts are measured on the SEARCHED set **before** the chip filter, share one bucket
+definition with the list, and order exact-`StudentCode`-first with the obligation id as a unique
+tiebreaker.
+
+**The cached aggregate columns are a CACHE that nothing reads.** `PaymentEvent.TotalStudents` /
+`TotalExpectedRevenue` / `TotalCollectedRevenue` are still written so they don't rot, but every
+response derives from the obligation rows — the item list via one grouped query keyed on the page's
+ids. Three separate write paths used to clobber them independently. This also finally populates
+`EventDto.PaidStudents`/`PartiallyPaidStudents`/`UnpaidStudents`, declared from day one and **never
+set** (every client read 0). Exempt students are excluded from the headcount and from expected
+revenue; `ExemptAmount` is reported so "expected" stays explainable.
+
+**Two-level attendance switch.** `TeacherConfiguration.ShowExtrasOnAttendanceScreen` (`bool?`, read
+`?? true`) is the teacher-level gate; each item also carries `CollectDuringAttendance`, whose DB
+default is **`0`** so items predating the feature never start interrupting attendance on deploy (the
+create path always sends `true`). `GET api/eventpayment/debts` returns `showExtrasInfo: false` with an
+empty map when off — "off" and "nobody owes anything" must not look the same (the `ShowPaymentInfo`
+precedent). Student/parent visibility: `StudentVisibilityExtras` / `ParentVisibilityExtras`, both
+defaulting **FALSE** unlike their siblings, read through the shared `PaymentViewerType` gate so the
+two audiences cannot drift. Note `StudentVisibilityExtras` is the app's FIRST student-visibility
+switch — the other four `studentVisibility*` flags have no cubit setter and no UI.
+
+**No session column on `EventPaymentTransaction`, deliberately.** A ninth session-name column would
+have to join `ISessionRepo.PropagateSessionNameAsync` and its CI gate (§7.10). "By session" groups on
+`TeacherStudents.SessionId` instead.
+
+**Export stays deferred** application-wide. `PaymentReportExportService.ExportEventReportAsync` still
+returns a placeholder string, so **no export route is exposed** — a button that downloads a corrupt
+"PDF" is worse than no button.
+
+**Removal is tutor-only, and that is deliberately STRICTER than the platform's own precedent.**
+`POST api/payment/departure/confirm` is gated on `Payment.Collect`, so an assistant can confirm a
+student LEAVING — which pays real cash out of their own wallet — while `StudentIdsToRemove` on an
+extras item, which moves no money at all and is refused outright once `AmountPaid > 0`, stays
+`roleOnly ["Teacher","SuperAdmin"]`. Decided 2026-09-15 in favour of the written rule (BR-EVT-003)
+over the precedent. Zero practical impact: no assistant has ever exercised the path. **If this is
+ever revisited, the argument for widening it is the departure precedent, not convenience** — and
+the 50 live assistants holding `Edit` are what the permission catalogue already implies.
+
+**Undoing a collect is a PAYMENT action, not an obligation action.** A student may have paid in two
+partials, so "refund" with no payment named would have to guess which. `GET
+api/eventpayment/items/{id}/students/{sid}/payments` lists them (gated `View`, also satisfied by
+`CollectPayment` — reading who paid what is not a money action), and each row carries its own
+refund and correct-the-amount, both tutor-only. This mirrors `TeacherPaymentEditPaymentsSheet` on
+the fees side exactly, so a tutor looks in ONE place for both kinds of money. Already-refunded
+payments are ABSENT from the list (the transaction query filter), so none can be reversed twice.
+**`IsEdited` / `OriginalAmount` are DERIVED** from `EventPaymentEditLogs` via `MIN(Id)` per payment
+— never denormalized onto the transaction, and the EARLIEST log on purpose: after a second
+correction the tutor needs the original, not the middle value.
+
+**The audience is changed from the TRACKING screen, and the form says so.** The create/edit form
+renders the audience read-only with a lock, the reason, and «ضيف أو شيل طلاب» as a real button —
+prose alone reads as "this can never be changed". Adding is `POST`-free (`studentIdsToAdd` on the
+update) and is preceded by a confirm NAMING the behaviour, because the picker it opens is the same
+screen as the audience picker and a tutor would otherwise assume an unticked student gets removed.
+**The form pops a typed `ExtrasFormOutcome` (`cancelled` | `saved` | `openStudents`) and the LIST
+navigates** — a screen cannot pop itself and then use its own `BuildContext`; the `mounted` guard
+after a pop is always false, so the button would have gone nowhere, silently.
+
+**Delete vs close (added with the UI).** `DELETE api/eventpayment/events/{id}` answers **409
+`ExtrasItemHasPaymentsCannotDelete`** once any money has been collected and not refunded, and the
+message names closing as the remedy. It must: the transactions survive a delete (the FK is SET NULL)
+and still appear in the collections ledger, so deleting would leave cash on screen with nothing left
+to explain it. A delete that IS allowed removes the money-free obligations in one set-based statement
+(the FK is NoAction while the delete is soft, so they would linger forever) and stamps
+`DeletedByUserId`; paid obligations stay as the attribution for a surviving transaction and the
+item's query filter hides them. `PUT api/eventpayment/items/{id}/closed` {`closed`} is the escape
+hatch — reversible, idempotent, tutor-only like DELETE, and it stops auto-include too. Explicit state
+rather than a toggle route, so a retried request lands where the caller intended.
+
+**The item list filters on the OBLIGATION ROWS, never the cached columns.** `completionStatus`
+accepts `Open` | `FullyCollected` | `PartiallyCollected` | `NotStarted`, each an EXISTS over
+obligations (live student, not exempt, `AmountPaid < AmountDue`). `Open` exists as a SERVER value on
+purpose: a client narrowing only the loaded page would hide every unsettled item past page 1 behind
+a chip claiming otherwise. The ordering carries `ThenByDescending(Id)` because `EventDate` is a
+calendar day and ties are routine.
+
+**`ScopeSummary` is how a row says who it is for.** Built from `PaymentEventScopes` in ONE query
+keyed on the page's ids, with target names resolved LIVE (the scope row dies with its session, so
+this is not a §7.10 history column). `type` is a STRING — `sessions|groups|students|all|mixed` —
+because "mixed" is not a scope type: one item can target two classes and a group. `all` absorbs
+anything narrower. An item with NO scope rows reports its legacy `TargetScopeType`, so individually
+targeted and pre-scope-table items still read truthfully.
+
+**`UpdateEventDto` gained `EventDate` / `AutoIncludeNewStudents` / `CollectDuringAttendance`, all
+NULLABLE.** Omitted means UNCHANGED on every field on that DTO — an old client must not flip a
+switch it does not know about (BUG-20). The AUDIENCE is not editable: rewriting targeting rules
+retroactively would create and destroy obligations money may already be attached to, so students are
+added and removed individually (`StudentIdsToAdd` / `StudentIdsToRemove`, removal tutor-only) from
+the tracking screen where the tutor can see who they are. The app's edit form renders the audience
+read-only and says so.
+
+**Two numbers on the Payments tab are NOT month-scoped**, alone on that response:
+`summary.ExtrasOpenItemCount` / `ExtrasOutstanding`. An item is a one-off sale, not an installment,
+so "what is still owed on books & fees" has one answer and paging back to July must not change it.
+Closed items are excluded — their arrears are not collectable and the card exists to say what is
+left to do. One grouped statement; the item count is the number of groups, so the two figures can
+never describe different sets.
+
+**`GET /collections/summary` takes `kind` too, and the scope rules are not symmetrical.** Money and
+activity narrow; the paid/partial/prorated/unpaid counts do NOT — they are an obligation lens
+anchored to a calendar month and extras settle no installment month. Under a `sessionId` filter the
+extras half is always ZERO rather than wrong, because an extras payment carries no session (the same
+reason "Collected by Sessions" stays fees-only). `StudentsPaidCount` is SUMMED across kinds, not
+deduped: one student paying a fee and a مذكرة counts twice, which is accepted because deduping needs
+a DISTINCT over the union of both tables and the default `fees` scope — every deployed build — is
+byte-identical to what it replaced. `FeesTotal`/`ExtrasTotal` are reported ALWAYS, whatever the
+scope, so no client subtracts one server number from another.
+
+**App surfaces (Phase 2).** `lib/feature/teacher_module/extras/` — one card on the Payments tab
+(locked card → paywall, driven by server `features.extrasAllowed`, fail-open when absent), an item
+list, a create/edit form, and a tracking screen with three breakdowns over a paged roster. The scope
+picker is the SHARED `TeacherExamTargetScopeView`, adapted by `ExtrasAudienceBuilder` — never forked.
+The resolved audience count is labelled **"at least N"**: sessions and groups overlap and only the
+server dedupes. Amount tiers are HIDDEN under `kind=all` (`showAmountTiers`): fee tiers are
+per-month-installment and extras tiers per-item, so a merged "300 → 14" bucket would mean two things
+at once. The ledger's kind badge is a STATIC badge — the segmented control is the interactive thing
+— and only an extras row with an item id is tappable.
+
+---
+
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
 
 | Bug | Location | Fix |
@@ -1533,6 +1790,7 @@ this teacher on*. A free trial, a goodwill month and a paid month are indistingu
 | BUG-28 | `ExamService.CreateExamAsync` silently truncated the exam paper | It did `dto.AttachmentFileIds.Distinct().Take(MaxAttachmentsPerExam)` and created the exam anyway, so a teacher attaching twelve photographed pages got a **201 and a question paper that stops at page ten**, with nothing on screen saying so — while the dedicated endpoint (`AddExamAttachmentsAsync`) answered the identical rule with 422 `ExamTooManyAttachments`. A truncated paper is worse than none: the student cannot tell which it is. Fixed 2026-09-14 — the count is checked in step 1 before the transaction opens and returns the same key and the same 422. **Two paths enforcing one rule must give one answer, and the answer to "too many" is never "here are the first ten".** See §7.9. |
 | BUG-29 | Exam-paper file endpoint ignored the exams-module visibility switch | `FileAccessService.IsReleasedExamAttachmentForStudentAsync` checked the student's obligation and the release gate but never `TeacherConfiguration.StudentVisibilityExamDefault`. Release is permanent by design, so a student who had ever been handed a `fileId` kept fetching the paper after the teacher hid exams — hiding the module reached the list and nothing else. Fixed 2026-09-14 by denying first on the flag, **fail-closed on a missing config row**, read off the configuration the method already loads (no extra query); the identical expression was added to the list side (`ExamHomeworkService.LoadReleasedExamAttachmentsAsync`) so the two gates stay in step. **A category policy in the file registry must include the owning module's own visibility switch, not only the resource gate** (§5.5, §7.9). |
 | BUG-30 | HEIC exam papers were unviewable by every student | The backend `UploadConstants` allow-list accepts `image/heic` / `image/heif`, and HEIC is the iPhone camera default — but Flutter/Skia cannot decode HEIC, HEIF or TIFF. So an iPhone-photographed exam paper uploaded cleanly, **rendered perfectly in the teacher's own browser preview**, and failed to render for every student in the class. The one surface that showed the failure was the only one nobody looked at. Fixed 2026-09-14 (app): every picked attachment IMAGE is re-encoded to JPEG at pick time regardless of size (quality 95 / 3000px long edge; the pre-existing over-limit path keeps 80 / 1600px), and a decode failure **refuses with a specific message** instead of uploading the original. **Follow-up still open: the server allow-list has not changed**, so any other client can still store a file nothing renders. **An upload allow-list must be the intersection of what the server accepts and what the viewers can decode — the teacher's preview is not the test.** See §7.9. |
+| BUG-31 | Books & fees cash moved the wallet but appeared in NO ledger | `EventPaymentTransaction` credited `AssistantWallet.CurrentBalance` on collect, yet every ledger read (`GET /api/v1/payments/collections` on both its teacher-wide and collector-scoped paths, the wallet screen's signed stream, the collectors cards, the live collections count) queried `PaymentTransactions` alone. So a collector's balance could exceed the sum of the rows their own ledger listed, and `HeldSinceAt` — the anchor that makes "in hand now" scope exactly to the held cash — was computed from an incomplete event stream and could land on the wrong event. Latent in practice only because no client ever called the module (prod-verified 2026-09-14: 0 payments). Fixed by `CollectionLedgerQueries` unioning both tables with a `kind` filter defaulting to `fees`, and by folding extras collections AND refunds into the wallet's balance reconstruction. **Never re-separate the wallet from the ledger that explains it**: if a figure moves `CurrentBalance`, it must be a row somewhere. See §7.12. |
 
 **CI migration delivery — root cause of the 2026-07-15/16 attendance outage (deploy.yml `Apply EF migrations`) — RESOLVED 2026-07-16.** `azure/sql-action@v2` used to run the multi-batch idempotent `migrate.sql` (one `BEGIN TRAN…COMMIT` per migration) via go-sqlcmd **without `-b`**, so when a migration's batch errored, its own transaction rolled back (migration NOT recorded) but the runner **continued to the next migration and still exited 0** — a broken migration was silently skipped while the code that needed it deployed anyway. This is why BUG-10 shipped, and it also silently skipped the `20260708193718`/`20260708220307` phone-index migrations on every deploy since 2026-07-08 (see BUG-11). Fixed by: (a) BUG-11's repair migration clearing the failing backlog, (b) `arguments: '-b'` on the sql-action step (any SQL error → non-zero exit → job fails BEFORE `az webapp deploy`), and (c) the two pre-Azure migration gates described in §0 (model-coverage check + fresh-DB rehearsal of `migrate.sql`). Do not remove `-b` or the gates.
 
@@ -1644,5 +1902,11 @@ Authoritative detail: **`TIMEZONE_STANDARD.md`** (backend) and the app's own
 | Retyping a REQUEST DTO field to `DateOnly` | Deployed clients send full ISO strings; `DateOnly` cannot read them and 400s them (§11b) |
 | Bare `DateTime.parse`/`tryParse` in a Flutter model | Silently assumes device-local and shifts an instant by 2-3h; use the `api_date_time.dart` helpers (§11b) |
 | Re-enabling anonymous blob access / exposing `BlobPath` | Files are JWT-gated via `/api/files/{fileId}`; anonymous blob 401/403/409 is intended (§5.5) |
+| Leaving a denormalized `TeacherId` navigation to EF convention on a scope-style child | Convention creates the FK with **CASCADE**, against the NoAction default (§4.2). Declare `HasOne(x => x.Teacher)…OnDelete(NoAction)` explicitly, AFTER the composite FK — `OnlineExamScope` is the working recipe (§7.12) |
+| `HasPrincipalKey` + a separate `HasIndex(...).IsUnique()` for a composite-FK target | Produces TWO identical unique indexes (`AK_` and `UX_`). Use `HasAlternateKey(...).HasName("AK_…")` — documented at `EdvanzDbContext.cs:1333`, and re-learned on `PaymentEvents` (§7.12) |
+| `Union` where rows must be counted individually | `Union` DEDUPES: two students paying the same amount at the same instant would collapse into one. Use `Concat` for a ledger; `Union` only where a duplicate is genuinely the same thing (`VideoAudienceQueries`) — §7.12 |
+| A `Count(predicate)` per population in one projection | Re-inlines the row's correlated members once per reference, and a predicate that folds to a constant becomes literal `COUNT(NULL)`, which SQL Server rejects (BUG-16). Project a typed bucket via `CASE` and use ONE `GroupBy` (§7.12) |
+| Reading a cached aggregate column a response depends on | `PaymentEvent.TotalStudents`/`TotalExpectedRevenue`/`TotalCollectedRevenue` were clobbered independently by three write paths. Derive from the rows in one grouped query keyed on the page's ids (§7.12) |
+| Adding a scope-style table without wiring session/group hard-delete | Both target FKs are `NoAction` and the CHECK forbids nulling them, so a surviving row fails the delete with a 409. Add the two `Delete…ScopesBy{Session,Group}Async` calls in `SessionService` beside the existing three (§7.12) |
 
 <!-- ci: markdown-only edits do not trigger the deploy workflow (paths-ignore). -->

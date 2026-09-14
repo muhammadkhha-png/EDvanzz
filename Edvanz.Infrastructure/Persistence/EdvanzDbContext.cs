@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml.Vml.Office;
+﻿using DocumentFormat.OpenXml.Vml.Office;
 using Edvanz.Domain.Constants;
 using Edvanz.Domain.Entities;
 using Edvanz.Domain.Entities.Chat;
@@ -77,6 +77,8 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
     public DbSet<PaymentEvent> PaymentEvents { get; set; }
     public DbSet<EventStudentObligation> EventStudentObligations { get; set; }
     public DbSet<EventPaymentTransaction> EventPaymentTransactions { get; set; }
+    public DbSet<PaymentEventScope> PaymentEventScopes { get; set; }
+    public DbSet<EventPaymentEditLog> EventPaymentEditLogs { get; set; }
 
 
     //  ─── Assistant  ───
@@ -2494,6 +2496,10 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(d => d.RefundPeriodStart).HasColumnType("datetime2(0)");
             entity.Property(d => d.AnchorPeriodStart).HasColumnType("datetime2(0)");
             entity.Property(d => d.PaidAmountAtDeparture).HasColumnType("decimal(10,2)");
+            // Amount correction (REQ-PAY-075) — sized like every other money note in this module.
+            entity.Property(d => d.AmountBeforeEdit).HasColumnType("decimal(10,2)");
+            entity.Property(d => d.AmountEditedAt).HasColumnType("datetime2(0)");
+            entity.Property(d => d.AmountEditNote).HasMaxLength(PaymentConstants.EditReasonMaxLength);
 
             entity.Property(d => d.SessionNameAtDeparture).HasColumnName("SessionName").HasMaxLength(PaymentConstants.NameMaxLength).IsRequired();
             entity.Property(d => d.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
@@ -2581,6 +2587,27 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.HasIndex(e => new { e.TeacherId, e.IsDeleted })
                 .HasDatabaseName("IX_PE_TeacherId_IsDeleted");
 
+            // Composite-FK target for PaymentEventScopes.(PaymentEventId, TeacherId) — SQL Server
+            // refuses the FK without a UNIQUE constraint over those columns here (CLAUDE.md §4.4).
+            //
+            // Declared as an explicit ALTERNATE KEY, not the VideoAssets recipe
+            // (HasPrincipalKey + a separate HasIndex(...).IsUnique()): that recipe produces BOTH
+            // AK_ and UX_ — two identical unique indexes on the same columns. Same reasoning as
+            // AK_TeacherStudents_Id_TeacherId. The alternate key IS a unique index in SQL Server,
+            // so the FK target requirement is fully satisfied by one.
+            entity.HasAlternateKey(e => new { e.Id, e.TeacherId })
+                .HasName("AK_PaymentEvents_Id_TeacherId");
+
+            entity.Property(e => e.ClosedAt).HasColumnType("datetime2(0)");
+
+            // Explicit SQL defaults. EF defaults a new non-nullable bit column to 0 unless told
+            // otherwise; CollectDuringAttendance is deliberately 0 for EXISTING rows so items that
+            // predate this feature never start interrupting attendance on deploy. The create path
+            // always sends true.
+            entity.Property(e => e.AutoIncludeNewStudents).HasDefaultValue(false);
+            entity.Property(e => e.CollectDuringAttendance).HasDefaultValue(false);
+            entity.Property(e => e.IsClosed).HasDefaultValue(false);
+
             entity.HasOne(e => e.Teacher)
                 .WithMany()
                 .HasForeignKey(e => e.TeacherId)
@@ -2597,6 +2624,22 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(o => o.AmountPaid).HasColumnType("decimal(10,2)");
             entity.Property(o => o.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(o => o.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(o => o.ExemptReason).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+            entity.Property(o => o.ExemptedAt).HasColumnType("datetime2(0)");
+            entity.Property(o => o.CustomAmountSetAt).HasColumnType("datetime2(0)");
+            entity.Property(o => o.IsExempt).HasDefaultValue(false);
+            entity.Property(o => o.IsCustomAmount).HasDefaultValue(false);
+
+            // Matches the filtered principal (PaymentEvent has HasQueryFilter(e => !e.IsDeleted)).
+            // Three things at once: a soft-deleted item's obligations vanish from every read with NO
+            // data repair; the attendance enrichment is correct without an explicit predicate; and
+            // EF stops emitting PossibleIncorrectRequiredNavigationWithQueryFilterInteractionWarning
+            // for the required PaymentEvent navigation (Program.cs suppresses only
+            // PendingModelChangesWarning).
+            entity.HasQueryFilter(o => !o.PaymentEvent.IsDeleted);
+
+            // Optimistic concurrency for the collect retry loop (two collectors, one student).
+            entity.Property(o => o.RowVersion).IsRowVersion();
 
             // Unique: one obligation per student per event
             entity.HasIndex(o => new { o.PaymentEventId, o.TeacherStudentId })
@@ -2607,6 +2650,18 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Event tracking: all obligations for an event by status
             entity.HasIndex(o => new { o.PaymentEventId, o.PaymentStatus })
                 .HasDatabaseName("IX_ESO_EventId_Status");
+
+            // Exempt-aware tracking counts + the per-status student list. The old
+            // IX_ESO_EventId_Status is kept: it costs nothing and removes a rollback hazard.
+            entity.HasIndex(o => new { o.PaymentEventId, o.IsExempt, o.PaymentStatus })
+                .IncludeProperties(o => new { o.TeacherStudentId, o.AmountDue, o.AmountPaid })
+                .HasDatabaseName("IX_ESO_EventId_IsExempt_Status");
+
+            // THE index the attendance-roster enrichment seeks on. A take-attendance list can hold
+            // 547 students; without this the batched dues lookup is a table scan on the hot path.
+            entity.HasIndex(o => new { o.TeacherId, o.TeacherStudentId, o.IsExempt })
+                .IncludeProperties(o => new { o.PaymentEventId, o.AmountDue, o.AmountPaid })
+                .HasDatabaseName("IX_ESO_TeacherId_StudentId_IsExempt");
 
             entity.HasOne(o => o.Teacher)
                 .WithMany()
@@ -2637,10 +2692,60 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             entity.Property(t => t.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
             entity.Property(t => t.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
             entity.Property(t => t.EventName).HasMaxLength(PaymentConstants.EventNameMaxLength).IsRequired();
+            entity.Property(t => t.CollectionNote).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+            entity.Property(t => t.OfflineDeviceId).HasMaxLength(PaymentConstants.OfflineDeviceIdMaxLength);
+            entity.Property(t => t.DeletedAt).HasColumnType("datetime2(0)");
+            entity.Property(t => t.IsOfflineRecord).HasDefaultValue(false);
+            entity.Property(t => t.IsDeleted).HasDefaultValue(false);
+
+            // Mirrors PaymentTransaction: a forgotten predicate can never leak refunded money into
+            // a total. The negative ledger row comes from EventPaymentEditLogs, not from this row.
+            entity.HasQueryFilter(t => !t.IsDeleted);
+
+            // Offline exactly-once, PERMANENTLY — the Redis Idempotency-Key layer expires after
+            // 24h, this index never does. 64 chars matches IX_PT_TeacherId_ClientEntryId and fits
+            // the derived leg id "{uuid}:x{obligationId}" (36 + 2 + 19 = 57).
+            entity.Property(t => t.ClientEntryId).HasMaxLength(64);
+            entity.HasIndex(t => new { t.TeacherId, t.ClientEntryId })
+                .IsUnique()
+                .HasFilter("[ClientEntryId] IS NOT NULL")
+                .HasDatabaseName("UX_EPT_TeacherId_ClientEntryId");
+
+            // Optimistic concurrency for refund vs amount-edit races.
+            entity.Property(t => t.RowVersion).IsRowVersion();
             entity.Property(t => t.OnlineTransactionRef).HasMaxLength(PaymentConstants.OnlineTransactionRefMaxLength);
 
             entity.HasIndex(t => new { t.TeacherId, t.PaymentEventId })
                 .HasDatabaseName("IX_EPT_TeacherId_EventId");
+
+            // The unified collections ledger. Both the day GROUP BY and the page slice seek on
+            // these, and the INCLUDE list is everything an extras ledger row needs to render, so
+            // neither query touches the base table.
+            entity.HasIndex(t => new { t.TeacherId, t.CollectedAt })
+                .IsDescending(false, true)
+                .IncludeProperties(t => new
+                {
+                    t.PaymentEventId, t.EventStudentObligationId, t.TeacherStudentId,
+                    t.AmountPaid, t.CollectedByUserId, t.StudentName, t.StudentCode,
+                    t.EventName, t.PaymentMethod, t.CollectionNote
+                })
+                .HasDatabaseName("IX_EPT_TeacherId_CollectedAt");
+
+            entity.HasIndex(t => new { t.TeacherId, t.CollectedByUserId, t.CollectedAt })
+                .IsDescending(false, false, true)
+                .IncludeProperties(t => new
+                {
+                    t.PaymentEventId, t.EventStudentObligationId, t.TeacherStudentId,
+                    t.AmountPaid, t.StudentName, t.StudentCode,
+                    t.EventName, t.PaymentMethod, t.CollectionNote
+                })
+                .HasDatabaseName("IX_EPT_TeacherId_CollectedBy_CollectedAt");
+
+            // Makes the obligation row's "last payment" correlated scalar subquery a seek.
+            entity.HasIndex(t => new { t.EventStudentObligationId, t.CollectedAt })
+                .IsDescending(false, true)
+                .IncludeProperties(t => new { t.CollectedByUserId, t.AmountPaid })
+                .HasDatabaseName("IX_EPT_ObligationId_CollectedAt");
 
             entity.HasOne(t => t.Teacher)
                 .WithMany()
@@ -2666,6 +2771,149 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
                 .OnDelete(DeleteBehavior.SetNull);
         });
         #endregion
+        #region PaymentEventScope (audience targeting — "who should buy it")
+
+        // WHY THIS TABLE EXISTS: PaymentEvent.TargetScopeIds stores a comma-joined list of
+        // ALREADY-RESOLVED student ids, so it structurally cannot answer "by session" / "by group",
+        // and a multi-scope create used to collapse TargetScopeType to IndividualStudents. These
+        // rows keep the ORIGINAL intent, which both the tracking breakdowns and the per-item
+        // auto-include rule read. TargetScopeType/TargetScopeIds are still written so a rollback
+        // past this migration leaves a working app.
+        modelBuilder.Entity<PaymentEventScope>(entity =>
+        {
+            entity.ToTable("PaymentEventScopes");
+
+            entity.Property(s => s.ScopeType).HasConversion<byte>();
+            entity.Property(s => s.AssignedAt).HasColumnType("datetime2(0)").IsRequired();
+
+            // Matches the filtered principal — a soft-deleted item's scope rows disappear too.
+            entity.HasQueryFilter(s => !s.PaymentEvent.IsDeleted);
+
+            // ONE check constraint covering BOTH shape rules: ScopeType matches the populated FK,
+            // AND AllStudents (4) carries no target at all. Deliberately NOT split into the two
+            // constraints OnlineExamScope uses — an "exactly one target is non-null" check would
+            // reject every AllStudents row. IndividualStudents (1) is never persisted here: those
+            // students are already recorded by their EventStudentObligation rows, and a
+            // TeacherStudentId FK would need purge handling this constraint forbids (it cannot be
+            // nulled) — the same reason VideoScope's individual branch was removed.
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_PaymentEventScopes_TargetMatchesScopeType",
+                "([ScopeType] = 2 AND [SessionId] IS NOT NULL AND [SessionGroupId] IS NULL) " +
+                "OR ([ScopeType] = 3 AND [SessionGroupId] IS NOT NULL AND [SessionId] IS NULL) " +
+                "OR ([ScopeType] = 4 AND [SessionId] IS NULL AND [SessionGroupId] IS NULL)"));
+
+            // HasFilter((string?)null) is MANDATORY. EF Core 10 auto-applies a
+            // "all key columns IS NOT NULL" filter to a unique index over nullable columns, which
+            // would silently disable this one (the VideoScopes gotcha). With ScopeType = 4 both
+            // targets are NULL and SQL Server treats NULLs as equal in a unique index, so two
+            // AllStudents rows on one item collide — exactly the intent.
+            entity.HasIndex(s => new { s.PaymentEventId, s.ScopeType, s.SessionId, s.SessionGroupId })
+                .IsUnique()
+                .HasFilter((string?)null)
+                .HasDatabaseName("UX_PaymentEventScopes_Event_Type_Target");
+
+            entity.HasIndex(s => s.PaymentEventId)
+                .IncludeProperties(s => new { s.ScopeType, s.SessionId, s.SessionGroupId })
+                .HasDatabaseName("IX_PaymentEventScopes_PaymentEventId");
+
+            // The hot path: "which live items auto-include this session / this group?" — run once
+            // per student-assign CALL, so it must be a seek.
+            entity.HasIndex(s => new { s.TeacherId, s.SessionId })
+                .HasFilter("[SessionId] IS NOT NULL")
+                .IncludeProperties(s => new { s.PaymentEventId, s.ScopeType })
+                .HasDatabaseName("IX_PaymentEventScopes_TeacherId_SessionId");
+
+            entity.HasIndex(s => new { s.TeacherId, s.SessionGroupId })
+                .HasFilter("[SessionGroupId] IS NOT NULL")
+                .IncludeProperties(s => new { s.PaymentEventId, s.ScopeType })
+                .HasDatabaseName("IX_PaymentEventScopes_TeacherId_SessionGroupId");
+
+            // COMPOSITE TENANT FK — declared ONCE. Do NOT also add HasOne(s => s.Teacher):
+            // EF Core 10 merges the two declarations and silently drops the OnDelete clause
+            // (§4.1, the VideoScope gotcha). A scope row whose TeacherId does not match its
+            // parent item's TeacherId cannot be inserted.
+            entity.HasOne(s => s.PaymentEvent)
+                .WithMany(e => e.Scopes)
+                .HasForeignKey(s => new { s.PaymentEventId, s.TeacherId })
+                .HasPrincipalKey(e => new { e.Id, e.TeacherId })
+                .OnDelete(DeleteBehavior.NoAction);
+
+            // Both targets NoAction, and the CHECK constraint forbids nulling them. So the
+            // session/group hard-delete paths MUST delete these rows first — see
+            // SessionService.DeleteSessionAsync, which already does exactly this for VideoScope,
+            // VideoUnitScope and OnlineExamScope. A surviving row fails the delete with a 409.
+            entity.HasOne(s => s.Session)
+                .WithMany()
+                .HasForeignKey(s => s.SessionId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.SessionGroup)
+                .WithMany()
+                .HasForeignKey(s => s.SessionGroupId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(s => s.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(s => s.AssignedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // DECLARED LAST, AND IT MUST BE DECLARED. Leaving the Teacher navigation to convention
+            // produced FK_PaymentEventScopes_Teachers_TeacherId with ReferentialAction.CASCADE —
+            // against the project's NoAction default (§4.2) and a multi-cascade-path hazard. The
+            // "do NOT add a second HasOne(s => s.Teacher)" note on VideoScope/OnlineExamScope
+            // describes a DIFFERENT case (an extra declaration over the SAME column set as the
+            // composite FK); this FK is over TeacherId alone, so EF keeps them separate. Verified
+            // against the generated migration: the composite FK retains NoAction.
+            // OnlineExamScope — a live table — does exactly this.
+            entity.HasOne(s => s.Teacher)
+                .WithMany()
+                .HasForeignKey(s => s.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
+        #region EventPaymentEditLog (refund / edit / exemption audit + ledger negatives)
+
+        // WHY NOT PaymentEditLogs: PaymentRepo.GetCollectorRefundsInRangeAsync DERIVES the fee
+        // refund ledger from that table, and several other readers query it too. Adding extras rows
+        // there would force every one of them to PROVE it excludes them — the same "a shared
+        // identifier is dangerous" argument that keeps Exempt out of the shared PaymentStatus enum.
+        // Every subject reference below is a BARE nullable long with NO foreign key (the
+        // PaymentEditLog.PaymentPeriodId precedent) and the labels are denormalized, so a refund row
+        // still renders after the transaction, the item, or the student is gone.
+        modelBuilder.Entity<EventPaymentEditLog>(entity =>
+        {
+            entity.ToTable("EventPaymentEditLogs");
+
+            entity.Property(l => l.PreviousAmount).HasColumnType("decimal(10,2)");
+            entity.Property(l => l.NewAmount).HasColumnType("decimal(10,2)");
+            entity.Property(l => l.EditedAt).HasColumnType("datetime2(0)").IsRequired();
+            entity.Property(l => l.CollectedAt).HasColumnType("datetime2(0)");
+            entity.Property(l => l.StudentName).HasMaxLength(PaymentConstants.NameMaxLength);
+            entity.Property(l => l.StudentCode).HasMaxLength(PaymentConstants.StudentCodeMaxLength);
+            entity.Property(l => l.EventName).HasMaxLength(PaymentConstants.EventNameMaxLength);
+            entity.Property(l => l.EditReason).HasMaxLength(PaymentConstants.EditReasonMaxLength);
+
+            // The collector-scoped ledger's negative rows: charged-to + window, covering.
+            entity.HasIndex(l => new { l.TeacherId, l.ChargedToUserId, l.EditedAt })
+                .IncludeProperties(l => new
+                {
+                    l.EditAction, l.PreviousAmount, l.NewAmount,
+                    l.StudentName, l.StudentCode, l.EventName,
+                    l.EventPaymentTransactionId, l.TeacherStudentId, l.CollectedAt
+                })
+                .HasDatabaseName("IX_EPEL_TeacherId_ChargedTo_EditedAt");
+
+            entity.HasIndex(l => l.EventPaymentTransactionId)
+                .HasDatabaseName("IX_EPEL_TransactionId");
+
+            entity.HasOne(l => l.Teacher)
+                .WithMany()
+                .HasForeignKey(l => l.TeacherId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+        #endregion
+
         // ════════════════════════════════════════════════
         // Mesaging 
         // ════════════════════════════════════════════════

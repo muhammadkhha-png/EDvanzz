@@ -150,6 +150,32 @@ public class ExamsController : ModuleSixApiBaseController
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ONE STUDENT'S EXAM GRADES  (teacher's student profile → "Exam grades")
+    // GET /api/exams/students/{teacherStudentId}/results?page=&pageSize=
+    //
+    // PAPER and ONLINE exams merged into ONE date-descending list — a tutor thinks
+    // in "امتحانات", not in delivery mechanisms. Each row carries `kind`.
+    // The summary is measured over the whole history, not the page.
+    // ══════════════════════════════════════════════════════════════════════════
+    [HttpGet("students/{teacherStudentId:long}/results")]
+    [ModulePermission("Exams And Homework", "View")]
+    [ProducesResponseType(typeof(Edvanz.Application.Dtos.Result<Edvanz.Application.Dtos.PaginatedResponse<Edvanz.Application.Dtos.Exams.StudentExamResultsDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(object), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetStudentExamResults(
+        [FromRoute] long teacherStudentId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        long? teacherId = await ResolveTeacherIdAsync();
+        if (teacherId is null) return TeacherNotResolved();
+
+        return ToResponse(await _exams.GetStudentExamResultsAsync(
+            teacherId.Value, teacherStudentId, page, pageSize));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // SAVE GRADES — batch of distinct per-student grades ("Saved (N) changes")
     // PUT /api/exams/grades
     // ══════════════════════════════════════════════════════════════════════════

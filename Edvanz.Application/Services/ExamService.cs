@@ -1363,6 +1363,172 @@ public class ExamService : IExamService
         return Result<bool>.Success(true, _localizer, "ExamDeleted");
     }
 
+    /// <inheritdoc />
+    public async Task<Result<PaginatedResponse<StudentExamResultsDto>>> GetStudentExamResultsAsync(
+        long teacherId, long teacherStudentId, int page, int pageSize)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+        // Tenant guard: resolve the student THROUGH the teacher. A student from another tenant must
+        // 404, never fall through to an empty list — an empty list reads as "no exams yet" (§3.3).
+        var student = await _unitOfWork.Students.GetActiveByIdAndTeacherAsync(teacherStudentId, teacherId);
+        if (student is null)
+            return Result<PaginatedResponse<StudentExamResultsDto>>.Failure(
+                _localizer, "StudentNotFound", HttpStatusCode.NotFound);
+
+        var rows = new List<StudentExamResultDto>();
+
+        // ── Paper exams ───────────────────────────────────────────────────────────────────────
+        var paperRows = await _unitOfWork.ExamHomeworkRepo
+            .GetAllOfflineExamsForStudentAsync(teacherId, teacherStudentId);
+
+        // Ranks for every paper occurrence in ONE query (no N+1). Only graded occurrences come
+        // back; the rest map to a null rank below.
+        var rankByOccurrence = (await _unitOfWork.ExamHomeworkRepo.GetStudentExamRanksAsync(
+                teacherId, teacherStudentId, paperRows.Select(r => r.OccurrenceId)))
+            .ToDictionary(r => r.OccurrenceId);
+
+        foreach (var r in paperRows)
+        {
+            rankByOccurrence.TryGetValue(r.OccurrenceId, out var rank);
+            rows.Add(new StudentExamResultDto
+            {
+                Kind = ExamResultKindPaper,
+                ExamId = r.OccurrenceId,
+                ExamName = r.ExamName,
+                Date = DateOnly.FromDateTime(r.DueDate),
+                Score = r.GradeValue,
+                MaxGrade = r.MaxGradeSnapshot,
+                ScorePercentage = Percentage(r.GradeValue, r.MaxGradeSnapshot),
+                Rank = rank?.Rank,
+                GroupSize = rank?.GroupSize,
+                Status = r.Status.ToString(),
+            });
+        }
+
+        // ── Online exams ──────────────────────────────────────────────────────────────────────
+        // Same source the STUDENT's own list reads (StudentOnlineExamService.GetMyExamsAsync), so
+        // the two screens agree. Note the consequence that carries with it: the scope is the
+        // student's CURRENT session/group, so a student moved between classes is described by where
+        // they are now. That is the module's own definition of "assigned to me" — online exams are
+        // targeted by session only, never per student — and diverging here would show the teacher a
+        // different set from the one the student is looking at.
+        var (sessionId, groupId) = await _unitOfWork.OnlineExamsRepo
+            .GetStudentSessionContextAsync(teacherStudentId);
+        var onlineExams = await _unitOfWork.OnlineExamsRepo
+            .GetExamsAssignedToStudentAsync(teacherId, sessionId, groupId);
+
+        if (onlineExams.Count > 0)
+        {
+            var examIds = onlineExams.Select(e => e.Id).ToList();
+            var reports = await _unitOfWork.GetRepository<StudentOnlineExamReport, long>()
+                .GetAsync(rep => examIds.Contains(rep.OnlineExamId) && rep.TeacherStudentId == teacherStudentId);
+            var reportByExam = reports.ToDictionary(rep => rep.OnlineExamId);
+
+            var utcNow = DateTime.UtcNow;
+            foreach (var exam in onlineExams)
+            {
+                reportByExam.TryGetValue(exam.Id, out var report);
+                bool finalized = report?.SubmittedAt is not null;
+                // Blocked is terminal too (there is no retake) yet never carries SubmittedAt.
+                bool terminal = finalized || report?.Status == StudentOnlineExamStatus.Blocked;
+                bool missed = report is null && exam.EndDateTime < utcNow;
+
+                // The exam's LOCAL day. Truncating the raw UTC instant lands 2-3h early and can
+                // report the previous day for a late-evening exam (§11b).
+                var localStart = _timeZoneService.ConvertUtcToLocal(exam.StartDateTime, "Africa/Cairo");
+                decimal maxGrade = exam.Questions.Sum(q => q.Degree);
+
+                // A missed exam carries NO score here, deliberately unlike the student's own list
+                // (which renders 0 so the card has a number). "Did not sit it" and "scored nothing"
+                // are different facts, and this list feeds an AVERAGE — conflating them would
+                // silently invent a zero nobody recorded (§7.11 / BUG-27).
+                decimal? score = terminal ? report!.Score : null;
+
+                rows.Add(new StudentExamResultDto
+                {
+                    Kind = ExamResultKindOnline,
+                    ExamId = exam.Id,
+                    ExamName = exam.Title,
+                    Date = DateOnly.FromDateTime(localStart),
+                    Score = score,
+                    MaxGrade = maxGrade > 0m ? maxGrade : null,
+                    ScorePercentage = Percentage(score, maxGrade),
+                    // Rank is a PAPER-only figure — an online exam's cohort is not computed on this
+                    // path, and a fabricated null-vs-unranked distinction would mislead.
+                    Rank = null,
+                    GroupSize = null,
+                    Status = terminal
+                        ? report!.Status.ToString()
+                        : (missed ? StudentOnlineExamStatus.Missed.ToString()
+                                  : (report?.Status.ToString() ?? OnlineExamNotSatStatus)),
+                });
+            }
+        }
+
+        // ── Merge, then summarise, then page — in that order ──────────────────────────────────
+        // The summary is measured over the WHOLE merged history, never the page, so paging down
+        // never renumbers the header (BUG-23).
+        // The id pair is the FINAL tiebreak, and it has to be there: two exams can share a day and
+        // a name, and an ordering that is not total lets a row repeat on one page and vanish from
+        // the next as the teacher pages. Kind is part of the key because the two id spaces overlap.
+        var ordered = rows
+            .OrderByDescending(r => r.Date)
+            .ThenBy(r => r.ExamName, StringComparer.Ordinal)
+            .ThenBy(r => r.Kind, StringComparer.Ordinal)
+            .ThenBy(r => r.ExamId)
+            .ToList();
+
+        var graded = ordered.Where(r => r.ScorePercentage.HasValue).ToList();
+        var summary = new StudentExamResultsSummaryDto
+        {
+            TotalExams = ordered.Count,
+            GradedExams = graded.Count,
+            AveragePercentage = graded.Count == 0
+                ? null
+                : Math.Round(graded.Average(r => r.ScorePercentage!.Value), 1, MidpointRounding.AwayFromZero),
+        };
+
+        var response = new PaginatedResponse<StudentExamResultsDto>
+        {
+            data = new StudentExamResultsDto
+            {
+                Summary = summary,
+                Exams = ordered.Skip((page - 1) * pageSize).Take(pageSize).ToList(),
+            },
+            page = page,
+            pageSize = pageSize,
+            totalCount = ordered.Count,
+            totalPages = (int)Math.Ceiling(ordered.Count / (double)pageSize),
+        };
+
+        return Result<PaginatedResponse<StudentExamResultsDto>>.Success(
+            response, _localizer, "StudentExamResultsRetrieved");
+    }
+
+    /// <summary>Wire value for a paper (in-class) exam row on the student's grade list.</summary>
+    private const string ExamResultKindPaper = "paper";
+
+    /// <summary>Wire value for an online exam row on the student's grade list.</summary>
+    private const string ExamResultKindOnline = "online";
+
+    /// <summary>
+    /// Status for an online exam the student has not sat and whose window is still open — there is
+    /// no report row and no enum value for "not due yet", and a null would be indistinguishable
+    /// from a missing field on the wire.
+    /// </summary>
+    private const string OnlineExamNotSatStatus = "NotSat";
+
+    /// <summary>
+    /// Score as a percentage of the maximum, one decimal. Null whenever either side is missing or
+    /// the maximum is zero — never 0, which would read as "scored nothing" rather than "not marked".
+    /// </summary>
+    private static decimal? Percentage(decimal? score, decimal? maxGrade) =>
+        score.HasValue && maxGrade.HasValue && maxGrade.Value > 0m
+            ? Math.Round(score.Value / maxGrade.Value * 100m, 1, MidpointRounding.AwayFromZero)
+            : null;
+
     /// <summary>
     /// Shared create/update request pipeline (single-sourced so the two surfaces can never drift):
     /// validates the delivery-type date contract, resolves the recipient (sessions XOR groups,

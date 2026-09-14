@@ -120,6 +120,40 @@ public class CollectPaymentResultDto
     /// the cascade runs so callers never need a follow-up query to learn WHERE the money landed;
     /// the offline-sync echo uses it to tell a teacher which month an over-payment rolled into.</summary>
     public List<string> SettledMonths { get; set; } = new();
+
+    /// <summary>
+    /// The same cascade as <see cref="SettledMonths"/>, but WITH the amount that landed on each month
+    /// — oldest first. Added 2026-09-15 so a collector can be told where their cash actually went.
+    ///
+    /// <para>The month list alone was not enough. The engine fills the oldest unpaid month first and
+    /// cascades forward (§7.4), so 300 handed over "for September" can settle August's 190 and put
+    /// 110 on September — and every screen reported only that the collection succeeded. The tutor
+    /// then sees 190 still owed for a month they believe was paid in full and calls it impossible.
+    /// Reported at the moment the cascade runs; no follow-up query.</para>
+    /// </summary>
+    public List<PaymentSettlementSliceDto> Settlements { get; set; } = new();
+}
+
+/// <summary>
+/// One month a collection landed on: which month, how much of the cash it took, and whether that
+/// closed the month or only reduced it. Oldest first, mirroring the collection cascade.
+/// </summary>
+public class PaymentSettlementSliceDto
+{
+    /// <summary>The month, as "yyyy-MM" — the stable key; clients format their own label.</summary>
+    public string Month { get; set; } = string.Empty;
+
+    /// <summary>Invariant English label ("September 2026") for clients with no month formatter.</summary>
+    public string MonthLabel { get; set; } = string.Empty;
+
+    /// <summary>How much of this collection landed on this month.</summary>
+    public decimal Amount { get; set; }
+
+    /// <summary>
+    /// True when this slice settled the month in FULL. False means the month is still short —
+    /// the distinction the collector has to relay to the parent.
+    /// </summary>
+    public bool ClearedMonth { get; set; }
 }
 
 /// <summary>
@@ -665,6 +699,18 @@ public class CollectorSummaryDto
     public decimal TotalCollected { get; set; }
     public int TransactionCount { get; set; }
     public decimal? CurrentWalletBalance { get; set; }
+
+    /// <summary>
+    /// This collector's "Books &amp; fees" (مذكرات ومصاريف) cash in the range. Additive:
+    /// <see cref="TotalCollected"/> keeps its fee-only meaning so no deployed figure changes.
+    ///
+    /// <para>It matters here because <see cref="CurrentWalletBalance"/> on this very row has ALWAYS
+    /// included extras cash — without the split the row could not explain its own balance.</para>
+    /// </summary>
+    public decimal TotalCollectedExtras { get; set; }
+
+    /// <summary>Number of "Books &amp; fees" collections this collector took in the range.</summary>
+    public int ExtrasTransactionCount { get; set; }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -762,6 +808,21 @@ public class PaymentDashboardDto
     /// <summary>Teacher-wide remaining revenue. <c>null</c> for an assistant caller (see <see cref="ExpectedRevenue"/>).</summary>
     public decimal? RemainingRevenue { get; set; }
 
+    /// <summary>
+    /// "Books &amp; fees" cash in the range. ADDITIVE — <see cref="CollectedRevenue"/> keeps its
+    /// existing meaning so no deployed figure changes.
+    ///
+    /// <para>Note that <see cref="ExpectedRevenue"/> and <see cref="RemainingRevenue"/> are
+    /// deliberately untouched: they are PERIOD-based (the obligation lens, <c>GetDashboardAggregates
+    /// Async</c>) and an extras obligation has no installment period, so folding extras in would
+    /// make "expected" mean two incompatible things at once.</para>
+    /// </summary>
+    public decimal CollectedRevenueExtras { get; set; }
+
+    /// <summary>All cash in the range = <see cref="CollectedRevenue"/> +
+    /// <see cref="CollectedRevenueExtras"/>.</summary>
+    public decimal CollectedRevenueAllSources { get; set; }
+
     /// <summary>Per-session breakdown. <c>null</c> for an assistant caller (teacher-wide view, not their own data).</summary>
     public List<SessionRevenueBreakdownDto>? PerSessionBreakdown { get; set; } = new();
 
@@ -792,6 +853,12 @@ public class CollectorRevenueBreakdownDto
     public string? UserName { get; set; }
     public decimal Collected { get; set; }
     public int TransactionCount { get; set; }
+
+    /// <summary>This collector's "Books &amp; fees" cash in the range (additive).</summary>
+    public decimal CollectedExtras { get; set; }
+
+    /// <summary>Number of "Books &amp; fees" collections this collector took in the range.</summary>
+    public int ExtrasTransactionCount { get; set; }
 }
 
 /// <summary>
@@ -952,6 +1019,81 @@ public class DepartureListItemDto
     /// days identically (never re-derive it from a local date on the client).
     /// </summary>
     public string DayKey { get; set; } = string.Empty;
+
+    // ── Amount correction (REQ-PAY-075, 2026-09-15) ──
+
+    /// <summary>
+    /// <see cref="FinalAmount"/> as it stood BEFORE the tutor corrected it, so the card can say
+    /// "was 300 · now 190". Null when this departure has never been corrected — which is also how a
+    /// client tells "corrected" from "settled first time": never infer it from the amount. Additive.
+    /// </summary>
+    public decimal? AmountBeforeEdit { get; set; }
+
+    /// <summary>Display name of the tutor who corrected the figure. Null when never corrected.</summary>
+    public string? AmountEditedByName { get; set; }
+
+    /// <summary>UTC instant of the correction. Null when never corrected.</summary>
+    public DateTime? AmountEditedAt { get; set; }
+
+    /// <summary>The tutor's stated reason for the correction — required when one is made.</summary>
+    public string? AmountEditNote { get; set; }
+
+    /// <summary>
+    /// Whether this row's figure can still be corrected, and it is the SERVER's answer, not the
+    /// client's guess. False for a NoObligation departure (there is nothing to move), and false once
+    /// the student has been permanently deleted — the periods and counter the correction has to move
+    /// no longer exist. The client hides the action rather than offering one that will 422.
+    /// </summary>
+    public bool CanEditAmount { get; set; }
+}
+
+/// <summary>
+/// Request to CORRECT the settled amount of a departure already confirmed — a figure entered by
+/// mistake, not a re-run of the departure (REQ-PAY-075). Tutor-only.
+/// </summary>
+public class EditDepartureAmountDto
+{
+    /// <summary>
+    /// The corrected settlement. Must be ≥ 0 and within the same ceiling the original confirmation
+    /// enforced: a refund can never exceed the cash actually paid for the anchored month, and an owed
+    /// amount can never exceed that month's full price.
+    /// </summary>
+    public decimal Amount { get; set; }
+
+    /// <summary>
+    /// Why it is being changed, in the tutor's own words. REQUIRED — a settled figure quietly becoming
+    /// a different settled figure is exactly the change that must carry a reason.
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>What a departure-amount correction actually did, so the client can say it rather than "Saved".</summary>
+public class DepartureAmountEditResultDto
+{
+    public long DepartureId { get; set; }
+    public string? StudentName { get; set; }
+
+    /// <summary>RefundDue | AmountOwed — unchanged by a correction; only the amount moves.</summary>
+    public string DepartureOutcome { get; set; } = string.Empty;
+
+    /// <summary>The figure before this correction.</summary>
+    public decimal PreviousAmount { get; set; }
+
+    /// <summary>The figure now.</summary>
+    public decimal NewAmount { get; set; }
+
+    /// <summary>
+    /// New − Previous. Positive means MORE money leaves the tutor's side (a bigger refund, or a
+    /// bigger debt recorded against the student); negative means less.
+    /// </summary>
+    public decimal Delta { get; set; }
+
+    /// <summary>
+    /// Display name of the collector whose cash bag absorbed the difference, when one did. Null when
+    /// the departure was confirmed by the tutor — they hold their own cash and have no wallet, so
+    /// nothing moved in any bag. Never null-as-unknown: null means "no bag was involved".
+    /// </summary>
+    public string? WalletAdjustedForName { get; set; }
 }
 
 /// <summary>One calendar day's totals in the departed-students list — drives the day-separator header.</summary>

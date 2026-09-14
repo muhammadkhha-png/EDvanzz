@@ -1,5 +1,6 @@
 ﻿using Edvanz.Domain.Entities.ShareProp;
 using Edvanz.Domain.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Edvanz.Domain.Entities;
@@ -115,4 +116,61 @@ public class EventPaymentTransaction : BaseEntity
     /// Online payment reference number.
     /// </summary>
     public string? OnlineTransactionRef { get; set; }
+
+    // ══════════════════════════════════════════════
+    // PARITY WITH PaymentTransaction (added 2026-09-14)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// The collector's free-text note for this payment — how a partial or unusual amount is
+    /// explained. Mirrors <c>PaymentTransaction.CollectionNote</c>.
+    /// </summary>
+    public string? CollectionNote { get; set; }
+
+    /// <summary>
+    /// True when the payment was taken while the device was offline and replayed later.
+    /// Mirrors <c>PaymentTransaction.IsOfflineRecord</c>.
+    /// </summary>
+    public bool IsOfflineRecord { get; set; } = false;
+
+    /// <summary>The device that recorded an offline payment.</summary>
+    public string? OfflineDeviceId { get; set; }
+
+    /// <summary>
+    /// Client-generated idempotency key, under a filtered unique index per teacher — the PERMANENT
+    /// exactly-once guarantee for an offline replay. (The Redis <c>Idempotency-Key</c> layer expires
+    /// after 24h; this index never does.)
+    ///
+    /// <para>For the combined attendance sheet this is NOT a fresh uuid: it is derived from the
+    /// single outbox op id as <c>"{opId}:x{obligationId}"</c>, with the fee leg taking
+    /// <c>"{opId}:f"</c>. That is what makes a blind resend of a PARTIALLY committed sheet
+    /// re-acknowledge the legs that landed and record only the missing ones — and why the transport
+    /// needs no reconcile step for that op type. Never generate per-leg ids client-side.</para>
+    /// </summary>
+    public string? ClientEntryId { get; set; }
+
+    /// <summary>Offline sync state. Mirrors <c>PaymentTransaction.SyncStatus</c>.</summary>
+    public PaymentSyncStatus SyncStatus { get; set; } = PaymentSyncStatus.NotApplicable;
+
+    // ══════════════════════════════════════════════
+    // SOFT DELETE — refunds (added 2026-09-14)
+    // ══════════════════════════════════════════════
+
+    /// <summary>
+    /// Soft-delete flag for a refunded/corrected payment. Mirrors
+    /// <c>PaymentTransaction.IsDeleted</c>, and carries a global query filter for the same reason:
+    /// so a forgotten predicate can never leak refunded money into a total. The negative ledger row
+    /// comes from <see cref="EventPaymentEditLog"/>, not from this row.
+    /// </summary>
+    public bool IsDeleted { get; set; } = false;
+
+    /// <summary>UTC instant of the refund.</summary>
+    public DateTime? DeletedAt { get; set; }
+
+    /// <summary>
+    /// Optimistic-concurrency token, so a refund and an amount-edit racing on the same collected
+    /// payment cannot silently overwrite each other. Computed column — adding it repairs no data.
+    /// </summary>
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = null!;
 }

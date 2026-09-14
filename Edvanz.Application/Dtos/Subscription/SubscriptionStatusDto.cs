@@ -1,4 +1,4 @@
-using Edvanz.Domain.Enums;
+﻿using Edvanz.Domain.Enums;
 
 namespace Edvanz.Application.Dtos.Subscription;
 
@@ -68,6 +68,22 @@ public class SubscriptionFeaturesDto
 
     /// <summary>May the public parent follow-up page be used? False under plain Managerial only.</summary>
     public bool ParentFollowUpAllowed { get; set; } = true;
+
+    /// <summary>
+    /// May the teacher add "Books &amp; fees" (مذكرات ومصاريف) items? The module is SUBSCRIBER-ONLY
+    /// (free-tier quota 0), so this is true exactly while a subscription is live.
+    ///
+    /// <para>UNLIKE its two siblings above this is a QUOTA gate, not a plan-CAPABILITY gate: it is
+    /// false with no subscription and false once one expires. Both server build sites assign it
+    /// explicitly; the <c>true</c> initializer exists only so a CLIENT reading an older server's
+    /// response fails OPEN, per this block's documented contract (the server still enforces on the
+    /// create action). Do not "simplify" it to an unconditional true.</para>
+    ///
+    /// <para>The app must gate the Books &amp; fees card on THIS field — never on
+    /// <see cref="SubscriptionStatusDto.HasSubscription"/> plus its own plan reasoning, which is
+    /// exactly the hardcoding this block exists to prevent.</para>
+    /// </summary>
+    public bool ExtrasAllowed { get; set; } = true;
 
     /// <summary>
     /// How many student APP ACCOUNTS this teacher may have linked at once

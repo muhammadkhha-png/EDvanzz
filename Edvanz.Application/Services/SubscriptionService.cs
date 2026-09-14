@@ -154,6 +154,9 @@ public class SubscriptionService : ISubscriptionService
                 WhatsAppNumber = whatsApp,
                 Features = new SubscriptionFeaturesDto
                 {
+                    // Books & fees is subscriber-only (free-tier quota 0): no subscription at all
+                    // means the create gate is closed, so the app must render the paywall card.
+                    ExtrasAllowed = false,
                     LinkedStudentCapacity = linkedCapacity,
                     LinkedStudentsUsed = linkedUsed
                 },
@@ -210,6 +213,12 @@ public class SubscriptionService : ISubscriptionService
                 || !SubscriptionPlanCapabilities.BlocksStudentAndParentAccounts(projection.PlanType),
             ParentFollowUpAllowed = !planIsLive
                 || !SubscriptionPlanCapabilities.BlocksParentFollowUp(projection.PlanType),
+            // Books & fees is a QUOTA gate, not a plan capability: it is open exactly while the
+            // subscription is live, which is the same predicate
+            // SubscriptionGateService.HasActiveSubscriptionAsync uses (Active | ExpiringSoon) and
+            // therefore the same answer CanCreateAsync will give. Computed off the already-loaded
+            // projection — no second query.
+            ExtrasAllowed = planIsLive,
             LinkedStudentCapacity = linkedCapacity,
             LinkedStudentsUsed = linkedUsed
         };

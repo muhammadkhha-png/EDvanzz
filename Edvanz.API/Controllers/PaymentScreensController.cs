@@ -1,4 +1,5 @@
-using Edvanz.API.Attributes;
+﻿using Edvanz.API.Attributes;
+using Edvanz.Domain.Models;
 using Edvanz.Application.Dtos.Payment;
 using Edvanz.Application.IservicesContract;
 using Edvanz.Application.ServiceContract;
@@ -76,7 +77,16 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         [FromQuery] string? search = null,
         // "Collections only" toggle: false omits the negative refund/withdrawal lines (and paginates
         // collections alone). Default true = the full signed ledger (unchanged behaviour).
-        [FromQuery] bool includeAdjustments = true)
+        [FromQuery] bool includeAdjustments = true,
+        // Which money the ledger covers: "fees" (monthly subscriptions), "extras" (Books & fees), or
+        // "all". Serialized as a string via the global JsonStringEnumConverter (§10).
+        //
+        // DEFAULTS TO "fees", AND MUST KEEP DOING SO. Every deployed app build omits this parameter.
+        // Defaulting to "all" would grow their ledger rows they cannot label, with an id format they
+        // do not expect (extras ids are prefixed "extras-"), while dailyNets and amountTiers changed
+        // silently underneath them. With "fees" they are byte-identical; the build that ships the
+        // segmented scope control sends kind=all explicitly.
+        [FromQuery] LedgerKindFilter kind = LedgerKindFilter.Fees)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
@@ -102,7 +112,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
         var result = await _screenService.GetCollectionsByMonthAsync(
             teacherId.Value, month, year, page, limit, collectedByUserId, fromDate, toDate, search,
-            includeAdjustments, exactRange);
+            includeAdjustments, exactRange, kind);
         return ToResponse(result);
     }
 
@@ -136,7 +146,12 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         // for one student narrowed the list to one row while the card above still described the whole
         // day ("12 collections - 3,400 EGP"). Defaults reproduce the old behaviour exactly.
         [FromQuery] string? search = null,
-        [FromQuery] bool includeAdjustments = true)
+        [FromQuery] bool includeAdjustments = true,
+        // Which money kinds the figures cover. DEFAULTS TO `fees`, so every deployed build reads
+        // byte-identical numbers; only the new segmented scope control sends anything else. The
+        // paid/partial/prorated/unpaid student counts below are an OBLIGATION lens anchored to a
+        // calendar month and are NOT narrowed by this — extras settle no installment month.
+        [FromQuery] LedgerKindFilter kind = LedgerKindFilter.Fees)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
@@ -160,7 +175,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
 
         var result = await _screenService.GetCollectionsSummaryAsync(
             teacherId.Value, fromDate, toDate, asOfMonth, sessionId, collectedByUserId, exactRange,
-            search, includeAdjustments);
+            search, includeAdjustments, kind);
         return ToResponse(result);
     }
 
@@ -184,7 +199,17 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         long assistantId,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20,
-        [FromQuery] string? search = null)
+        [FromQuery] string? search = null,
+        // Which money the LISTED rows cover: "fees", "extras" or "all". Narrows the list only — the
+        // balance, the held-since anchor and the collected/refunded totals always cover BOTH kinds,
+        // because the wallet is one physical bag and those figures exist to explain its balance.
+        //
+        // DEFAULTS TO "all" here, unlike the collections ledger. This card has always PRINTED a
+        // balance that included extras cash, so the honest default is the list that adds up to it;
+        // a fee-only default would keep the very discrepancy this change fixes. Deployed clients
+        // gain rows they render generically (they already render refunds and hand-overs) rather
+        // than losing a number they rely on.
+        [FromQuery] LedgerKindFilter kind = LedgerKindFilter.All)
     {
         long? teacherId = await ResolveTeacherIdAsync();
         if (teacherId is null) return TeacherNotResolved();
@@ -192,7 +217,7 @@ public sealed class PaymentScreensController : ModuleSixApiBaseController
         // Assistant → forced to their own wallet; Teacher/SuperAdmin → the requested assistant.
         // B2: optional `search` filters the collections list by student name/code.
         var result = await _screenService.GetAssistantWalletScreenAsync(
-            teacherId.Value, assistantId, page, limit, AssistantScopeUserId(), search);
+            teacherId.Value, assistantId, page, limit, AssistantScopeUserId(), search, kind);
         return ToResponse(result);
     }
 
