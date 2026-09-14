@@ -19,8 +19,10 @@ public interface IAdminSubscriptionService
 
     /// <summary>
     /// Manual activation that bypasses payment (FR-SUB-060 / REQ-ADM-012).
-    /// Inserts a new TeacherSubscription with PaymentChannel = SuperAdminOverride
-    /// and AmountPaidEGP = 0. Flips the previous current row IsCurrent = false.
+    /// Inserts a new TeacherSubscription with PaymentChannel = SuperAdminOverride and
+    /// AmountPaidEGP = whatever request.AmountPaidEGP STATED, or 0 when it was omitted — the
+    /// price is never computed here, because a free activation priced like a paid one shows the
+    /// teacher money they never paid. Flips the previous current row IsCurrent = false.
     /// Cache is invalidated synchronously after commit; no payment notification fires.
     /// </summary>
     Task<Result<CurrentSubscriptionDto>> ActivateAsync(
@@ -28,8 +30,8 @@ public interface IAdminSubscriptionService
 
     /// <summary>
     /// Manual activation of a MANAGERIAL subscription that bypasses payment. Identical to
-    /// <see cref="ActivateAsync"/> (SuperAdminOverride row, AmountPaidEGP = 0, same period
-    /// defaults) except the new row is stamped PlanType = Managerial: while it is the teacher's
+    /// <see cref="ActivateAsync"/> (SuperAdminOverride row, same stated-or-zero AmountPaidEGP,
+    /// same period defaults) except the new row is stamped PlanType = Managerial: while it is the teacher's
     /// current active subscription, no student or parent account may be linked and no roster
     /// student may be added. When request.RemoveExistingLinks is true, all existing live
     /// student/parent links are severed atomically as part of the activation.

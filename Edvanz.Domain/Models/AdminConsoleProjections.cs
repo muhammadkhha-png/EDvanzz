@@ -48,7 +48,9 @@ public sealed record ConsoleTeacherRow(
     /// <summary>The seat count the Full plan is priced on.</summary>
     int LinkedStudentCapacity,
 
-    /// <summary>What the CURRENT row actually recorded as paid. Zero on every admin activation.</summary>
+    /// <summary>What the CURRENT row actually recorded as paid. Zero when nothing was recorded —
+    /// an admin activation stores only the amount the admin STATED, and states nothing by default,
+    /// so zero here means "no figure", not "free".</summary>
     decimal RecordedAmountPaidEGP,
 
     /// <summary>How many subscription rows this teacher has ever had. 1 = still on their first.</summary>

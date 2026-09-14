@@ -22,7 +22,8 @@ namespace Edvanz.Application.Services;
 ///
 /// MANUAL OVERRIDES (Activate / Extend / SetEndDate):
 ///   These bypass payment. The new TeacherSubscription row carries
-///   PaymentChannel = SuperAdminOverride and AmountPaidEGP = 0.
+///   PaymentChannel = SuperAdminOverride and AmountPaidEGP = whatever the admin STATED, or 0
+///   when they stated nothing. The platform never computes that figure — see ActivateCoreAsync.
 ///   CreatedByUserId records the admin user for audit (REQ-ADM-016 / FR-SUB-064).
 ///
 /// PENDING QUEUE:
@@ -78,7 +79,7 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             adminUserId, request.TeacherId, request.StartDate, request.EndDate,
             SubscriptionPlanType.Full, removeExistingLinks: false,
             SubscriptionConstants.Messages.SubscriptionActivated,
-            request.StudentCapacity, request.LinkedStudentCapacity);
+            request.StudentCapacity, request.LinkedStudentCapacity, request.AmountPaidEGP);
 
     /// <inheritdoc />
     public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialAsync(
@@ -88,7 +89,7 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             SubscriptionPlanType.Managerial, request.RemoveExistingLinks,
             SubscriptionConstants.Messages.SubscriptionManagerialActivated,
             // One number: a managerial plan has no student app accounts to limit.
-            request.StudentCapacity, linkedStudentCapacity: null);
+            request.StudentCapacity, linkedStudentCapacity: null, request.AmountPaidEGP);
 
     /// <inheritdoc />
     public async Task<Result<CurrentSubscriptionDto>> ActivateManagerialPlusAsync(
@@ -97,26 +98,31 @@ public class AdminSubscriptionService : IAdminSubscriptionService
             adminUserId, request.TeacherId, request.StartDate, request.EndDate,
             SubscriptionPlanType.ManagerialPlus, request.RemoveExistingLinks,
             SubscriptionConstants.Messages.SubscriptionManagerialPlusActivated,
-            request.StudentCapacity, linkedStudentCapacity: null);
+            request.StudentCapacity, linkedStudentCapacity: null, request.AmountPaidEGP);
 
     /// <summary>
     /// Shared no-payment activation core for both Full and Managerial plans. Inserts a new
-    /// IsCurrent = true TeacherSubscription (PaymentChannel = SuperAdminOverride, AmountPaidEGP = 0)
-    /// stamped with <paramref name="planType"/> and flips the previous current row, all inside one
-    /// transaction. When <paramref name="removeExistingLinks"/> is true (managerial only), it also
-    /// severs every live student link and active parent link for the teacher in the SAME transaction.
+    /// IsCurrent = true TeacherSubscription (PaymentChannel = SuperAdminOverride) stamped with
+    /// <paramref name="planType"/> and flips the previous current row, all inside one transaction.
+    /// When <paramref name="removeExistingLinks"/> is true (managerial only), it also severs every
+    /// live student link and active parent link for the teacher in the SAME transaction.
     /// </summary>
     /// <param name="studentCapacity">
-    /// New account-student limit, or null to leave it alone. Applied BEFORE the price is computed.
+    /// New account-student limit, or null to leave it alone. Applied in the same transaction.
     /// </param>
     /// <param name="linkedStudentCapacity">
-    /// New student-app-account limit, or null to leave it alone. Full plan only — it is what the
-    /// Full price is computed from, which is precisely why it cannot be applied afterwards.
+    /// New student-app-account limit, or null to leave it alone. Full plan only — the number the
+    /// Full plan is priced on, so it must be right before the plan is agreed.
+    /// </param>
+    /// <param name="amountPaidEGP">
+    /// What the admin says the teacher paid, or null when they stated nothing. Null stores 0, and
+    /// 0 reads as "no amount recorded" everywhere it is shown.
     /// </param>
     private async Task<Result<CurrentSubscriptionDto>> ActivateCoreAsync(
         long adminUserId, long teacherId, DateTime? startDateOpt, DateTime? endDateOpt,
         SubscriptionPlanType planType, bool removeExistingLinks, string successMessageKey,
-        int? studentCapacity = null, int? linkedStudentCapacity = null)
+        int? studentCapacity = null, int? linkedStudentCapacity = null,
+        decimal? amountPaidEGP = null)
     {
         // ── Validation ──
         var teacher = await _unitOfWork.Users.GetActiveTeacherByIdAsync(teacherId);
@@ -162,20 +168,21 @@ public class AdminSubscriptionService : IAdminSubscriptionService
         // behind it, so this raises the student limit rather than rejecting the admin's numbers.
         if (capacityChanged) EnforceCapacityInvariant(teacher);
 
-        // What this period is worth at the prices in force TODAY, priced through the same
-        // plan-aware calculator the teacher's own renewal screen uses.
+        // What the teacher paid — as STATED by the admin, never computed here.
         //
-        // It used to be hardcoded to 0. Payment for an admin activation is arranged outside the
-        // app, so nothing here ever knew a transaction had happened — but writing 0 did not record
-        // that, it recorded "this cost nothing", and the platform has no other memory of the price.
-        // The teacher's own subscription history read the column straight out and showed 0 EGP
-        // against every month they had paid for, and no revenue figure could be reconstructed from
-        // the rows at all. A snapshot of the price at activation is the honest record: it is what
-        // was owed, it cannot be rewritten by a later price change, and it is recoverable.
-        var rates = await _unitOfWork.SubscriptionPricingRepo.GetRatesAsync();
-        decimal amountEGP = SubscriptionPricing.MonthlyValueEGP(
-            planType, teacher.LinkedStudentCapacity,
-            rates.PerStudentEGP, rates.ManagerialMonthlyEGP, rates.ManagerialPlusMonthlyEGP);
+        // This briefly priced the period through the renewal calculator and stored the result,
+        // reasoning that the platform otherwise has no memory of the price. It was wrong in the one
+        // direction that matters: payment for an admin activation is arranged outside the app, so
+        // the only thing the server knows is that SOMEONE decided to switch the teacher on. A free
+        // trial, a goodwill month and a paid month are indistinguishable from here, and pricing all
+        // three showed the teacher — in their own subscription history — money they never paid.
+        // A figure nobody stated is not a better record than no figure; it is a false one.
+        //
+        // Null (omitted) stores 0, the historical value, and 0 is rendered as "no amount recorded"
+        // rather than as a price of zero (SubscriptionHistoryItemDto.AmountPaidEGP). The renewal
+        // QUOTE is a different question and still comes from SubscriptionPricing — see
+        // ComputeRenewalPriceAsync.
+        decimal amountEGP = amountPaidEGP ?? 0m;
 
         // ── Build the override row ──
         var newSubscription = new TeacherSubscription

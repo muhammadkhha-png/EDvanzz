@@ -21,9 +21,20 @@ public class SubscriptionHistoryItemDto
     public DateTime EndDate { get; set; }
 
     /// <summary>
-    /// Amount paid in EGP. Zero for super-admin manual activations.
+    /// What the teacher paid for this period, in EGP — or <c>null</c> when NO AMOUNT WAS EVER
+    /// RECORDED, which is the case for every super-admin activation that did not state one.
+    ///
+    /// Nullable on purpose. The stored column is <c>decimal NOT NULL</c> and a real payment is
+    /// never zero, so a stored 0 means "nobody wrote a figure here" — and rendering that as
+    /// "0 EGP" tells a teacher their subscription was free, or (when the activation briefly
+    /// computed a price) tells them they paid a sum nobody agreed. A null cannot be formatted
+    /// into a price by accident; a zero can. Same contract as
+    /// <see cref="AdminExtendRequest.AmountPaidEGP"/>: null is "not stated", not zero.
+    ///
+    /// The JSON key is always present (it serializes as <c>null</c>, not omitted), so a client
+    /// that reads it still finds it; only its type widened from number to number-or-null.
     /// </summary>
-    public decimal AmountPaidEGP { get; set; }
+    public decimal? AmountPaidEGP { get; set; }
 
     public PaymentMethod PaymentMethod { get; set; }
 

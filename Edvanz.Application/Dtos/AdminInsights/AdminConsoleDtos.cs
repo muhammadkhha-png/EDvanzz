@@ -226,14 +226,17 @@ public class DashboardMoneyDto
     public decimal ActiveValueEGP { get; set; }
 
     /// <summary>
-    /// Always "TodayPrices". Subscription rows DO carry an <c>AmountPaidEGP</c>, but every admin
-    /// activation writes 0 into it and admin activation is the only live path — so a sum of the
-    /// stored column would report almost nothing. <see cref="RecordedPaidEGP"/> reports that sum
-    /// anyway, unmixed, so the difference stays visible instead of being quietly averaged away.
+    /// Always "TodayPrices". Subscription rows DO carry an <c>AmountPaidEGP</c>, but it holds only
+    /// what an admin explicitly STATED at activation — nothing computes it, because a figure nobody
+    /// stated is a false record, not a better one — and admin activation is the only live path. So a
+    /// sum of the stored column reports only the periods someone bothered to price.
+    /// <see cref="RecordedPaidEGP"/> reports that sum anyway, unmixed, so the difference stays
+    /// visible instead of being quietly averaged away.
     /// </summary>
     public string ValueBasis { get; set; } = "TodayPrices";
 
-    /// <summary>Sum of what the current subscription rows actually recorded as paid.</summary>
+    /// <summary>Sum of what the current subscription rows actually recorded as paid. Rows with no
+    /// stated amount contribute 0 — this is a floor on recorded revenue, never a total of it.</summary>
     public decimal RecordedPaidEGP { get; set; }
 
     /// <summary>The most recent completed renewal month; the full series is on /renewals.</summary>

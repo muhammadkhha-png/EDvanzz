@@ -45,4 +45,12 @@ public class AdminActivateManagerialRequest
     /// forward. The forward block applies either way; this flag only controls existing links.
     /// </summary>
     public bool RemoveExistingLinks { get; set; }
+
+    /// <summary>
+    /// What the teacher paid for this period, if anything. Same contract as
+    /// <see cref="AdminActivateRequest.AmountPaidEGP"/>: null means "not stated", which is NOT the
+    /// same as zero, and omitting it stores 0 so no teacher-facing screen can show a price that
+    /// was never agreed. Older admin clients that do not send it keep working unchanged.
+    /// </summary>
+    public decimal? AmountPaidEGP { get; set; }
 }

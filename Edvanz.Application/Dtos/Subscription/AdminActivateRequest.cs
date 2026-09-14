@@ -36,9 +36,23 @@ public class AdminActivateRequest
     /// <summary>
     /// How many of those students may have their own app account. NULL LEAVES IT UNCHANGED.
     ///
-    /// THIS IS THE NUMBER THE FULL PLAN IS PRICED ON (BR-SUB-009), so it is applied BEFORE the
-    /// activation snapshots its amount — setting it afterwards would record the old price against
-    /// the new plan.
+    /// THIS IS THE NUMBER THE FULL PLAN IS PRICED ON (BR-SUB-009), so it is applied in the SAME
+    /// transaction as the subscription row — a plan that activated at a limit the teacher does not
+    /// actually have would be agreed for one thing and enforce another.
     /// </summary>
     public int? LinkedStudentCapacity { get; set; }
+
+    /// <summary>
+    /// What the teacher paid for this period, if anything. OPTIONAL and nullable on purpose: null
+    /// means "not stated", which is the honest record for a free or goodwill activation and is NOT
+    /// the same as zero. Payment for an admin activation is arranged outside the app, so nothing
+    /// here can know it happened — only the admin doing it can. Omitting it stores 0, which every
+    /// teacher-facing surface renders as "no amount recorded" rather than as a price of zero.
+    /// Older admin clients that do not send it keep working unchanged.
+    ///
+    /// DO NOT compute this from the price list. It was tried: the activation priced the period
+    /// through the renewal calculator and stored the result, so an admin granting a free month
+    /// showed the teacher, in their own subscription history, money they had never paid.
+    /// </summary>
+    public decimal? AmountPaidEGP { get; set; }
 }

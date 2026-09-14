@@ -124,12 +124,16 @@ public class AdminSubscriptionController : ApiBaseController
     // WHAT IT DOES:
     //   Manually activates a teacher's subscription with no payment record.
     //   Inserts a new TeacherSubscription row with PaymentChannel = SuperAdminOverride.
+    //   amountPaidEGP is OPTIONAL and is the ONLY source of the recorded price: omit it and the
+    //   row records nothing (stored 0, shown to the teacher as "no amount recorded"). The server
+    //   never prices the period itself — payment is arranged outside the app, so a computed
+    //   figure would show a teacher money they never paid.
     //
     // TABLES WRITTEN: TeacherSubscriptions (flips previous IsCurrent + inserts new)
     // CACHE: invalidated synchronously after commit
     //
     // SAMPLE: POST /api/admin/subscriptions/activate
-    //   { "teacherId": 42, "startDate": null, "endDate": null }
+    //   { "teacherId": 42, "startDate": null, "endDate": null, "amountPaidEGP": 450 }
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("activate")]
@@ -164,7 +168,8 @@ public class AdminSubscriptionController : ApiBaseController
     // CACHE: invalidated synchronously after commit
     //
     // SAMPLE: POST /api/admin/subscriptions/activate-managerial
-    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false }
+    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false,
+    //     "amountPaidEGP": null }   // null/omitted = no amount recorded, never a price of zero
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("activate-managerial")]
@@ -191,7 +196,8 @@ public class AdminSubscriptionController : ApiBaseController
     // accounts stay blocked while the public parent follow-up page remains available.
     //
     // SAMPLE: POST /api/admin/subscriptions/activate-managerial-plus
-    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false }
+    //   { "teacherId": 42, "startDate": null, "endDate": null, "removeExistingLinks": false,
+    //     "amountPaidEGP": null }   // null/omitted = no amount recorded, never a price of zero
     //
     // ══════════════════════════════════════════════════════════════════════════
     [HttpPost("activate-managerial-plus")]

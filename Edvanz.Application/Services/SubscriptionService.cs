@@ -469,7 +469,11 @@ public class SubscriptionService : ISubscriptionService
                 Id = s.Id,
                 StartDate = s.StartDate,
                 EndDate = s.EndDate,
-                AmountPaidEGP = s.AmountPaidEGP,
+                // A stored 0 is "no amount recorded", never a price of zero — the column is
+                // NOT NULL, a real payment is never zero, and an admin activation that states
+                // nothing leaves it at 0. Surfacing it as null is what stops the teacher's own
+                // history from claiming they paid 0 EGP for a month they paid for outside the app.
+                AmountPaidEGP = s.AmountPaidEGP == 0m ? null : s.AmountPaidEGP,
                 PaymentMethod = s.PaymentMethod,
                 PaymentChannel = s.PaymentChannel,
                 MaskedTransactionReference = MaskReference(s.TransactionReference),
