@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Edvanz.Application.Dtos;
@@ -218,7 +220,13 @@ public class PaymentScreenService : IPaymentScreenService
         var refundRows = new List<CollectionRow>();
         int refundCount = 0;
         // Student-departure refunds confirmed in-range (money OUT). Omitted when includeAdjustments=false.
-        if (includeAdjustments)
+        //
+        // ALSO omitted under kind=extras: a departure refund returns a monthly FEE, so it has no
+        // place in a books & fees scope. Found on production 2026-09-15 — the extras scope listed
+        // three fee departure refunds beside one extras collection and counted them into
+        // `totalItems`, which is the same class of error as a withdrawal appearing under a kind
+        // filter: a scoped net that subtracts money the visible rows never contained.
+        if (includeAdjustments && kind != LedgerKindFilter.Extras)
         {
             var refunds = (await _unitOfWork.PaymentsRepo
                     .GetDepartureRefundsByDateRangeAsync(teacherId, startDate, endExclusive))
@@ -2483,6 +2491,12 @@ public class PaymentScreenService : IPaymentScreenService
                     _localizer, PaymentConstants.Messages.CollectNoteRequired, HttpStatusCode.BadRequest);
         }
 
+        // FAST replay guard: the distributed cache, which returns the ORIGINAL response verbatim.
+        // It is best-effort by design and fails OPEN (RedisIdempotencyService), and in production it
+        // is currently backed by AddDistributedMemoryCache because Redis__Connection is blank — so it
+        // lives in ONE container's memory and does not survive the container replacements App Service
+        // performs routinely. That is why it is no longer the only guard: see the per-item durable key
+        // below, which puts the same question to the database.
         var stored = await _idempotency.GetStoredResultAsync("submit", teacherId, idempotencyKey);
         if (stored is not null)
             return Result<SubmitCollectionResponse>.Success(
@@ -2526,19 +2540,73 @@ public class PaymentScreenService : IPaymentScreenService
                 continue;
             }
 
-            // Explicit submit after client-side review → confirm duplicates/already-paid (like batch-collect).
-            var collect = await _paymentService.CollectPaymentAsync(new CollectPaymentDto
+            // DURABLE replay guard (P0-8). One key per (submission, student), so the filtered unique
+            // index IX_PT_TeacherId_ClientEntryId answers "has this cash already been taken?" out of
+            // the database instead of out of one container's memory. Null when the caller supplied no
+            // Idempotency-Key, which stores a NULL ClientEntryId exactly as before.
+            string? replayKey = BuildSubmitReplayKey(idempotencyKey, item.StudentId);
+
+            // Cheap pre-check so the ordinary replay is answered by a lookup rather than by a failed
+            // INSERT: one seek on the unique index, and only for callers that sent a key.
+            if (replayKey is not null)
             {
-                TeacherId = teacherId,
-                TeacherStudentId = item.StudentId,
-                SessionId = sessionId.Value,
-                Amount = item.Amount,
-                PaymentMethod = PaymentCollectionMethod.BarcodeScan,
-                CollectedByUserId = actingUserId,
-                CollectionNote = EffectiveItemNote(item, note),
-                DuplicateConfirmed = true,
-                AlreadyPaidConfirmed = true
-            });
+                var alreadyCollected = await _unitOfWork.PaymentsRepo
+                    .GetByClientEntryIdAsync(teacherId, replayKey);
+                if (alreadyCollected is not null)
+                {
+                    results.Add(BuildReplayResult(idStr));
+                    submitted++;
+                    totalCollected += alreadyCollected.AmountPaid;
+                    continue;
+                }
+            }
+
+            // Explicit submit after client-side review → confirm duplicates/already-paid (like batch-collect).
+            Result<CollectPaymentResultDto> collect;
+            try
+            {
+                collect = await _paymentService.CollectPaymentAsync(new CollectPaymentDto
+                {
+                    TeacherId = teacherId,
+                    TeacherStudentId = item.StudentId,
+                    SessionId = sessionId.Value,
+                    Amount = item.Amount,
+                    PaymentMethod = PaymentCollectionMethod.BarcodeScan,
+                    CollectedByUserId = actingUserId,
+                    CollectionNote = EffectiveItemNote(item, note),
+                    DuplicateConfirmed = true,
+                    AlreadyPaidConfirmed = true,
+                    ServerDerivedReplayKey = replayKey,
+                    // A collection captured with no signal is dated when the cash was TAKEN, not
+                    // when it finally reached us — the same rule the sync lane applies, so the same
+                    // queued payment cannot be dated two different ways depending on which path it
+                    // drained through. Omitted (every client shipped before this) leaves both flags
+                    // false and the instant is server-now, exactly as before. CollectPaymentAsync
+                    // owns the clamping; nothing is trusted from the device unchecked.
+                    IsOfflineRecord = item.OfflineCollectedAt.HasValue,
+                    OfflineCollectedAt = item.OfflineCollectedAt
+                });
+            }
+            catch (Exception)
+            {
+                // A failed SaveChanges leaves its row tracked as Added, so the NEXT student in this
+                // batch would try to save it again and fail for a reason of someone else's making.
+                _unitOfWork.DiscardTrackedChanges();
+
+                // The narrow window the pre-check cannot close: a concurrent request carrying the
+                // same Idempotency-Key won the insert in between, so the unique index rejected ours.
+                // Finding the row proves the cash was already taken under this key — report it the
+                // way the original call did. Anything else is a real failure and must surface.
+                var winner = replayKey is null
+                    ? null
+                    : await _unitOfWork.PaymentsRepo.GetByClientEntryIdAsync(teacherId, replayKey);
+                if (winner is null) throw;
+
+                results.Add(BuildReplayResult(idStr));
+                submitted++;
+                totalCollected += winner.AmountPaid;
+                continue;
+            }
 
             if (collect.IsSuccess && collect.Data?.Transaction is not null)
             {
@@ -2577,6 +2645,54 @@ public class PaymentScreenService : IPaymentScreenService
     /// </summary>
     private static string? EffectiveItemNote(SubmitCollectionItem item, string? batchNote)
         => string.IsNullOrWhiteSpace(item.Note) ? batchNote : item.Note.Trim();
+
+    /// <summary>
+    /// REQ-PAY-080 (P0-8). Derives the durable exactly-once key one submitted student's collection is
+    /// stored under, from the caller's <c>Idempotency-Key</c> header, so a replay is refused by the
+    /// filtered unique index <c>IX_PT_TeacherId_ClientEntryId</c> rather than by a cache that does not
+    /// outlive the container.
+    /// <para>
+    /// <b>No header means no key, and no key means no change.</b> Every caller that does not send one
+    /// gets <c>null</c> here, stores a NULL <c>ClientEntryId</c>, and is untouched by any of this —
+    /// the index is filtered on <c>[ClientEntryId] IS NOT NULL</c>, so NULLs neither collide nor cost
+    /// anything. This is what keeps the endpoint byte-for-byte compatible for today's callers.
+    /// </para>
+    /// <para>
+    /// The header is hashed rather than used raw for two reasons: it is client-controlled and
+    /// unbounded while the column is 64 characters, and a fixed-width digest keeps the composed key
+    /// inside that budget whatever a client sends. The <c>sub_</c> prefix keeps this namespace
+    /// disjoint from the offline outbox's own op ids in the same column. The student id is part of
+    /// the key because ONE submission records one transaction PER student, and each of them needs its
+    /// own row in a UNIQUE index. Keys are tenant-scoped by the index's TeacherId leg.
+    /// </para>
+    /// </summary>
+    private static string? BuildSubmitReplayKey(string? idempotencyKey, long studentId)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey)) return null;
+
+        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(idempotencyKey.Trim()));
+        // 128 bits of the digest: collision-free in any realistic sense, and it holds the whole key
+        // (4 + 32 + 1 + at most 19 digits = 56) inside the column's 64 characters.
+        string hex = Convert.ToHexString(digest, 0, 16).ToLowerInvariant();
+        return string.Create(CultureInfo.InvariantCulture, $"sub_{hex}_{studentId}");
+    }
+
+    /// <summary>
+    /// The result row for a student whose collection under this Idempotency-Key was ALREADY recorded.
+    /// Reported as <c>committed</c> on purpose: it is what the first (lost) response said, which is
+    /// the whole point of a replay, and it keeps <c>submittedCount</c>/<c>totalCollected</c> equal to
+    /// the original answer for a client that never received it. A transaction the tutor has since
+    /// deleted is included deliberately — the submission was applied once, and their later decision to
+    /// remove the money is not something a retry may undo. <c>Settlements</c> is left null because the
+    /// original cascade is not re-derived here; a replay is rare and the money question it asks is
+    /// "did this already happen", not "where did it land".
+    /// </summary>
+    private static SubmitCollectionResultDto BuildReplayResult(string studentId) => new()
+    {
+        StudentId = studentId,
+        Status = "committed",
+        Reason = null
+    };
 
     /// <inheritdoc />
     public async Task<Result<WalletWithdrawResponse>> WithdrawAsync(

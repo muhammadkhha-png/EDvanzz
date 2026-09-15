@@ -1213,6 +1213,25 @@ public class SubmitCollectionItem
     /// partial/custom-amount note requirement on its own.
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// When this cash was actually taken, as a UTC instant, for a collection captured with no
+    /// signal and submitted later. ADDITIVE (2026-09-15) and inert until a client sends it.
+    ///
+    /// <para>WHY IT EXISTS: the same queued collection can reach the server two ways — through
+    /// <c>POST api/Payment/sync</c>, which carries the captured instant, or through THIS endpoint
+    /// as the per-op fallback, which did not. So one payment was dated by the phone on one path and
+    /// by the server on the other, and the wallet, the day strip and the month totals disagreed
+    /// depending on which path it happened to drain through.</para>
+    ///
+    /// <para>OMITTED or NULL means "taken now" — today's behaviour exactly, for every deployed
+    /// client. Supplied, it is treated as an offline record and clamped the same way the sync lane
+    /// clamps it: never in the future, never older than
+    /// <see cref="Edvanz.Domain.Constants.PaymentConstants.MaxOfflineCollectionBackdate"/>, with
+    /// the device's raw claim kept on the row either way. A phone's clock cannot be trusted to
+    /// move money into a closed month.</para>
+    /// </summary>
+    public DateTime? OfflineCollectedAt { get; set; }
 }
 
 public class SubmitCollectionResponse

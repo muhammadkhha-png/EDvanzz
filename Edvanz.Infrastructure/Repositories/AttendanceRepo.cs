@@ -737,7 +737,24 @@ public class AttendanceRepo : GenericRepo<AttendanceRecord, long>, IAttendanceRe
     {
         foreach (var counter in counters)
         {
-            _context.Entry(counter).State = EntityState.Modified;
+            // Same guard as the single-counter twin above, and for the same reason (BUG-3):
+            // a counter created earlier in this unit of work is still Added with a temporary
+            // key, and forcing it to Modified THROWS —
+            //   "The property 'StudentAbsenceCounter.Id' has a temporary value while
+            //    attempting to change the entity's state to 'Modified'."
+            // (verified against this model, EF Core 10). An Added row is inserted on save
+            // anyway, so it needs no flag.
+            //
+            // LATENT, not live: BulkMarkAttendanceAsync does lazily create a counter for a
+            // student who has none and pass it straight here, but every student who can be
+            // bulk-marked has an active StudentSessionAssignment, and
+            // OnStudentAssignedToSessionAsync initialises the counter when that assignment is
+            // made — so the Added case is unreachable today. It stops being unreachable the
+            // moment a student reaches attendance without going through assignment, and the
+            // failure then is a 500 that loses the WHOLE class's marks, not one student's.
+            var entry = _context.Entry(counter);
+            if (entry.State != EntityState.Added)
+                entry.State = EntityState.Modified;
         }
         await Task.CompletedTask;
     }

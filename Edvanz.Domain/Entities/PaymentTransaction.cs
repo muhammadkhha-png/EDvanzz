@@ -177,6 +177,28 @@ public class PaymentTransaction : BaseEntity
     /// </summary>
     public DateTime LocalCollectedAt { get; set; }
 
+    /// <summary>
+    /// REQ-PAY-079/080. The collection instant the COLLECTING DEVICE claimed, exactly as it
+    /// arrived (normalised to UTC), for offline records only. Null for every online collection and
+    /// for any offline record that carried no device instant.
+    /// <para>
+    /// Read it against <see cref="CollectedAt"/>: EQUAL means the device's claim was accepted and
+    /// is what every money surface now counts; DIFFERENT means the claim fell outside the accepted
+    /// window (in the future, or more than <c>PaymentConstants.MaxOfflineCollectionBackdate</c>
+    /// old) and the server's own clock was used instead. Both columns are <c>datetime2(0)</c>, so
+    /// the accepted case round-trips byte-identical and the comparison is exact.
+    /// </para>
+    /// <para>
+    /// This column exists because device clocks lie. A real production collection carried
+    /// <c>CollectedAt</c> 13:48:49Z against a device-implied 14:32:07Z - 43 minutes fast. Once the
+    /// device instant drives <c>CollectedAt</c> it can move cash into the wrong DAY and the wrong
+    /// MONTH, so a rejected claim must leave a trace rather than disappear: without it, a tutor
+    /// disputing a day's total and a support engineer reading the row have no way to tell an
+    /// accepted device time from a server fallback.
+    /// </para>
+    /// </summary>
+    public DateTime? DeviceReportedCollectedAt { get; set; }
+
     // ══════════════════════════════════════════════
     // PAYMENT FLAGS
     // ══════════════════════════════════════════════

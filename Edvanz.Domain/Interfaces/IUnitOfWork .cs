@@ -27,6 +27,25 @@ namespace Edvanz.Domain.Interfaces
         //Task LogError(Exception ex);
 
         /// <summary>
+        /// Drops every entity the context is currently tracking, so nothing left over from a FAILED
+        /// <see cref="SaveChangesAsync"/> is re-attempted by the next one.
+        /// <para>
+        /// Why this exists (REQ-PAY-080/081): a failed insert does NOT untrack the entity - EF leaves
+        /// it <c>Added</c>. A loop that records one money row per student (offline sync replay, batch
+        /// collect submit) therefore carries the failed row into the NEXT student's save, which then
+        /// fails for a reason that has nothing to do with that student. The first failure is
+        /// recoverable and reportable; the cascade behind it is not. Call this in the catch, after the
+        /// transaction has been rolled back, before deciding what to report.
+        /// </para>
+        /// <para>
+        /// MUST NOT be called while a transaction is open (<see cref="HasActiveTransaction"/>): the
+        /// still-pending work of that transaction would be silently discarded while the transaction
+        /// itself stayed open, and the caller would commit a unit of work missing half its rows.
+        /// </para>
+        /// </summary>
+        void DiscardTrackedChanges();
+
+        /// <summary>
         /// Extended repository for the User module ecosystem (User, Teacher, StudentUser, ParentUser, linking).
         /// </summary>
         IUserRepo Users { get; }

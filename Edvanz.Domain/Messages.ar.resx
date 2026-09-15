@@ -1974,7 +1974,7 @@
     <value>تمت مزامنة سجلات الدفع المحلية بنجاح.</value>
   </data>
   <data name="PaymentSyncConflictsDetected" xml:space="preserve">
-    <value>تمت مزامنة المدفوعات مع وجود تعارضات. برجاء المراجعة والحل.</value>
+    <value>الفلوس اللي حصّلتها اتسجّلت. في طلبة كانوا خالصين كل الشهور اللي عليهم، فماتاخدش منهم حاجة زيادة — افتح مدفوعات الطالب تشوف الشهور اللي اتسددت.</value>
   </data>
   <data name="PaymentInvalidMonthInteger" xml:space="preserve">
     <value>الشهر غير صالح؛ لازم يكون رقم من 1 لـ 12.</value>

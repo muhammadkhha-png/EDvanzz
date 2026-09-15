@@ -75,6 +75,27 @@ public class CollectPaymentDto
     /// online collections.
     /// </summary>
     public string? ClientEntryId { get; set; }
+
+    /// <summary>
+    /// REQ-PAY-080. A durable exactly-once key the SERVER derived for an ONLINE collection, so the
+    /// filtered unique index <c>IX_PT_TeacherId_ClientEntryId</c> - not a cache - decides whether
+    /// this cash has already been taken.
+    /// <para>
+    /// <b>Not on the wire, and deliberately so.</b> It is <c>internal</c>, which means
+    /// System.Text.Json neither binds it from a request body nor emits it, and Swagger never shows
+    /// it. Honouring the PUBLIC <see cref="ClientEntryId"/> on online collections instead would
+    /// have changed <c>POST api/Payment/collect</c> for every deployed client in one step: a client
+    /// that re-sent a key on an online retry would go from "silently ignored" to a unique-index
+    /// violation with no handler above it. Only <c>POST /api/v1/collect/submit</c> sets this, and
+    /// only when the caller supplied an <c>Idempotency-Key</c> header.
+    /// </para>
+    /// <para>
+    /// Null (the default, and what every existing caller produces) means the transaction stores a
+    /// NULL <c>ClientEntryId</c> exactly as it does today - the filtered index ignores NULLs, so
+    /// nothing about those collections changes.
+    /// </para>
+    /// </summary>
+    internal string? ServerDerivedReplayKey { get; set; }
 }
 
 /// <summary>
@@ -106,6 +127,15 @@ public class CollectPaymentResultDto
     /// REQ-PAY-026: Warning to collector.
     /// </summary>
     public bool IsAlreadyPaid { get; set; } = false;
+
+    /// <summary>
+    /// REQ-PAY-079. True when this was an OFFLINE record whose device-reported collection instant
+    /// was refused (in the future of the server's clock, or more than a week old) and the server's
+    /// own clock dated the collection instead. The cash is recorded either way; what changed is the
+    /// day - and therefore the month's totals - it counts in. Always false for online collections.
+    /// Additive; older clients ignore it.
+    /// </summary>
+    public bool CollectedAtAdjusted { get; set; } = false;
     /// <summary>
     /// Whether a pro-rated amount was applied.
     /// REQ-PAY-025: Pro-rate indicator.
@@ -1200,10 +1230,45 @@ public class OfflinePaymentSyncRequestDto
 /// </summary>
 public class PaymentSyncResultDto
 {
+    /// <summary>Records that were recorded, or acknowledged as already recorded by an earlier run.</summary>
     public int SyncedCount { get; set; }
+
+    /// <summary>
+    /// Records whose <see cref="PaymentSyncEntryResultDto.IsConflict"/> is true - today that is
+    /// exactly one situation: the student was already paid up, so there was nothing left to take.
+    /// <para>
+    /// A SUBSET of <see cref="FailedCount"/>, never added to it - the same relationship attendance's
+    /// <c>SyncResultDto.DuplicateCount</c> has to its successes, and chosen for the same reason:
+    /// <see cref="FailedCount"/> keeps the value it has always had, so no deployed client sees a
+    /// number move under it.
+    /// </para>
+    /// <para>
+    /// It was never incremented before 2026-09-15, which made it permanently 0 and the batch
+    /// message permanently "synced successfully" regardless of what happened. It is incremented
+    /// from the same flag the per-entry list reports, so the count and the list can never disagree.
+    /// </para>
+    /// </summary>
     public int ConflictCount { get; set; }
+
+    /// <summary>Records that recorded nothing, for any reason (conflicts included).</summary>
     public int FailedCount { get; set; }
+
+    /// <summary>
+    /// Legacy pairing of an offline record with the COMPETING SERVER RECORD that blocked it
+    /// (REQ-PAY-082). It is empty, and that is the honest answer rather than an oversight: the
+    /// cross-device same-day conflict that used to fill it was deliberately removed (2026-09-02,
+    /// two people may legitimately collect from one student on one day), and the one conflict the
+    /// engine still produces - "already paid up, nothing owed in the payable window" - has no
+    /// competing row to point at. Per-record detail rides <see cref="EntryResults"/>.
+    /// <para>
+    /// Do not start filling it without first widening
+    /// <see cref="PaymentConflictDto.ExistingRecord"/> to nullable: it is non-nullable, and a
+    /// deployed client's never-yet-exercised parser for this array could fault on a null.
+    /// </para>
+    /// </summary>
     public List<PaymentConflictDto> Conflicts { get; set; } = new();
+
+    /// <summary>Per-record outcome, keyed by ClientEntryId. What clients actually read.</summary>
     public List<PaymentSyncEntryResultDto> EntryResults { get; set; } = new();
 }
 
@@ -1234,6 +1299,31 @@ public class PaymentSyncEntryResultDto
 
     /// <summary>The existing transaction on conflict / already-synced.</summary>
     public PaymentTransactionDto? ExistingRecord { get; set; }
+
+    /// <summary>
+    /// True when <see cref="AlreadySynced"/> is set AND the transaction this record was already
+    /// recorded as has since been DELETED by the tutor. The replay is still reported as handled -
+    /// the cash event was applied once and the tutor's later decision to remove it is theirs, not
+    /// something a retry may undo - but a client should not show a live receipt for money that is
+    /// no longer in the ledger. Additive; false on every other outcome.
+    /// </summary>
+    public bool ExistingRecordDeleted { get; set; }
+
+    /// <summary>
+    /// True when the collecting device's reported instant was NOT used to date this collection
+    /// because it fell outside the accepted window (in the future relative to the server, or older
+    /// than a week), and the server's own clock was used instead. The money is recorded either way;
+    /// what moved is which DAY - and so which month's totals - the cash counts in.
+    /// <para>
+    /// Machine-readable on purpose, and deliberately NOT a blocking prompt: this arrives on a
+    /// background drain with no human in front of it (the same reason a replay is never withheld
+    /// for a confirmation), and "your phone's clock is wrong" is not something a collector can act
+    /// on at the classroom door. The durable trace lives on the row itself
+    /// (<c>PaymentTransaction.DeviceReportedCollectedAt</c>); this flag just lets a client that
+    /// wants to mention it do so. Additive.
+    /// </para>
+    /// </summary>
+    public bool CollectedAtAdjusted { get; set; }
 
     // ── Settlement echo (additive) ────────────────────────────────────────────────────────────
     // An offline collection carries a CLIENT-computed amount and the server applies it verbatim —

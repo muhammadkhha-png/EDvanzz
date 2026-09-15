@@ -1424,6 +1424,10 @@ public class EventPaymentService : IEventPaymentService
 
             // Reset-aware: reversing cash the collector already handed over must NOT move
             // CurrentBalance (it left via the hand-over), but must still move TotalCollected.
+            // CollectedAt is the custody instant here ONLY because extras has no offline path — it is
+            // always DateTime.UtcNow at insert. If one is ever added (a device-reported instant, as
+            // fees now have per P0-6), this argument must become CreateAt first, or a refund of cash
+            // physically in the bag will refuse to leave the wallet. Same at the edit site below.
             await paymentService.AdjustCollectorWalletAsync(
                 teacherId, transaction.CollectedByUserId, -refundAmount, transaction.CollectedAt);
 

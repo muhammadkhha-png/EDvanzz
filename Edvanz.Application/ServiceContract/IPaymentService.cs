@@ -638,12 +638,21 @@ public interface IPaymentService
     /// collected payment is edited, refunded or deleted.
     ///
     /// <para>RESET-AWARE, and that is the whole point: a reversal of cash the collector ALREADY
-    /// handed to the tutor — i.e. <paramref name="reversedCollectionAt"/> is on/before the wallet's
+    /// handed to the tutor — i.e. <paramref name="reversedCustodyAt"/> is on/before the wallet's
     /// most recent hand-over — must NOT move <c>CurrentBalance</c>, because that cash left the
     /// holding via the hand-over and subtracting it again drives the wallet falsely negative. Such a
-    /// reversal still moves <c>TotalCollected</c> (lifetime). Pass the reversed payment's ORIGINAL
-    /// collection instant, not "now".</para>
+    /// reversal still moves <c>TotalCollected</c> (lifetime).</para>
+    ///
+    /// <para>Pass the instant the reversed cash entered THIS WALLET — for a fee collection that is
+    /// <c>PaymentTransaction.CreateAt</c> — never <c>CollectedAt</c> and never "now". Since offline
+    /// collections are dated by the collecting device (P0-6), <c>CollectedAt</c> can precede the
+    /// row's own insert, and cash that is physically in the assistant's bag today can carry a
+    /// collection date from before the last hand-over. Judging custody by that date refuses to debit
+    /// a refund from the wallet that actually holds the money.</para>
+    ///
+    /// <para>Omit the argument entirely when the money moves NOW out of currently-held cash (a
+    /// departure payout), rather than reversing a past collection.</para>
     /// </summary>
     Task AdjustCollectorWalletAsync(
-        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCollectionAt = null);
+        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCustodyAt = null);
 }

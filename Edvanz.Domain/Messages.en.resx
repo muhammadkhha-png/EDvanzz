@@ -1956,7 +1956,7 @@
     <value>Offline payment records synced successfully.</value>
   </data>
   <data name="PaymentSyncConflictsDetected" xml:space="preserve">
-    <value>Payment sync completed with conflicts. Please review and resolve.</value>
+    <value>Your collections were saved. Some students were already paid up for every month due, so nothing extra was taken from them — open a student’s payments to see the months already settled.</value>
   </data>
   <data name="PaymentInvalidMonthInteger" xml:space="preserve">
     <value>Invalid month; expected an integer 1-12.</value>

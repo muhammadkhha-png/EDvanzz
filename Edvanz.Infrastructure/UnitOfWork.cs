@@ -121,6 +121,17 @@ namespace Edvanz.Infrastructure
         /// Same root cause as CommitAsync — stale _transaction reference prevented
         /// proper transaction lifecycle management for subsequent operations.
         /// </summary>
+        /// <inheritdoc />
+        public void DiscardTrackedChanges()
+        {
+            // Guarded rather than asserted: this is called from a catch on the money path, and
+            // throwing here would replace a reportable business failure with an opaque 500. A
+            // transaction being open means the caller owns a unit of work we must not gut, so the
+            // safe action is to leave the tracker alone and let the caller's own rollback handle it.
+            if (_transaction != null) return;
+            _Context.ChangeTracker.Clear();
+        }
+
         public async Task RollbackAsync()
         {
             if (_transaction != null)

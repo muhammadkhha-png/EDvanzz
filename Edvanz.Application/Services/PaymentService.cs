@@ -316,6 +316,71 @@ public class PaymentService : IPaymentService
         {
             var now = DateTime.UtcNow;
 
+            // 7b. WHEN the cash changed hands (P0-6, 2026-09-15). Every money surface in this
+            // module reads CollectedAt: "collected this month", the ledger's day headers and day
+            // insights, and the wallet's held-cash stream. Dating an OFFLINE collection at the
+            // instant it happened to reach the server made cash taken on 31 August count as
+            // September revenue and sit under the day the drain ran, while the receipt column
+            // beside it (LocalCollectedAt) already said 31 August. The two now come from ONE
+            // instant, so they cannot disagree again.
+            //
+            // THE DEVICE CLOCK IS NOT TRUSTWORTHY, and this makes it load-bearing. A real
+            // production collection carried CollectedAt 13:48:49Z against a device-implied
+            // 14:32:07Z - 43 minutes fast. So the claim is CLAMPED, and each bound is deliberate:
+            //
+            //  * Never in the FUTURE of the server's own clock. This is the only bound that gives a
+            //    hard guarantee - money can never be booked into a day, or a month, the server has
+            //    not reached. On a prompt drain it also self-corrects the dangerous case for free: a
+            //    fast phone claiming 00:13 on the 1st while the server is still on the 31st is
+            //    rejected back to the server's now, which is the right day. There is no skew
+            //    tolerance because a tolerance buys only the acceptance of values already known to
+            //    be wrong.
+            //  * Never older than PaymentConstants.MaxOfflineCollectionBackdate (7 days) - see that
+            //    constant for why the bound is deliberately on the tight side.
+            //
+            // A rejected claim falls back to the server clock and is NOT silently dropped: the raw
+            // claim is stored on the row (DeviceReportedCollectedAt) and reported to the caller
+            // (CollectPaymentResultDto.CollectedAtAdjusted -> the sync entry result), because a
+            // silent clamp on money is precisely what this codebase keeps getting bitten by.
+            //
+            // ONLINE collections are untouched by every line of this: usedDeviceInstant stays false,
+            // collectedAtUtc stays `now`, and LocalCollectedAt still comes from GetTeacherLocalNow.
+            DateTime collectedAtUtc = now;
+            DateTime? deviceReportedUtc = null;
+            bool usedDeviceInstant = false;
+            bool deviceInstantRejected = false;
+
+            if (dto.IsOfflineRecord && dto.OfflineCollectedAt.HasValue)
+            {
+                // Normalise ONCE. A JSON instant arrives Utc ("...Z"), Local (an explicit offset,
+                // which System.Text.Json converts to the machine's local time) or Unspecified (no
+                // zone at all). The pre-existing contract is "this is a UTC instant" - the app sends
+                // now.toUtc() - so Unspecified is stamped Utc, and a Local kind is converted back to
+                // the instant it actually denotes rather than being reinterpreted.
+                var claimed = dto.OfflineCollectedAt.Value;
+                deviceReportedUtc = claimed.Kind switch
+                {
+                    DateTimeKind.Utc => claimed,
+                    DateTimeKind.Local => claimed.ToUniversalTime(),
+                    _ => DateTime.SpecifyKind(claimed, DateTimeKind.Utc)
+                };
+
+                if (deviceReportedUtc.Value <= now
+                    && deviceReportedUtc.Value >= now - PaymentConstants.MaxOfflineCollectionBackdate)
+                {
+                    collectedAtUtc = deviceReportedUtc.Value;
+                    usedDeviceInstant = true;
+                }
+                else
+                {
+                    deviceInstantRejected = true;
+                    _logger.LogWarning(
+                        "Offline collection for teacher {TeacherId} student {StudentId} reported {Claimed:o}, "
+                        + "outside the accepted window around server {ServerNow:o}; dated from the server clock instead.",
+                        dto.TeacherId, dto.TeacherStudentId, deviceReportedUtc.Value, now);
+                }
+            }
+
             // 8. Cascade the collected cash across the payable periods, oldest first. Each month
             // is settled up to its own remaining due and the cash is attributed to the month it
             // clears (that period's AmountPaid). A single transaction records the whole cash event.
@@ -393,7 +458,13 @@ public class PaymentService : IPaymentService
                 StudentName = student.StudentName,
                 StudentCode = student.StudentCode,
                 SessionNameAtCollection = session.SessionName,
-                CollectedAt = now,
+                // The instant the cash changed hands (step 7b): the device's own, clamped, for an
+                // offline record; the server's clock for everything else and for a rejected claim.
+                CollectedAt = collectedAtUtc,
+                // What the device claimed, kept whether or not it was used - equal to CollectedAt
+                // means accepted, different means the server clock was substituted. Null on online
+                // collections and on offline records that carried no instant.
+                DeviceReportedCollectedAt = deviceReportedUtc,
                 // LocalCollectedAt is the teacher-LOCAL wall-clock of collection (stored as-is,
                 // displayed raw by the client). Use the teacher-local NOW — the old
                 // localDate.Add(now.TimeOfDay) grafted the UTC time-of-day onto the local date,
@@ -402,8 +473,13 @@ public class PaymentService : IPaymentService
                 // offlineCollectedAt as a UTC instant (now.toUtc()), and storing it raw put a UTC
                 // time on the receipt, so a collection taken at 22:06 Cairo read 19:06. Only the
                 // online branch was fixed the first time round; convert here too.
-                LocalCollectedAt = dto.IsOfflineRecord && dto.OfflineCollectedAt.HasValue
-                    ? _timeZoneService.ConvertUtcToLocal(dto.OfflineCollectedAt.Value)
+                //
+                // It is now derived from the SAME clamped instant as CollectedAt (gated on
+                // usedDeviceInstant, not merely on a value being present), so the two can never
+                // disagree - a 43-minute gap between them is what exposed the whole defect - and a
+                // rejected device claim no longer puts a wrong wall-clock on the receipt either.
+                LocalCollectedAt = usedDeviceInstant
+                    ? _timeZoneService.ConvertUtcToLocal(collectedAtUtc)
                     : _timeZoneService.GetTeacherLocalNow(dto.TeacherId),
                 IsPartial = isPartial,
                 IsProRated = isProRated,
@@ -414,7 +490,14 @@ public class PaymentService : IPaymentService
                 CollectionNote = string.IsNullOrWhiteSpace(dto.CollectionNote) ? null : dto.CollectionNote.Trim(),
                 IsOfflineRecord = dto.IsOfflineRecord,
                 OfflineDeviceId = dto.OfflineDeviceId,
-                ClientEntryId = dto.IsOfflineRecord ? dto.ClientEntryId : null,
+                // Exactly-once key (P0-8). An offline record carries the client's own; an ONLINE
+                // collection carries one only when a caller inside this assembly derived it from a
+                // supplied Idempotency-Key (today: /api/v1/collect/submit). The public
+                // dto.ClientEntryId is still ignored for online collections - see
+                // CollectPaymentDto.ServerDerivedReplayKey for why that must not change. NULL for
+                // everyone else, and the unique index is filtered on NOT NULL, so unkeyed
+                // collections behave exactly as they always have.
+                ClientEntryId = dto.IsOfflineRecord ? dto.ClientEntryId : dto.ServerDerivedReplayKey,
                 SyncStatus = dto.IsOfflineRecord ? PaymentSyncStatus.Synced : PaymentSyncStatus.NotApplicable,
                 CreateAt = now
             };
@@ -502,7 +585,11 @@ public class PaymentService : IPaymentService
                         Amount = s.Amount,
                         ClearedMonth = s.Period.PaymentStatus == PaymentStatus.Paid
                     })
-                    .ToList()
+                    .ToList(),
+                // The device's claimed collection instant was refused and the server's clock used
+                // instead (step 7b). False on every online collection and on any offline record
+                // whose claim was accepted.
+                CollectedAtAdjusted = deviceInstantRejected
             };
             // Resolve the collector's display name for the collection receipt.
             await EnrichCollectorNameAsync(resultDto.Transaction);
@@ -514,6 +601,19 @@ public class PaymentService : IPaymentService
         {
             if (ownsTransaction)
                 await _unitOfWork.RollbackAsync();
+
+            // Drop what the failed save left behind BEFORE retrying. SaveChanges is all-or-nothing:
+            // when the period/counter UPDATE loses its RowVersion race, nothing is accepted and the
+            // brand-new PaymentTransaction stays tracked as Added. The retry below then adds a
+            // SECOND one, and the next save inserts BOTH — the student is charged twice for one
+            // handful of cash, silently, because online collections carry a NULL ClientEntryId and
+            // the filtered unique index cannot see a collision it is filtered out of.
+            // Clearing is also what makes the retry a real retry: it forces every row, and every
+            // RowVersion, to be re-read rather than replayed from the tracker at the same stale
+            // value that just lost. No-ops while a caller owns the transaction, where gutting the
+            // tracker would discard their pending work instead.
+            _unitOfWork.DiscardTrackedChanges();
+
             // Retry once on concurrency conflict — set flags to skip duplicate checks
             dto.DuplicateConfirmed = true;
             dto.AlreadyPaidConfirmed = true;
@@ -710,8 +810,10 @@ public class PaymentService : IPaymentService
                 // Keep the collecting assistant's wallet in sync with the amount change. Reset-aware:
                 // an edit-DOWN of cash already handed over (collected before the last reset) must not
                 // drive the wallet negative — pass the reversed transaction's collection instant.
+                // CreateAt, not CollectedAt: see AdjustCollectorWalletAsync for why custody is dated
+                // by when the row was written, and why P0-6 makes the two diverge.
                 await AdjustCollectorWalletAsync(
-                    dto.TeacherId, transaction.CollectedByUserId, amountDiff, transaction.CollectedAt);
+                    dto.TeacherId, transaction.CollectedByUserId, amountDiff, transaction.CreateAt);
             }
 
             await _unitOfWork.SaveChangesAsync();
@@ -793,8 +895,10 @@ public class PaymentService : IPaymentService
             // Reverse the collecting assistant's wallet — the refunded cash is no longer held by them.
             // Reset-aware: deleting a payment collected before the last hand-over (already given to the
             // tutor) must NOT drive the wallet negative (the salma −2700 bug) — pass its collection instant.
+            // CreateAt, not CollectedAt: see AdjustCollectorWalletAsync for why custody is dated by
+            // when the row was written, and why P0-6 makes the two diverge.
             await AdjustCollectorWalletAsync(
-                teacherId, transaction.CollectedByUserId, -transaction.AmountPaid, transaction.CollectedAt);
+                teacherId, transaction.CollectedByUserId, -transaction.AmountPaid, transaction.CreateAt);
 
             await _unitOfWork.SaveChangesAsync();
 
@@ -3637,6 +3741,11 @@ public class PaymentService : IPaymentService
                     entry.Success = true;
                     entry.AlreadySynced = true;
                     entry.ExistingRecord = MapToTransactionDto(alreadySynced);
+                    // A transaction the tutor has since DELETED still means this record was already
+                    // applied: the cash event happened once, and removing it was a separate,
+                    // deliberate decision that a retry has no business undoing. Reported so a client
+                    // does not show a live receipt for money that is no longer in the ledger.
+                    entry.ExistingRecordDeleted = alreadySynced.IsDeleted;
                     continue;
                 }
             }
@@ -3681,8 +3790,22 @@ public class PaymentService : IPaymentService
             }
             catch (Exception)
             {
+                // A failed SaveChanges does NOT untrack what it tried to write — EF leaves the
+                // transaction row Added. Without this, the NEXT record in the batch saves the
+                // previous one's corpse alongside its own and fails for a reason that has nothing to
+                // do with it, turning one recoverable rejection into a batch-wide cascade. The
+                // collect path already rolled its own transaction back, so there is nothing to keep.
+                _unitOfWork.DiscardTrackedChanges();
+
                 // Unique-index race: a concurrent replay of this same record
                 // may have won the insert between the dedup check and now.
+                //
+                // This is also the leg that used to be a permanent poison pill: the lookup runs
+                // against IX_PT_TeacherId_ClientEntryId, but the repo method it calls was silently
+                // filtered by !IsDeleted, so a record whose transaction the tutor had deleted was
+                // invisible to BOTH the pre-check and this one. The insert hit the index, this found
+                // nothing, and `throw;` failed the whole batch — on every retry, forever, after a
+                // partial commit. The repo now ignores the soft-delete filter (see its comment).
                 var winner = string.IsNullOrWhiteSpace(offlineRecord.ClientEntryId)
                     ? null
                     : await _unitOfWork.PaymentsRepo
@@ -3692,6 +3815,7 @@ public class PaymentService : IPaymentService
                 entry.Success = true;
                 entry.AlreadySynced = true;
                 entry.ExistingRecord = MapToTransactionDto(winner);
+                entry.ExistingRecordDeleted = winner.IsDeleted;
                 continue;
             }
 
@@ -3710,6 +3834,10 @@ public class PaymentService : IPaymentService
                 entry.AppliedAmount = collectResult.Data.Transaction.AmountPaid;
                 entry.AmountDueAtSync = collectResult.Data.Transaction.AmountDue;
                 entry.SettledMonths = collectResult.Data.SettledMonths;
+                // The device's own collection instant now dates the cash (P0-6). Report when it was
+                // refused as unusable and the server's clock stood in, so the day this collection
+                // lands on is never silently different from the one the collector saw.
+                entry.CollectedAtAdjusted = collectResult.Data.CollectedAtAdjusted;
                 continue;
             }
 
@@ -3718,12 +3846,24 @@ public class PaymentService : IPaymentService
             // were silently uncounted.
             result.FailedCount++;
             entry.IsConflict = collectResult.Data?.IsAlreadyPaid == true;
+            // ConflictCount is incremented from the SAME flag the per-record list reports, so the
+            // aggregate and the list describe one population and cannot drift. It had never been
+            // incremented at all, which pinned it to 0 and made the batch message below permanently
+            // "synced successfully" no matter what happened. Counted ON TOP of FailedCount, not
+            // instead of it, so failedCount keeps the exact value every deployed client has always
+            // read (the same subset relationship attendance's DuplicateCount has to its successes).
+            if (entry.IsConflict) result.ConflictCount++;
             entry.ErrorMessage = collectResult.Message;
             entry.ErrorCode = collectResult.Code;
         }
 
         // PAY-7: payment-domain messages (SyncCompleted/SyncConflictsDetected are attendance-worded —
         // "Offline attendance records synced successfully" — a shared key that misdescribes a payment sync).
+        //
+        // PaymentSyncConflictsDetected is reachable for the first time now that ConflictCount is
+        // actually incremented, and its text was rewritten to match the ONE thing a conflict means
+        // here: the student had nothing left to pay. If a second conflict shape is ever added, that
+        // copy has to be revisited with it.
         var messageKey = result.ConflictCount > 0
             ? PaymentConstants.Messages.PaymentSyncConflictsDetected
             : PaymentConstants.Messages.PaymentSyncCompleted;
@@ -6396,7 +6536,7 @@ public class PaymentService : IPaymentService
     /// collector had already handed over would drive their balance falsely negative.
     /// </remarks>
     public async Task AdjustCollectorWalletAsync(
-        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCollectionAt = null)
+        long teacherId, long? collectedByUserId, decimal delta, DateTime? reversedCustodyAt = null)
     {
         if (collectedByUserId is null || delta == 0m) return;
 
@@ -6405,13 +6545,24 @@ public class PaymentService : IPaymentService
         if (wallet is null) return; // collector is not an assistant — no wallet to adjust
 
         // Decide ONCE whether this reversal touches held cash. Only a negative delta (a reversal) whose
-        // reversed collection predates the wallet's last hand-over is "already handed over".
+        // reversed cash entered this wallet before its last hand-over is "already handed over".
+        //
+        // CUSTODY, NOT COLLECTION (P0-6, 2026-09-15). Callers must pass the instant the cash entered
+        // the WALLET — the transaction's CreateAt — never CollectedAt. Since offline collections are
+        // dated by the device, CollectedAt can now precede the row's own insert. Cash taken offline on
+        // 31 August, handed over on 1 September and only drained on the 2nd is physically in the
+        // assistant's bag right now, but its CollectedAt sits before that hand-over: judging custody
+        // by it would refuse to debit a refund from the wallet actually holding the money, leaving the
+        // balance overstated by the refunded amount. CreateAt is when the cash was recorded into the
+        // wallet, which is exactly the question being asked. For every row written before this change
+        // the two were assigned the same value in one object initialiser, so historical behaviour is
+        // unchanged.
         bool affectsCurrentBalance = true;
-        if (delta < 0m && reversedCollectionAt.HasValue)
+        if (delta < 0m && reversedCustodyAt.HasValue)
         {
             var lastResetAt = await _unitOfWork.PaymentsRepo
                 .GetLastWalletResetAtByWalletIdAsync(teacherId, wallet.Id);
-            if (lastResetAt.HasValue && reversedCollectionAt.Value <= lastResetAt.Value)
+            if (lastResetAt.HasValue && reversedCustodyAt.Value <= lastResetAt.Value)
                 affectsCurrentBalance = false; // pre-reset cash — the tutor holds it now, not the wallet
         }
 

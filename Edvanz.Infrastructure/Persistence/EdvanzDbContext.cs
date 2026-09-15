@@ -2011,6 +2011,12 @@ public class EdvanzDbContext(DbContextOptions<EdvanzDbContext> options) : DbCont
             // Timestamps: precision to the second
             entity.Property(t => t.CollectedAt).HasColumnType("datetime2(0)").IsRequired();
             entity.Property(t => t.LocalCollectedAt).HasColumnType("datetime2(0)").IsRequired();
+            // Same precision as CollectedAt ON PURPOSE: the two are compared for exact equality to
+            // tell an accepted device instant from a server-clock fallback (see the entity's doc).
+            // A different precision would round them apart and turn "accepted" into "rejected".
+            // Nullable and written by nothing but the offline collect path, so the currently
+            // deployed binary keeps inserting without it.
+            entity.Property(t => t.DeviceReportedCollectedAt).HasColumnType("datetime2(0)");
             entity.Property(t => t.DeletedAt).HasColumnType("datetime2(0)");
 
             // String lengths

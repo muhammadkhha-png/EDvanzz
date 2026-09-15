@@ -1,4 +1,6 @@
-﻿namespace Edvanz.Domain.Constants;
+﻿using System;
+
+namespace Edvanz.Domain.Constants;
 
 /// <summary>
 /// Constants for the Payment Module (Module 4) and Event Payment Module (Module 5).
@@ -98,6 +100,26 @@ public static class PaymentConstants
     /// Same pattern as AttendanceService counter retry.
     /// </summary>
     public const int MaxConcurrencyRetries = 3;
+
+    /// <summary>
+    /// REQ-PAY-079/080. How far back an OFFLINE collection's device-reported instant may be dated
+    /// before the server refuses it and uses its own clock instead.
+    /// <para>
+    /// Seven days, and the direction of the bound is the whole argument. A bound that is too TIGHT
+    /// costs nothing: the collection is simply dated when it arrived, which is exactly what this
+    /// code did before the device instant was honoured at all. A bound that is too LOOSE lets a
+    /// broken device clock move cash into a month the tutor has already closed and read. The two
+    /// errors are not symmetrical, so the bound is deliberately on the tight side.
+    /// </para>
+    /// <para>
+    /// Seven days specifically: a week is the natural offline unit here (a tutor sees each class
+    /// once a week), it is seven times the outbox's 24-hour ambiguous-op park so no legitimate late
+    /// drain is caught by it, and it caps how far a single wrong clock can drag money to one week
+    /// rather than a whole billing cycle. A device whose clock has reset to an epoch default is
+    /// nowhere near it.
+    /// </para>
+    /// </summary>
+    public static readonly TimeSpan MaxOfflineCollectionBackdate = TimeSpan.FromDays(7);
 
     // ══════════════════════════════════════════════
     // LOCALIZATION KEYS — PAYMENT MODULE

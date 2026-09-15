@@ -140,7 +140,17 @@
         {
             // Deliberately ignores IsDeleted: a record the tutor deleted after
             // an earlier sync must still block a replay from re-recording it.
+            //
+            // IgnoreQueryFilters() is what MAKES that true. PaymentTransaction carries a global
+            // HasQueryFilter(t => !t.IsDeleted) (EdvanzDbContext), so without this call the method
+            // did the exact OPPOSITE of what the comment above promised: a deleted row was filtered
+            // out, the caller concluded "never seen this key", the INSERT then hit the filtered
+            // unique index IX_PT_TeacherId_ClientEntryId, and the catch re-ran this same blind query,
+            // found nothing again and rethrew - a permanent poison pill that failed the whole batch
+            // on every retry, forever, after a partial commit. The row's existence is the fact being
+            // asked for here; whether the tutor later removed the money is a different question.
             return await _context.PaymentTransactions
+                .IgnoreQueryFilters()
                 .Where(t => t.TeacherId == teacherId
                     && t.ClientEntryId == clientEntryId)
                 .AsNoTracking()

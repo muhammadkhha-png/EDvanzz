@@ -457,7 +457,7 @@ pattern, uniformly:
 | ID | Defect | Status |
 |---|---|---|
 | P0-A | Auth endpoints commented out on `MessagingController` | **Fixed 2026-07-16** (commit `000f009`) — class-level `[Authorize]` and the `[ModulePermission("Messaging","SendManual")]` / `"ViewHistory"` gates on `send` / `history` / `history/{id}/resend` uncommented; both are registered permissions and the tenant is still JWT-forced by `TenantScopeFilter`. See §8 BUG-13. Do not re-comment. |
-| P0-B | `EncryptedCredentials` field never populated (latent bug) | Open |
+| P0-B | `EncryptedCredentials` field never populated (latent bug) | **Stale entry — corrected 2026-09-15.** It IS populated, on both the create and update paths (`MessagingChannelService.cs:76,89`), and cleared deliberately at `:134`. `MessageSenderJob.cs:34` decrypts it. Verify before reopening. |
 | P0-C | Wrong phone field guard in send path | Open |
 | P0-D | `MessageSenderJob` duplicate log rows on retry | Fix designed — `CreatePendingAsync`/`MarkResultAsync` on `IMessageLogService`, `MessageLogId` threaded through `MessageSendPayload` |
 
@@ -467,9 +467,21 @@ pattern, uniformly:
 
 - Full auth/IDOR remediation complete (Phases 1–3).
 - `ParentAttendanceController` implemented.
-- **Open**: `AttendanceRepo.UpdateAbsenceCounterAsync` — same guard fix needed as was
-  applied to `PaymentRepo.UpdatePaymentCounterAsync` (forcing `EntityState.Modified`
-  on a freshly-`Added` entity is a bug).
+- **CORRECTED 2026-09-15 — this entry pointed at the wrong method.**
+  `AttendanceRepo.UpdateAbsenceCounterAsync` has carried the `EntityState.Added` guard for some
+  time (`AttendanceRepo.cs:729`). The **RANGE** variant `UpdateAbsenceCountersRangeAsync` was the
+  unguarded one, and it is the batch path: `BulkMarkAttendanceAsync` lazily creates a counter for a
+  student who has none (`AttendanceService.cs:1156`), puts it in `modifiedCounters`, and hands it
+  straight to the range update with no `SaveChanges` in between. Guarded now.
+  **It was LATENT, not live, and the distinction was only established by testing it** — every
+  student who can be bulk-marked has an active `StudentSessionAssignment`, and
+  `OnStudentAssignedToSessionAsync` (`:2922`) initialises the counter when that assignment is made,
+  so the `Added` case is unreachable today. Proven twice: a scratch console against the real model
+  throws *"The property 'StudentAbsenceCounter.Id' has a temporary value while attempting to change
+  the entity's state to 'Modified'"*, while a live bulk-mark of a brand-new student on the test
+  account returned 200. **Do not "re-fix" the single-counter method, and do not assume the range
+  case is dead — it stops being dead the moment a student reaches attendance without going through
+  assignment, and the failure is then a 500 that loses the WHOLE class's marks.**
 
 **Student/parent-facing month view — occurrence-overlay contract (shipped 2026-07-13,
 commit `5bae703`).** `GET /api/attendance/student/teachers/{teacherId}/month?year=&month=`
@@ -1154,9 +1166,11 @@ columns + FK + index only).
   one place the failure showed was the only place nobody looked. A decode failure now **refuses
   with a specific message** rather than uploading the original, so the file is never accepted in a
   form no client can read. See §8 BUG-30.
-  **Follow-up (open)**: the backend `UploadConstants` allow-list still accepts `heic`/`heif`/
-  `tiff`. The app no longer sends them, but any other client can, and the server will store a file
-  nothing renders. Decide whether to reject them at upload or transcode server-side.
+  **Follow-up CLOSED (verified 2026-09-15)**: `UploadConstants.AllowedContentTypes` no longer lists
+  `heic`/`heif`/`tiff` — it is `image/jpeg`, `image/png`, `image/gif`, `image/webp`, `image/bmp` plus
+  PDF (`UploadConstants.cs:41-44`; SVG excluded on purpose, it can embed scripts). The allow-list is
+  now the intersection of what the server accepts and what the viewers can decode, which was the
+  rule BUG-30 established.
 
 **The watch threshold.** "Watched" stopped meaning "a `VideoAnalytics` row exists". `start-watch`
 creates that row on the play transition with `TotalWatchSeconds = 0`, so opening a video and leaving
@@ -1562,6 +1576,15 @@ both kinds or the anchor lands on the wrong event. `WalletBalance` / `TotalColle
 **`all`**, unlike the ledger's. `TotalCashCollected`/`TotalRefunded` DO now include extras — that is
 the fix, not a regression, since those two exist to explain the balance.
 
+**A kind filter must exclude the OTHER kind's money-out rows, not just withdrawals.** Found on
+production 2026-09-15: under `kind=extras` the ledger listed three fee DEPARTURE refunds beside one
+extras collection and counted them into `totalItems`. A departure refund returns a monthly fee, so
+it belongs to `fees` and to `all` and nowhere else — the same reasoning that already excluded
+withdrawals. The block is gated `includeAdjustments && kind != LedgerKindFilter.Extras`. **When
+adding a money-out source to the ledger, gate it on `kind` in the same breath**: the positives are
+gated by construction (they come from `CollectionLedgerQueries`) and only the negatives are appended
+by hand, which is exactly why they are the ones that get missed.
+
 **Everything else is additive.** `Summary.CollectedTotal` keeps BOTH its invariants
 (`= ThisMonth + Previous + Advance`, and ties to `CollectedByAssistant.TotalCollected`);
 `CollectedExtras` / `CollectedCashAllSources` are new, with the twin invariant
@@ -1753,6 +1776,82 @@ at once. The ledger's kind badge is a STATIC badge — the segmented control is 
 
 ---
 
+### 7.13 Offline hardening round (2026-09-15) — what an unsent record now guarantees
+
+A full audit of the offline attendance + payment path found 21 defects; the money- and data-losing
+ones are fixed. The rules that came out of it, each of which something used to violate:
+
+**Money is ADDITIVE — an outbox key must never coalesce two payments.** The payment op key was
+`pay:{studentId}:{localDay}`, and the outbox DELETES any live op on a key before inserting one. A
+second collection from the same student on the same day therefore destroyed the first, silently, and
+the pending-cash chip could not even represent it (a `Map<String,double>` keyed on student id). The
+key now carries the op id, both survive as their own transactions, and the chip SUMS. Attendance
+coalescing is unchanged and still correct — a re-mark of one student on one day IS a supersede.
+**Decided: two same-day collections both stand. Never merge them on enqueue** — merging hides a
+genuine second payment, and the collector can discard a mistaken one from the unsent list.
+
+**A rejected op must be re-sent under ITS OWN id.** `conflict`/`failed` are not live states, so a
+re-submit minted a NEW op id, and the server's only dedup is
+`IX_PT_TeacherId_ClientEntryId` — two ids, two rows, the parent charged twice. A re-submit of the
+same student+day+**amount** now reuses the parked op's id and reconciles first. A different amount is
+a different collection and correctly gets a fresh key.
+
+**A transient database error is not a business answer.** `ExceptionMiddleware` mapped EVERY
+`DbUpdateException` to 409 — deadlock, timeout, dropped connection included — and both transports
+treated 409 as terminal, so one blip discarded a whole class's queued marks. Now: a genuine unique
+violation (2601/2627/547) is 409; the transient set (1205, −2, the Azure codes) is **503 with
+`Retry-After`**; anything else is 500. Clients treat a batch 409 as retryable-ambiguous, never
+terminal. The attendance sync batch also gained a `[MaxLength(500)]` guardrail (the app chunks at 50).
+
+**Offline cash is dated when it was TAKEN, and the device clock is clamped.** `CollectedAt` used to
+be server-now, so cash taken 31 Aug and drained 2 Sep counted as September revenue and fell outside
+the wallet's "in hand now". It now comes from `OfflineCollectedAt` — but the phone's clock is NOT
+trustworthy (two production rows prove it: one 43 minutes fast, one where the two date columns sat 1
+second apart instead of the +3h Cairo offset). So the claim is clamped: **never in the future of the
+server's clock, never older than `PaymentConstants.MaxOfflineCollectionBackdate` (7 days)**, with the
+device's raw claim kept on `PaymentTransaction.DeviceReportedCollectedAt` and the substitution
+reported to the caller. Never silently clamp money. Both lanes now carry it —
+`POST api/Payment/sync` and `POST /api/v1/collect/submit` (`SubmitCollectionItem.OfflineCollectedAt`,
+additive; omitted = server-now = today's behaviour) — or the same queued payment gets two different
+dates depending on which path it drains through. **Known and accepted**: the wallet's "in hand now"
+window can widen after a late drain; totals still reconcile and it self-heals at the next hand-over.
+
+**`collect/submit` now has a DURABLE idempotency guard.** It wrote no `ClientEntryId`, so the only
+protection was `IDistributedCache` — and production ships `Redis:Connection` blank, i.e. in-process
+memory that a container replacement wipes. A supplied `Idempotency-Key` is now persisted as the
+`ClientEntryId` the unique index sees. **Operational: `Redis__Connection` on the prod App Service is
+still unset.** Also fixed: `GetByClientEntryIdAsync` was defeated by the global `!IsDeleted` filter —
+sync → tutor deletes → replay was a permanent poison pill that 409'd the batch after a partial
+commit, forever. A deleted transaction still means *already applied*.
+
+**A centre account's queued work belongs to the teacher it was MADE for.** The owner key is
+`t{teacherId}:u{accountId}` and for a centre `teacherId` is the currently-selected acting teacher —
+cleared on every return to Centre Home. So switching teacher hid the queue and the screen said
+everything was saved. Counting, listing and draining now span every owner key of the signed-in
+account. **The drain-time half is the dangerous half**: `TenantScopeFilter` OVERWRITES every
+`teacherId` in the route and body with the acting-teacher header, so a replay under the wrong
+selection would write another teacher's register and another teacher's money. Each op now carries its
+own scope through the transport, and a batch is never mixed across owners. The persisted key FORMAT
+is parsed, never re-spelled — changing it would orphan every op already on a phone.
+
+**A successful read now leaves a snapshot behind.** Only ONE live read was ever cached; rosters came
+solely from the hydrator, for one GUESSED class day per session. So a tutor who marked 40 students
+online and lost signal fell back to a roster for a different day with every status cleared. Reads are
+now written through (throttled, whole-not-paged, owner-checked mid-merge), and a 5xx falls back to
+the stamped snapshot while any 4xx still surfaces — 401 must reach re-auth and 403/404/409/422 are
+real answers. **Staleness policy, decided 2026-09-15: NEVER refuse to serve a snapshot — always
+stamp it.** A three-week-old list with an honest "as of" beats no list in a classroom with no signal;
+the tutor decides whether to trust it. Do not add a refusal threshold without revisiting that.
+
+**Arabic plurals only work because of one line in `main.dart`.** `easy_localization` defaults
+`ignorePluralRules` to **true**, which short-circuits the locale's rules to its own
+zero/one/two/other fallback — Arabic's `few` (3-10) and `many` (11-99) unreachable, «3 حاجات»
+rendering as «3 حاجة». `main.dart` passes `ignorePluralRules: false`; `plural_forms_shipped_config_test.dart`
+reads the file and fails if that line goes. **A plural key read with `.tr()` instead of `.plural()`
+is a runtime crash** (a Map cast to String), not a fallback — a guard test enforces that too.
+
+---
+
 ## 8. Known Bugs (Fixed — Do Not Reintroduce)
 
 | Bug | Location | Fix |
@@ -1789,8 +1888,15 @@ at once. The ledger's kind badge is a STATIC badge — the segmented control is 
 | BUG-27 | `AdminSubscriptionService.ActivateCoreAsync` invented a price | Admin activation bypasses payment — the money is arranged outside the app — but the method priced the period through `SubscriptionPricing.MonthlyValueEGP` and stored it as `AmountPaidEGP`. The teacher's own subscription history (`GET /api/subscription/history`) reads that column straight out, so an admin granting a free trial or a goodwill month showed the teacher money they had never paid, in the one screen a teacher would quote back in a dispute. It had been hardcoded `0m` before. Fixed 2026-09-14: `AmountPaidEGP` is a nullable field on `AdminActivateRequest` / `AdminActivateManagerialRequest` (null = "not stated", NOT zero — the `AdminExtendRequest` pattern), omitted stores `0m`, and a stored `0` now renders as "no amount recorded" because `SubscriptionHistoryItemDto.AmountPaidEGP` became `decimal?` and maps `0m → null`. **No schema change** — the entity column stays `decimal NOT NULL`. **The server must not fabricate a number a human never stated; a null is a truthful record and a zero is not.** See §7.11. |
 | BUG-28 | `ExamService.CreateExamAsync` silently truncated the exam paper | It did `dto.AttachmentFileIds.Distinct().Take(MaxAttachmentsPerExam)` and created the exam anyway, so a teacher attaching twelve photographed pages got a **201 and a question paper that stops at page ten**, with nothing on screen saying so — while the dedicated endpoint (`AddExamAttachmentsAsync`) answered the identical rule with 422 `ExamTooManyAttachments`. A truncated paper is worse than none: the student cannot tell which it is. Fixed 2026-09-14 — the count is checked in step 1 before the transaction opens and returns the same key and the same 422. **Two paths enforcing one rule must give one answer, and the answer to "too many" is never "here are the first ten".** See §7.9. |
 | BUG-29 | Exam-paper file endpoint ignored the exams-module visibility switch | `FileAccessService.IsReleasedExamAttachmentForStudentAsync` checked the student's obligation and the release gate but never `TeacherConfiguration.StudentVisibilityExamDefault`. Release is permanent by design, so a student who had ever been handed a `fileId` kept fetching the paper after the teacher hid exams — hiding the module reached the list and nothing else. Fixed 2026-09-14 by denying first on the flag, **fail-closed on a missing config row**, read off the configuration the method already loads (no extra query); the identical expression was added to the list side (`ExamHomeworkService.LoadReleasedExamAttachmentsAsync`) so the two gates stay in step. **A category policy in the file registry must include the owning module's own visibility switch, not only the resource gate** (§5.5, §7.9). |
-| BUG-30 | HEIC exam papers were unviewable by every student | The backend `UploadConstants` allow-list accepts `image/heic` / `image/heif`, and HEIC is the iPhone camera default — but Flutter/Skia cannot decode HEIC, HEIF or TIFF. So an iPhone-photographed exam paper uploaded cleanly, **rendered perfectly in the teacher's own browser preview**, and failed to render for every student in the class. The one surface that showed the failure was the only one nobody looked at. Fixed 2026-09-14 (app): every picked attachment IMAGE is re-encoded to JPEG at pick time regardless of size (quality 95 / 3000px long edge; the pre-existing over-limit path keeps 80 / 1600px), and a decode failure **refuses with a specific message** instead of uploading the original. **Follow-up still open: the server allow-list has not changed**, so any other client can still store a file nothing renders. **An upload allow-list must be the intersection of what the server accepts and what the viewers can decode — the teacher's preview is not the test.** See §7.9. |
+| BUG-30 | HEIC exam papers were unviewable by every student | The backend `UploadConstants` allow-list accepts `image/heic` / `image/heif`, and HEIC is the iPhone camera default — but Flutter/Skia cannot decode HEIC, HEIF or TIFF. So an iPhone-photographed exam paper uploaded cleanly, **rendered perfectly in the teacher's own browser preview**, and failed to render for every student in the class. The one surface that showed the failure was the only one nobody looked at. Fixed 2026-09-14 (app): every picked attachment IMAGE is re-encoded to JPEG at pick time regardless of size (quality 95 / 3000px long edge; the pre-existing over-limit path keeps 80 / 1600px), and a decode failure **refuses with a specific message** instead of uploading the original. **Follow-up CLOSED 2026-09-15** — the server allow-list no longer accepts heic/heif/tiff (`UploadConstants.cs:41`). **An upload allow-list must be the intersection of what the server accepts and what the viewers can decode — the teacher's preview is not the test.** See §7.9. |
 | BUG-31 | Books & fees cash moved the wallet but appeared in NO ledger | `EventPaymentTransaction` credited `AssistantWallet.CurrentBalance` on collect, yet every ledger read (`GET /api/v1/payments/collections` on both its teacher-wide and collector-scoped paths, the wallet screen's signed stream, the collectors cards, the live collections count) queried `PaymentTransactions` alone. So a collector's balance could exceed the sum of the rows their own ledger listed, and `HeldSinceAt` — the anchor that makes "in hand now" scope exactly to the held cash — was computed from an incomplete event stream and could land on the wrong event. Latent in practice only because no client ever called the module (prod-verified 2026-09-14: 0 payments). Fixed by `CollectionLedgerQueries` unioning both tables with a `kind` filter defaulting to `fees`, and by folding extras collections AND refunds into the wallet's balance reconstruction. **Never re-separate the wallet from the ledger that explains it**: if a figure moves `CurrentBalance`, it must be a row somewhere. See §7.12. |
+| BUG-32 | A second same-day collect from one student DELETED the first | The payment outbox keyed one op per student per local day (`pay:{studentId}:{localDay}`) and `enqueue` deletes any live op on a key before inserting. Two collections from the same student on the same day were not two records — the second silently overwrote the first, and the pending-cash chip could not represent both anyway (a map keyed on student id). The UI walked the collector into it: offline, a student with a queued collect reports as already-paid, and tapping "collect anyway" replaced the earlier op. A passing test asserted the replacement as CORRECT. Fixed 2026-09-15 — the key carries the op id, both survive, the chip sums, and the test now covers attendance (where supersede IS right) separately from payments. **Money is additive; only an attendance re-mark is a supersede.** See §7.13. |
+| BUG-33 | Re-submitting a rejected collect charged the parent twice | `conflict`/`failed` are not "live" outbox states, so `enqueue` did not coalesce them and a re-submit built a NEW op id. The server's only dedup is the filtered unique index on `ClientEntryId`, so two ids meant two rows. Reachable from both the unsent-records retry and the collect-result screen, and a deadlock-as-409 (BUG-34) was enough to park the first attempt. Fixed 2026-09-15: a re-submit of the same student+day+amount reuses the parked op's id and reconciles before sending. **A retry must re-send under its own identity, never a new one.** |
+| BUG-34 | A database deadlock was reported as a business conflict, discarding a whole class | `ExceptionMiddleware` mapped every `DbUpdateException` to 409 — deadlock victim, command timeout and dropped connection included — and both offline transports treated 409 as terminal for the entire 50-op chunk. The attendance sync is one uncapped transaction, so a single blip discarded a class's marks; the payment sync has no outer transaction, so entries already committed were then marked failed and offered for discard. Fixed 2026-09-15: only a genuine unique/FK violation is 409, the transient SQL set is **503 + `Retry-After`**, everything else 500; a batch 409 is retryable-ambiguous on the client. **A transient failure and a business disagreement must never share a status code.** |
+| BUG-35 | `POST api/Attendance/sync` returned another tenant's student record | `GetOccurrenceBySessionAndDateAsync` and `GetExistingAttendanceAsync` took no `teacherId` and both ran before any ownership check; the conflict branch then returned the foreign record's DENORMALIZED `StudentName`/`StudentCode`, so the tenant-scoped student lookup returning null redacted nothing. A crafted `sessionId` + `teacherStudentId` disclosed another tutor's student name, code, attendance status and class date. Writes were still blocked. Confirmed reachable on production (a foreign `sessionId` answered `SessionNotFound` where an owned one answered `NoOccurrenceOnDate`) without extracting any third party's data. Fixed 2026-09-15 by tenant-scoping both repo methods and all 15 call sites. **The same class as BUG-12: never resolve a request-supplied id without the tenant.** |
+| BUG-36 | A concurrency retry on collect inserted the payment TWICE | `CollectPaymentAsync`'s `DbUpdateConcurrencyException` catch rolls back and calls itself recursively — but `SaveChanges` is all-or-nothing, so the brand-new `PaymentTransaction` stayed tracked as `Added`. The retry added a SECOND one and the next save inserted BOTH: one handful of cash charged twice, silently, and invisible to the filtered unique index because online collections carry a NULL `ClientEntryId`. Fixed 2026-09-15 by clearing the tracker before retrying (a no-op while a caller owns the transaction), which also makes the retry re-read the RowVersions that just lost instead of replaying them. **A rollback does not reset the change tracker.** |
+| BUG-37 | A centre's queued work was invisible and could replay under the WRONG teacher | The outbox owner key embeds the acting teacher, which for a centre account is the current selection — cleared on every return to Centre Home. Switching teacher blanked the banner and the unsent-records screen said everything was saved, while a class's marks sat on disk. Worse, `TenantScopeFilter` OVERWRITES every `teacherId` in the route and body with the acting-teacher header read at SEND time, so draining teacher A's class while acting as B would have written A's register and A's cash into B's. Fixed 2026-09-15: counts, lists and drains span every owner key of the account, each op carries its own acting scope through the transport, and a batch is never mixed across owners. **A queued write must carry the scope it was MADE under, not the one selected when it finally sends.** |
+| BUG-38 | Arabic plurals were unreachable for 3-10, whatever the translation said | `easy_localization` defaults `ignorePluralRules` to TRUE, and when true `Localization._pluralRule` returns its own zero/one/two/other fallback instead of the locale's CLDR rules. `lib/main.dart` did not pass the flag, so Arabic's `few` (3-10) and `many` (11-99) were unreachable and «3 حاجات» rendered as the singular «3 حاجة» — with a green test suite, because the plural tests construct `Localization` themselves. Fixed 2026-09-15 by passing `ignorePluralRules: false` and adding a guard that READS `main.dart`. Related: **a plural key read with `.tr()` is a runtime crash** (Map cast to String), not a fallback — also guarded. |
 
 **CI migration delivery — root cause of the 2026-07-15/16 attendance outage (deploy.yml `Apply EF migrations`) — RESOLVED 2026-07-16.** `azure/sql-action@v2` used to run the multi-batch idempotent `migrate.sql` (one `BEGIN TRAN…COMMIT` per migration) via go-sqlcmd **without `-b`**, so when a migration's batch errored, its own transaction rolled back (migration NOT recorded) but the runner **continued to the next migration and still exited 0** — a broken migration was silently skipped while the code that needed it deployed anyway. This is why BUG-10 shipped, and it also silently skipped the `20260708193718`/`20260708220307` phone-index migrations on every deploy since 2026-07-08 (see BUG-11). Fixed by: (a) BUG-11's repair migration clearing the failing backlog, (b) `arguments: '-b'` on the sql-action step (any SQL error → non-zero exit → job fails BEFORE `az webapp deploy`), and (c) the two pre-Azure migration gates described in §0 (model-coverage check + fresh-DB rehearsal of `migrate.sql`). Do not remove `-b` or the gates.
 

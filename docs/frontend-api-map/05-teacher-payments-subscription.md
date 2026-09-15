@@ -515,6 +515,11 @@ printed beside them.
 - **Withdrawal rows are omitted under `kind=fees` or `kind=extras`.** A hand-over is one physical
   movement of a bag holding both kinds and cannot be attributed to one, so including it would make a
   scoped net subtract money the visible rows never contained. The screen must say so instead.
+- **Student-departure refunds are omitted under `kind=extras`** (fixed 2026-09-15, found on
+  production): they return a monthly FEE, so they have no place in a books & fees scope. Before the
+  fix the extras scope listed three fee departure refunds beside one extras collection and counted
+  them into `totalItems` — the same defect shape as a withdrawal leaking under a kind filter. They
+  still appear under `fees` and under `all`.
 
 New fields on every ledger item:
 
